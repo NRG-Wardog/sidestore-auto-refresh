@@ -1,9 +1,19 @@
 """A sign-in prompt owns its compact error, copy action and cancellation panel."""
 import unittest
+import os
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SHELL = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text()
+source = os.environ.get("MAINTAINED_LIVE_CONTAINER_TEST_SOURCE")
+path = Path(source) / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift" if source else ROOT / "scripts/templates/v3_unified_shell.swift"
+SHELL = path.read_text()
+P1_AVAILABLE = "@State private var copiedDiagnostic: String?" in SHELL
+if os.environ.get("V3_P1_REQUIRED") == "1" and not P1_AVAILABLE:
+    raise RuntimeError("Required P1 feedback capability absent from selected source")
+# Normalize presentation-only adapters for existing control ownership assertions.
+SHELL = SHELL.replace("V3LocalizedText(", "Text(")
+SHELL = re.sub(r"LocalizedStringKey\(([^()]*)\)", r"\1", SHELL)
 VIEW = SHELL[SHELL.index("struct V3SignInView:"):SHELL.index("struct V3CertificateRow")]
 PROMPT = SHELL[SHELL.index("struct V3PromptSection:"):SHELL.index("final class V3AuthStore")]
 
@@ -38,9 +48,10 @@ class SignInScreenCleanupTests(unittest.TestCase):
         self.assertIn('Text(previousFailureMessage)', failure)
         self.assertIn('DisclosureGroup("Technical details") {', failure)
         self.assertIn('Text(previousFailureDetails)', failure)
-        self.assertIn('Button("Copy Details") { UIPasteboard.general.string = previousFailureDetails }', failure)
+        expected = 'Button(copiedDiagnostic == previousFailureDetails ? "Copied" : "Copy Details") {' if P1_AVAILABLE else 'Button("Copy Details") { UIPasteboard.general.string = previousFailureDetails }'
+        self.assertIn(expected, failure)
         # The copy action is a sibling of the disclosure, not hidden inside it.
-        self.assertIn('.accessibilityIdentifier("signin.prompt.previous-error-details")\n                    Button("Copy Details")', failure)
+        self.assertIn('.accessibilityIdentifier("signin.prompt.previous-error-details")\n                    ' + expected.split(' {')[0], failure)
         self.assertIn('.accessibilityIdentifier("signin.prompt.copy-details")', failure)
         self.assertIn('.frame(minHeight: 44)', failure)
         self.assertNotIn('UIPasteboard.general.string = fields', PROMPT)
@@ -63,8 +74,9 @@ class SignInScreenCleanupTests(unittest.TestCase):
         self.assertIn('DisclosureGroup("Technical details") {', details)
         self.assertIn('Text(value)', details)
         self.assertIn('.textSelection(.enabled)', details)
-        self.assertIn('Button(copiedDetails ? "Copied" : "Copy Details")', details)
-        self.assertIn('UIPasteboard.general.string = value', details)
+        self.assertIn('Button(copiedDiagnostic == value ? "Copied" : "Copy Details")' if P1_AVAILABLE else 'Button(copiedDetails ? "Copied" : "Copy Details")', details)
+        self.assertIn('copyDiagnostic(value)' if P1_AVAILABLE else 'UIPasteboard.general.string = value', details)
+        self.assertIn('UIPasteboard.general.string = value', PROMPT)
         self.assertIn('ForEach(options.filter', PROMPT)
         self.assertIn('V3PromptSection(prompt: prompt', VIEW)
 
@@ -76,6 +88,26 @@ class SignInScreenCleanupTests(unittest.TestCase):
             self.assertIn(required, VIEW)
         self.assertIn('auth.answer(promptID: prompt["id"] as? String ?? "", answer: answer)', VIEW)
         self.assertIn('.onDisappear {\n            auth.cancel()\n            auth.clearPreviousFailure()', VIEW)
+
+
+    def test_recovery_banner_reserves_navigation_space(self):
+        root = SHELL[SHELL.index("struct V3UnifiedTabs:"):SHELL.index("struct V3HomeView:")]
+        if P1_AVAILABLE:
+            self.assertIn('.safeAreaInset(edge: .top, spacing: 0)', root)
+            self.assertNotIn('.overlay(alignment: .top)', root)
+        else:
+            self.assertIn('.overlay(alignment: .top)', root)
+
+    def test_copy_feedback_is_scoped_and_cancel_safe(self):
+        if not P1_AVAILABLE:
+            self.assertIn('@State private var copiedDetails = false', PROMPT)
+            return
+        self.assertIn('@State private var copiedDiagnostic: String?', PROMPT)
+        self.assertIn('.task(id: copiedDiagnostic)', PROMPT)
+        self.assertIn('catch { return }', PROMPT)
+        self.assertIn('guard !Task.isCancelled else { return }', PROMPT)
+        self.assertIn('copyDiagnostic(previousFailureDetails)', PROMPT)
+        self.assertIn('.onDisappear {\n            copiedDiagnostic = nil\n            fields = [:]\n            selected = []\n            repairURL = nil', PROMPT)
 
 
 if __name__ == "__main__":

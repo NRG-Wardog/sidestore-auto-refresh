@@ -256,6 +256,7 @@ jobs:
         env:
           LIVE_CONTAINER_TEST_SOURCE: ${{ github.workspace }}/work/LegacyLiveContainer
           MAINTAINED_LIVE_CONTAINER_TEST_SOURCE: ${{ github.workspace }}/work/LiveContainer
+          V3_P1_REQUIRED: "1"
           SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/LegacySideStore
           EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/LegacySideStore
           SIDESIGN_TEST_SOURCE: ${{ github.workspace }}/work/LegacySideStore/Dependencies/SideSign

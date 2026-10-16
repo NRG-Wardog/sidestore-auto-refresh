@@ -1,0 +1,21 @@
+{
+  "baseline_commit": "00546cec351adad1fa1cad5590da4f06e612db8f",
+  "changes": {
+    "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": {
+      "after": {
+        "git_object": "093a59955fff9252e18cc42a76c7f58055ef39d4",
+        "mode": "100644",
+        "sha256": "3c40aab6667431d0ecb502d49a38416b9e76250ddf6e66dc1037e60d4594e0be",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "f6a16cf997048f93b27be1eba39382f448273f54",
+        "mode": "100644",
+        "sha256": "7f9efe5881898bad6e8e2182c0095166b62f8b251dbb36b313d6876067df56be",
+        "type": "blob"
+      }
+    }
+  },
+  "commit": "fbaafb939bfd3b7c08fdc8ff4b8d2aae43526ece",
+  "tree": "3d3efc14415db6d28ede216965f83fa5924e9e9c"
+}

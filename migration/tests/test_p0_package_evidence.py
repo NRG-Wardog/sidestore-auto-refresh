@@ -19,7 +19,12 @@ class P0PackageEvidenceTests(unittest.TestCase):
     def setUp(self):
         # A final integration branch is required to have reviewed P0 pins.
         # Missing pins, disabled admission, or an absent explicit source must fail.
-        self.pins = gate.load_pins(ROOT/'migration/maintained-sources.json')
+        self.pin_path = ROOT/'migration/maintained-sources.json'
+        active = gate.load_pins(self.pin_path)
+        if active['source_basis'] == 'p1-ui-feedback-v1':
+            # Exercise the exact inherited P0 proof, without relabeling it as P1.
+            self.pin_path = ROOT/'migration/p1-native-basis-v1/inherited/p0-pins.json'
+        self.pins = gate.load_pins(self.pin_path)
         self.assertEqual(self.pins['source_basis'], p0.BASIS)
         configured = os.environ.get('P0_ANISETTE_TEST_SOURCE')
         self.assertTrue(configured, 'P0_ANISETTE_TEST_SOURCE is required')
@@ -38,7 +43,7 @@ class P0PackageEvidenceTests(unittest.TestCase):
         # Runs the actual source verification subprocess. The binary is only a
         # literal-check fixture; genuine native/build evidence is admitted separately.
         return collector.collect_isolated_anisette_evidence(self.source, self.manifest, self.output,
-                  self.binary, ROOT/'migration/maintained-sources.json')
+                  self.binary, self.pin_path)
     def test_actual_p0_source_collection_and_contract_roundtrip(self):
         binding = self.collect()
         self.assertEqual(set(binding['source_sha256']), {row['path'] for row in self.expected['files']})
