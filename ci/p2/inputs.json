@@ -1,6 +1,6 @@
 {
   "builderFiles": {
-    "ci/p2/README.md": "e8a23a91c5db9fe051f24eb83ca71055a1a4a3dc75066d322ce218a324a84b99",
+    "ci/p2/README.md": "a103a23664caada748396dc6d9e5160f6ede888be309565e948a659392478e1d",
     "ci/p2/preflight.py": "439a407ad97e8bd46056ffa101f2b233a08244ae744846e013791b5d6bad505e",
     "ci/p2/test_preflight.py": "6d51a185d93679c953878b18aff146de0882e4e38e57cbd9633067714647e72d",
     "scripts/p2_localization_contract.py": "2be1446a0d056eb86a9e270e13989739a8fc20ea174a008047397bf9fedb2db6",
@@ -19,7 +19,7 @@
     "tests/fixtures/p2_localization_contracts/permission-keys.json": "86e9be1b41f2ad14b8a660ef02a8249cfca471296c8902bf858a08a5287d910f",
     "tests/test_p0_signin_rendering.py": "f06d8ecf97bc70c8427e9a644a434b16875dbc221830f067fa7eddade03193c2",
     "tests/test_p2_dynamic_display.py": "229c8a218cc0793269aaf8d1910ef62e90229a769c66a60e0f9fb53d1e1d1d9e",
-    "tests/test_p2_error_presentation.py": "8930b1bbfaed960e0f5faec4d18af7ff9cc4f56ead93194f1d431bf871acbd16",
+    "tests/test_p2_error_presentation.py": "86de6aa2cb5a48adc46d2678918c78d8366684efec2e101586c642e4cf18cbb5",
     "tests/test_p2_four_languages.py": "11aaf763c34bee05a27a36fe0c8f02d8f5a0bc3240a0e417b4a24e35d8acb1e3",
     "tests/test_p2_host_capture.py": "e08278ed8cc8e0114ce603b7020fbc0db3ad6e3fec732824826d3d2e2ef6285a",
     "tests/test_p2_localization.py": "3c917579cd3ff90042a4975060c7096eaf346e156ac3186dde698d4c432753b7",

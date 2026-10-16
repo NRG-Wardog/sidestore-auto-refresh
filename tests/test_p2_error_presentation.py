@@ -131,7 +131,16 @@ for language in V3AppLanguage.allCases + [.english] {
     precondition(unknown.original == unknownOriginal && deferred.original == snapshot)
     let localized = deferred.rendered(language: language, bundle: bundle)
     precondition(localized.contains(opaqueName))
-    precondition(localized == String(format: V3Localization.string("Install %@", language: language, bundle: bundle), opaqueName))
+    let format = V3Localization.string("Install %@", language: language, bundle: bundle)
+    let explicitLocaleExpected = String(format: format, locale: Locale(identifier: language.rawValue), arguments: [opaqueName])
+    let implicitLocaleExpected = String(format: format, opaqueName)
+    let diagnostics: [String: Any] = ["language": language.rawValue,
+        "actualCodePoints": localized.unicodeScalars.map { Int($0.value) },
+        "explicitLocaleCodePoints": explicitLocaleExpected.unicodeScalars.map { Int($0.value) },
+        "implicitLocaleCodePoints": implicitLocaleExpected.unicodeScalars.map { Int($0.value) }]
+    FileHandle.standardOutput.write(try! JSONSerialization.data(withJSONObject: diagnostics, options: [.sortedKeys]))
+    FileHandle.standardOutput.write(Data("\n".utf8))
+    precondition(localized == explicitLocaleExpected)
     let recovered = V3DisplayMessage.preserving(deferred)
     precondition(recovered.original == snapshot && recovered.rendered(language: language, bundle: bundle) == localized)
     let asynchronous = V3DisplayMessage.raw(providerText)

@@ -1,6 +1,6 @@
 # P2 isolated native helper/resource preflight
 
-This branch is based on the disabled P1 integration checkpoint e555dc1244f8be556c2906754ea7efe881798fe0. It adds the exact reviewed 19-file P2 integration delta and this isolated validation lane. It does not activate the audit/release workflow, change P0/P1 source, or admit an IPA.
+This branch is based on the disabled P1 integration checkpoint e555dc1244f8be556c2906754ea7efe881798fe0. It adds the reviewed 19-file P2 integration delta and this isolated validation lane. After run 38977135528, the native error fixture oracle was corrected to pass the selected Locale explicitly, matching its intended platform-format contract while retaining full equality and opaque-data assertions. Synthetic code-point diagnostics retain actual, explicit-locale and implicit-locale output for each selected language. It does not activate the audit/release workflow, change P0/P1 source, or admit an IPA.
 
 The maintained source is the published LiveContainer checkpoint dba20ab374b510b094c82325ba6c425a675fe393, tree 95bb96de797a65cffbe68ccb895fe8b2102441f1. The workflow binds its source files and all helper, fixture, contract and lane inputs by SHA-256. It runs all 35 P2 tests with zero skips, including the three previously unexecuted Darwin helper tests. It retains actual compiled Swift test products and command outcomes.
 
