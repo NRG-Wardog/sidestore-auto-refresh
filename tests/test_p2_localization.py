@@ -81,7 +81,7 @@ class ReconstructedP2Tests(unittest.TestCase):
   data={}
   for language in contract.LANGUAGES:
    data[f'{language}.lproj/Localizable.strings']=plistlib.dumps(contract.REQUIRED_TRANSLATIONS[language])
-   data[f'{language}.lproj/Localizable.stringsdict']=plistlib.dumps({k:{'NSStringLocalizedFormatKey':'%#@count@','count':{'NSStringFormatSpecTypeKey':'NSStringPluralRuleType','NSStringFormatValueTypeKey':'lld','other':'%lld'}} for k in contract.PLURAL_KEYS})
+   data[f'{language}.lproj/Localizable.stringsdict']=plistlib.dumps({k:{'NSStringLocalizedFormatKey':'%#@count@','count':{'NSStringFormatSpecTypeKey':'NSStringPluralRuleType','NSStringFormatValueTypeKey':'lld','other':'%lld'}} for k in contract.PLURAL_KEYS} | contract.COMPOUND_PLURALS[language])
   self.assertEqual(contract.verify_compiled_resources(data.__getitem__,set(data))['status'],'passed')
   for language in contract.LANGUAGES:
    path=f'{language}.lproj/Localizable.strings';saved=data[path]
@@ -108,6 +108,33 @@ class ReconstructedP2Tests(unittest.TestCase):
    else:row['NSStringLocalizedFormatKey']='%#@notDeclared@'
    data['he.lproj/Localizable.stringsdict']=plistlib.dumps(changed)
    self.assertEqual(contract.verify_compiled_resources(data.__getitem__,set(data))['status'],'failed',mutation)
+  data['he.lproj/Localizable.stringsdict']=plistlib.dumps(original)
+  self.assertEqual(contract.verify_compiled_resources(data.__getitem__,set(data))['status'],'passed')
+  compound_key=contract.COMPOUND_PLURAL_KEYS[0]
+  for language in contract.LANGUAGES:
+   name=language+'.lproj/Localizable.stringsdict';saved=data[name]
+   # Restore the simple plural fixture before independently mutating compound data.
+   base={k:{'NSStringLocalizedFormatKey':'%#@count@','count':{'NSStringFormatSpecTypeKey':'NSStringPluralRuleType','NSStringFormatValueTypeKey':'lld','other':'%lld'}} for k in contract.PLURAL_KEYS} | contract.COMPOUND_PLURALS[language]
+   for mutation in ['missingRow','missingArg','extraArg','swappedArgs','wrongNumber','wrongType','changedValue','missingCategory','extraCategory','outerFormat']:
+    changed=json.loads(json.dumps(base));row=changed[compound_key]
+    if mutation=='missingRow':del changed[compound_key]
+    elif mutation=='missingArg':del row['arg2']
+    elif mutation=='extraArg':row['arg3']=row['arg1']
+    elif mutation=='swappedArgs':row['arg1'],row['arg2']=row['arg2'],row['arg1']
+    elif mutation=='wrongNumber':row['arg2']['other']=row['arg2']['other'].replace('%2$lld','%1$lld')
+    elif mutation=='wrongType':row['arg2']['NSStringFormatValueTypeKey']='@'
+    elif mutation=='changedValue':row['arg1']['other']='wrong language %1$lld'
+    elif mutation=='missingCategory':del row['arg1']['other']
+    elif mutation=='extraCategory':row['arg1']['few']='extra %1$lld'
+    else:row['NSStringLocalizedFormatKey']+=' %n'
+    data[name]=plistlib.dumps(changed)
+    self.assertEqual(contract.verify_compiled_resources(data.__getitem__,set(data))['status'],'failed',(language,mutation))
+   data[name]=plistlib.dumps(base)
+   self.assertEqual(contract.verify_compiled_resources(data.__getitem__,set(data))['status'],'passed',language)
+   scalar=language+'.lproj/Localizable.strings';values=plistlib.loads(data[scalar]);values[compound_key]='duplicate scalar'
+   data[scalar]=plistlib.dumps(values)
+   self.assertEqual(contract.verify_compiled_resources(data.__getitem__,set(data))['status'],'failed',(language,'duplicateScalar'))
+   data[scalar]=plistlib.dumps(contract.REQUIRED_TRANSLATIONS[language])
   data['he.lproj/Localizable.stringsdict']=plistlib.dumps({'bad':'raw'})
   self.assertEqual(contract.verify_compiled_resources(data.__getitem__,set(data))['status'],'failed')
  def test_p2_evidence_fails_without_runtime_locale_proof(self):

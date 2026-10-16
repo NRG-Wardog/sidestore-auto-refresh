@@ -3,12 +3,21 @@ import plistlib, zipfile, re, json
 from pathlib import Path
 LANGUAGES = ('en', 'zh-Hans', 'zh-Hant', 'he')
 TRANSLATION_MANIFEST = json.loads((Path(__file__).resolve().parents[1] / 'tests/fixtures/p2_localization_contracts/compiled-translations.json').read_text())
-if TRANSLATION_MANIFEST.get('schema') != 'p2-compiled-translations-v1' or tuple(TRANSLATION_MANIFEST.get('languages', [])) != LANGUAGES:
+if TRANSLATION_MANIFEST.get('schema') != 'p2-compiled-translations-v2' or tuple(TRANSLATION_MANIFEST.get('languages', [])) != LANGUAGES:
     raise ValueError('Invalid sealed localization manifest')
 REQUIRED_TRANSLATIONS = TRANSLATION_MANIFEST['translations']
 if set(REQUIRED_TRANSLATIONS) != set(LANGUAGES) or any(not isinstance(REQUIRED_TRANSLATIONS[x], dict) or not REQUIRED_TRANSLATIONS[x] for x in LANGUAGES):
     raise ValueError('Incomplete sealed localization manifest')
 PLURAL_KEYS = ('lc.appList.appCounter %lld', 'lc.settings.cleanDataFolderConfirm %lld', '%lld apps', '%lld selected', 'Refresh completed for the verified app targets; %lld running app(s) were skipped.', 'Refresh completed. Results for this run were verified; %lld running app(s) were skipped.')
+COMPOUND_PLURAL_KEYS = ('lc.settings.moveDanglingFolderComplete %lld %lld',)
+COMPOUND_PLURALS = TRANSLATION_MANIFEST['compoundPlurals']
+if set(COMPOUND_PLURALS) != set(LANGUAGES) or any(set(COMPOUND_PLURALS[x]) != set(COMPOUND_PLURAL_KEYS) for x in LANGUAGES):
+    raise ValueError('Incomplete sealed compound plural manifest')
+if TRANSLATION_MANIFEST.get('coverage') != {'catalogKeys': 2088, 'plainScalarKeysPerLanguage': 2081, 'simplePluralKeys': 6, 'compoundPluralKeys': 1}:
+    raise ValueError('Wrong explicit catalog coverage accounting')
+if any(len(REQUIRED_TRANSLATIONS[x]) != 2081 or set(REQUIRED_TRANSLATIONS[x]) & (set(PLURAL_KEYS) | set(COMPOUND_PLURAL_KEYS)) for x in LANGUAGES):
+    raise ValueError('Scalar/plural classes overlap or scalar count drifted')
+
 
 def validate_int64_format(value, *, expect_count):
     """One supplied Int64; no extra argument, position, width-star or write token."""
@@ -34,9 +43,12 @@ def verify_compiled_resources(read, names):
                 value = plistlib.loads(read(name))
                 if not isinstance(value, dict) or not value: raise ValueError('empty catalog')
                 if suffix == 'strings':
+                    if any(key in value for key in COMPOUND_PLURAL_KEYS): raise ValueError('Compound plural duplicated in scalar table')
                     for key, expected in REQUIRED_TRANSLATIONS[language].items():
                         if value.get(key) != expected: raise ValueError('Missing or wrong-language translation: ' + key)
                 if suffix == 'stringsdict':
+                    for key, expected in COMPOUND_PLURALS[language].items():
+                        if value.get(key) != expected: raise ValueError('Missing or altered compound plural format/argument/category/value: ' + key)
                     for key in PLURAL_KEYS:
                         row=value.get(key)
                         if not isinstance(row, dict): raise ValueError('Missing plural row: ' + key)
@@ -62,7 +74,8 @@ def verify_compiled_resources(read, names):
             except Exception as error:
                 failures.append(name + ': ' + str(error))
     return {'status': 'passed' if not failures else 'failed', 'failures': failures,
-            'runtimePluralProof': 'requires eight-case native UI report'}
+            'coverage': TRANSLATION_MANIFEST['coverage'],
+            'runtimePluralProof': 'requires native UI report and compound plural count combinations'}
 
 def verify_app(app):
     app=Path(app)

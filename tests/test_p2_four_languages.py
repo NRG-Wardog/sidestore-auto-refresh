@@ -74,7 +74,7 @@ class FourLanguageTests(unittest.TestCase):
                 'NSStringLocalizedFormatKey': '%#@count@',
                 'count': {'NSStringFormatSpecTypeKey': 'NSStringPluralRuleType',
                           'NSStringFormatValueTypeKey': 'lld', 'other': '%lld'},
-            } for key in localization.PLURAL_KEYS})
+            } for key in localization.PLURAL_KEYS} | localization.COMPOUND_PLURALS[language])
         self.assertEqual(localization.verify_compiled_resources(data.__getitem__, set(data))['status'], 'passed')
         for suffix in ['strings', 'stringsdict']:
             name = 'zh-Hant.lproj/Localizable.' + suffix

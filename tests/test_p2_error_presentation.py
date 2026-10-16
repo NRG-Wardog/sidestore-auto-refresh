@@ -66,9 +66,20 @@ class ErrorPresentationTests(unittest.TestCase):
   catalog=json.loads(catalog_path.read_text())['strings']
   self.assertEqual(compiled.TRANSLATION_MANIFEST['sourceCatalogSHA256'],hashlib.sha256(catalog_path.read_bytes()).hexdigest())
   for language in compiled.LANGUAGES:
-   expected={key:row['localizations'][language]['stringUnit']['value'] for key,row in catalog.items() if 'stringUnit' in row['localizations'][language]}
+   expected={key:row['localizations'][language]['stringUnit']['value'] for key,row in catalog.items() if 'stringUnit' in row['localizations'][language] and not row['localizations'][language].get('substitutions')}
    self.assertEqual(compiled.REQUIRED_TRANSLATIONS[language],expected)
-   self.assertGreater(len(expected),1800)
+   self.assertEqual(len(expected),2081)
+   self.assertEqual(set(expected) | set(compiled.PLURAL_KEYS) | set(compiled.COMPOUND_PLURAL_KEYS),set(catalog))
+   compounds={key:row['localizations'][language] for key,row in catalog.items() if row['localizations'][language].get('substitutions')}
+   self.assertEqual(set(compounds),set(compiled.COMPOUND_PLURAL_KEYS))
+   for key,row in compounds.items():
+    expected_row={'NSStringLocalizedFormatKey':row['stringUnit']['value']}
+    self.assertEqual(set(row['substitutions']),{'arg1','arg2'})
+    for name,substitution in row['substitutions'].items():
+     number=substitution['argNum'];self.assertEqual(number,int(name[-1]));self.assertEqual(substitution['formatSpecifier'],'lld')
+     expected_row['NSStringLocalizedFormatKey']=expected_row['NSStringLocalizedFormatKey'].replace('%#@'+name+'@',f'%{number}$#@{name}@')
+     expected_row[name]={'NSStringFormatSpecTypeKey':'NSStringPluralRuleType','NSStringFormatValueTypeKey':'lld',**{category:unit['stringUnit']['value'].replace('%arg',f'%{number}$lld') for category,unit in substitution['variations']['plural'].items()}}
+    self.assertEqual(compiled.COMPOUND_PLURALS[language][key],expected_row)
  def test_host_store_capture_does_not_fall_back_after_nil_host_selector(self):
   helper=(HOST/'LiveContainerSwiftUI/Utilities/V3Localization.swift').read_text()
   self.assertIn('retainedHostObject("lcUserDefaults")',helper)
