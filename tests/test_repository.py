@@ -45,6 +45,8 @@ LIVE_CONTAINER_SCRIPTS = {
     "run_issue25_rendering.py",
     "run_p0_signin_rendering.py",
     "run_p0_signin_preflight.py",
+    "p2_localization_contract.py",
+    "p2_permission_contract.py",
     "select_livecontainer_lane.py",
     "patch_app_layout.py",
     "audit_ipa_signing.py",

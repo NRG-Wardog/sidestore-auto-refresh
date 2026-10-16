@@ -1,0 +1,65 @@
+name: P2 isolated native helper and resource preflight
+on:
+  push:
+    branches: [validation/p2-localization-preflight]
+permissions:
+  contents: read
+concurrency:
+  group: p2-localization-preflight-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  isolated-preflight:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/p2-localization-preflight'
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      APPROVED_P2_INPUTS_SHA256: a2506f6db60eddb098d91ff042d3e9a97e78503298a8e9c6180c8b46783052b1
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_CONFIG_COUNT: '0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: builder
+          persist-credentials: false
+          set-safe-directory: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/LiveContainer
+          ref: dba20ab374b510b094c82325ba6c425a675fe393
+          path: maintained-source
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify isolated lane contracts
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s builder/ci/p2 -p test_preflight.py -v
+      - name: Execute required native helpers and compile exact fixture resources
+        run: |
+          set -euo pipefail
+          python3 -B builder/ci/p2/preflight.py --host "$GITHUB_WORKSPACE/maintained-source" \
+            --approved-inputs-sha256 "$APPROVED_P2_INPUTS_SHA256" \
+            --evidence "$GITHUB_WORKSPACE/p2-preflight-evidence"
+      - name: Preserve actual inputs, compiler output, products and proof limits
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p2-preflight-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            p2-preflight-evidence/*.json
+            p2-preflight-evidence/*.log
+            p2-preflight-evidence/helper-products/**
+            p2-preflight-evidence/helper-commands/**
+            p2-preflight-evidence/build-commands/**
+            p2-preflight-evidence/p0-signin/**
+            p2-preflight-evidence/p0-build/Sources/**
+            p2-preflight-evidence/p0-build/P0SignIn.xcodeproj/**
+            p2-preflight-evidence/compiled-products/**
+          if-no-files-found: error
+          retention-days: 30

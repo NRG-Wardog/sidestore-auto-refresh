@@ -9,7 +9,7 @@ enum P0FixtureFocusIdentity {
         guard let placeholder else { return "other" }
         switch (placeholder, secure) {
         case ("Apple ID", false): return "username"
-        case ("Password", true): return "password"
+        case ("Password", true), ("密码", true), ("密碼", true), ("סיסמה", true): return "password"
         default: return "other"
         }
     }
@@ -96,15 +96,49 @@ final class P0FixtureFocusObserver: ObservableObject {
     @StateObject private var auth = V3AuthStore()
     @StateObject private var status = FixtureStatusStore()
     @StateObject private var focus = P0FixtureFocusObserver()
+    #if P2_LOCALIZATION
+    @AppStorage(V3AppLanguage.storageKey, store: V3Localization.hostDefaults) private var language = "en"
+    private var rtl: Bool { language == "he" }
+    private var pluralOutput: String {
+        let keys = ["lc.appList.appCounter %lld", "lc.settings.cleanDataFolderConfirm %lld"]
+        let inherited = keys.flatMap { key in
+            [0, 1, 2, 5].map { count in key.localizeWithFormat(Int64(count)) }
+        }
+        let dynamicTemplates = ["%lld apps", "%lld selected", "Refresh completed for the verified app targets; %lld running app(s) were skipped.", "Refresh completed. Results for this run were verified; %lld running app(s) were skipped."]
+        let dynamic = dynamicTemplates.flatMap { key in
+            [0, 1, 2, 5].map { count in
+                V3Localization.text(String(format: key, arguments: [Int64(count)]))
+            }
+        }
+        return ([language] + inherited + dynamic).joined(separator: "|")
+    }
+    #endif
     let width: CGFloat
     let largest: Bool
     var body: some View {
         NavigationView {
             V3SignInView(auth: auth).environmentObject(status)
+                #if P2_LOCALIZATION
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Menu {
+                            V3LanguageSettingsSection().pickerStyle(.inline)
+                        } label: { Image(systemName: "globe") }
+                        .accessibilityIdentifier("p0-language-menu")
+                    }
+                }
+                #endif
                 .safeAreaInset(edge: .bottom) {
                     // Fixture-only telemetry is outside the extracted controls.
                     // Never synthesizes taps, writes pasteboard content or layout.
                     HStack(spacing: 6) {
+                        #if P2_LOCALIZATION
+                        Text("A").accessibilityIdentifier("p0-direction-first")
+                        Text("B").accessibilityIdentifier("p0-direction-last")
+                        Text(language).accessibilityIdentifier("p0-language")
+                        Text("Plurals").accessibilityIdentifier("p0-plurals")
+                            .accessibilityValue(pluralOutput)
+                        #endif
                         Text("P0 fixture").accessibilityIdentifier("p0-ready")
                             .accessibilityValue(focus.identity)
                         Text("Clipboard").accessibilityIdentifier("p0-clipboard")
@@ -125,6 +159,10 @@ final class P0FixtureFocusObserver: ObservableObject {
                     .accessibilityIdentifier("p0-telemetry")
                 }
         }
+        #if P2_LOCALIZATION
+        .environment(\.locale, Locale(identifier: language))
+        .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
+        #endif
         .navigationViewStyle(.stack)
         .environment(\.sizeCategory, largest ? .accessibilityExtraExtraExtraLarge : .large)
         .frame(width: width)
@@ -140,7 +178,16 @@ final class P0FixtureFocusObserver: ObservableObject {
 }
 
 @main @MainActor struct P0SignInApp: App {
-    init() { UIPasteboard.general.string = "" }
+    init() {
+        UIPasteboard.general.string = ""
+        #if P2_LOCALIZATION
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--language"), arguments.indices.contains(index + 1),
+           ["en", "zh-Hans", "zh-Hant", "he"].contains(arguments[index + 1]) {
+            V3AppLanguage.persist(.resolve(arguments[index + 1]))
+        }
+        #endif
+    }
     var body: some Scene {
         WindowGroup {
             GeometryReader { geometry in

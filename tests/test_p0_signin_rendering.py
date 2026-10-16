@@ -508,7 +508,7 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertNotIn('"options"', prompt)
         self.assertNotIn('"value": password', prompt)
         ui = (ROOT / "tests/fixtures/p0_signin_ui_tests.swift").read_text()
-        self.assertIn('app.buttons["Submit"]', ui)
+        self.assertIn('app.buttons[localized("Submit")]', ui)
         self.assertIn('username.typeText("p0-user@example.invalid")', ui)
         self.assertIn('password.typeText("p0-synthetic-password")', ui)
         self.assertIn('dismissInput(password, name: "password")', ui)

@@ -2,6 +2,53 @@ import XCTest
 import Foundation
 import CoreGraphics
 
+// Independent fixture expectations. Catalog agreement is checked before native build.
+enum P0FixtureLanguageExpectation {
+    static func languageName(_ value: String) -> String {
+        switch value { case "he": return "עברית"; case "zh-Hans": return "简体中文"; case "zh-Hant": return "繁體中文"; default: return "English" }
+    }
+    static func text(_ key: String, language: String) -> String {
+        let translations: [String: [String: String]] = [
+            "zh-Hant": ["Password": "密碼", "Apple ID Sign In": "登入 Apple ID", "Submit": "提交", "Cancel": "取消", "Cancelling...": "正在取消...", "Copied": "已複製", "Status": "狀態", "Needs your input": "需要你提供資訊", "Error ID:": "錯誤 ID：", "Sign-in failed before completion. Copy Details to help identify the cause.": "登入未能完成。請複製詳細資訊以協助查明原因。"],
+            "zh-Hans": ["Password": "密码", "Apple ID Sign In": "登录 Apple ID", "Submit": "提交", "Cancel": "取消", "Cancelling...": "正在取消...", "Copied": "已复制", "Status": "状态", "Needs your input": "需要你提供信息", "Error ID:": "错误 ID：", "Sign-in failed before completion. Copy Details to help identify the cause.": "登录未能完成。请复制详细信息以帮助查明原因。"],
+            "he": ["Password": "סיסמה", "Apple ID Sign In": "כניסה באמצעות Apple ID", "Submit": "שליחה", "Cancel": "ביטול", "Cancelling...": "מבטל...", "Copied": "הועתק", "Status": "מצב", "Needs your input": "נדרש קלט ממך", "Error ID:": "מזהה שגיאה:", "Sign-in failed before completion. Copy Details to help identify the cause.": "הכניסה נכשלה לפני שהושלמה. יש להעתיק את הפרטים כדי לסייע בזיהוי הסיבה."],
+        ]
+        return translations[language]?[key] ?? key
+    }
+    static func error(language: String) -> String {
+        let key = "Sign-in failed before completion. Copy Details to help identify the cause."
+        let identifier = "SS-AUTH-C11-S01-T31-A00"
+        let displayed = language == "he" ? "\u{2066}\(identifier)\u{2069}" : identifier
+        return text(key, language: language) + "\n" + text("Error ID:", language: language) + " " + displayed
+    }
+    static func plurals(language: String) -> String {
+        let counts = [0, 1, 2, 5]
+        let apps = counts.map { n -> String in
+            switch language {
+            case "zh-Hans": return "共\(n)个App"
+            case "zh-Hant": return "共 \(n) 個應用程式"
+            case "he": return n == 1 ? "\(n) יישום בסך הכול" : "\(n) יישומים בסך הכול"
+            default: return n == 1 ? "\(n) App in total" : "\(n) Apps in total"
+            }
+        }
+        let folders = counts.map { n -> String in
+            switch language {
+            case "zh-Hans": return "你确定要删除\(n)个未使用的文件夹吗?"
+            case "zh-Hant": return "你確定要刪除\(n)個未使用的資料夾嗎？"
+            case "he": return n == 1 ? "האם למחוק \(n) תיקיית נתונים שאינה בשימוש?" : "האם למחוק \(n) תיקיות נתונים שאינן בשימוש?"
+            default: return n == 1 ? "Do you want to delete \(n) unused data folder?" : "Do you want to delete \(n) unused data folders?"
+            }
+        }
+        let dynamic: [String: [String]] = [
+            "zh-Hant": ["0 個應用程式", "1 個應用程式", "2 個應用程式", "5 個應用程式", "已選取 0 項", "已選取 1 項", "已選取 2 項", "已選取 5 項", "已驗證的目標應用程式已完成重新整理；已略過 0 個正在執行的應用程式。", "已驗證的目標應用程式已完成重新整理；已略過 1 個正在執行的應用程式。", "已驗證的目標應用程式已完成重新整理；已略過 2 個正在執行的應用程式。", "已驗證的目標應用程式已完成重新整理；已略過 5 個正在執行的應用程式。", "重新整理已完成。本次執行的結果已驗證；已略過 0 個正在執行的應用程式。", "重新整理已完成。本次執行的結果已驗證；已略過 1 個正在執行的應用程式。", "重新整理已完成。本次執行的結果已驗證；已略過 2 個正在執行的應用程式。", "重新整理已完成。本次執行的結果已驗證；已略過 5 個正在執行的應用程式。"],
+            "en": ["0 apps", "1 app", "2 apps", "5 apps", "0 selected", "1 selected", "2 selected", "5 selected", "Refresh completed for the verified app targets; 0 running apps were skipped.", "Refresh completed for the verified app targets; 1 running app was skipped.", "Refresh completed for the verified app targets; 2 running apps were skipped.", "Refresh completed for the verified app targets; 5 running apps were skipped.", "Refresh completed. Results for this run were verified; 0 running apps were skipped.", "Refresh completed. Results for this run were verified; 1 running app was skipped.", "Refresh completed. Results for this run were verified; 2 running apps were skipped.", "Refresh completed. Results for this run were verified; 5 running apps were skipped."],
+            "zh-Hans": ["0 个应用", "1 个应用", "2 个应用", "5 个应用", "已选择 0 项", "已选择 1 项", "已选择 2 项", "已选择 5 项", "经验证的目标应用已完成刷新；跳过了 0 个正在运行的应用。", "经验证的目标应用已完成刷新；跳过了 1 个正在运行的应用。", "经验证的目标应用已完成刷新；跳过了 2 个正在运行的应用。", "经验证的目标应用已完成刷新；跳过了 5 个正在运行的应用。", "刷新已完成。此次运行的结果已验证；跳过了 0 个正在运行的应用。", "刷新已完成。此次运行的结果已验证；跳过了 1 个正在运行的应用。", "刷新已完成。此次运行的结果已验证；跳过了 2 个正在运行的应用。", "刷新已完成。此次运行的结果已验证；跳过了 5 个正在运行的应用。"],
+            "he": ["0 יישומים", "1 יישום", "2 יישומים", "5 יישומים", "נבחרו 0", "נבחר 1", "נבחרו 2", "נבחרו 5", "הרענון הושלם עבור יישומי היעד שאומתו; דולג על 0 יישומים שפעלו.", "הרענון הושלם עבור יישומי היעד שאומתו; דולג על 1 יישום שפעל.", "הרענון הושלם עבור יישומי היעד שאומתו; דולג על 2 יישומים שפעלו.", "הרענון הושלם עבור יישומי היעד שאומתו; דולג על 5 יישומים שפעלו.", "הרענון הושלם. התוצאות של הרצה זו אומתו; דולג על 0 יישומים שפעלו.", "הרענון הושלם. התוצאות של הרצה זו אומתו; דולג על 1 יישום שפעל.", "הרענון הושלם. התוצאות של הרצה זו אומתו; דולג על 2 יישומים שפעלו.", "הרענון הושלם. התוצאות של הרצה זו אומתו; דולג על 5 יישומים שפעלו."]
+        ]
+        return ([language] + apps + folders + (dynamic[language] ?? [])).joined(separator: "|")
+    }
+}
+
 enum P0SignInViewport {
     static func available(viewport: CGRect, navigation: CGRect?, keyboard: CGRect?, footer: CGRect?) -> CGRect {
         guard !viewport.isEmpty, !viewport.isNull, !viewport.isInfinite else { return .zero }
@@ -43,7 +90,7 @@ enum P0SignInMeasurementLabel {
         }
         if let expected {
             let observed = label.isEmpty ? placeholder : label
-            return observed == expected ? observed : nil
+            return (observed == expected || (control == "password" && ["密码", "密碼", "סיסמה"].contains(observed ?? ""))) ? observed : nil
         }
         return label.isEmpty ? nil : label
     }
@@ -84,6 +131,15 @@ final class P0SignInUITests: XCTestCase {
     private var scrollObservations: [[String: Any]] = []
     private var finished = false
     private var caseName = ""
+    private var language = "en"
+    private var layoutDirectionVerified = false
+    private var languageSwitchVerified = false
+    private var pluralRuntimeVerified = false
+    private var verifiedLanguages: [String] = []
+    private var persistenceObservations: [[String: Any]] = []
+    private func localized(_ key: String) -> String {
+        P0FixtureLanguageExpectation.text(key, language: language)
+    }
     private var largest = false
     private var submitting = false
     private var submissionInvoked = false
@@ -330,6 +386,9 @@ final class P0SignInUITests: XCTestCase {
         let frameworkFailures = testRun?.totalFailureCount ?? 1
         if frameworkFailures > 0 { failures.append("XCTest recorded \(frameworkFailures) assertion failures or exceptions.") }
         let data: [String: Any] = ["schema": "p0-signin-case-v1", "case": caseName,
+            "language": language, "layoutDirectionVerified": layoutDirectionVerified,
+            "languageSwitchVerified": languageSwitchVerified, "pluralRuntimeVerified": pluralRuntimeVerified,
+            "verifiedLanguages": verifiedLanguages, "persistenceObservations": persistenceObservations,
             "passed": failures.isEmpty && frameworkFailures == 0, "failures": failures,
             "xctestFailureCount": frameworkFailures, "teardownCaptured": true,
             "diagnosticScreenshots": diagnosticScreenshots, "measurements": measurements,
@@ -361,6 +420,13 @@ final class P0SignInUITests: XCTestCase {
         submissionInvoked = false; priorFailureCleared = false
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = largest ? ["--largest"] : []
+        language = "en"
+        layoutDirectionVerified = false; languageSwitchVerified = false; pluralRuntimeVerified = false
+        verifiedLanguages = []; persistenceObservations = []
+        #if P2_LOCALIZATION
+        language = largest ? "he" : (submitting ? "zh-Hans" : "en")
+        app.launchArguments += ["--language", language]
+        #endif
         // XCTest invokes teardown after assertion failure/exception; Swift
         // defer is not reliable when continueAfterFailure=false aborts a test.
         addTeardownBlock { @MainActor [self] in
@@ -374,7 +440,7 @@ final class P0SignInUITests: XCTestCase {
         let copy = app.buttons["signin.prompt.copy-details"]
         let cancel = app.buttons["signin.prompt.cancel"]
         let username = app.textFields["Apple ID"]
-        let password = app.secureTextFields["Password"]
+        let password = app.secureTextFields[localized("Password")]
         let expected = app.staticTexts["p0-expected"].value as? String ?? ""
         require(expected.contains("kind=unknown") && expected.contains("stage=authentication") &&
                 expected.contains("correlation=00000000-0000-0000-0000-000000000025") &&
@@ -404,18 +470,21 @@ final class P0SignInUITests: XCTestCase {
             } else { safeDiagnosticOnly = false }
         }
         require(safeDiagnosticOnly, "Clipboard expectation contains data beyond the known safe fixture diagnostic")
-        oneCredentialsPanel = app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", "Apple ID Sign In")).count == 1
+        oneCredentialsPanel = app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", localized("Apple ID Sign In"))).count == 1
         require(oneCredentialsPanel, "Expected one credentials panel header")
-        noRedundantPanel = !app.staticTexts["Status"].exists && !app.staticTexts["Needs your input"].exists
+        noRedundantPanel = !app.staticTexts[localized("Status")].exists && !app.staticTexts[localized("Needs your input")].exists
         require(noRedundantPanel, "Redundant Status/Needs your input top panel is present")
         // Diagnostic body is collapsed at launch; Copy must be its visible sibling.
         require(!app.staticTexts["signin.prompt.previous-error-body"].exists,
                 "Technical details unexpectedly expanded at launch")
         let error = app.staticTexts["signin.prompt.previous-error"]
-        require(error.exists && error.label.hasPrefix("Sign-in failed before completion."),
+        require(error.exists && error.label.hasPrefix(localized("Sign-in failed before completion. Copy Details to help identify the cause.")),
                 "Unknown failure guidance is absent from the credentials panel")
-        require(error.label == "Sign-in failed before completion. Copy Details to help identify the cause.\nError ID: SS-AUTH-C11-S01-T31-A00",
+        require(error.label == P0FixtureLanguageExpectation.error(language: language),
                 "Visible unknown-failure guidance or canonical ID differs from Copy Details")
+        #if P2_LOCALIZATION
+        verifyLocaleAndPlurals()
+        #endif
         screenshot("prompt-top")
         beginInput(username, name: "username")
         _ = observeFocus(phase: "before-payload", target: "username")
@@ -432,16 +501,41 @@ final class P0SignInUITests: XCTestCase {
         password.typeText("p0-synthetic-password")
         _ = observeFocus(phase: "after-payload", target: "password")
         dismissInput(password, name: "password")
+        #if P2_LOCALIZATION
+        if submitting && !largest {
+            let target = language
+            let promptHeaderCount = app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", localized("Apple ID Sign In"))).count
+            for next in ["en", "he", "zh-Hans", "zh-Hant", target] {
+                let oldPassword = app.secureTextFields[localized("Password")].value as? String
+                app.buttons["p0-language-menu"].tap()
+                app.buttons[P0FixtureLanguageExpectation.languageName(next)].tap()
+                language = next
+                require(wait { self.app.staticTexts["p0-language"].label == next }, "Runtime language picker did not update selection")
+                verifyLocaleAndPlurals()
+                require(app.staticTexts["signin.prompt.previous-error"].label == P0FixtureLanguageExpectation.error(language: language), "Existing error did not follow the changed language")
+                require(app.textFields["Apple ID"].value as? String == "p0-user@example.invalid", "Language switch reset username")
+                let retainedPassword = app.secureTextFields[localized("Password")].value as? String
+                require(retainedPassword == oldPassword && !(retainedPassword ?? "").isEmpty, "Language switch reset secure field")
+                require(app.staticTexts["p0-answer-count"].label == "0" && app.staticTexts["p0-cancel-count"].label == "0", "Language switch dispatched auth action")
+                require(app.staticTexts["p0-prior-failure"].value as? String == "present", "Language switch replaced auth state")
+                require(app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", localized("Apple ID Sign In"))).count == promptHeaderCount, "Language switch replaced or duplicated prompt")
+            }
+            languageSwitchVerified = true
+        }
+        #endif
         record(copy, name: "copy-details")
         require(copy.isEnabled, "Copy Details is disabled before credential submission")
         screenshot("copy-details")
         copy.tap()
         clipboardMatched = wait { self.app.staticTexts["p0-clipboard"].value as? String == expected }
         require(clipboardMatched, "Actual Copy Details tap did not write the exact safe fixture diagnostic")
+        #if P1_COPY_FEEDBACK
+        require(wait { copy.label == self.localized("Copied") }, "Copy feedback did not confirm the current diagnostic")
+        #endif
         let copied = app.staticTexts["p0-clipboard"].value as? String ?? ""
         require(!copied.contains("p0-user@example.invalid") && !copied.contains("p0-synthetic-password"),
                 "Copy Details leaked synthetic username or password")
-        let proceed = app.buttons["Submit"]
+        let proceed = app.buttons[localized("Submit")]
         reveal(proceed, name: "Submit")
         require(proceed.isEnabled, "Credential submission is unexpectedly disabled")
         if submitting {
@@ -450,7 +544,7 @@ final class P0SignInUITests: XCTestCase {
             require(submissionInvoked, "Actual Submit tap did not enter fixture submission exactly once")
             priorFailureCleared = wait { self.app.staticTexts["p0-prior-failure"].value as? String == "cleared" }
             require(priorFailureCleared, "Production failure policy retained stale credentials failure during submission")
-            let header = app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", "Apple ID Sign In")).firstMatch
+            let header = app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", localized("Apple ID Sign In"))).firstMatch
             reveal(header, name: "credentials header", towardTop: true)
             require(!copy.exists && !error.exists,
                     "Stale error or Copy Details remains after returning to the previous-error area")
@@ -458,7 +552,7 @@ final class P0SignInUITests: XCTestCase {
         record(cancel, name: "cancel")
         let cancelCount = app.buttons.matching(identifier: "signin.prompt.cancel").count
         require(cancelCount == 1, "Expected one revealed session-owned Cancel control, found \(cancelCount)")
-        require(!app.buttons["Cancel"].exists, "Prompt option duplicated session-owned cancellation")
+        require(!app.buttons[localized("Cancel")].exists, "Prompt option duplicated session-owned cancellation")
         require(cancel.isEnabled, "Cancel disabled while prompt submission is active")
         screenshot("cancel-reachable")
         cancel.tap()
@@ -467,9 +561,61 @@ final class P0SignInUITests: XCTestCase {
         require(app.staticTexts["p0-cancelled-submission"].label == (submitting ? "yes" : "no"),
                 "Cancellation callback lost active submission state")
         require(app.staticTexts["p0-answer-count"].label == (submitting ? "1" : "0"), "Cancel was routed as a credential answer")
-        require(wait { cancel.exists && !cancel.isEnabled && cancel.label == "Cancelling..." },
+        require(wait { cancel.exists && !cancel.isEnabled && cancel.label == self.localized("Cancelling...") },
                 "Production Cancel did not disable/show cancellation progress after the callback")
+        #if P2_LOCALIZATION
+        // All original input, clipboard, submission, cancellation and screenshot
+        // proofs are completed before any fixture process is restarted.
+        if submitting && !largest { verifyLanguagePersistenceAcrossRelaunch() }
+        #endif
     }
+    #if P2_LOCALIZATION
+    @MainActor private func verifyLanguagePersistenceAcrossRelaunch() {
+        let caseLanguage = language
+        for selected in ["en", "he", "zh-Hans", "zh-Hant"] {
+            app.buttons["p0-language-menu"].tap()
+            app.buttons[P0FixtureLanguageExpectation.languageName(selected)].tap()
+            language = selected
+            require(wait { self.app.staticTexts["p0-language"].label == selected }, "Settings picker did not store language before relaunch")
+            app.terminate()
+            app.launchArguments = largest ? ["--largest"] : []
+            require(!app.launchArguments.contains("--language"), "Persistence probe must not inject a language override")
+            app.launch()
+            require(app.staticTexts["p0-ready"].waitForExistence(timeout: 10), "Persistence fixture did not relaunch")
+            let persisted = app.staticTexts["p0-language"].label == selected
+            require(persisted, "Settings language did not survive process relaunch")
+            verifyLocaleAndPlurals()
+            let rendered = app.secureTextFields[localized("Password")].exists &&
+                app.staticTexts["signin.prompt.previous-error"].label == P0FixtureLanguageExpectation.error(language: language)
+            require(rendered, "Relaunched UI and existing error do not use the persisted language")
+            persistenceObservations.append(["language": selected, "selectedThroughSettingsPicker": true,
+                "terminatedAndRelaunched": true, "launchArguments": app.launchArguments,
+                "selectionRetained": persisted, "renderedLocaleVerified": rendered,
+                "layoutDirectionVerified": layoutDirectionVerified, "pluralRuntimeVerified": pluralRuntimeVerified])
+        }
+        // Keep case-level evidence bound to the original case language. This is
+        // a fixture process restoration, not retention of the prior auth session.
+        app.buttons["p0-language-menu"].tap()
+        app.buttons[P0FixtureLanguageExpectation.languageName(caseLanguage)].tap()
+        language = caseLanguage
+        require(wait { self.app.staticTexts["p0-language"].label == caseLanguage }, "Could not restore case locale after persistence probes")
+        verifyLocaleAndPlurals()
+    }
+    @MainActor private func verifyLocaleAndPlurals() {
+        let first = app.staticTexts["p0-direction-first"]
+        let last = app.staticTexts["p0-direction-last"]
+        require(first.exists && last.exists && !first.frame.isEmpty && !last.frame.isEmpty, "Direction telemetry is missing")
+        let direction = language == "he" ? first.frame.midX > last.frame.midX : first.frame.midX < last.frame.midX
+        require(direction, "Runtime sibling geometry does not follow selected locale direction")
+        layoutDirectionVerified = direction
+        let actual = app.staticTexts["p0-plurals"].value as? String ?? ""
+        let expected = P0FixtureLanguageExpectation.plurals(language: language)
+        require(actual == expected, "Selected language bundle plural output differs for 0/1/2/5")
+        require(!actual.contains("%#") && !actual.contains("%lld") && !actual.contains("lc."), "Raw plural metadata leaked")
+        pluralRuntimeVerified = actual == expected
+        if direction && pluralRuntimeVerified && !verifiedLanguages.contains(language) { verifiedLanguages.append(language) }
+    }
+    #endif
     @MainActor func testCredentialsDefault() { credentials(largest: false, submitting: false) }
     @MainActor func testCredentialsLargest() { credentials(largest: true, submitting: false) }
     @MainActor func testSubmittingDefault() { credentials(largest: false, submitting: true) }

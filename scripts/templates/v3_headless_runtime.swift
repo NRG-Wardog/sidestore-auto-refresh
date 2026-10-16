@@ -3173,13 +3173,16 @@ enum V3BackendCommands {
 
     static func health() async -> [String: Any] {
         let hostSigning = await hostSigningHealth()
-        let account = DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in"
+        let activeAccount = DatabaseManager.shared.activeAccount()
+        let account = activeAccount?.appleID ?? "Not signed in"
         let team = DatabaseManager.shared.activeTeam()
         var anisette: [String: Any] = ["servers": 0, "offline": UserDefaults.standard.bool(forKey: "isAnisetteOfflineMode")]
         let servers = await AnisetteServersManager.shared.loadLocalServers()
         anisette["servers"] = servers.count
         anisette["active"] = await AnisetteServersManager.shared.getActiveServerURLs()
         return ["account": account, "team": team?.name ?? "No active team",
+                // Presentation metadata only. Existing names and auth decisions are unchanged.
+                "activeAccountPresent": activeAccount != nil, "activeTeamPresent": team != nil,
                 "certificate": CertificateManager.shared.activeCertificate == nil ? "No active certificate" : "Active certificate available",
                 "pairing": pairingFileStatus(),
                 "anisette": anisette,

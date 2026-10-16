@@ -231,7 +231,48 @@ def extract_sources(source: Path, templates: Path) -> tuple[dict[str, str], dict
         combined = templates / "combined_failure.swift"
         extracted["CombinedFailure.swift"] = combined.read_text()
         hashes["production-template/combined_failure.swift"] = digest(combined)
+    if maintained:
+        host = source.parents[2]
+        localization = host / "LiveContainerSwiftUI/Utilities/V3Localization.swift"
+        settings = host / "LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift"
+        catalog = host / "Resources/Localizable.xcstrings"
+        shared = host / "LiveContainerSwiftUI/Utilities/Shared.swift"
+        required = (localization, settings, catalog, shared)
+        if "V3LocalizedText" in source_text or localization.exists():
+            if not all(path.is_file() for path in required):
+                raise ValueError("P2 fixture requires exact maintained helpers, Shared.swift and catalog")
+            for path in required:
+                hashes["maintained-localization/" + path.name] = digest(path)
+            extracted["V3Localization.swift"] = localization.read_text()
+            extracted["V3LanguageSettings.swift"] = settings.read_text()
+            extracted["Localizable.xcstrings"] = catalog.read_text()
+            text = shared.read_text()
+            extracted["LocalizedStringFormatting.swift"] = "import Foundation\n\nextension String {\n" + member(text, "var loc: String") + member(text, "func localizeWithFormat") + "}\n"
     return extracted, hashes
+
+
+def enable_localization_project(path: Path) -> None:
+    """Add exact maintained sources and native catalog once, only for P2."""
+    source = path.read_text()
+    files = [("V3Localization.swift", "sourcecode.swift"), ("V3LanguageSettings.swift", "sourcecode.swift"),
+             ("LocalizedStringFormatting.swift", "sourcecode.swift"), ("Localizable.xcstrings", "text.json.xcstrings")]
+    declarations = []
+    refs = []; builds = []
+    for index, (name, kind) in enumerate(files):
+        ref = f"{0xF2000 + index * 2:024X}"
+        build = f"{0xF2001 + index * 2:024X}"
+        refs.append(ref); builds.append(build)
+        declarations += [f'{ref} = {{isa = PBXFileReference; lastKnownFileType = {kind}; path = {name}; sourceTree = "<group>";}};',
+                         f'{build} = {{isa = PBXBuildFile; fileRef = {ref};}};']
+    resources = "F20000000000000000000099"
+    declarations.append(f'{resources} = {{isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({builds[-1]},); runOnlyForDeploymentPostprocessing = 0;}};')
+    source = source.replace('objects = {', 'objects = {\n' + '\n'.join(declarations), 1)
+    source = source.replace('000000000000000000000083 = {isa = PBXGroup; children = (', '000000000000000000000083 = {isa = PBXGroup; children = (' + ','.join(refs) + ',', 1)
+    source = source.replace('00000000000000000000008F = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (', '00000000000000000000008F = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (' + ','.join(builds[:-1]) + ',', 1)
+    source = source.replace('buildPhases = (00000000000000000000008F,);', 'buildPhases = (00000000000000000000008F,' + resources + ',);', 1)
+    source = source.replace('SWIFT_VERSION = 5.0;', 'SWIFT_VERSION = 5.0; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) P2_LOCALIZATION";')
+    source = source.replace('knownRegions = (en,Base);','knownRegions = (en,Base,"zh-Hans","zh-Hant",he);')
+    path.write_text(source)
 
 
 def prepare(output: Path, source: Path, command) -> dict:
@@ -250,6 +291,17 @@ def prepare(output: Path, source: Path, command) -> dict:
         hashes[filename] = digest(path)
     project = build / "P0SignIn.xcodeproj"
     shutil.copytree(ROOT / "tests/fixtures/p0_signin_project", project)
+    localized = "maintained-localization/V3Localization.swift" in hashes
+    if localized:
+        enable_localization_project(project / "project.pbxproj")
+    if "copiedDiagnostic" in source.read_text():
+        pbx = project / "project.pbxproj"
+        text = pbx.read_text()
+        if "P2_LOCALIZATION" in text:
+            text = text.replace("$(inherited) P2_LOCALIZATION", "$(inherited) P2_LOCALIZATION P1_COPY_FEEDBACK")
+        else:
+            text = text.replace('SWIFT_VERSION = 5.0;', 'SWIFT_VERSION = 5.0; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) P1_COPY_FEEDBACK";')
+        pbx.write_text(text)
     # The diagnostic build tag is the actual builder checkout, not a user value.
     builder_commit = command("git", "-C", str(ROOT), "rev-parse", "HEAD")
     if not re.fullmatch(r"[0-9a-f]{40}", builder_commit):
@@ -275,13 +327,20 @@ def prepare(output: Path, source: Path, command) -> dict:
             "-sdk", "iphonesimulator", "-destination", "generic/platform=iOS Simulator",
             "-derivedDataPath", str(build / "DerivedData"), "-jobs", "2", "CODE_SIGNING_ALLOWED=NO",
             "CODE_SIGNING_REQUIRED=NO", timeout=300)
+    if localized:
+        from p2_localization_contract import verify_app
+        apps = list((build / "DerivedData/Build/Products").glob("Debug-iphonesimulator/P0SignIn.app"))
+        if len(apps) != 1: raise RuntimeError("Expected one compiled localized fixture app")
+        resource_proof = verify_app(apps[0])
+        (evidence / "compiled-localization.json").write_text(json.dumps(resource_proof, indent=2) + "\n")
+        if resource_proof["status"] != "passed": raise RuntimeError(str(resource_proof["failures"]))
     candidates = list((build / "DerivedData/Build/Products").glob("*.xctestrun"))
     if len(candidates) != 1:
         raise RuntimeError(f"Expected exactly one P0 sign-in UI test run, found {len(candidates)}")
     return {"xctestrun": str(candidates[0]), "sourceSHA256": hashes}
 
 
-def verify_export(directory: Path, summary: dict) -> dict:
+def verify_export(directory: Path, summary: dict, localization: bool = False) -> dict:
     """Do not turn source/string checks or a partial xcresult into UI proof."""
     failures = []
     if summary.get("result") != "Passed" or summary.get("failedTests") != 0:
@@ -308,6 +367,33 @@ def verify_export(directory: Path, summary: dict) -> dict:
     if len(cases) != len(REQUIRED_CASES) or {case.get("case") for case in cases} != REQUIRED_CASES:
         failures.append("Missing or duplicated P0 sign-in case reports")
     for case in cases:
+        if localization:
+            expected_language = {"credentials-default":"en", "credentials-largest":"he", "submitting-default":"zh-Hans", "submitting-largest":"he"}.get(case.get("case"))
+            if case.get("language") != expected_language:
+                failures.append("Wrong selected locale: " + str(case.get("case")))
+            for proof in ("layoutDirectionVerified", "pluralRuntimeVerified"):
+                if case.get(proof) is not True:
+                    failures.append("Missing runtime localization proof " + proof + ": " + str(case.get("case")))
+            if case.get("case") == "submitting-default" and case.get("languageSwitchVerified") is not True:
+                failures.append("Missing live language-switch state retention")
+            if case.get("case") == "submitting-default":
+                persistence = case.get("persistenceObservations")
+                expected_persistence = ["en", "he", "zh-Hans", "zh-Hant"]
+                if (not isinstance(persistence, list) or len(persistence) != 4
+                        or any(not isinstance(row, dict) for row in persistence)
+                        or [row.get("language") for row in persistence] != expected_persistence):
+                    failures.append("Missing exact four-language process-relaunch persistence evidence")
+                else:
+                    for observation in persistence:
+                        if observation.get("launchArguments") != [] or any(observation.get(proof) is not True for proof in (
+                                "selectedThroughSettingsPicker", "terminatedAndRelaunched", "selectionRetained",
+                                "renderedLocaleVerified", "layoutDirectionVerified", "pluralRuntimeVerified")):
+                            failures.append("Missing unforced Settings language persistence proof: " + str(observation.get("language")))
+            verified = case.get("verifiedLanguages")
+            required = {"en", "he", "zh-Hans", "zh-Hant"} if case.get("case") == "submitting-default" else {expected_language}
+            if (not isinstance(verified, list) or not all(isinstance(value, str) for value in verified)
+                    or len(set(verified)) != len(verified) or set(verified) != required):
+                failures.append("Missing exact per-language native locale/plural proof: " + str(case.get("case")))
         if case.get("passed") is not True or case.get("failures") != []:
             failures.append(f"Failed P0 sign-in case: {case.get('case')}")
         if type(case.get("xctestFailureCount")) is not int or case.get("xctestFailureCount") != 0 or case.get("teardownCaptured") is not True:
@@ -558,7 +644,7 @@ def execute(prepared: dict, kind: str, device: str, output: Path, command,
             "--output-path", str(exports), timeout=120)
     summary = json.loads(command("xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(result)))
     (evidence / (kind + "-xctest-summary.json")).write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    report = verify_export(exports, summary)
+    report = verify_export(exports, summary, "maintained-localization/V3Localization.swift" in prepared["sourceSHA256"])
     report.update({"schemaVersion": 1, "mode": "p0-signin", "deviceClass": kind,
                    "sourceSHA256": prepared["sourceSHA256"], "physicalDeviceExecution": False,
                    "voiceOverSpokenOutputValidated": False,
@@ -679,7 +765,7 @@ def prepare_transport_fragments(evidence_root: Path, output_dir: Path, builder_c
                             target = copied / relative[len(prefix_path):]
                             target.parent.mkdir(parents=True, exist_ok=True)
                             target.write_bytes(data)
-                    replayed_verification[proof_key] = verify_export(copied, json.loads(validated[str(summary.relative_to(root))]))
+                    replayed_verification[proof_key] = verify_export(copied, json.loads(validated[str(summary.relative_to(root))]), "maintained-localization/V3Localization.swift" in verification.get(proof_key, {}).get("sourceSHA256", {}))
             except (OSError, ValueError, TypeError, KeyError) as error:
                 replayed_verification[proof_key] = {"passed": False, "failures": [str(error)]}
             rows = []
