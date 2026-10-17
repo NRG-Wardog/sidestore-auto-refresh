@@ -1,5 +1,6 @@
 import copy, importlib.util, json, os, plistlib, re, tempfile, unittest
 from pathlib import Path
+from unittest.mock import patch
 HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('p2_alert_lane',HERE/'run.py');lane=importlib.util.module_from_spec(spec);spec.loader.exec_module(lane)
 class AlertLaneTests(unittest.TestCase):
@@ -98,6 +99,40 @@ class AlertLaneTests(unittest.TestCase):
      path=root/('rapid-observer.json' if kind.endswith('rapid') else 'async-error-he.json');value=json.loads(path.read_text());value['direction']=4.0;path.write_text(json.dumps(value))
     save(rows)
     with self.subTest(kind=kind),self.assertRaises(ValueError):lane.verify_observations(root,catalog)
+ def test_native_summary_retains_primary_crashes_and_secondary_missing_observations(self):
+  summary,tests=self.valid();summary.update(result='Failed',passedTests=0,failedTests=7)
+  for row in tests['testNodes'][0]['children']:row['result']='Failed'
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);(root/'manifest.json').write_text('[]')
+   result=lane.evaluate_native_evidence(summary,tests,root,{},'returncode 65')
+  self.assertEqual(result['status'],'failed');self.assertEqual(result['nativeCounts']['failedTests'],7)
+  self.assertEqual(result['nativeCounts']['passedTests'],0);self.assertEqual(len(result['errors']),3)
+  self.assertTrue(result['errors'][0].startswith('Xcodebuild'))
+  self.assertTrue(result['errors'][1].startswith('XCTest gate:'))
+  self.assertIn('Observation gate: Missing lifecycle observations',result['errors'])
+  self.assertNotIn('xctest',result);self.assertNotIn('observations',result)
+ def test_native_summary_never_allows_one_gate_to_mask_another(self):
+  summary,tests=self.valid()
+  for kind in ['valid','command','xctest','observations']:
+   current=copy.deepcopy(summary)
+   if kind=='xctest':current['failedTests']=1
+   with patch.object(lane,'verify_observations',return_value={'status':'passed','observationCount':10},
+     side_effect=ValueError('synthetic observation rejection') if kind=='observations' else None) as observation:
+    result=lane.evaluate_native_evidence(current,tests,Path('.'),{},'returncode 65' if kind=='command' else None)
+   observation.assert_called_once()
+   self.assertEqual(result['status'],'passed' if kind=='valid' else 'failed',kind)
+   self.assertEqual(bool(result['errors']),kind!='valid',kind)
+ def test_production_alert_does_not_override_uikit_presentation_delegate(self):
+  source=Path(os.environ.get('P2_ALERT_SOURCE',str(lane.ROOT.parents[1]/'p2-error-localization/source')))
+  text=(source/'LiveContainerSwiftUI/Utilities/ViewExtensions.swift').read_text()
+  session=text.split('private final class V3NativeAlertPresentation',1)[1].split('\nextension UIViewController',1)[0]
+  for forbidden in ['UIAdaptivePresentationControllerDelegate','presentationControllerDidDismiss',
+                    'presentationController?.delegate','presentationController!.delegate']:
+   self.assertNotIn(forbidden,session)
+  for gate in ['static func stop(', 'static func dismissManaged(', 'func finish(from source:',
+               'guard controller === source else { return }','guard !isFinished else { return }',
+               'UIScene.didDisconnectNotification','cancelUnavailable(forceCompletion: true)']:
+   self.assertIn(gate,session)
  def test_json_rejects_nonfinite_duplicate_and_malformed_values(self):
   for text in ['{"n":NaN}','{"n":Infinity}','{"n":-Infinity}','{"n":1e1000}','{"n":1e400}','{"n":-1e400}','{"a":1,"a":2}','{bad']:
    with self.subTest(text=text),self.assertRaises(ValueError):lane.strict_json(text)

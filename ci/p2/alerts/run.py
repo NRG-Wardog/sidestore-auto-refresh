@@ -5,8 +5,8 @@ import argparse, hashlib, importlib.util, json, math, os, platform, re, shutil, 
 from pathlib import Path
 HERE=Path(__file__).resolve().parent
 ROOT=HERE.parents[2]
-SOURCE='dba20ab374b510b094c82325ba6c425a675fe393'
-TREE='95bb96de797a65cffbe68ccb895fe8b2102441f1'
+SOURCE='eb10cedb772bc0496d67edd7a269679e24826b9f'
+TREE='d6960a99a2f022a333c364fa4d28e264568a28ca'
 ANCHORS=('private final class V3NativeAlertPresentation','extension UIViewController','enum LCNativeErrorSite','enum LCNativeErrorPresentation')
 METHODS=(
  'testRapidLanguageChangesPreserveTextAndRejectStaleAction',
@@ -19,6 +19,7 @@ METHODS=(
 )
 LIMITS=['Direct finish-callback simulation, no actual action-button taps',
  'Synthetic scene notification, no OS-driven scene destruction',
+ 'No arbitrary unmanaged programmatic-dismissal completion proof',
  'Standalone defaults/bundle fallback; no guest-host capture lifecycle',
  'No full Settings persistence/relaunch, whole-app layout or Objective-C alert race proof',
  'No real LiveContainer target packaging, combined P0/P1 integration, IPA or device admission',
@@ -159,6 +160,20 @@ def verify_observations(directory,catalog):
  require(set(found)==set(OBSERVATIONS),'Missing lifecycle observations')
  return {'status':'passed','observationCount':len(found),'observations':found}
 
+def evaluate_native_evidence(summary, tests, attachments, catalog, command_failure=None):
+ # Keep the primary XCTest failure visible even when a crash leaves no observations.
+ # These are independent required gates; retain all failures without accepting either.
+ result={'status':'failed','nativeCounts':{key:summary.get(key) for key in
+  ['result','passedTests','failedTests','skippedTests','totalTestCount']},'errors':[]}
+ if command_failure is not None:result['errors'].append('Xcodebuild test command failed: '+str(command_failure))
+ try:result['xctest']=verify_results(summary,tests)
+ except Exception as error:result['errors'].append('XCTest gate: '+str(error))
+ try:result['observations']=verify_observations(attachments,catalog)
+ except Exception as error:result['errors'].append('Observation gate: '+str(error))
+ if not result['errors']:result['status']='passed'
+ return result
+
+
 def select_device(inventory):
  candidates=[]
  for runtime,devices in inventory['devices'].items():
@@ -230,10 +245,15 @@ def main():
    data=json.loads(command('xcrun','xcresulttool','get','test-results',kind,'--path',bundle))
    write(evidence/('xctest-'+kind+'.json'),data)
   command('xcrun','xcresulttool','export','attachments','--path',bundle,'--output-path',evidence/'attachments')
-  report['observations']=verify_observations(evidence/'attachments',json.loads((host/'Resources/Localizable.xcstrings').read_text()))
-  write(evidence/'observations.json',report['observations'])
-  report['xctest']=verify_results(json.loads((evidence/'xctest-summary.json').read_text()),json.loads((evidence/'xctest-tests.json').read_text()))
-  require(failure is None,'Xcodebuild test command failed: '+str(failure))
+  native=evaluate_native_evidence(json.loads((evidence/'xctest-summary.json').read_text()),
+   json.loads((evidence/'xctest-tests.json').read_text()),evidence/'attachments',
+   json.loads((host/'Resources/Localizable.xcstrings').read_text()),failure)
+  report['nativeEvidence']=native;write(evidence/'native-evidence.json',native)
+  if 'observations' in native:
+   report['observations']=native['observations'];write(evidence/'observations.json',native['observations'])
+  if 'xctest' in native:report['xctest']=native['xctest']
+  report['errors'].extend(native['errors'])
+  require(native['status']=='passed','Native lifecycle evidence rejected; inspect all retained gate failures')
   verify_inputs(host,args.approved_inputs_sha256)
   report['status']='passed'
  except Exception as error:

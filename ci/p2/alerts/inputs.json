@@ -3,12 +3,12 @@
     "ci/p2/README.md": "6bbf88903c0f03630f48f4ce837fb983acfaaec71a69d04d60b1d73cd22dfa82",
     "ci/p2/alerts/App.swift": "7a549cb54a84b01af8643ef199bf235c431459e7992a81324cea4f556b8f078c",
     "ci/p2/alerts/NativeAlertLanguageTests.swift.in": "dddaed51487677993fdfc2ae5149c93a2e3c98a18f4e52f63abeb8f18bcca5b5",
-    "ci/p2/alerts/README.md": "506bd771fee733c66897e61335ce609e7ed7b431aede2ee8e1dc86baf49997f3",
+    "ci/p2/alerts/README.md": "620d16d56f94ff517bfbc0c37149109b172e94f1a7e79c0d1b0b53c17db23fa6",
     "ci/p2/alerts/project/Info.plist": "bf27f4ed8f799252bbe418727b8b9e15163b563dd086f9f054cc32fb3c392262",
     "ci/p2/alerts/project/P2Alert.xcscheme": "a1ce0b097594d47253a787ad918dc02319aa614109cf2a324f4e4555fd1f938f",
     "ci/p2/alerts/project/project.pbxproj": "35324eb6b1e2f0b0a5357a0433b6cd7abf94f44f6a230a904fe86aef186bf66e",
-    "ci/p2/alerts/run.py": "944aad19f6276e90aecc709c60f21f15cc1a8fda2dddeec1aaedf604f65a6f69",
-    "ci/p2/alerts/test_lane.py": "45bf7a71162e0d454c3c09c3c19d92172b2bde639aee070955017bfd50810927",
+    "ci/p2/alerts/run.py": "ae891722e2c7e2a97a320e5b2ed65723a5db72167cee08649a69338d352e0cf7",
+    "ci/p2/alerts/test_lane.py": "4a1a839cfce6611de24a1cf1f9e55bf16b1dd4cad5b73de0b864ac8d962176cd",
     "ci/p2/preflight.py": "439a407ad97e8bd46056ffa101f2b233a08244ae744846e013791b5d6bad505e",
     "ci/p2/test_preflight.py": "6d51a185d93679c953878b18aff146de0882e4e38e57cbd9633067714647e72d",
     "scripts/p2_localization_contract.py": "2d2bfa139a75474ccead4048fb3807680c923d2370c5c3b4818e893824260a22",
@@ -34,6 +34,7 @@
     "tests/test_p2_permission_resources.py": "c27ed5e93700834649c68d93f6194fdc074a05ffb998dc6f5ffaa5d7396d1253",
     "tests/test_repository.py": "927a78b3e2e2b4d6abaf898bb5afd5b1300bf05683cf2b9071fec5734881a4e2"
   },
+  "inheritedSourceManifestSHA256": "ad96b287a9dad4a0bd24355e25c48b4d6a7f391235e4aa56cda4c547a529f78d",
   "integrationBase": "e555dc1244f8be556c2906754ea7efe881798fe0",
   "methods": [
     "testRapidLanguageChangesPreserveTextAndRejectStaleAction",
@@ -47,7 +48,7 @@
   "priorPreflightCommit": "0cc9078ef6cb57d8b3512306fd48f376e601040d",
   "schema": "p2-isolated-preflight-inputs-v1",
   "scope": "Seven isolated hosted UIKit lifecycle cases; no full-app admission",
-  "sourceCommit": "dba20ab374b510b094c82325ba6c425a675fe393",
+  "sourceCommit": "eb10cedb772bc0496d67edd7a269679e24826b9f",
   "sourceFiles": {
     "LiveContainer.xcodeproj/project.pbxproj": "c378f1cbaea17b1b4c3cb33cf7f30783350adf48ea3924c5bf0d9b3fbec15002",
     "LiveContainer/Info.plist": "1e002e1965dda600334b73a1f4cf836aa88568b6a1f99ef8060a09518bab81cc",
@@ -58,7 +59,7 @@
     "LiveContainerSwiftUI/Utilities/Shared.swift": "b01672e23c353e47cab75dec5511f80509562f91fbf31acd3ccdad968d2e0b05",
     "LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift": "1d9c2792102a57e8b649d6d40932a0a20ef3ad093cb2f4f3bce96c5ec9e42392",
     "LiveContainerSwiftUI/Utilities/V3Localization.swift": "42a1b385d22be1a59854551faff25855be01c73cf1e6cd85dab66b41e247aba8",
-    "LiveContainerSwiftUI/Utilities/ViewExtensions.swift": "2ed46a30ed7ce2517736073637cddcde5af38f4ad5907be1e2174f5a43c8f5c0",
+    "LiveContainerSwiftUI/Utilities/ViewExtensions.swift": "0539b5aca67945a525ab32770aa291bc1386cd717561bbf5a66470edbf3ece97",
     "LiveContainerSwiftUI/Views/AppList/AppSettings/LCAppSettingsView.swift": "dc1e342362c9678185647fdda5287bb407b32bd208b7282b3beb386d84cc05f6",
     "LiveContainerSwiftUI/Views/AppList/AppSettings/LCContainerView.swift": "373ee8f76ba8cd5529cb9807d864edf9970b30a2d8424a4f4287f59457987070",
     "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerView.swift": "cbe3223a38e6deeaf11afdfdd8264561816f9f6c4c6acc5468a3d30180b27cfe",
@@ -87,6 +88,5 @@
     "Resources/zh_TW.lproj/InfoPlist.strings": "6784e23627d7ebb50dd96e3a7b81d076bf04226c7480268356bb7e8e493a9768",
     "SideStoreSupport/SideStore.swift": "0140bf162538bb3f6d009a94aff7f5fad20cd284a730bb2328933eae7171120a"
   },
-  "sourceManifestSHA256": "ad96b287a9dad4a0bd24355e25c48b4d6a7f391235e4aa56cda4c547a529f78d",
-  "sourceTree": "95bb96de797a65cffbe68ccb895fe8b2102441f1"
+  "sourceTree": "d6960a99a2f022a333c364fa4d28e264568a28ca"
 }
