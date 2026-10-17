@@ -48,6 +48,7 @@ final class SettingsFixtureModel: ObservableObject {
         guard let window = window, let controller = window.rootViewController else { return }
         var views: [[String: Any]] = []
         var complete = true
+        var layers: [[String: Any]] = []
         func rect(_ value: CGRect) -> [String: Double] {
             ["x": Double(value.origin.x), "y": Double(value.origin.y),
              "width": Double(value.size.width), "height": Double(value.size.height)]
@@ -58,6 +59,7 @@ final class SettingsFixtureModel: ObservableObject {
             let transform = view.transform
             var row: [String: Any] = [
                 "identity": id, "parent": parent ?? "", "class": String(describing: type(of: view)),
+                "layerIdentity": identity(view.layer),
                 "frame": rect(view.frame), "bounds": rect(view.bounds),
                 "transform": [Double(transform.a), Double(transform.b), Double(transform.c),
                               Double(transform.d), Double(transform.tx), Double(transform.ty)],
@@ -74,6 +76,31 @@ final class SettingsFixtureModel: ObservableObject {
             for child in view.subviews { visit(child, parent: id, depth: depth + 1) }
         }
         visit(window, parent: nil)
+        func matrix(_ value: CATransform3D) -> [Double] {
+            [value.m11, value.m12, value.m13, value.m14,
+             value.m21, value.m22, value.m23, value.m24,
+             value.m31, value.m32, value.m33, value.m34,
+             value.m41, value.m42, value.m43, value.m44].map(Double.init)
+        }
+        func visitLayer(_ layer: CALayer, parent: String?, depth: Int = 0) {
+            guard layers.count < 6000 && depth < 256 else { complete = false; return }
+            let id = identity(layer)
+            var row: [String: Any] = [
+                "identity": id, "parent": parent ?? "", "class": String(describing: type(of: layer)),
+                "transform": matrix(layer.transform), "sublayerTransform": matrix(layer.sublayerTransform),
+                "bounds": rect(layer.bounds), "position": [Double(layer.position.x), Double(layer.position.y)],
+                "anchorPoint": [Double(layer.anchorPoint.x), Double(layer.anchorPoint.y)],
+                "geometryFlipped": layer.isGeometryFlipped, "hidden": layer.isHidden,
+                "opacity": Double(layer.opacity),
+            ]
+            if let presented = layer.presentation() {
+                row["presentationTransform"] = matrix(presented.transform)
+                row["presentationSublayerTransform"] = matrix(presented.sublayerTransform)
+            }
+            layers.append(row)
+            for child in layer.sublayers ?? [] { visitLayer(child, parent: id, depth: depth + 1) }
+        }
+        visitLayer(window.layer, parent: nil)
         layoutSequence += 1
         let value: [String: Any] = [
             "schema": "p2-passive-layout-v1", "sequence": layoutSequence,
@@ -81,7 +108,7 @@ final class SettingsFixtureModel: ObservableObject {
             "windowIdentity": identity(window), "hostIdentity": identity(controller),
             "language": V3AppLanguage.selected.rawValue, "locale": locale.identifier,
             "direction": direction == .rightToLeft ? "rtl" : "ltr",
-            "source": "app-process public UIKit read-only traversal", "complete": complete, "views": views,
+            "source": "app-process public UIKit read-only traversal", "complete": complete, "views": views, "layers": layers,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
               let result = String(data: data, encoding: .utf8) else {

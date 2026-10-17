@@ -14,6 +14,7 @@ final class SettingsInteractionTests: XCTestCase {
     private var evidenceCase = ""
     private var method = ""
     private var lastStage = "not-started"
+    private var modalProgress: [[String: Any]] = []
     private var inputReceipts: [[String: Any]] = []
     private var layoutSnapshots: [[String: Any]] = []
     private var observations: [[String: Any]] = []
@@ -53,7 +54,7 @@ final class SettingsInteractionTests: XCTestCase {
     private func begin(_ name: String, _ testMethod: String, largest: Bool = false) throws {
         continueAfterFailure = true
         evidenceCase = name; method = testMethod; lastStage = "launch"
-        observations = []; inputReceipts = []; layoutSnapshots = []; failures = []; completed = false; reported = false
+        observations = []; modalProgress = []; inputReceipts = []; layoutSnapshots = []; failures = []; completed = false; reported = false
         bootstrap = [:]; lastPickerTap = [:]; lastPickerBefore = [:]; lastPickerAfter = [:]; lastTriggerTap = [:]
         addTeardownBlock { @MainActor [self] in finish() }
         XCUIDevice.shared.orientation = .portrait
@@ -184,11 +185,14 @@ final class SettingsInteractionTests: XCTestCase {
         try reveal(input)
         let before = try state()
         try require(before["text"] as? String == "", "Fresh fixture input must start empty")
+        let receiptIndex = inputReceipts.count
+        inputReceipts.append(["before": before, "typedPayload": safeText])
         input.tap()
         let typingBefore = clipboardReceipt()
-        try require(count(typingBefore, "count") == count(before, "clipboardChangeCount"), "App/runner clipboard baseline mismatch")
+        inputReceipts[receiptIndex]["typingBefore"] = typingBefore
         input.typeText(safeText)
         let typingAfter = clipboardReceipt()
+        inputReceipts[receiptIndex]["typingAfter"] = typingAfter
         let dismiss = app.buttons["p2-dismiss-input"]
         try until("Fixture keyboard dismiss control missing") { dismiss.exists && dismiss.isHittable }
         dismiss.tap()
@@ -196,9 +200,11 @@ final class SettingsInteractionTests: XCTestCase {
             self.readState()?["text"] as? String == self.safeText && self.app.keyboards.count == 0
         }
         let after = try state()
-        try require(count(after, "clipboardChangeCount") == count(typingAfter, "count"), "Clipboard changed after outer typing")
-        inputReceipts.append(["before": before, "after": after,
-            "typingBefore": typingBefore, "typingAfter": typingAfter, "typedPayload": safeText])
+        inputReceipts[receiptIndex]["after"] = after
+        // Outer fixture typing has no product action. Retain both process
+        // counters without assuming they share a synchronized generation.
+        try require(count(after, "clipboardChangeCount") >= count(before, "clipboardChangeCount"),
+                    "App clipboard counter regressed during outer typing")
     }
     @discardableResult private func capture(_ stem: String) -> [String] {
         let png = stem + ".png"
@@ -215,7 +221,7 @@ final class SettingsInteractionTests: XCTestCase {
         let result: [String: Any] = ["schema": "p2-settings-interaction-v1",
             "evidenceCase": evidenceCase, "method": method, "completed": completed,
             "failures": failures, "observations": observations, "lastStage": lastStage,
-            "bootstrap": bootstrap, "inputReceipts": inputReceipts, "layoutSnapshots": layoutSnapshots,
+            "bootstrap": bootstrap, "inputReceipts": inputReceipts, "modalProgress": modalProgress, "layoutSnapshots": layoutSnapshots,
             "finalState": readState() ?? [:]]
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
             let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
@@ -330,14 +336,15 @@ final class SettingsInteractionTests: XCTestCase {
                                actions: [String]) throws -> [String: Any] {
         let title = expected("lc.common.error", language)
         try require(alert.staticTexts[title].exists, "Wrong localized alert title")
-        if !message.isEmpty { try require(alert.staticTexts[message].exists, "Wrong localized alert message") }
+        let messageElement = alert.staticTexts.matching(NSPredicate(format: "label == %@", message)).firstMatch
+        if !message.isEmpty { try require(messageElement.exists, "Wrong localized alert message") }
         let allLabels = alert.buttons.allElementsBoundByIndex.map(\.label)
         // UITextField's native Clear button is an accessory, not an alert
         // action. Retain all labels, but identify the exact action controls.
         let labels = alert.textFields.count == 0 ? allLabels : allLabels.filter { actions.contains($0) }
         try require(labels.count == actions.count && Set(labels) == Set(actions), "Wrong production alert buttons")
         return ["displayedTitle": alert.staticTexts[title].label,
-                "displayedMessage": message.isEmpty ? "" : alert.staticTexts[message].label,
+                "displayedMessage": message.isEmpty ? "" : messageElement.label,
                 "displayedActions": labels, "allButtonLabels": allLabels]
     }
     private func dismissAndDrain() throws {
@@ -453,6 +460,8 @@ final class SettingsInteractionTests: XCTestCase {
             for action in ["confirm", "cancel"] {
                 lastStage = language + "-" + action
                 let before = try state()
+                let progressIndex = modalProgress.count
+                modalProgress.append(["language": language, "action": action, "before": before])
                 let alert = try open("p2-open-textfield")
                 var row = try alertSnapshot(alert, language: language, message: "",
                     actions: [expected("lc.common.ok", language), expected("lc.common.cancel", language)])
@@ -465,9 +474,11 @@ final class SettingsInteractionTests: XCTestCase {
                 input.tap()
                 let typedPayload = " added"
                 let typingBefore = clipboardReceipt()
+                modalProgress[progressIndex]["typingBefore"] = typingBefore
                 try require(count(typingBefore, "count") == count(before, "clipboardChangeCount"), "App/runner modal clipboard baseline mismatch")
                 input.typeText(typedPayload)
                 let typingAfter = clipboardReceipt()
+                modalProgress[progressIndex]["typingAfter"] = typingAfter
                 let entered = input.value as? String ?? ""
                 try require(!entered.isEmpty && entered.components(separatedBy: typedPayload).count == 2,
                             "Native field must contain exactly one actual typed payload")
@@ -478,12 +489,16 @@ final class SettingsInteractionTests: XCTestCase {
                 let actualTap = tapEvidence(target)
                 try require(target.isHittable, "Text-field action is not hittable")
                 let actionBefore = clipboardReceipt()
+                modalProgress[progressIndex]["actionBefore"] = actionBefore
                 try require(count(actionBefore, "count") == count(typingAfter, "count"), "Clipboard changed between typing and actual action")
                 target.tap()
                 let tapReturned = clipboardReceipt()
+                modalProgress[progressIndex]["tapReturned"] = tapReturned
                 try dismissAndDrain()
                 let actionAfter = clipboardReceipt()
+                modalProgress[progressIndex]["actionAfter"] = actionAfter
                 let after = try state()
+                modalProgress[progressIndex]["after"] = after
                 try require(count(actionBefore, "count") == count(tapReturned, "count") &&
                             count(tapReturned, "count") == count(actionAfter, "count") &&
                             count(after, "clipboardChangeCount") == count(actionAfter, "count"),

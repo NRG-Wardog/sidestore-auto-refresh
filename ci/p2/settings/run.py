@@ -18,7 +18,7 @@ LIMITS=['Standalone exact-component host; no whole LCSettingsView or production 
  'Fixture-owned equivalent locale/direction root and synthetic model/input state; no production auth operations',
  'Actual picker and alert-action taps are sequential; no action tap precisely during language replacement',
  'Public UIKit layout snapshots and outside-Form witness are supplemental diagnostics; they cannot override failing Form geometry',
- 'Driver typing clipboard effects are retained separately; app/runner count agreement is mandatory for actual action intervals',
+ 'Outer fixture typing counters are diagnostic-only across processes; strict app/runner agreement remains mandatory for modal product-action intervals',
  'Standalone defaults/bundle fallback; no host capture across guest execution',
  'One simulator and bounded Dynamic Type screenshots; no full-app device matrix, IME or VoiceOver acceptance',
  'No OS-driven scene destruction or arbitrary unmanaged dismissal proof',
@@ -210,6 +210,26 @@ def validate_layout(value,state):
   if 'collectionLayoutClass' in row or 'collectionLayoutFlips' in row:
    require(isinstance(row.get('collectionLayoutClass'),str) and type(row.get('collectionLayoutFlips')) is bool,'Invalid collection-layout observation')
  require(views[0]['identity']==value['windowIdentity'],'Window hierarchy identity mismatch')
+ layers=value.get('layers');require(isinstance(layers,list) and 0<len(layers)<=6000,'Missing/oversized public layer hierarchy')
+ layer_ids=set();depths={}
+ for index,row in enumerate(layers):
+  require(isinstance(row,dict),'Invalid layer row');uuid.UUID(row['identity'])
+  require(row['identity'] not in layer_ids,'Duplicate layer identity')
+  parent=row.get('parent');require(parent=='' if index==0 else parent in layer_ids,'Invalid layer parent/order')
+  depths[row['identity']]=0 if index==0 else depths[parent]+1
+  require(depths[row['identity']]<256,'Oversized layer hierarchy depth');layer_ids.add(row['identity'])
+  require(isinstance(row.get('class'),str) and 0<len(row['class'])<=256,'Invalid layer runtime class')
+  require(('presentationTransform' in row)==('presentationSublayerTransform' in row),'Incomplete presentation layer snapshot')
+  keys=('transform','sublayerTransform')+(('presentationTransform','presentationSublayerTransform') if 'presentationTransform' in row else ())
+  for key in keys:
+   matrix=row.get(key);require(isinstance(matrix,list) and len(matrix)==16 and all(type(v) in (int,float) and math.isfinite(v) for v in matrix),'Invalid public layer matrix')
+  for key in ('position','anchorPoint'):
+   point=row.get(key);require(isinstance(point,list) and len(point)==2 and all(type(v) in (int,float) and math.isfinite(v) for v in point),'Invalid public layer point')
+  rect=row.get('bounds');require(isinstance(rect,dict) and set(rect)=={'x','y','width','height'} and all(type(v) in (int,float) and math.isfinite(v) for v in rect.values()),'Invalid layer bounds')
+  require(type(row.get('geometryFlipped')) is bool and type(row.get('hidden')) is bool,'Invalid layer Boolean')
+  require(type(row.get('opacity')) in (int,float) and math.isfinite(row['opacity']),'Invalid layer opacity')
+ for view in views:require(view.get('layerIdentity') in layer_ids,'Missing UIView-to-layer binding')
+ require(views[0]['layerIdentity']==layers[0]['identity'],'Window layer identity mismatch')
  return value
 
 def verify_observations(directory,catalog,builder_commit=None):
@@ -286,9 +306,9 @@ def verify_observations(directory,catalog,builder_commit=None):
    require(type(value['count']) is int and value['count']>=0,'Invalid clipboard count')
    require(type(value['uptime']) in (int,float) and math.isfinite(value['uptime']) and value['uptime']>=0,'Invalid clipboard receipt time')
    return value
-  def typing_receipts(before,after,app_state):
+  def typing_receipts(before,after,app_state,require_app_agreement=True):
    first=clipboard_receipt(before,app_state);last=clipboard_receipt(after,app_state)
-   require(first['count']==app_state['clipboardChangeCount'],'App/runner clipboard baseline mismatch')
+   if require_app_agreement:require(first['count']==app_state['clipboardChangeCount'],'App/runner clipboard baseline mismatch')
    require(first['uptime']<=last['uptime'] and first['count']<=last['count'],'Unordered typing receipts')
    return first,last
   def entered_input(previous):
@@ -297,9 +317,9 @@ def verify_observations(directory,catalog,builder_commit=None):
    require(isinstance(item,dict) and item.get('typedPayload')==SAFE_TEXT,'Missing actual outer input payload')
    before=validate_state(item.get('before'));after=validate_state(item.get('after'))
    require(before==previous and before['text']=='','Input receipt predecessor mismatch')
-   first,last=typing_receipts(item.get('typingBefore'),item.get('typingAfter'),before)
-   require(after['clipboardChangeCount']==last['count'],'Clipboard changed after outer driver typing')
-   require(after==dict(before,text=SAFE_TEXT,clipboardChangeCount=last['count'],clipboardValue=after['clipboardValue']),'Outer input changed unrelated state')
+   first,last=typing_receipts(item.get('typingBefore'),item.get('typingAfter'),before,require_app_agreement=False)
+   require(after['clipboardChangeCount']>=before['clipboardChangeCount'],'App clipboard count regressed during fixture typing')
+   require(after==dict(before,text=SAFE_TEXT,clipboardChangeCount=after['clipboardChangeCount'],clipboardValue=after['clipboardValue']),'Outer input changed unrelated state')
    return after
   previous=boot;previous_pick=None;records=[]
   for row in rows:
@@ -421,6 +441,10 @@ def verify_observations(directory,catalog,builder_commit=None):
    previous=after
    records.append({'language':language,axis:value,'attachments':retained,'observation':row})
   require(input_index==len(inputs),'Unused input receipt')
+  progress=data.get('modalProgress');require(isinstance(progress,list),'Missing durable modal progress receipts')
+  progress_keys=('language','action','before','typingBefore','typingAfter','actionBefore','tapReturned','actionAfter','after')
+  require(progress==[{key:row[key] for key in progress_keys} for row in rows] if case=='textfield-buttons' else progress==[],
+   'Durable modal progress differs from exact completed action receipts')
   snapshots=data.get('layoutSnapshots');stages=['initial','bootstrap-he']
   expected_states=[start,boot]
   if settings:

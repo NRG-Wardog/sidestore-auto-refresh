@@ -165,14 +165,19 @@ class SettingsLaneTests(unittest.TestCase):
    for stage,value in expected_states:
     process=value['processToken'];sequences[process]=sequences.get(process,0)+1
     if process not in identities:identities[process]=(str(uuid.uuid4()),str(uuid.uuid4()))
-    window,host=identities[process]
-    view={'identity':window,'parent':'','class':'UIWindow','frame':dict(viewport),'bounds':dict(viewport),
+    window,host=identities[process];layer_id=str(uuid.uuid4())
+    view={'identity':window,'parent':'','class':'UIWindow','layerIdentity':layer_id,'frame':dict(viewport),'bounds':dict(viewport),
      'transform':[1,0,0,1,0,0],'semantic':0,'effectiveDirection':1 if value['language']=='he' else 0,'hidden':False,'alpha':1.0,'identifier':''}
-    snapshot=dict(schema='p2-passive-layout-v1',source='app-process public UIKit read-only traversal',complete=True,sequence=sequences[process],
-     windowIdentity=window,hostIdentity=host,views=[view],**{key:value[key] for key in ('processToken','sessionToken','language','locale','direction')})
+    identity_matrix=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]
+    layer={'identity':layer_id,'parent':'','class':'CALayer','transform':identity_matrix[:],'sublayerTransform':identity_matrix[:],
+     'bounds':dict(viewport),'position':[0,0],'anchorPoint':[0.5,0.5],'hidden':False,'geometryFlipped':False,'opacity':1.0}
+    snapshot=dict(schema='p2-passive-layout-v1' ,source='app-process public UIKit read-only traversal',complete=True,sequence=sequences[process],
+     windowIdentity=window,hostIdentity=host,views=[view],layers=[layer],**{key:value[key] for key in ('processToken','sessionToken','language','locale','direction')})
     snapshots.append({'stage':stage,'state':copy.deepcopy(value),'snapshot':snapshot,'outsideFirstFrame':dict(frame),'outsideLastFrame':dict(frame,x=150),'viewport':dict(viewport)})
+   progress_keys=('language','action','before','typingBefore','typingAfter','actionBefore','tapReturned','actionAfter','after')
+   progress=[{key:copy.deepcopy(row[key]) for key in progress_keys} for row in rows] if case=='textfield-buttons' else []
    data={'schema':'p2-settings-interaction-v1' ,'evidenceCase':case,'method':method,'completed':True,'failures':[],
-    'observations':rows,'inputReceipts':inputs,'layoutSnapshots':snapshots,'lastStage':'complete','bootstrap':bootstrap,'finalState':copy.deepcopy(current)}
+    'observations':rows,'modalProgress':progress,'inputReceipts':inputs,'layoutSnapshots':snapshots,'lastStage':'complete','bootstrap':bootstrap,'finalState':copy.deepcopy(current)}
    reports[case]=data;group={'testIdentifier':'SettingsInteractionTests/'+method+'()','attachments':[]}
    for name in [case+'.json']+[name for row in rows for name in row['attachments']]:
     group['attachments'].append({'suggestedHumanReadableName':name,'exportedFileName':name,'isAssociatedWithFailure':False})
@@ -247,7 +252,7 @@ class SettingsLaneTests(unittest.TestCase):
     ('settings-default',lambda d:d.pop('inputReceipts')),
     ('settings-default',lambda d:d['inputReceipts'].pop()),
     ('settings-default',lambda d:d['inputReceipts'][0]['before'].update(clipboardChangeCount=99)),
-    ('settings-default',lambda d:d['inputReceipts'][0]['typingAfter'].update(count=99)),
+    ('settings-default',lambda d:d['inputReceipts'][0]['typingAfter'].update(count=-1)),
     ('settings-default',lambda d:d['observations'][0]['after'].update(clipboardChangeCount=d['observations'][0]['after']['clipboardChangeCount']+1)),
     ('textfield-buttons',lambda d:d['observations'][0]['actionBefore'].update(count=99)),
     ('textfield-buttons',lambda d:d['observations'][0]['tapReturned'].update(count=99)),
@@ -263,6 +268,19 @@ class SettingsLaneTests(unittest.TestCase):
     data=copy.deepcopy(reports[case]);mutate(data);path=root/(case+'.json');path.write_text(json.dumps(data))
     with self.subTest(index=index),self.assertRaises((ValueError,KeyError,TypeError)):lane.verify_observations(root,catalog,commit)
     path.write_text(json.dumps(reports[case]));self.assertEqual(lane.verify_observations(root,catalog,commit)['status'],'passed')
+ def test_outer_driver_counts_are_diagnostic_without_relaxing_picker_or_modal_counts(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);catalog,commit,reports,manifest=self.valid_observations(root)
+   for case in ('settings-default','settings-largest','textfield-buttons'):
+    report=copy.deepcopy(reports[case])
+    for item in report['inputReceipts']:item['typingBefore']['count']=70;item['typingAfter']['count']=73
+    (root/(case+'.json')).write_text(json.dumps(report))
+   self.assertEqual(lane.verify_observations(root,catalog,commit)['status'],'passed')
+   for case,key in [('settings-default','after'),('textfield-buttons','actionBefore')]:
+    report=json.loads((root/(case+'.json')).read_text());field='clipboardChangeCount' if key=='after' else 'count'
+    report['observations'][0][key][field]+=1;(root/(case+'.json')).write_text(json.dumps(report))
+    with self.subTest(case=case),self.assertRaises(ValueError):lane.verify_observations(root,catalog,commit)
+    (root/(case+'.json')).write_text(json.dumps(reports[case]));self.assertEqual(lane.verify_observations(root,catalog,commit)['status'],'passed')
  def test_passive_layout_requires_complete_ordered_identity_bound_snapshots(self):
   with tempfile.TemporaryDirectory() as temporary:
    root=Path(temporary);catalog,commit,reports,manifest=self.valid_observations(root)
@@ -274,6 +292,10 @@ class SettingsLaneTests(unittest.TestCase):
     lambda d:d['layoutSnapshots'][1]['snapshot'].update(language='en'),
     lambda d:d['layoutSnapshots'][1]['snapshot']['views'][0].update(transform=[1,0,0,float('inf'),0,0]),
     lambda d:d['layoutSnapshots'][1]['snapshot']['views'][0].update(effectiveDirection=1.0),
+    lambda d:d['layoutSnapshots'][1]['snapshot']['layers'][0].update(transform=[1,0]),
+    lambda d:d['layoutSnapshots'][1]['snapshot']['layers'][0].update(sublayerTransform=[float('nan')]*16),
+    lambda d:d['layoutSnapshots'][1]['snapshot']['layers'][0].update(presentationTransform=[1]*16),
+    lambda d:d['layoutSnapshots'][1]['snapshot']['views'][0].update(layerIdentity='00000000-0000-0000-0000-000000000099'),
     lambda d:d['layoutSnapshots'][1]['snapshot']['views'].append(copy.deepcopy(d['layoutSnapshots'][1]['snapshot']['views'][0])),
     lambda d:d['observations'][0]['directionFirstFrame'].update(x=200),
    ]
@@ -296,6 +318,8 @@ class SettingsLaneTests(unittest.TestCase):
     report['observations'][0].update(enteredText=entered,expectedResult=entered,actualResult=entered)
     report['observations'][0]['after']['textResult']=entered
     report['observations'][1]['before']['textResult']=entered
+    report['modalProgress'][0]['after']['textResult']=entered
+    report['modalProgress'][1]['before']['textResult']=entered
     (root/'textfield-buttons.json').write_text(json.dumps(report))
     with self.subTest(position=position):self.assertEqual(lane.verify_observations(root,catalog,commit)['status'],'passed')
  def test_attachments_fail_closed_on_duplicates_association_and_extra_reports(self):
@@ -322,6 +346,10 @@ class SettingsLaneTests(unittest.TestCase):
   app=(HERE/'App.swift.in').read_text();tests=(HERE/'SettingsInteractionTests.swift.in').read_text()
   for value in ['V3LanguageSettingsSection()','V3Localization.hostDefaults','presenter.presentConfirmation(','.showError(.raw(SettingsFixtureModel.rawError))','.textFieldAlert(isPresented: $model.textPresented','suffix.count == 40','"processArguments": process.arguments','process.environment[key].map']:
    self.assertIn(value,app)
+  self.assertIn('alert.staticTexts.matching(NSPredicate(format: "label == %@", message)).firstMatch',tests)
+  self.assertNotIn('alert.staticTexts[message]',tests)
+  self.assertLess(tests.index('inputReceipts[receiptIndex]["after"] = after'),tests.index('"App clipboard counter regressed during outer typing"'))
+  self.assertLess(tests.index('modalProgress[progressIndex]["typingBefore"] = typingBefore'),tests.index('"App/runner modal clipboard baseline mismatch"'))
   for value in ['option.tap()','target.tap()','input.typeText(typedPayload)','app.terminate()','self.app.state == .notRunning','lastPickerTap','Array(string(after, "textResult").utf8)','Thread.sleep(forTimeInterval: 0.8)','expected("Language", currentLanguage)']:
    self.assertIn(value,tests)
   for value in ['view.transform =','semanticContentAttribute =','setNeedsLayout(','.id(', 'V3AppLanguage.persist(','.finish(','.accessibilityActivate(','.press(forDuration:','launchEnvironment =','removePersistentDomain','UIPasteboard.general.string =']:
