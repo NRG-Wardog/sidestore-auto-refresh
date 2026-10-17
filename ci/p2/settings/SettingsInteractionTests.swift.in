@@ -1,0 +1,461 @@
+import Foundation
+import XCTest
+
+// ExpectedStrings is independently generated from the pinned catalog and the
+// verified builder commit. No production localization helper is linked here.
+@MainActor
+final class SettingsInteractionTests: XCTestCase {
+    private let app = XCUIApplication()
+    private let languages = ["en", "he", "zh-Hans", "zh-Hant"]
+    private let safeText = "P2 typed text 123 % @ /"
+    private let opaqueName = "Fixture % app • 日本語 • עברית"
+    private let rawError = "fixture diagnostic % @ : / • 日本語 • עברית\nopaque=001"
+    private var evidenceCase = ""
+    private var method = ""
+    private var lastStage = "not-started"
+    private var observations: [[String: Any]] = []
+    private var failures: [String] = []
+    private var completed = false
+    private var reported = false
+    private var bootstrap: [String: Any] = [:]
+    private var lastPickerTap: [String: Any] = [:]
+    private var lastPickerBefore: [String: Any] = [:]
+    private var lastPickerAfter: [String: Any] = [:]
+    private var lastTriggerTap: [String: Any] = [:]
+
+    private func expected(_ key: String, _ language: String) -> String {
+        ExpectedStrings.text(key, language: language)
+    }
+    private func languageName(_ language: String) -> String {
+        ["en": "English", "he": "עברית", "zh-Hans": "简体中文", "zh-Hant": "繁體中文"][language]!
+    }
+    private func require(_ condition: Bool, _ message: String,
+                         file: StaticString = #filePath, line: UInt = #line) throws {
+        guard condition else {
+            failures.append(message)
+            XCTFail(message, file: file, line: line)
+            throw NSError(domain: "P2SettingsFixture", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: message])
+        }
+    }
+    private func until(_ message: String, timeout: TimeInterval = 10,
+                       _ condition: () -> Bool) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return }
+            Thread.sleep(forTimeInterval: 0.1)
+        } while Date() < deadline
+        try require(false, message)
+    }
+    private func begin(_ name: String, _ testMethod: String, largest: Bool = false) throws {
+        continueAfterFailure = true
+        evidenceCase = name; method = testMethod; lastStage = "launch"
+        observations = []; failures = []; completed = false; reported = false
+        bootstrap = [:]; lastPickerTap = [:]; lastPickerBefore = [:]; lastPickerAfter = [:]; lastTriggerTap = [:]
+        addTeardownBlock { @MainActor [self] in finish() }
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = largest ? ["--largest"] : []
+        try require(app.launchEnvironment["AppleLanguages"] == nil && app.launchEnvironment["AppleLocale"] == nil,
+                    "Language environment overrides are forbidden")
+        app.launch()
+        try until("Fixture did not become ready") { self.readState() != nil }
+        let beforeBootstrap = try state()
+        // Genuine picker bootstrap guarantees that the first tested English
+        // selection is a change and writes a real defaults value.
+        try chooseLanguage("he")
+        bootstrap = ["before": beforeBootstrap, "after": try state(), "pickerTap": lastPickerTap]
+    }
+    private func readState() -> [String: Any]? {
+        let element = app.staticTexts["p2-state"]
+        guard element.exists, let value = element.value as? String,
+              let data = value.data(using: .utf8),
+              let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              decoded["schema"] as? String == "p2-settings-state-v1" else { return nil }
+        return decoded
+    }
+    private func state() throws -> [String: Any] {
+        try until("Missing valid passive fixture state") { self.readState() != nil }
+        return readState()!
+    }
+    private func string(_ state: [String: Any], _ key: String) -> String { state[key] as? String ?? "<missing>" }
+    private func count(_ state: [String: Any], _ key: String) -> Int { state[key] as? Int ?? -999 }
+    private func frame(_ element: XCUIElement) -> [String: Double] {
+        let value = element.frame
+        return ["x": Double(value.minX), "y": Double(value.minY),
+                "width": Double(value.width), "height": Double(value.height)]
+    }
+    private func tapEvidence(_ element: XCUIElement) -> [String: Any] {
+        ["identifier": element.identifier, "label": element.label, "hittable": element.isHittable,
+         "frame": frame(element)]
+    }
+    private func reveal(_ element: XCUIElement) throws {
+        if element.exists && element.isHittable { return }
+        for _ in 0..<6 {
+            app.swipeUp()
+            if element.exists && element.isHittable { return }
+        }
+        for _ in 0..<12 {
+            app.swipeDown()
+            if element.exists && element.isHittable { return }
+        }
+        try require(false, "Control is not reachable: " + element.identifier)
+    }
+    private func chooseLanguage(_ language: String) throws {
+        lastStage = "choose-" + language
+        let picker = app.descendants(matching: .any).matching(identifier: "settings.language").firstMatch
+        try reveal(picker)
+        let currentLanguage = string(try state(), "language")
+        try require(picker.label.contains(expected("Language", currentLanguage)),
+                    "Production picker label is not localized before its tap")
+        let pickerTap = tapEvidence(picker)
+        picker.tap()
+        let name = languageName(language)
+        let button = app.buttons.matching(NSPredicate(format: "label == %@", name)).firstMatch
+        let text = app.staticTexts.matching(NSPredicate(format: "label == %@", name)).firstMatch
+        try until("Production picker did not expose native language option " + name) {
+            (button.exists && button.isHittable) || (text.exists && text.isHittable)
+        }
+        let option = button.exists && button.isHittable ? button : text
+        let selectionTap = tapEvidence(option)
+        option.tap()
+        lastPickerTap = ["picker": pickerTap, "selection": selectionTap, "languageBefore": currentLanguage]
+        try until("Actual picker tap did not select " + language) {
+            guard let value = self.readState() else { return false }
+            return self.string(value, "language") == language &&
+                self.string(value, "hostDefaultLanguage") == language &&
+                self.string(value, "locale").replacingOccurrences(of: "_", with: "-") == language
+        }
+        try reveal(app.staticTexts["p2-existing-message"])
+        try reveal(picker)
+        try until("Production picker label did not localize after selection") {
+            picker.label.contains(self.expected("Language", language))
+        }
+    }
+    private func unchangedState(_ before: [String: Any], _ after: [String: Any]) throws {
+        for key in ["processToken", "sessionToken", "text", "originalMessage"] {
+            try require(Array(string(before, key).utf8) == Array(string(after, key).utf8),
+                        "Picker change replaced or rewrote fixture state: " + key)
+        }
+        for key in ["confirmStarted", "confirmCompleted", "errorStarted", "textStarted", "textCompleted"] {
+            try require(count(before, key) == count(after, key), "Picker change dispatched an action: " + key)
+        }
+        try require(app.alerts.count == 0, "Picker change resurrected an old alert")
+    }
+    private func selectForAction(_ language: String) throws {
+        lastPickerBefore = try state()
+        try chooseLanguage(language)
+        Thread.sleep(forTimeInterval: 0.8)
+        lastPickerAfter = try state()
+        try unchangedState(lastPickerBefore, lastPickerAfter)
+        try checkLocale(language, lastPickerAfter)
+    }
+    private func enterSafeText() throws {
+        let input = app.textFields["p2-synthetic-input"]
+        try reveal(input)
+        try require((try state())["text"] as? String == "", "Fresh fixture input must start empty")
+        input.tap()
+        input.typeText(safeText)
+        let dismiss = app.buttons["p2-dismiss-input"]
+        try until("Fixture keyboard dismiss control missing") { dismiss.exists && dismiss.isHittable }
+        dismiss.tap()
+        try until("Typed fixture input was not retained or keyboard stayed open") {
+            self.readState()?["text"] as? String == self.safeText && self.app.keyboards.count == 0
+        }
+    }
+    @discardableResult private func capture(_ stem: String) -> [String] {
+        let png = stem + ".png"
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = png; screenshot.lifetime = .keepAlways; add(screenshot)
+        let tree = stem + ".txt"
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = tree; hierarchy.lifetime = .keepAlways; add(hierarchy)
+        return [png, tree]
+    }
+    private func finish() {
+        guard !reported else { return }; reported = true
+        if !completed { capture(evidenceCase + "-partial-failure") }
+        let result: [String: Any] = ["schema": "p2-settings-interaction-v1",
+            "evidenceCase": evidenceCase, "method": method, "completed": completed,
+            "failures": failures, "observations": observations, "lastStage": lastStage,
+            "bootstrap": bootstrap, "finalState": readState() ?? [:]]
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
+            let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+            attachment.name = evidenceCase + ".json"; attachment.lifetime = .keepAlways; add(attachment)
+        } else { XCTFail("Could not serialize mandatory evidence") }
+    }
+    private func checkLocale(_ language: String, _ value: [String: Any]) throws {
+        try require(string(value, "language") == language, "Wrong persisted language")
+        try require(string(value, "hostDefaultLanguage") == language, "Actual defaults key did not retain picker selection")
+        try require(string(value, "locale").replacingOccurrences(of: "_", with: "-") == language,
+                    "SwiftUI inherited locale differs from selection")
+        try require(string(value, "direction") == (language == "he" ? "rtl" : "ltr"),
+                    "SwiftUI inherited direction differs from selection")
+        let arguments = value["processArguments"] as? [String] ?? []
+        let environment = value["languageEnvironment"] as? [String: String] ?? [:]
+        try require(!arguments.isEmpty && arguments[0].hasSuffix("/P2SettingsHost"),
+                    "Actual app process argument receipt is missing")
+        let forbidden = "^-{1,2}(applelanguages|applelocale|nslanguages|language|locale)(=|$)"
+        try require(arguments.dropFirst().allSatisfy {
+            $0.range(of: forbidden, options: [.regularExpression, .caseInsensitive]) == nil
+        }, "Actual app process has a language launch override")
+        try require(["AppleLanguages", "AppleLocale", "NSLanguages"].allSatisfy { environment[$0] == nil },
+                    "Actual app process has an Apple language environment override")
+        try require(arguments.filter { $0 == "--largest" }.count == (app.launchArguments.contains("--largest") ? 1 : 0),
+                    "Actual app process does not match the requested text-size launch")
+    }
+    private func settingsRow(_ language: String, phase: String, before: [String: Any],
+                             expectedText: String, largest: Bool, terminated: Bool = false) throws {
+        lastStage = language + "-" + phase
+        let after = try state()
+        try checkLocale(language, after)
+        try require(string(after, "contentSizeCategory") == (largest ? "accessibilityExtraExtraExtraLarge" : "large"),
+                    "Inherited Dynamic Type category is incorrect")
+        let message = app.staticTexts["p2-existing-message"]
+        try reveal(message)
+        let expectedMessage = String(format: expected("lc.webView.pageLaunch %@", language),
+                                     locale: Locale(identifier: language), arguments: [opaqueName])
+        try until("Existing localized message did not follow language") {
+            Array(message.label.utf8) == Array(expectedMessage.utf8)
+        }
+        try require(string(after, "text") == expectedText, "Unexpected synthetic input contents")
+        let sameProcess = string(before, "processToken") == string(after, "processToken")
+        let sameSession = string(before, "sessionToken") == string(after, "sessionToken")
+        try require(UUID(uuidString: string(after, "processToken")) != nil && UUID(uuidString: string(after, "sessionToken")) != nil,
+                    "Missing process or fixture-session token")
+        try require(phase == "live" ? sameProcess && sameSession : !sameProcess && !sameSession,
+                    "Wrong process/session lifetime for " + phase)
+        if phase == "live" {
+            try unchangedState(before, after)
+        }
+        let first = app.staticTexts["p2-direction-first"]
+        let last = app.staticTexts["p2-direction-last"]
+        try reveal(first); try reveal(last)
+        try require(!first.frame.isEmpty && !last.frame.isEmpty &&
+                    (language == "he" ? first.frame.midX > last.frame.midX : first.frame.midX < last.frame.midX),
+                    "Actual sibling geometry does not match layout direction")
+        let firstFrame = frame(first), lastFrame = frame(last), directionViewport = frame(app)
+        try require(app.frame.contains(first.frame) && app.frame.contains(last.frame), "Direction controls lie outside the viewport")
+        var attachments = capture(evidenceCase + "-" + language + "-" + phase + "-direction")
+        let picker = app.descendants(matching: .any).matching(identifier: "settings.language").firstMatch
+        try reveal(picker); try reveal(message)
+        try require(picker.isHittable && message.isHittable, "Picker/message is not reachable")
+        try require(app.frame.contains(picker.frame) && app.frame.contains(message.frame), "Picker/message lies outside the viewport")
+        try require(picker.label.contains(expected("Language", language)),
+                    "Rendered picker label did not retain the selected locale")
+        try require(app.launchArguments == (largest ? ["--largest"] : []), "Unexpected relaunch arguments")
+        attachments += capture(evidenceCase + "-" + language + "-" + phase)
+        observations.append(["language": language, "phase": phase, "verified": true,
+            "before": before, "after": after, "expectedText": expectedText,
+            "expectedMessage": expectedMessage, "displayedMessage": message.label,
+            "directionFirstFrame": firstFrame, "directionLastFrame": lastFrame,
+            "directionViewport": directionViewport,
+            "pickerFrame": frame(picker), "messageFrame": frame(message), "viewport": frame(app),
+            "pickerLabel": picker.label, "pickerValue": picker.value as? String ?? "<missing>",
+            "pickerTap": lastPickerTap, "terminationObserved": terminated,
+            "launchArguments": app.launchArguments, "launchEnvironment": app.launchEnvironment,
+            "attachments": attachments])
+    }
+    private func settings(largest: Bool) throws {
+        for language in languages {
+            try enterSafeText()
+            let before = try state()
+            try chooseLanguage(language)
+            try settingsRow(language, phase: "live", before: before, expectedText: safeText, largest: largest)
+            let preTermination = try state()
+            lastStage = language + "-terminate"
+            app.terminate()
+            try until("App did not terminate") { self.app.state == .notRunning }
+            let terminated = app.state == .notRunning
+            app.launchArguments = largest ? ["--largest"] : []
+            try require(app.launchEnvironment["AppleLanguages"] == nil && app.launchEnvironment["AppleLocale"] == nil,
+                        "Relaunch cannot inject system language")
+            app.launch()
+            try until("App did not relaunch") { self.readState() != nil }
+            try settingsRow(language, phase: "relaunched", before: preTermination, expectedText: "", largest: largest,
+                            terminated: terminated)
+        }
+    }
+    private func open(_ identifier: String) throws -> XCUIElement {
+        let trigger = app.buttons[identifier]
+        try reveal(trigger)
+        lastTriggerTap = tapEvidence(trigger)
+        trigger.tap()
+        let alert = app.alerts.firstMatch
+        try until("Production alert did not appear") { alert.exists }
+        try require(app.alerts.count == 1, "Unexpected duplicate alert")
+        return alert
+    }
+    private func alertSnapshot(_ alert: XCUIElement, language: String, message: String,
+                               actions: [String]) throws -> [String: Any] {
+        let title = expected("lc.common.error", language)
+        try require(alert.staticTexts[title].exists, "Wrong localized alert title")
+        if !message.isEmpty { try require(alert.staticTexts[message].exists, "Wrong localized alert message") }
+        let allLabels = alert.buttons.allElementsBoundByIndex.map(\.label)
+        // UITextField's native Clear button is an accessory, not an alert
+        // action. Retain all labels, but identify the exact action controls.
+        let labels = alert.textFields.count == 0 ? allLabels : allLabels.filter { actions.contains($0) }
+        try require(labels.count == actions.count && Set(labels) == Set(actions), "Wrong production alert buttons")
+        return ["displayedTitle": alert.staticTexts[title].label,
+                "displayedMessage": message.isEmpty ? "" : alert.staticTexts[message].label,
+                "displayedActions": labels, "allButtonLabels": allLabels]
+    }
+    private func dismissAndDrain() throws {
+        try until("Alert did not disappear after actual action tap") { self.app.alerts.count == 0 }
+        Thread.sleep(forTimeInterval: 0.8)
+        try require(app.alerts.count == 0, "Alert resurrected after action completion")
+    }
+    func testSettingsDefault() throws {
+        try begin("settings-default", "testSettingsDefault")
+        defer { finish() }
+        try settings(largest: false); completed = true; lastStage = "complete"
+    }
+    func testSettingsLargest() throws {
+        try begin("settings-largest", "testSettingsLargest", largest: true)
+        defer { finish() }
+        try settings(largest: true); completed = true; lastStage = "complete"
+    }
+    func testConfirmationButtons() throws {
+        try begin("confirmation-buttons", "testConfirmationButtons")
+        defer { finish() }
+        for language in languages {
+            try selectForAction(language)
+            for action in ["confirm", "cancel"] {
+                lastStage = language + "-" + action
+                let before = try state()
+                let alert = try open("p2-open-confirmation")
+                var row = try alertSnapshot(alert, language: language,
+                    message: expected("lc.webView.installAppDesc", language),
+                    actions: [expected("lc.common.ok", language), expected("lc.common.cancel", language)])
+                var attachments = capture(evidenceCase + "-" + language + "-" + action + "-before")
+                let target = alert.buttons[expected(action == "confirm" ? "lc.common.ok" : "lc.common.cancel", language)]
+                let actualTap = tapEvidence(target)
+                try require(target.isHittable, "Confirmation action is not hittable")
+                target.tap()
+                try dismissAndDrain()
+                let after = try state()
+                try checkLocale(language, after)
+                let result = action == "confirm" ? "true" : "false"
+                try require(count(after, "confirmStarted") == count(before, "confirmStarted") + 1 &&
+                            count(after, "confirmCompleted") == count(before, "confirmCompleted") + 1,
+                            "Confirmation did not complete exactly once")
+                try require(string(after, "confirmOutcome") == result, "Wrong actual confirmation outcome")
+                attachments += capture(evidenceCase + "-" + language + "-" + action + "-after")
+                row.merge(["language": language, "action": action, "verified": true, "before": before,
+                    "after": after, "expectedResult": result, "actualResult": string(after, "confirmOutcome"),
+                    "tapTarget": actualTap, "viewport": frame(app), "alertDismissed": app.alerts.count == 0,
+                    "drainSeconds": 0.8, "noResurrection": app.alerts.count == 0,
+                    "pickerBefore": lastPickerBefore, "pickerAfter": lastPickerAfter, "pickerTap": lastPickerTap,
+                    "triggerTap": lastTriggerTap,
+                    "attachments": attachments]) { _, new in new }
+                observations.append(row)
+            }
+        }
+        completed = true; lastStage = "complete"
+    }
+    func testErrorButtons() throws {
+        try begin("error-buttons", "testErrorButtons")
+        defer { finish() }
+        for language in languages {
+            try selectForAction(language)
+            for action in ["copy", "ok"] {
+                lastStage = language + "-" + action
+                let before = try state()
+                let alert = try open("p2-open-error")
+                let identifier = language == "he" ? "\u{2066}SS-NATIVE-BANNER\u{2069}" : "SS-NATIVE-BANNER"
+                let message = expected("Some details are unavailable in the selected language.", language)
+                    + "\n" + expected("Error ID:", language) + " " + identifier
+                var row = try alertSnapshot(alert, language: language, message: message,
+                    actions: [expected("lc.common.ok", language), expected("lc.common.copy", language)])
+                var attachments = capture(evidenceCase + "-" + language + "-" + action + "-before")
+                let target = alert.buttons[expected(action == "copy" ? "lc.common.copy" : "lc.common.ok", language)]
+                let actualTap = tapEvidence(target)
+                try require(target.isHittable, "Error action is not hittable")
+                target.tap()
+                try dismissAndDrain()
+                let clipboard = rawError + "\nError ID: SS-NATIVE-BANNER\nbuilder_commit=" + ExpectedStrings.builderCommit
+                if action == "copy" {
+                    try until("Copy tap did not deliver exact immutable diagnostic bytes") {
+                        Array((self.readState()?["clipboardValue"] as? String ?? "").utf8) == Array(clipboard.utf8)
+                    }
+                }
+                let after = try state()
+                try checkLocale(language, after)
+                let delta = count(after, "clipboardChangeCount") - count(before, "clipboardChangeCount")
+                try require(count(after, "errorStarted") == count(before, "errorStarted") + 1, "Wrong error presentation count")
+                try require(delta == (action == "copy" ? 1 : 0), "Wrong actual clipboard-write count")
+                let expectedClipboard = action == "copy" ? clipboard : string(before, "clipboardValue")
+                try require(Array(string(after, "clipboardValue").utf8) == Array(expectedClipboard.utf8),
+                            "OK or Copy changed unexpected clipboard bytes")
+                attachments += capture(evidenceCase + "-" + language + "-" + action + "-after")
+                row.merge(["language": language, "action": action, "verified": true, "before": before,
+                    "after": after, "expectedResult": "dismissed", "actualResult": "dismissed",
+                    "expectedClipboard": expectedClipboard, "clipboardDelta": delta,
+                    "tapTarget": actualTap, "viewport": frame(app), "alertDismissed": app.alerts.count == 0,
+                    "drainSeconds": 0.8, "noResurrection": app.alerts.count == 0,
+                    "pickerBefore": lastPickerBefore, "pickerAfter": lastPickerAfter, "pickerTap": lastPickerTap,
+                    "triggerTap": lastTriggerTap,
+                    "attachments": attachments]) { _, new in new }
+                observations.append(row)
+            }
+        }
+        completed = true; lastStage = "complete"
+    }
+    func testTextFieldButtons() throws {
+        try begin("textfield-buttons", "testTextFieldButtons")
+        defer { finish() }
+        try enterSafeText()
+        for language in languages {
+            try selectForAction(language)
+            for action in ["confirm", "cancel"] {
+                lastStage = language + "-" + action
+                let before = try state()
+                let alert = try open("p2-open-textfield")
+                var row = try alertSnapshot(alert, language: language, message: "",
+                    actions: [expected("lc.common.ok", language), expected("lc.common.cancel", language)])
+                let input = alert.textFields.firstMatch
+                try require(input.exists && input.value as? String == safeText, "Production text binding did not initialize alert")
+                // The modal may hide the underlying telemetry from AX. Its
+                // actual presentation proves the binding-driven open path;
+                // the cleared binding is observed after dismissal below.
+                let inputTap = tapEvidence(input)
+                input.tap()
+                let typedPayload = " added"
+                input.typeText(typedPayload)
+                let entered = input.value as? String ?? ""
+                try require(!entered.isEmpty && entered.components(separatedBy: typedPayload).count == 2,
+                            "Native field must contain exactly one actual typed payload")
+                try require(Array(entered.replacingOccurrences(of: typedPayload, with: "").utf8) == Array(safeText.utf8),
+                            "Native typing dropped or rewrote the original input bytes")
+                var attachments = capture(evidenceCase + "-" + language + "-" + action + "-before")
+                let target = alert.buttons[expected(action == "confirm" ? "lc.common.ok" : "lc.common.cancel", language)]
+                let actualTap = tapEvidence(target)
+                try require(target.isHittable, "Text-field action is not hittable")
+                target.tap()
+                try dismissAndDrain()
+                let after = try state()
+                try checkLocale(language, after)
+                let result = action == "confirm" ? entered : "nil"
+                try require(count(after, "textStarted") == count(before, "textStarted") + 1 &&
+                            count(after, "textCompleted") == count(before, "textCompleted") + 1,
+                            "Text-field action did not complete exactly once")
+                try require(string(after, "textOutcome") == action &&
+                            Array(string(after, "textResult").utf8) == Array(result.utf8),
+                            "Wrong production text-field callback result")
+                try require(after["textPresented"] as? Bool == false, "Production shutdown did not clear binding")
+                try require(string(after, "text") == safeText, "Text-field presentation unexpectedly rewrote its input binding")
+                attachments += capture(evidenceCase + "-" + language + "-" + action + "-after")
+                row.merge(["language": language, "action": action, "verified": true, "before": before,
+                    "after": after, "expectedResult": result, "actualResult": string(after, "textResult"),
+                    "initialText": safeText, "enteredText": entered, "outerTextAfter": string(after, "text"),
+                    "typedPayload": typedPayload, "inputTap": inputTap,
+                    "tapTarget": actualTap, "viewport": frame(app), "alertDismissed": app.alerts.count == 0,
+                    "drainSeconds": 0.8, "noResurrection": app.alerts.count == 0,
+                    "pickerBefore": lastPickerBefore, "pickerAfter": lastPickerAfter, "pickerTap": lastPickerTap,
+                    "triggerTap": lastTriggerTap,
+                    "attachments": attachments]) { _, new in new }
+                observations.append(row)
+            }
+        }
+        completed = true; lastStage = "complete"
+    }
+}

@@ -1,0 +1,214 @@
+import Foundation
+import SwiftUI
+import UIKit
+import Combine
+
+// This is a standalone component host, not LCSettingsView or LiveContainer's
+// application root. Production declarations are supplied unchanged by the
+// generator. The fixture owns its window, safe input, state and observations.
+@MainActor
+final class SettingsFixtureModel: ObservableObject {
+    static let processToken = UUID().uuidString
+    static let opaqueName = "Fixture % app • 日本語 • עברית"
+    static let rawError = "fixture diagnostic % @ : / • 日本語 • עברית\nopaque=001"
+    let sessionToken = UUID().uuidString
+    let existingMessage = V3DisplayMessage.localized("lc.webView.pageLaunch %@", SettingsFixtureModel.opaqueName)
+    @Published var text = ""
+    @Published var confirmStarted = 0
+    @Published var confirmCompleted = 0
+    @Published var confirmOutcome = "none"
+    @Published var errorStarted = 0
+    @Published var textStarted = 0
+    @Published var textCompleted = 0
+    @Published var textOutcome = "none"
+    @Published var textResult = "nil"
+    @Published var textPresented = false
+    @Published private(set) var clipboardValue = "<unmatched>"
+    @Published private(set) var clipboardChangeCount = 0
+
+    func observeClipboard() {
+        // Passive, sanitized observation. Never seed or rewrite the clipboard.
+        let board = UIPasteboard.general
+        let prefix = Self.rawError + "\nError ID: SS-NATIVE-BANNER\nbuilder_commit="
+        let raw = board.string ?? ""
+        let suffix = raw.hasPrefix(prefix) ? String(raw.dropFirst(prefix.count)) : ""
+        let isSynthetic = suffix.count == 40 && suffix.unicodeScalars.allSatisfy {
+            (48...57).contains($0.value) || (97...102).contains($0.value)
+        }
+        let safe = isSynthetic ? raw : "<unmatched>"
+        if clipboardValue != safe { clipboardValue = safe }
+        if clipboardChangeCount != board.changeCount { clipboardChangeCount = board.changeCount }
+    }
+
+    func state(locale: Locale, direction: LayoutDirection, sizeCategory: ContentSizeCategory) -> String {
+        // Retain actual launch inputs, but never dump unrelated environment data.
+        let languageKeys = ["AppleLanguages", "AppleLocale", "NSLanguages", "LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES"]
+        let process = ProcessInfo.processInfo
+        let languageEnvironment = Dictionary(uniqueKeysWithValues: languageKeys.compactMap { key in
+            process.environment[key].map { (key, $0) }
+        })
+        let value: [String: Any] = [
+            "schema": "p2-settings-state-v1",
+            "processArguments": process.arguments, "languageEnvironment": languageEnvironment,
+            "processToken": Self.processToken, "sessionToken": sessionToken,
+            "language": V3AppLanguage.selected.rawValue,
+            "hostDefaultLanguage": V3Localization.hostDefaults.string(forKey: V3AppLanguage.storageKey) ?? "<missing>",
+            "locale": locale.identifier, "direction": direction == .rightToLeft ? "rtl" : "ltr",
+            "contentSizeCategory": sizeCategory == .large ? "large" :
+                (sizeCategory == .accessibilityExtraExtraExtraLarge ? "accessibilityExtraExtraExtraLarge" : "unexpected"),
+            "text": text, "originalMessage": existingMessage.original,
+            "confirmStarted": confirmStarted, "confirmCompleted": confirmCompleted,
+            "confirmOutcome": confirmOutcome, "errorStarted": errorStarted,
+            "textStarted": textStarted, "textCompleted": textCompleted,
+            "textOutcome": textOutcome, "textResult": textResult, "textPresented": textPresented,
+            "clipboardValue": clipboardValue, "clipboardChangeCount": clipboardChangeCount,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+              let result = String(data: data, encoding: .utf8) else { return "invalid fixture telemetry" }
+        return result
+    }
+}
+
+@MainActor private struct SettingsFixtureTelemetry: View {
+    @ObservedObject var model: SettingsFixtureModel
+    @Environment(\.locale) private var locale
+    @Environment(\.layoutDirection) private var direction
+    @Environment(\.sizeCategory) private var sizeCategory
+    var body: some View {
+        Text("Fixture observation")
+            .font(.system(size: 9))
+            .environment(\.sizeCategory, .large)
+            .frame(maxWidth: .infinity, minHeight: 22)
+            .background(Color(.systemBackground))
+            .accessibilityIdentifier("p2-state")
+            .accessibilityValue(model.state(locale: locale, direction: direction, sizeCategory: sizeCategory))
+    }
+}
+
+@MainActor private struct SettingsFixtureScreen: View {
+    @ObservedObject var model: SettingsFixtureModel
+    @EnvironmentObject private var sceneContext: SceneDelegate
+    @FocusState private var inputFocused: Bool
+
+    var body: some View {
+        NavigationView {
+            Form {
+                // Exact production section, with its normal automatic picker.
+                V3LanguageSettingsSection()
+                Section("Fixture state") {
+                    V3LocalizedText(model.existingMessage)
+                        .accessibilityIdentifier("p2-existing-message")
+                    TextField("Fixture input", text: $model.text)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                        .focused($inputFocused)
+                        .accessibilityIdentifier("p2-synthetic-input")
+                    HStack(spacing: 16) {
+                        Text("A").accessibilityIdentifier("p2-direction-first")
+                        Text("B").accessibilityIdentifier("p2-direction-last")
+                    }
+                    .accessibilityElement(children: .contain)
+                }
+                Section("Fixture actions") {
+                    Button("Open confirmation") {
+                        model.confirmStarted += 1
+                        Task { @MainActor in
+                            guard let presenter = sceneContext.window?.rootViewController else {
+                                model.confirmOutcome = "presenter-unavailable"
+                                return
+                            }
+                            let result = await presenter.presentConfirmation(
+                                title: .localized("lc.common.error"),
+                                message: .localized("lc.webView.installAppDesc"),
+                                confirmTitle: .localized("lc.common.ok"),
+                                cancelTitle: .localized("lc.common.cancel"))
+                            model.confirmCompleted += 1
+                            model.confirmOutcome = result.map { $0 ? "true" : "false" } ?? "nil"
+                        }
+                    }.accessibilityIdentifier("p2-open-confirmation")
+                    Button("Open error") {
+                        model.errorStarted += 1
+                        sceneContext.window?.rootViewController?.showError(.raw(SettingsFixtureModel.rawError))
+                    }.accessibilityIdentifier("p2-open-error")
+                    Button("Open text field") {
+                        model.textStarted += 1
+                        model.textPresented = true
+                    }.accessibilityIdentifier("p2-open-textfield")
+                }
+            }
+            .navigationTitle("Settings component fixture")
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Button("Dismiss input") { inputFocused = false }
+                        .accessibilityIdentifier("p2-dismiss-input")
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+        .safeAreaInset(edge: .bottom) { SettingsFixtureTelemetry(model: model) }
+        .textFieldAlert(isPresented: $model.textPresented, title: "lc.common.error",
+            text: $model.text, placeholder: "Fixture value", action: { value in
+                model.textCompleted += 1
+                model.textOutcome = "confirm"
+                model.textResult = value ?? "nil"
+            }, actionCancel: { value in
+                model.textCompleted += 1
+                model.textOutcome = "cancel"
+                model.textResult = value ?? "nil"
+            })
+        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
+            model.observeClipboard()
+        }
+        .onReceive(Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()) { _ in
+            // Observation only. This never changes language, alerts or callbacks.
+            model.observeClipboard()
+        }
+        .onAppear { model.observeClipboard() }
+    }
+}
+
+@MainActor private struct SettingsFixtureRoot: View {
+    @ObservedObject var model: SettingsFixtureModel
+    let sceneContext: SceneDelegate
+    // Equivalent to V3UnifiedShell's two environment expressions, but this is
+    // explicitly fixture composition, not an extracted production app root.
+    @AppStorage(V3AppLanguage.storageKey, store: V3Localization.hostDefaults)
+    private var language = V3AppLanguage.english.rawValue
+    var body: some View {
+        SettingsFixtureScreen(model: model)
+            .environmentObject(sceneContext)
+            .environment(\.locale, Locale(identifier: V3AppLanguage.resolve(language).rawValue))
+            .environment(\.layoutDirection, V3AppLanguage.resolve(language).isRightToLeft ? .rightToLeft : .leftToRight)
+            .environment(\.sizeCategory, ProcessInfo.processInfo.arguments.contains("--largest")
+                ? .accessibilityExtraExtraExtraLarge : .large)
+    }
+}
+
+@main @MainActor
+final class SettingsFixtureAppDelegate: UIResponder, UIApplicationDelegate {
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: "P2SettingsScene", sessionRole: session.role)
+        configuration.delegateClass = SettingsFixtureWindowDelegate.self
+        return configuration
+    }
+}
+
+@MainActor
+final class SettingsFixtureWindowDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+    private var model: SettingsFixtureModel?
+    private var productionSceneContext: SceneDelegate?
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
+        guard let scene = scene as? UIWindowScene else { return }
+        let window = UIWindow(windowScene: scene)
+        let context = SceneDelegate() // Exact production declaration supplied by generator.
+        context.window = window      // Fixture-owned window attachment, no service stub.
+        let model = SettingsFixtureModel()
+        window.rootViewController = UIHostingController(rootView: SettingsFixtureRoot(model: model, sceneContext: context))
+        self.window = window
+        self.model = model
+        productionSceneContext = context
+        window.makeKeyAndVisible()
+    }
+}
