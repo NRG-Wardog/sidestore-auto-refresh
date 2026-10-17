@@ -1,11 +1,17 @@
 """Portable adversarial checks. Passing these never implies a native run."""
 import copy
+import ast
+import inspect
+import textwrap
 import importlib.util
 import json
 import os
 from pathlib import Path
 import plistlib
 import re
+import shutil
+import zipfile
+from unittest.mock import patch
 import subprocess
 import tempfile
 import unittest
@@ -276,6 +282,176 @@ class ProductAndRunnerTests(unittest.TestCase):
     def test_escaping_bundle_symlink_fails(self):
         (self.app / 'escape').symlink_to('/etc/hosts')
         with self.assertRaises(ValueError): probe.bundle_inventory(self.app)
+
+    def installed_probe(self):
+        work = self.root / 'work'; evidence = self.root / 'evidence'
+        work.mkdir(); evidence.mkdir()
+        instance = probe.Probe(self.host, work, evidence, '0' * 64)
+        instance.identity = probe.verify_product(self.app, self.settings)
+        instance.installed = self.root / 'installed/LiveContainer.app'
+        shutil.copytree(self.app, instance.installed)
+        return instance
+
+    def test_installed_mismatch_retains_both_operands_before_blocking_runner(self):
+        instance = self.installed_probe()
+        (instance.installed / 'LiveContainer').write_bytes(b'changed installed bytes')
+        downstream = []
+        with self.assertRaisesRegex(ValueError, 'strict mismatch'):
+            instance.installed_identity_gate(self.settings, 'initial', 'strict mismatch')
+            downstream.append('runner generation or launch')
+        self.assertEqual(downstream, [])
+        inventory = json.loads((instance.evidence / 'provenance/installed-initial-inventory.json').read_text())
+        difference = json.loads((instance.evidence / 'provenance/installed-initial-diff.json').read_text())
+        actual = json.loads((instance.evidence / 'provenance/installed-initial-identity.json').read_text())
+        self.assertFalse(difference['equal'])
+        self.assertEqual(difference['changed']['LiveContainer']['sha256']['expected'], instance.identity['files']['LiveContainer']['sha256'])
+        self.assertEqual(difference['changed']['LiveContainer']['sha256']['actual'], actual['files']['LiveContainer']['sha256'])
+        self.assertEqual(inventory['files'], actual['files'])
+        instance.report['errors'].append('strict mismatch')
+        instance.finish()
+        self.assertEqual(instance.report['errors'], ['strict mismatch'])
+        self.assertEqual(instance.report['status'], 'BLOCKED')
+        with zipfile.ZipFile(instance.evidence / 'installed-LiveContainer.app.zip') as archive:
+            self.assertEqual(archive.read('LiveContainer.app/LiveContainer'), b'changed installed bytes')
+
+    def test_main_installed_gate_precedes_runner_generation_and_launch(self):
+        tree = ast.parse(textwrap.dedent(inspect.getsource(probe.Probe.main)))
+        statements = tree.body[0].body
+        def positions(predicate):
+            return [index for index, statement in enumerate(statements)
+                    if any(isinstance(node, ast.Call) and predicate(node) for node in ast.walk(statement))]
+        initial = positions(lambda node: isinstance(node.func, ast.Attribute) and node.func.attr == 'installed_identity_gate'
+                            and len(node.args) > 1 and isinstance(node.args[1], ast.Constant) and node.args[1].value == 'initial')
+        runner = positions(lambda node: isinstance(node.func, ast.Name) and node.func.id == 'prepare_runner')
+        launch = positions(lambda node: isinstance(node.func, ast.Attribute) and node.func.attr == 'command'
+                           and any(isinstance(arg, ast.Constant) and arg.value == 'test-without-building' for arg in node.args))
+        self.assertEqual(len(initial), 1); self.assertEqual(len(runner), 1); self.assertEqual(len(launch), 1)
+        self.assertLess(initial[0], runner[0]); self.assertLess(runner[0], launch[0])
+        self.assertIsInstance(statements[initial[0]], ast.Expr)
+        # No wrapper can swallow this direct gate's exception and continue.
+        self.assertIsInstance(statements[initial[0]].value, ast.Call)
+
+    def test_changing_installed_snapshot_preserves_both_observations_and_rejects(self):
+        instance = self.installed_probe()
+        original = probe.verify_product
+        def changing(app, settings):
+            (app / 'LiveContainer').write_bytes(b'changed between inventory reads')
+            return original(app, settings)
+        with patch.object(probe, 'verify_product', side_effect=changing), self.assertRaisesRegex(ValueError, 'changed during identity observation'):
+            instance.installed_identity_gate(self.settings, 'initial', 'strict mismatch')
+        difference = json.loads((instance.evidence / 'provenance/installed-initial-observation-stability.json').read_text())
+        self.assertFalse(difference['equal'])
+        self.assertIn('LiveContainer', difference['changed'])
+        self.assertTrue((instance.evidence / 'provenance/installed-initial-identity.json').exists())
+
+    def test_every_installed_comparison_records_before_rejecting(self):
+        instance = self.installed_probe()
+        for label in ['initial', 'prelaunch', 'postnavigation']:
+            instance.installed_identity_gate(self.settings, label, 'strict mismatch')
+            self.assertTrue(json.loads((instance.evidence / ('provenance/installed-' + label + '-diff.json')).read_text())['equal'])
+            (instance.installed / 'extra').write_text(label)
+            with self.assertRaisesRegex(ValueError, 'strict mismatch'):
+                instance.installed_identity_gate(self.settings, label, 'strict mismatch')
+            difference = json.loads((instance.evidence / ('provenance/installed-' + label + '-diff.json')).read_text())
+            self.assertEqual(set(difference['added']), {'extra'})
+            (instance.installed / 'extra').unlink()
+
+    def test_inventory_difference_retains_path_mode_bytes_and_link_changes(self):
+        before = {'removed': {'sha256': 'a', 'bytes': 1, 'executable': False},
+                  'mode': {'sha256': 'b', 'bytes': 2, 'executable': False}, 'link': {'link': 'one'}}
+        after = {'added': {'sha256': 'c', 'bytes': 3, 'executable': False},
+                 'mode': {'sha256': 'b', 'bytes': 2, 'executable': True}, 'link': {'link': 'two'}}
+        difference = probe.inventory_difference(before, after)
+        self.assertFalse(difference['equal'])
+        self.assertEqual(difference['removed'], {'removed': before['removed']})
+        self.assertEqual(difference['added'], {'added': after['added']})
+        self.assertEqual(set(difference['changed']), {'mode', 'link'})
+        self.assertEqual(difference['changed']['mode']['executable']['actual'], True)
+        self.assertEqual(difference['changed']['link']['link']['expected'], 'one')
+
+    def test_invalid_installed_identity_still_retains_raw_files_and_archive(self):
+        instance = self.installed_probe()
+        (instance.installed / 'Info.plist').write_bytes(b'not a property list')
+        with self.assertRaises(Exception):
+            instance.installed_identity_gate(self.settings, 'initial', 'strict mismatch')
+        self.assertTrue((instance.evidence / 'provenance/installed-initial-inventory.json').exists())
+        self.assertTrue((instance.evidence / 'provenance/installed-initial-diff.json').exists())
+        instance.report['errors'].append('invalid installed identity')
+        instance.finish()
+        with zipfile.ZipFile(instance.evidence / 'installed-LiveContainer.app.zip') as archive:
+            self.assertEqual(archive.read('LiveContainer.app/Info.plist'), b'not a property list')
+
+    def test_installed_archival_failure_does_not_mask_primary_mismatch(self):
+        instance = self.installed_probe()
+        instance.report['errors'].append('primary mismatch')
+        with patch.object(probe, 'archive_bundle', side_effect=OSError('synthetic archive failure')):
+            instance.finish()
+        self.assertEqual(instance.report['errors'], ['primary mismatch'])
+        self.assertTrue(any('synthetic archive failure' in item for item in instance.report['retentionErrors']))
+        self.assertEqual(instance.report['status'], 'BLOCKED')
+        self.assertTrue((instance.evidence / 'provenance/installed-finalization-inventory.json').exists())
+
+    def test_diagnostic_archive_preserves_escaping_link_without_reading_target(self):
+        instance = self.installed_probe()
+        outside = self.root / 'outside'; outside.write_bytes(b'must not be archived')
+        (instance.installed / 'escape').symlink_to(outside)
+        with self.assertRaises(ValueError): instance.installed_identity_gate(self.settings, 'initial', 'strict mismatch')
+        instance.retain_installed_bundle()
+        with zipfile.ZipFile(instance.evidence / 'installed-LiveContainer.app.zip') as archive:
+            item = archive.getinfo('LiveContainer.app/escape')
+            self.assertEqual(item.external_attr >> 16 & 0o170000, 0o120000)
+            self.assertEqual(archive.read(item), os.fsencode(outside))
+            self.assertFalse(any(archive.read(name) == b'must not be archived' for name in archive.namelist()))
+
+    def test_installed_changes_during_archive_fail_retention(self):
+        instance = self.installed_probe()
+        original = probe.archive_bundle
+        def changing(root, target):
+            captured = original(root, target)
+            (root / 'LiveContainer').write_bytes(b'changed during archive')
+            return captured
+        with patch.object(probe, 'archive_bundle', side_effect=changing), self.assertRaisesRegex(ValueError, 'changed during evidence retention'):
+            instance.retain_installed_bundle()
+        difference = json.loads((instance.evidence / 'provenance/installed-retention-diff.json').read_text())
+        self.assertFalse(difference['equal'])
+
+    def test_checkout_operands_and_preflight_files_are_saved_before_acceptance(self):
+        instance = self.installed_probe()
+        calls = []
+        instance.command = lambda *args, **kwargs: calls.append(args) or 'raw unvalidated diagnostic'
+        instance.retain_preflight_inputs()
+        expected = json.loads((instance.evidence / 'preflight-expected.json').read_text())
+        self.assertEqual(expected['approvedInputsSHA256'], '0' * 64)
+        self.assertTrue((instance.evidence / 'preflight-inputs/ci/p2/host_probe/run.py').exists())
+        self.assertTrue((instance.evidence / 'provenance/source-observed-before-verification-expected.json').exists())
+        self.assertTrue(any('ls-tree' in args for args in calls))
+        self.assertTrue(any('--binary' in args for args in calls))
+        self.assertFalse(instance.report['nativeExecution'])
+
+    def test_preflight_collection_attempts_remaining_operands_after_one_failure(self):
+        instance = self.installed_probe()
+        instance.command = lambda *args, **kwargs: ''
+        original = shutil.copyfile
+        def failing(source, target):
+            if str(source).endswith('host_probe/README.md'):
+                raise OSError('one synthetic missing input')
+            return original(source, target)
+        with patch.object(probe.shutil, 'copyfile', side_effect=failing):
+            instance.retain_preflight_inputs()
+        self.assertTrue(any('one synthetic missing input' in item for item in instance.report['retentionErrors']))
+        self.assertTrue((instance.evidence / 'preflight-inputs/ci/p2/host_probe/project/project.pbxproj').exists())
+        self.assertTrue((instance.evidence / 'preflight-inputs/tests/fixtures/p2_localization_contracts/compiled-translations.json').exists())
+
+    def test_ambient_override_rejection_retains_command_receipt_without_execution(self):
+        instance = self.installed_probe()
+        with patch.dict(os.environ, {'SDKROOT': 'synthetic-override'}), patch.object(probe.subprocess, 'run') as run:
+            with self.assertRaisesRegex(ValueError, 'Ambient build override forbidden'):
+                instance.command('xcodebuild', '-version')
+            run.assert_not_called()
+        meta = json.loads((instance.evidence / 'commands/001.json').read_text())
+        self.assertEqual(meta['ambientOverrideKeys'], ['SDKROOT'])
+        self.assertIn('error', meta)
+        self.assertNotIn('synthetic-override', json.dumps(meta))
 
     def test_external_generated_v1_and_v2_are_read_only(self):
         one = self.document()

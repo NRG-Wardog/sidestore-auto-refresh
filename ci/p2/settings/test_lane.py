@@ -74,9 +74,9 @@ class SettingsLaneTests(unittest.TestCase):
   summary,tests=self.valid_results();summary['failedTests']=1
   with patch.object(lane,'verify_observations',side_effect=ValueError('missing observations')) as observations:
    result=lane.evaluate_native_evidence(summary,tests,Path('.'),{},'returncode65')
-  observations.assert_called_once();self.assertEqual(result['status'],'failed');self.assertEqual(len(result['errors']),3)
+  observations.assert_called_once();self.assertEqual(result['status'],'failed');self.assertEqual(len(result['errors']),4)
   self.assertEqual(result['nativeCounts']['failedTests'],1)
- def valid_observations(self,directory):
+ def valid_observations(self,directory,focus_delta=4):
   """Synthetic parser-only fixture, never native evidence or visual acceptance."""
   import struct, zlib, uuid
   catalog={'strings':{key:{'localizations':{language:{'stringUnit':{'value':language+':'+key}} for language in lane.LANGUAGES}} for key in lane.EXPECTED_KEYS}}
@@ -173,6 +173,10 @@ class SettingsLaneTests(unittest.TestCase):
        row.update(displayedMessage='\n'.join([text('Some details are unavailable in the selected language.',language)]*2)+'\n'+text('Error ID:',language)+' '+error_id,
         expectedResult='dismissed',actualResult='dismissed',expectedClipboard=current['clipboardValue'],clipboardDelta=1 if action=='copy' else 0)
       else:
+       presentation=probe(language+'-'+action+'-presentation-before')
+       clock+=0.01;trigger_tap=clock;clock+=0.01;trigger_returned=clock
+       focus=probe(language+'-'+action+'-focus-before')
+       clock+=0.01;input_tap=clock;current['clipboardChangeCount']+=focus_delta;clock+=0.01;input_returned=clock
        typing_before=receipt(0);p0=probe(language+'-'+action+'-typing-before');current['clipboardChangeCount']+=2
        typing_after=receipt(0);p1=probe(language+'-'+action+'-typing-after');action_before=receipt(0);p2=probe(language+'-'+action+'-action-before')
        clock+=0.01;tap_time=clock;tap_returned=receipt(0);p3=probe(language+'-'+action+'-tap-returned')
@@ -183,6 +187,8 @@ class SettingsLaneTests(unittest.TestCase):
        entered=lane.SAFE_TEXT+' added';current['textResult']=entered if action=='confirm' else 'nil'
        row.update(displayedMessage='',expectedResult=current['textResult'],actualResult=current['textResult'],initialText=lane.SAFE_TEXT,
         enteredText=entered,outerTextAfter=lane.SAFE_TEXT,typedPayload=' added',inputTap=tap('Fixture value'),
+        probePresentationBefore=presentation,probeFocusBefore=focus,triggerTapUptime=trigger_tap,triggerTapReturnedUptime=trigger_returned,
+        inputTapUptime=input_tap,inputTapReturnedUptime=input_returned,
         typingBefore=typing_before,typingAfter=typing_after,actionBefore=action_before,tapReturned=tap_returned,actionAfter=action_after,probeTypingBefore=p0,probeTypingAfter=p1,probeActionBefore=p2,probeTapReturned=p3,probeActionAfter=p4,actionTapUptime=tap_time)
       row['messageSamples']=[{'sequence':1,'uptime':float(len(rows)+1),'samplingStart':float(len(rows)+1)-0.01,'deadline':float(len(rows)+1)-0.01+10,'alertCount':1,'labels':[row['displayedTitle'],row['displayedMessage']]}] if row['displayedMessage'] else []
       row['after']=copy.deepcopy(current);rows.append(row)
@@ -201,7 +207,7 @@ class SettingsLaneTests(unittest.TestCase):
     snapshot=dict(schema='p2-passive-layout-v1' ,source='app-process public UIKit read-only traversal',complete=True,sequence=sequences[process],
      windowIdentity=window,hostIdentity=host,views=[view],layers=[layer],**{key:value[key] for key in ('processToken','sessionToken','language','locale','direction')})
     snapshots.append({'stage':stage,'state':copy.deepcopy(value),'snapshot':snapshot,'outsideFirstFrame':dict(frame),'outsideLastFrame':dict(frame,x=150),'viewport':dict(viewport)})
-   progress_keys=('language','action','before','typingBefore','typingAfter','actionBefore','tapReturned','actionAfter','probeTypingBefore','probeTypingAfter','probeActionBefore','probeTapReturned','probeActionAfter','actionTapUptime','after')
+   progress_keys=('language','action','before','probePresentationBefore','triggerTapUptime','triggerTapReturnedUptime','probeFocusBefore','inputTapUptime','inputTapReturnedUptime','typingBefore','typingAfter','actionBefore','tapReturned','actionAfter','probeTypingBefore','probeTypingAfter','probeActionBefore','probeTapReturned','probeActionAfter','actionTapUptime','after')
    progress=[{key:copy.deepcopy(row[key]) for key in progress_keys} for row in rows] if case=='textfield-buttons' else []
    data={'schema':'p2-settings-interaction-v1' ,'evidenceCase':case,'method':method,'completed':True,'failures':[],
     'clipboardRequests':probe_requests,'clipboardAcknowledgements':probe_acks,'clipboardFailures':[],
@@ -456,22 +462,194 @@ class SettingsLaneTests(unittest.TestCase):
    original=lane.CLIPBOARD.read(root/'clipboard-traces',lane.strict_json);data=reports['textfield-buttons'];nonce=data['observations'][0]['before']['sessionToken']
    def check(traces):lane.CLIPBOARD.verify_case(data,data['observations'],traces)
    mutations=[lambda t:t[nonce]['acks'][1].update(count=999),
-    lambda t:t[nonce]['acks'][3].update(count=t[nonce]['acks'][3]['count']+1),
-    lambda t:t[nonce]['acks'][4].update(count=t[nonce]['acks'][4]['count']+1),
     lambda t:t[nonce]['acks'][5].update(count=t[nonce]['acks'][5]['count']+1),
-    lambda t:t[nonce]['acks'][3].update(processIdentifier=99999),
-    lambda t:t[nonce]['acks'].pop(3)]
+    lambda t:t[nonce]['acks'][6].update(count=t[nonce]['acks'][6]['count']+1),
+    lambda t:t[nonce]['acks'][7].update(count=t[nonce]['acks'][7]['count']+1),
+    lambda t:t[nonce]['acks'][5].update(processIdentifier=99999),
+    lambda t:t[nonce]['acks'].pop(5)]
    for index,mutate in enumerate(mutations):
     traces=copy.deepcopy(original);mutate(traces)
     with self.subTest(index=index),self.assertRaises((ValueError,KeyError,TypeError)):check(traces)
     check(original)
-   traces=copy.deepcopy(original);start=traces[nonce]['acks'][2]['sequence']
+   traces=copy.deepcopy(original);start=traces[nonce]['acks'][4]['sequence']
    # A write hidden between acknowledgement endpoints is still rejected.
    traces[nonce]['rows'][start]['count']+=1
    with self.assertRaises(ValueError):check(traces)
    traces=copy.deepcopy(original)
    for row in traces[nonce]['rows'][start:]:row['uptime']+=1
    with self.assertRaises(ValueError):check(traces)
+
+ def test_presentation_and_focus_receipts_require_all_fifty_six_samples(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);catalog,commit,reports,manifest=self.valid_observations(root)
+   traces=lane.CLIPBOARD.read(root/'clipboard-traces',lane.strict_json);original=reports['textfield-buttons']
+   self.assertEqual(len(original['clipboardRequests']),56)
+   self.assertEqual(len(original['clipboardAcknowledgements']),56)
+   self.assertEqual(len(lane.CLIPBOARD.FIELDS),7)
+   mutations=[lambda d:d['observations'][0].pop('probePresentationBefore'),
+    lambda d:d['observations'][0].pop('probeFocusBefore'),
+    lambda d:d['clipboardRequests'].pop(0),lambda d:d['clipboardAcknowledgements'].pop(1),
+    lambda d:d['observations'][0].update(probePresentationBefore=d['observations'][0]['probeFocusBefore']),
+    lambda d:d['observations'][0].update(probeFocusBefore=d['observations'][0]['probePresentationBefore']),
+    lambda d:d['clipboardRequests'][0].update(stage='en-confirm-focus-before'),
+    lambda d:d['clipboardRequests'][1].update(stage='en-confirm-presentation-before'),
+    lambda d:d['observations'].pop()]
+   for index,mutate in enumerate(mutations):
+    value=copy.deepcopy(original);mutate(value)
+    with self.subTest(index=index),self.assertRaises((ValueError,KeyError,TypeError)):
+     lane.CLIPBOARD.verify_case(value,value['observations'],traces)
+   legacy=copy.deepcopy(original)
+   for field in ('clipboardRequests','clipboardAcknowledgements'):
+    legacy[field]=[row for index,row in enumerate(legacy[field]) if index%7>=2]
+   with self.assertRaisesRegex(ValueError,'Missing/extra causal sample request'):
+    lane.CLIPBOARD.verify_case(legacy,legacy['observations'],traces)
+   for field in ('probePresentationBefore','probeFocusBefore','triggerTapUptime','triggerTapReturnedUptime','inputTapUptime','inputTapReturnedUptime'):
+    value=copy.deepcopy(original);value['modalProgress'][0].pop(field)
+    (root/'textfield-buttons.json').write_text(json.dumps(value))
+    with self.subTest(progress=field),self.assertRaisesRegex(ValueError,'Durable modal progress'):
+     lane.verify_observations(root,catalog,commit)
+   (root/'textfield-buttons.json').write_text(json.dumps(original))
+   self.assertEqual(lane.verify_observations(root,catalog,commit)['observationCount'],40)
+
+ def test_actual_presentation_and_focus_tap_times_cannot_be_missing_or_forged(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);_,_,reports,_=self.valid_observations(root)
+   traces=lane.CLIPBOARD.read(root/'clipboard-traces',lane.strict_json);original=reports['textfield-buttons']
+   keys=('triggerTapUptime','triggerTapReturnedUptime','inputTapUptime','inputTapReturnedUptime')
+   for key in keys:
+    for invalid in (None,True,-1,float('inf'),float('nan'),'0'):
+     value=copy.deepcopy(original);value['observations'][0][key]=invalid
+     with self.subTest(key=key,invalid=invalid),self.assertRaisesRegex(ValueError,'Missing actual presentation/focus tap boundaries'):
+      lane.CLIPBOARD.verify_case(value,value['observations'],traces)
+    value=copy.deepcopy(original);value['observations'][0].pop(key)
+    with self.subTest(missing=key),self.assertRaises(ValueError):lane.CLIPBOARD.verify_case(value,value['observations'],traces)
+   mutations=[lambda r:r.update(triggerTapUptime=r['probePresentationBefore']['returnUptime']-.01),
+    lambda r:r.update(triggerTapReturnedUptime=r['triggerTapUptime']-.01),
+    lambda r:r.update(triggerTapReturnedUptime=r['probeFocusBefore']['requestUptime']+.01),
+    lambda r:r.update(inputTapUptime=r['probeFocusBefore']['returnUptime']-.01),
+    lambda r:r.update(inputTapReturnedUptime=r['inputTapUptime']-.01),
+    lambda r:r.update(inputTapReturnedUptime=r['typingBefore']['uptime']+.01)]
+   for index,mutate in enumerate(mutations):
+    value=copy.deepcopy(original);mutate(value['observations'][0])
+    with self.subTest(index=index),self.assertRaisesRegex(ValueError,'samples do not surround the actual'):
+     lane.CLIPBOARD.verify_case(value,value['observations'],traces)
+
+ def test_pre_presentation_baseline_and_presentation_interval_stay_strict(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);_,_,reports,_=self.valid_observations(root)
+   original=lane.CLIPBOARD.read(root/'clipboard-traces',lane.strict_json);data=reports['textfield-buttons']
+   nonce=data['observations'][0]['before']['sessionToken']
+   def check(traces):lane.CLIPBOARD.verify_case(data,data['observations'],traces)
+   traces=copy.deepcopy(original)
+   # A consistent later generation cannot replace the original pre-alert baseline.
+   for row in traces[nonce]['rows']:row['count']+=4
+   with self.assertRaisesRegex(ValueError,'Wrong same-app pre-presentation baseline'):check(traces)
+   traces=copy.deepcopy(original);traces[nonce]['acks'][2]['count']+=1
+   with self.assertRaisesRegex(ValueError,'changed during presentation'):check(traces)
+   start=original[nonce]['acks'][1]['sequence']
+   traces=copy.deepcopy(original);traces[nonce]['rows'][start]['count']+=1
+   with self.assertRaisesRegex(ValueError,'Unexpected generation within actual presentation interval'):check(traces)
+   traces=copy.deepcopy(original)
+   for row in traces[nonce]['rows'][start:]:row['uptime']+=1
+   with self.assertRaisesRegex(ValueError,'Gap in app-process presentation trace'):check(traces)
+   check(original)
+
+ def test_observed_focus_delta_is_not_a_hardcoded_offset(self):
+  for focus_delta in (0,1,4,17):
+   with self.subTest(focus_delta=focus_delta),tempfile.TemporaryDirectory() as temporary:
+    root=Path(temporary);catalog,commit,reports,_=self.valid_observations(root,focus_delta=focus_delta)
+    traces=lane.CLIPBOARD.read(root/'clipboard-traces',lane.strict_json);data=reports['textfield-buttons']
+    nonce=data['observations'][0]['before']['sessionToken']
+    self.assertEqual(traces[nonce]['acks'][3]['count']-traces[nonce]['acks'][2]['count'],focus_delta)
+    self.assertEqual(lane.verify_observations(root,catalog,commit)['observationCount'],40)
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);self.valid_observations(root,focus_delta=-1)
+   with self.assertRaisesRegex(ValueError,'App trace clock/turn/count regressed'):
+    lane.CLIPBOARD.read(root/'clipboard-traces',lane.strict_json)
+
+ def test_independent_clipboard_diagnostics_survive_other_case_failures(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);catalog,commit,reports,_=self.valid_observations(root)
+   summary,tests=self.valid_results()
+   baseline=lane.diagnose_clipboard_reports(root)
+   self.assertEqual(baseline['status'],'passed');self.assertEqual(set(baseline['cases']),set(lane.CASES))
+   modal=copy.deepcopy(reports['textfield-buttons'])
+   modal['observations'][0]['before']['clipboardChangeCount']+=1
+   (root/'textfield-buttons.json').write_text(json.dumps(modal))
+   for case in ('settings-default','error-buttons'):
+    other=copy.deepcopy(reports[case]);other['completed']=False;other['failures']=['synthetic earlier failure']
+    (root/(case+'.json')).write_text(json.dumps(other))
+    result=lane.evaluate_native_evidence(summary,tests,root,catalog)
+    self.assertEqual(result['status'],'failed');self.assertNotIn('observations',result)
+    diagnostic=result['clipboardDiagnostics'];self.assertEqual(diagnostic['status'],'failed')
+    self.assertEqual(diagnostic['cases'][case]['status'],'failed')
+    self.assertEqual(diagnostic['cases']['textfield-buttons']['comparisonStatus'],'failed')
+    self.assertIn('Wrong same-app pre-presentation baseline',diagnostic['cases']['textfield-buttons']['errors'])
+    self.assertTrue(any(error.startswith('Observation gate:') for error in result['errors']))
+    self.assertTrue(any('textfield-buttons: Wrong same-app pre-presentation baseline' in error for error in result['errors']))
+    (root/(case+'.json')).write_text(json.dumps(reports[case]))
+   # A malformed report is independently retained as an error, not allowed to
+   # short-circuit the later modal comparison.
+   (root/'settings-default.json').write_text('{bad')
+   result=lane.diagnose_clipboard_reports(root)
+   self.assertEqual(result['cases']['settings-default']['status'],'failed')
+   self.assertIn('Wrong same-app pre-presentation baseline',result['cases']['textfield-buttons']['errors'])
+
+ def test_independent_clipboard_diagnostics_do_not_admit_partial_or_forged_reports(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);_,_,reports,manifest=self.valid_observations(root);original=reports['textfield-buttons']
+   for mutate in (lambda d:d.update(completed=False),lambda d:d.update(failures=['failed']),lambda d:d.update(lastStage='en-confirm')):
+    value=copy.deepcopy(original);mutate(value);(root/'textfield-buttons.json').write_text(json.dumps(value))
+    result=lane.diagnose_clipboard_reports(root);item=result['cases']['textfield-buttons']
+    self.assertEqual(result['status'],'failed');self.assertEqual(item['status'],'failed')
+    self.assertEqual(item['comparisonStatus'],'passed');self.assertIn('Incomplete/failed report',item['errors'][0])
+   value=copy.deepcopy(original);value['observations'].pop();(root/'textfield-buttons.json').write_text(json.dumps(value))
+   result=lane.diagnose_clipboard_reports(root);self.assertEqual(result['cases']['textfield-buttons']['comparisonStatus'],'failed')
+   self.assertIn('Missing/extra modal action rows',result['cases']['textfield-buttons']['errors'])
+   (root/'textfield-buttons.json').write_text(json.dumps(original))
+   mutations=[lambda m:m[-1].update(testIdentifier='WrongTests/testTextFieldButtons()'),
+    lambda m:m[-1]['attachments'][0].update(exportedFileName='../outside.json'),
+    lambda m:m[-1]['attachments'].append(copy.deepcopy(m[-1]['attachments'][0])),
+    lambda m:m.pop()]
+   for index,mutate in enumerate(mutations):
+    value=copy.deepcopy(manifest);mutate(value);(root/'manifest.json').write_text(json.dumps(value))
+    with self.subTest(index=index):
+     result=lane.diagnose_clipboard_reports(root);self.assertEqual(result['status'],'failed')
+     self.assertEqual(result['cases']['textfield-buttons']['comparisonStatus'],'unavailable')
+   (root/'manifest.json').write_text(json.dumps(manifest))
+   value=copy.deepcopy(manifest);value[-1]['attachments'][0]['isAssociatedWithFailure']=True
+   (root/'manifest.json').write_text(json.dumps(value))
+   result=lane.diagnose_clipboard_reports(root);item=result['cases']['textfield-buttons']
+   self.assertEqual(item['comparisonStatus'],'passed');self.assertEqual(item['status'],'failed')
+   self.assertIn('Failure-associated report',item['errors'][0])
+   (root/'manifest.json').write_text(json.dumps(manifest))
+   events=[]
+   def diagnostic(*args,**kwargs):events.append('diagnostic');return {'errors':['synthetic failure']}
+   def observations(*args,**kwargs):events.append('all-case');raise ValueError('original gate failure')
+   summary,tests=self.valid_results()
+   with patch.object(lane,'diagnose_clipboard_reports',side_effect=diagnostic),patch.object(lane,'verify_observations',side_effect=observations):
+    result=lane.evaluate_native_evidence(summary,tests,root,{})
+   self.assertEqual(events,['diagnostic','all-case']);self.assertEqual(result['status'],'failed')
+   self.assertIn('Observation gate: original gate failure',result['errors'])
+
+ def test_actual_tap_source_boundaries_retain_receipts_before_assertions(self):
+  tests=(HERE/'SettingsInteractionTests.swift.in').read_text()
+  opened=tests[tests.index('private func open('):tests.index('private func open(')+2000]
+  ordered=('if let index = modalProgressIndex','["triggerTapUptime"] =','trigger.tap()',
+   '["triggerTapReturnedUptime"] =','let alert =','try until')
+  positions=[opened.index(value) for value in ordered];self.assertEqual(positions,sorted(positions))
+  self.assertIn('} else {\n            trigger.tap()\n        }',opened)
+  textfield=tests[tests.index('func testTextFieldButtons()'):]
+  ordered=('let before = try state()','modalProgress.append(',
+   'let probePresentationBefore =','["probePresentationBefore"] =',
+   'open("p2-open-textfield", modalProgressIndex: progressIndex)',
+   'let probeFocusBefore =','["probeFocusBefore"] =','["inputTapUptime"] =',
+   'input.tap()','["inputTapReturnedUptime"] =','let typingBefore =',
+   'let probeTypingBefore =','["probeTypingBefore"] =','input.typeText(typedPayload)')
+  positions=[textfield.index(value) for value in ordered];self.assertEqual(positions,sorted(positions))
+  self.assertEqual(tests.count('modalProgressIndex: progressIndex'),1)
+  app=(HERE/'ClipboardProbeApp.swift.in').read_text();runner=(HERE/'ClipboardProbeRunner.swift.in').read_text()
+  self.assertIn('static let maximumRequests = 64',app);self.assertIn('nextRequest <= 64',runner)
 
  def test_app_trace_parser_and_export_are_bounded_and_fail_closed(self):
   with tempfile.TemporaryDirectory() as temporary:

@@ -474,7 +474,7 @@ def verify_observations(directory,catalog,builder_commit=None,clipboard_director
   require(data.get('messageProgress')==[row['messageSamples'] for row in rows if row.get('messageSamples')],'Message observation progress differs from completed rows')
   progress=data.get('modalProgress');require(isinstance(progress,list),'Missing durable modal progress receipts')
   CLIPBOARD.verify_case(data,rows,traces)
-  progress_keys=('language','action','before','typingBefore','typingAfter','actionBefore','tapReturned','actionAfter','probeTypingBefore','probeTypingAfter','probeActionBefore','probeTapReturned','probeActionAfter','actionTapUptime','after')
+  progress_keys=('language','action','before','probePresentationBefore','triggerTapUptime','triggerTapReturnedUptime','probeFocusBefore','inputTapUptime','inputTapReturnedUptime','typingBefore','typingAfter','actionBefore','tapReturned','actionAfter','probeTypingBefore','probeTypingAfter','probeActionBefore','probeTapReturned','probeActionAfter','actionTapUptime','after')
   require(progress==[{key:row[key] for key in progress_keys} for row in rows] if case=='textfield-buttons' else progress==[],
    'Durable modal progress differs from exact completed action receipts')
   snapshots=data.get('layoutSnapshots');stages=['initial','bootstrap-he']
@@ -506,12 +506,59 @@ def verify_observations(directory,catalog,builder_commit=None,clipboard_director
  return {'status':'passed','clipboardTraceFiles':{key:value['sha256'] for key,value in traces.items()},'cases':result,'observationCount':40,'screenshotCount':80,'hierarchyCount':80,
   'visualClippingReview':'required separately; accessibility and PNG presence do not establish visual quality','scope':LIMITS}
 
+def diagnose_clipboard_reports(directory,clipboard_directory=None):
+ """Independent failure collection, never replacement for any admission gate."""
+ directory=Path(directory)
+ result={'status':'failed','scope':'Causal clipboard comparisons only; no case or lane acceptance','cases':{},'errors':[]}
+ try:
+  manifest=strict_json((directory/'manifest.json').read_text());require(isinstance(manifest,list),'Malformed attachment manifest')
+  traces=CLIPBOARD.read(clipboard_directory or directory/'clipboard-traces',strict_json)
+ except Exception as error:
+  result['errors'].append('Clipboard diagnostic inputs: '+str(error));return result
+ for case,method in CASES.items():
+  item={'status':'failed','comparisonStatus':'unavailable','errors':[]};result['cases'][case]=item
+  try:
+   pattern=re.compile(re.escape(case)+r'(?:\.json)?_[0-9]+_.+\.json')
+   matches=[]
+   for group in manifest:
+    require(isinstance(group,dict) and isinstance(group.get('attachments'),list),'Malformed attachment group')
+    for meta in group['attachments']:
+     require(isinstance(meta,dict),'Malformed attachment')
+     name=meta.get('suggestedHumanReadableName')
+     if isinstance(name,str) and (name==case+'.json' or pattern.fullmatch(name)):matches.append((group,meta))
+   require(len(matches)==1,'Missing/duplicate clipboard report: '+case)
+   group,meta=matches[0];require(group.get('testIdentifier')=='SettingsInteractionTests/'+method+'()','Wrong clipboard report association')
+   filename=meta.get('exportedFileName');require(isinstance(filename,str),'Invalid clipboard report filename')
+   path=(directory/filename).resolve();require(path.is_relative_to(directory.resolve()) and path.is_file() and path.suffix=='.json','Unsafe/missing clipboard report')
+   data=strict_json(path.read_text());require(isinstance(data,dict) and data.get('schema')=='p2-settings-interaction-v1','Invalid clipboard report schema')
+   require(data.get('evidenceCase')==case and data.get('method')==method,'Wrong clipboard report identity')
+   rows=data.get('observations');require(isinstance(rows,list),'Missing actual clipboard observation rows')
+   item.update(filename=filename,sha256=sha(path),observationCount=len(rows),reportCompleted=data.get('completed'),
+    reportFailures=data.get('failures'),reportLastStage=data.get('lastStage'),failureAssociated=meta.get('isAssociatedWithFailure'))
+   item['comparisonStatus']='failed'
+   CLIPBOARD.verify_case(data,rows,traces)
+   item['comparisonStatus']='passed'
+   require(data.get('completed') is True and data.get('failures')==[] and data.get('lastStage')=='complete',
+    'Incomplete/failed report; comparison is not case acceptance')
+   require(meta.get('isAssociatedWithFailure') is False,'Failure-associated report; comparison is not case acceptance')
+   item['status']='passed'
+  except Exception as error:
+   item['errors'].append(str(error));result['errors'].append(case+': '+str(error))
+ if not result['errors']:result['status']='passed'
+ return result
+
 def evaluate_native_evidence(summary, tests, attachments, catalog, command_failure=None,clipboard_directory=None,trace_failure=None):
  result={'status':'failed','nativeCounts':{key:summary.get(key) for key in ['result','passedTests','failedTests','skippedTests','totalTestCount']},'errors':[]}
  if trace_failure is not None:result['errors'].append('Clipboard trace retention: '+str(trace_failure))
  if command_failure is not None:result['errors'].append('Xcodebuild test command failed: '+str(command_failure))
  try:result['xctest']=verify_results(summary,tests)
  except Exception as error:result['errors'].append('XCTest gate: '+str(error))
+ # Always collect each causal comparison before an earlier Form/error report
+ # can stop the strict all-case verifier. Actual rows are never synthesized.
+ try:
+  result['clipboardDiagnostics']=diagnose_clipboard_reports(attachments,clipboard_directory)
+  result['errors'].extend('Clipboard diagnostic: '+error for error in result['clipboardDiagnostics']['errors'])
+ except Exception as error:result['errors'].append('Clipboard diagnostic collection: '+str(error))
  try:result['observations']=verify_observations(attachments,catalog,clipboard_directory=clipboard_directory)
  except Exception as error:result['errors'].append('Observation gate: '+str(error))
  if not result['errors']:result['status']='passed'

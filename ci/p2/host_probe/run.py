@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
+import zipfile
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
@@ -260,22 +261,76 @@ def host_build_settings(raw, host, derived):
     return value, app
 
 
-def bundle_inventory(root):
+def bundle_inventory(root, *, strict=True):
     root = Path(root).resolve()
     require(root.is_dir(), 'Missing bundle')
     rows = {}
     for path in sorted(root.rglob('*')):
         relative = str(path.relative_to(root))
         if path.is_symlink():
-            require(path.resolve().is_relative_to(root), 'Bundle link escapes root: ' + relative)
+            if strict:
+                require(path.resolve().is_relative_to(root), 'Bundle link escapes root: ' + relative)
             rows[relative] = {'link': os.readlink(path)}
         elif path.is_file():
             rows[relative] = {'sha256': sha(path), 'bytes': path.stat().st_size,
                               'executable': bool(path.stat().st_mode & 0o111)}
         else:
-            require(path.is_dir(), 'Unsupported product filesystem entry')
-    require('Info.plist' in rows and 'LiveContainer' in rows, 'Incomplete actual host bundle')
+            if not path.is_dir():
+                require(not strict, 'Unsupported product filesystem entry')
+                rows[relative] = {'unsupportedMode': path.lstat().st_mode}
+    if strict:
+        require('Info.plist' in rows and 'LiveContainer' in rows, 'Incomplete actual host bundle')
     return rows
+
+
+def archive_bundle(root, destination):
+    # Preserve links as link bytes, including invalid links being diagnosed.
+    # Never dereference them or archive anything outside this installed app.
+    root, destination = Path(root), Path(destination)
+    require(root.is_dir() and not root.is_symlink(), 'Missing or linked installed app root')
+    captured = {}
+    with zipfile.ZipFile(destination, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(root.rglob('*')):
+            relative = str(path.relative_to(root))
+            safe_relative(relative)
+            info = zipfile.ZipInfo(root.name + '/' + relative)
+            info.create_system = 3
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = path.lstat().st_mode << 16
+            if path.is_symlink():
+                raw = os.readlink(os.fsencode(path))
+                archive.writestr(info, raw)
+                captured[relative] = {'link': os.fsdecode(raw)}
+            elif path.is_file():
+                digest = hashlib.sha256(); size = 0
+                with path.open('rb') as source, archive.open(info, 'w') as target:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                        target.write(chunk); digest.update(chunk); size += len(chunk)
+                captured[relative] = {'sha256': digest.hexdigest(), 'bytes': size,
+                                      'executable': bool((info.external_attr >> 16) & 0o111)}
+            else:
+                require(path.is_dir(), 'Unsupported installed entry during archive: ' + relative)
+                info.filename += '/'
+                archive.writestr(info, b'')
+    with zipfile.ZipFile(destination) as archive:
+        require(archive.testzip() is None, 'Installed archive CRC failure')
+    return captured
+
+
+def inventory_difference(expected, actual):
+    added = {key: actual[key] for key in sorted(actual.keys() - expected.keys())}
+    removed = {key: expected[key] for key in sorted(expected.keys() - actual.keys())}
+    changed = {}
+    for key in sorted(expected.keys() & actual.keys()):
+        if expected[key] != actual[key]:
+            fields = {}
+            for field in sorted(expected[key].keys() | actual[key].keys()):
+                before, after = expected[key].get(field), actual[key].get(field)
+                if before != after or (field in expected[key]) != (field in actual[key]):
+                    fields[field] = {'expectedPresent': field in expected[key], 'actualPresent': field in actual[key],
+                                     'expected': before, 'actual': after}
+            changed[key] = fields
+    return {'equal': expected == actual, 'added': added, 'removed': removed, 'changed': changed}
 
 
 def verify_product(app, settings):
@@ -524,6 +579,7 @@ class Probe:
         self.number = 0
         self.device = None
         self.app = None
+        self.installed = None
         self.identity = None
         self.before = None
         self.dependencies_ready = False
@@ -538,12 +594,13 @@ class Probe:
         argv = [str(a) for a in argv]
         start = time.monotonic()
         env = dict(os.environ)
-        # Reject ambient Xcode configuration injection rather than hide it.
-        for key in ('XCODE_XCCONFIG_FILE', 'SDKROOT', 'TOOLCHAINS'):
-            require(not env.get(key), 'Ambient build override forbidden: ' + key)
+        # Keep the blocked command receipt too; never export the full environment.
+        override_keys = [key for key in ('XCODE_XCCONFIG_FILE', 'SDKROOT', 'TOOLCHAINS') if env.get(key)]
         meta = {'argv': argv, 'stage': self.stage, 'cwd': str(Path.cwd()),
-                'developerDir': env.get('DEVELOPER_DIR'), 'timeoutSeconds': timeout}
+                'developerDir': env.get('DEVELOPER_DIR'), 'timeoutSeconds': timeout,
+                'ambientOverrideKeys': override_keys}
         try:
+            require(not override_keys, 'Ambient build override forbidden: ' + ', '.join(override_keys))
             result = subprocess.run(argv, capture_output=True, timeout=timeout, env=env)
             stem.with_suffix('.stdout').write_bytes(result.stdout)
             stem.with_suffix('.stderr').write_bytes(result.stderr)
@@ -555,6 +612,9 @@ class Probe:
             stem.with_suffix('.stderr').write_bytes(error.stderr or b'')
             meta['timedOut'] = True
             raise ValueError('Command timed out; see commands/' + stem.name) from error
+        except Exception as error:
+            meta['error'] = type(error).__name__ + ': ' + str(error)
+            raise
         finally:
             meta['elapsedSeconds'] = time.monotonic() - start
             write(stem.with_suffix('.json'), meta)
@@ -573,6 +633,36 @@ class Probe:
                                      for name, row in DEPENDENCIES.items()}
         return proof
 
+    def checkout_diagnostics(self, root, label, expected):
+        write(self.evidence / ('provenance/' + label + '-expected.json'), expected)
+        # These are raw operands, not accepted provenance. Keep them even when
+        # checkout_proof subsequently rejects a tree, origin, mode or worktree.
+        for arguments in [('rev-parse', 'HEAD'), ('rev-parse', 'HEAD^{tree}'),
+                          ('remote', 'get-url', 'origin'),
+                          ('status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none'),
+                          ('ls-tree', '-rz', '--full-tree', 'HEAD'),
+                          ('diff', '--no-ext-diff', '--binary', 'HEAD', '--')]:
+            self.retain_try(label + ' ' + arguments[0],
+                            lambda arguments=arguments: self.command('git', '-C', root, *arguments))
+
+    def retain_preflight_inputs(self):
+        expected = {'approvedInputsSHA256': self.approved, 'sourceCommit': SOURCE,
+                    'sourceTree': TREE, 'sourceOrigin': SOURCE_URL, 'builderAncestor': BUILDER_PARENT}
+        write(self.evidence / 'preflight-expected.json', expected)
+        paths = ['ci/p2/host_probe/inputs.json', '.github/workflows/p2-host-settings-probe.yml',
+                 *['ci/p2/host_probe/' + name for name in ['run.py', 'test_probe.py', 'README.md',
+                    'HostSettingsProbeTests.swift.in', 'project/project.pbxproj', 'project/HostSettingsProbe.xcscheme']],
+                 'scripts/p2_localization_contract.py', 'scripts/p2_permission_contract.py',
+                 'ci/p2/preflight.py', 'tests/fixtures/p2_localization_contracts/compiled-translations.json']
+        for name in paths:
+            target = self.evidence / 'preflight-inputs' / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self.retain_try('preflight input ' + name, lambda name=name, target=target: shutil.copyfile(ROOT / name, target))
+        self.checkout_diagnostics(self.host, 'source-observed-before-verification',
+                                  {'commit': SOURCE, 'tree': TREE, 'origin': SOURCE_URL})
+        self.retain_try('builder identity', lambda: self.command('git', '-C', ROOT, 'rev-parse', 'HEAD', 'HEAD^{tree}'))
+        self.retain_try('builder status', lambda: self.command('git', '-C', ROOT, 'status', '--porcelain=v1', '--untracked-files=all'))
+
     def acquire_dependencies(self):
         for name, row in DEPENDENCIES.items():
             root = self.host / name
@@ -581,12 +671,54 @@ class Probe:
             self.command('git', '-C', root, 'remote', 'add', 'origin', row['fetch_url'])
             self.command('git', '-C', root, 'fetch', '--depth=1', '--no-tags', '--no-recurse-submodules', 'origin', row['commit'], timeout=600)
             self.command('git', '-C', root, 'checkout', '--detach', row['commit'])
+            self.checkout_diagnostics(root, name + '-observed-before-verification',
+                                      {'commit': row['commit'], 'tree': row['tree'], 'origin': row['fetch_url']})
+            require(not self.report['retentionErrors'], 'Incomplete dependency diagnostic capture')
             proof = checkout_proof(root, row['commit'], row['tree'], row['fetch_url'])
             write(self.evidence / 'provenance' / (name + '.json'), proof)
         self.dependencies_ready = True
 
+    def installed_identity_gate(self, settings, label, message):
+        # Persist raw operands before schema, containment or equality assertions.
+        # A diagnostic inventory never authorizes launch; verify_product and
+        # the original exact equality remain mandatory below.
+        inventory = bundle_inventory(self.installed, strict=False)
+        write(self.evidence / ('provenance/installed-' + label + '-inventory.json'),
+              {'path': str(self.installed), 'files': inventory})
+        write(self.evidence / ('provenance/installed-' + label + '-diff.json'),
+              {'expectedInventory': 'provenance/product-identity.json',
+               'actualInventory': 'provenance/installed-' + label + '-inventory.json',
+               **inventory_difference(self.identity['files'], inventory)})
+        actual = verify_product(self.installed, settings)
+        write(self.evidence / ('provenance/installed-' + label + '-identity.json'),
+              {'path': str(self.installed), **actual})
+        write(self.evidence / ('provenance/installed-' + label + '-observation-stability.json'),
+              inventory_difference(inventory, actual['files']))
+        require(inventory == actual['files'], 'Installed bundle changed during identity observation')
+        require(actual['files'] == self.identity['files'], message)
+        return actual
+
+    def retain_installed_bundle(self):
+        # Only the exact app path returned by this run's simctl acquisition.
+        # Do not rediscover, normalize, repair, launch, or accept a different app.
+        if self.installed is None:
+            return
+        before = bundle_inventory(self.installed, strict=False)
+        write(self.evidence / 'provenance/installed-finalization-inventory.json',
+              {'path': str(self.installed), 'files': before})
+        captured = archive_bundle(self.installed, self.evidence / 'installed-LiveContainer.app.zip')
+        write(self.evidence / 'provenance/installed-archive-inventory.json', {'files': captured})
+        write(self.evidence / 'provenance/installed-archive-diff.json', inventory_difference(before, captured))
+        after = bundle_inventory(self.installed, strict=False)
+        write(self.evidence / 'provenance/installed-finalization-after-inventory.json',
+              {'path': str(self.installed), 'files': after})
+        write(self.evidence / 'provenance/installed-retention-diff.json', inventory_difference(before, after))
+        require(before == captured == after, 'Installed bundle changed during evidence retention')
+
     def main(self):
+        self.retain_preflight_inputs()
         data, proof = verify_inputs(self.host, self.approved)
+        require(not self.report['retentionErrors'], 'Incomplete preflight diagnostic capture')
         self.before = proof
         write(self.evidence / 'inputs.json', data)
         write(self.evidence / 'provenance/source-initial.json', proof)
@@ -631,11 +763,13 @@ class Probe:
         settings, self.app = host_build_settings(raw, self.host, derived)
         self.stage = 'genuine-simulator-build'
         self.command(*base, '-resultBundlePath', self.evidence / 'product-build.xcresult', 'build', timeout=1500)
+        write(self.evidence / 'provenance/product-raw-inventory.json',
+              {'path': str(self.app), 'files': bundle_inventory(self.app, strict=False)})
+        self.command('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', self.app, self.evidence / 'actual-LiveContainer.app.zip')
         self.identity = verify_product(self.app, settings)
         self.identity['machOPlatforms'] = simulator_platform(self.command('xcrun', 'vtool', '-show-build', self.app / 'LiveContainer'))
         self.command('xcrun', 'lipo', '-archs', self.app / 'LiveContainer')
         write(self.evidence / 'provenance/product-identity.json', self.identity)
-        self.command('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', self.app, self.evidence / 'actual-LiveContainer.app.zip')
         self.stage = 'actual-host-compiled-resources'
         resources = compiled_resource_contracts(self.app, self.host)
         write(self.evidence / 'actual-host-compiled-resources.json', resources)
@@ -655,10 +789,8 @@ class Probe:
         write(self.evidence / 'installed-before.json', installed_before)
         require(BUNDLE_ID not in installed_before, 'App already exists on supposedly fresh simulator')
         self.command('xcrun', 'simctl', 'install', self.device, self.app)
-        installed = Path(self.command('xcrun', 'simctl', 'get_app_container', self.device, BUNDLE_ID, 'app'))
-        installed_identity = verify_product(installed, settings)
-        require(installed_identity['files'] == self.identity['files'], 'Installed product bytes differ from exact build')
-        write(self.evidence / 'provenance/installed-identity.json', {'path': str(installed), **installed_identity})
+        self.installed = Path(self.command('xcrun', 'simctl', 'get_app_container', self.device, BUNDLE_ID, 'app'))
+        self.installed_identity_gate(settings, 'initial', 'Installed product bytes differ from exact build')
         self.stage = 'external-runner-generation'
         catalog = strict_json((self.host / 'Resources/Localizable.xcstrings').read_text())
         runner = prepare_runner(self.work / 'runner', self.identity, self.report['builderCommit'], catalog)
@@ -678,14 +810,17 @@ class Probe:
         wiring = validate_xctestrun(plistlib.loads(xctestrun.read_bytes()), xctestrun.parent, self.app)
         write(self.evidence / 'runner-wiring.json', {**wiring, 'xctestrunSHA256': before_xctestrun})
         self.command('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', wiring['runnerPath'], self.evidence / 'external-runner.app.zip')
-        require(verify_product(installed, settings)['files'] == self.identity['files'], 'Installed identity changed before launch')
+        self.installed_identity_gate(settings, 'prelaunch', 'Installed identity changed before launch')
         self.stage = 'actual-host-settings-navigation'
         self.report['nativeExecution'] = True
         self.command('xcodebuild', 'test-without-building', '-xctestrun', xctestrun,
                      '-destination', 'platform=iOS Simulator,id=' + self.device,
                      '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1',
                      '-resultBundlePath', self.evidence / 'host-probe.xcresult', timeout=240)
-        require(sha(xctestrun) == before_xctestrun, 'Generated xctestrun mutated during test')
+        after_xctestrun = sha(xctestrun)
+        shutil.copyfile(xctestrun, self.evidence / 'generated-after-test.xctestrun')
+        write(self.evidence / 'xctestrun-after-test-comparison.json', {'beforeSHA256': before_xctestrun, 'afterSHA256': after_xctestrun})
+        require(after_xctestrun == before_xctestrun, 'Generated xctestrun mutated during test')
         self.stage = 'native-evidence-verification'
         self.export_results()
         summary = strict_json((self.evidence / 'xctest-summary.json').read_text())
@@ -694,7 +829,7 @@ class Probe:
         observations = verify_observations(self.evidence / 'attachments', self.identity, self.report['builderCommit'])
         write(self.evidence / 'selected-language-evidence.json', observations)
         self.stage = 'final-installed-identity'
-        require(verify_product(installed, settings)['files'] == self.identity['files'], 'Installed identity changed after navigation')
+        self.installed_identity_gate(settings, 'postnavigation', 'Installed identity changed after navigation')
         self.report['status'] = 'FEASIBLE_SETTINGS_PICKER'
         self.report['stage'] = 'bounded-settings-round-trip-observed'
 
@@ -713,6 +848,7 @@ class Probe:
                                                                      '--output-path', self.evidence / 'attachments'))
 
     def finish(self):
+        self.retain_try('installed app inventory and archive', self.retain_installed_bundle)
         self.export_results()
         for label, root in [('product', self.work / 'product-derived/Build/Products'), ('runner', self.work / 'runner-derived/Build/Products')]:
             if root.is_dir():
@@ -727,6 +863,13 @@ class Probe:
                 '--predicate', 'process == "LiveContainer"', timeout=60) + '\n'))
             self.retain_try('shutdown dedicated simulator', lambda: self.command('xcrun', 'simctl', 'shutdown', self.device))
         if self.before:
+            self.retain_try('final source raw checkout operands', lambda: self.checkout_diagnostics(
+                self.host, 'source-final-observed', {'commit': SOURCE, 'tree': TREE, 'origin': SOURCE_URL}))
+            if self.dependencies_ready:
+                for name, row in DEPENDENCIES.items():
+                    self.retain_try(name + ' final raw checkout operands', lambda name=name, row=row: self.checkout_diagnostics(
+                        self.host / name, name + '-final-observed',
+                        {'commit': row['commit'], 'tree': row['tree'], 'origin': row['fetch_url']}))
             final = self.retain_try('final source proof', self.proof)
             if final:
                 write(self.evidence / 'provenance/source-final.json', final)

@@ -1,11 +1,12 @@
 # Unchanged real-host Settings feasibility probe
 
-Status: the first native attempt, run `39052489875` on builder `8d189028`,
-stopped during dependency verification before product compilation or simulator
-launch. The verifier rejected legitimate committed OpenSSL framework symlinks.
-This test-only correction supports authenticated relative links; it changes no
-product, dependency, project, or UI test bytes. Fresh native feasibility remains
-unproved. Independent review precedes publication and the authorized retry.
+Status: run `39053484315` on builder `5daba20d` compiled the unchanged genuine
+Release simulator app and passed its actual four-language catalog/plural and
+permission-resource contracts. It then failed strict installed-bundle equality
+before any UI runner generation or app launch. The installed inventory was not
+retained, so the difference is unknown. This retention-only correction preserves
+both operands before assertions and keeps exact equality mandatory. No metadata,
+signature, mode, added-file or byte-difference exception is introduced.
 
 ## Question and scope
 
@@ -96,6 +97,43 @@ any native result bundles and partial products. The success string is deliberate
 `FEASIBLE_SETTINGS_PICKER`, with full-app/final-composition acceptance always false.
 The app/package and UI results are separate receipts. A package failure blocks
 later navigation; a later startup failure does not erase successful package proof.
+
+## Failure-first evidence collection
+
+- Preflight copies the fixed adapter, workflow and resource-contract inputs and
+  records expected pins before verification. Raw source/builder Git identity,
+  tree, origin, status and tracked diff commands are retained. A missing input
+  does not prevent attempts to collect the remaining fixed operands; diagnostic
+  failures still block the lane. Dependency proofs get the same raw Git receipts.
+  Only explicit ambient-override key names are reported, never the full environment.
+- Simulator discovery and build-setting operands are retained command outputs.
+  The actual built-app inventory and archive precede product-identity assertions;
+  partial Build/Products archives remain collected on build or later failures.
+- At initial install, immediately before launch and after navigation, save the
+  exact installed file/link inventory, expected-versus-actual added/removed paths
+  and changed fields, validated identity, and raw-versus-validated stability diff
+  before the original strict equality assertion. Missing/malformed identity or
+  changing observations fail; no runner generation or launch follows a mismatch.
+- Guarded finalization archives only the exact app path returned by this run's
+  `simctl get_app_container`. Links are archived as literal link bytes without
+  following targets. File hashes, sizes and executable bits captured while
+  archiving must agree with the before/after inventories. Archive failure is an
+  additional retention error and cannot mask the original mismatch.
+- Generated runner files, build settings, original xctestrun and partial products
+  precede their verification. The post-test xctestrun bytes and both hashes are
+  saved before comparison; raw XCTest bundles/exports/attachments precede result
+  assertions. Existing resource diagnostics and their actual built bytes remain
+  available even if later install/navigation gates fail.
+- Final raw source/dependency Git operands are attempted independently before
+  final proof. These diagnostic snapshots are never accepted provenance by
+  themselves. Every existing source, product, installed equality, UI and resource
+  gate remains mandatory. Unexpected IO/tool failure remains a failure, including
+  any inability to retain evidence; this does not guarantee recovery of bytes
+  that the OS has already removed or made unreadable.
+
+The archive records the file/link bytes and modes used by the inventory contract;
+it does not claim an extended-attribute or runtime-memory snapshot. No installed
+bundle is modified, normalized, re-signed, substituted or launched to collect it.
 
 ## Narrow startup cancellation
 

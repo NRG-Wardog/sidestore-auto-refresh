@@ -337,11 +337,19 @@ final class SettingsInteractionTests: XCTestCase {
                             terminated: terminated)
         }
     }
-    private func open(_ identifier: String) throws -> XCUIElement {
+    private func open(_ identifier: String, modalProgressIndex: Int? = nil) throws -> XCUIElement {
         let trigger = app.buttons[identifier]
         try reveal(trigger)
         lastTriggerTap = tapEvidence(trigger)
-        trigger.tap()
+        if let index = modalProgressIndex {
+            // Record the real trigger operation, not the caller's AX queries
+            // or its later wait for the alert. Preserve partial receipts first.
+            modalProgress[index]["triggerTapUptime"] = ProcessInfo.processInfo.systemUptime
+            trigger.tap()
+            modalProgress[index]["triggerTapReturnedUptime"] = ProcessInfo.processInfo.systemUptime
+        } else {
+            trigger.tap()
+        }
         let alert = app.alerts.firstMatch
         try until("Production alert did not appear") { alert.exists }
         try require(app.alerts.count == 1, "Unexpected duplicate alert")
@@ -509,7 +517,9 @@ final class SettingsInteractionTests: XCTestCase {
                 let before = try state()
                 let progressIndex = modalProgress.count
                 modalProgress.append(["language": language, "action": action, "before": before])
-                let alert = try open("p2-open-textfield")
+                let probePresentationBefore = try clipboardProbe.sample(lastStage + "-presentation-before")
+                modalProgress[progressIndex]["probePresentationBefore"] = probePresentationBefore
+                let alert = try open("p2-open-textfield", modalProgressIndex: progressIndex)
                 var row = try alertSnapshot(alert, language: language, message: "",
                     actions: [expected("lc.common.ok", language), expected("lc.common.cancel", language)])
                 let input = alert.textFields.firstMatch
@@ -518,7 +528,13 @@ final class SettingsInteractionTests: XCTestCase {
                 // actual presentation proves the binding-driven open path;
                 // the cleared binding is observed after dismissal below.
                 let inputTap = tapEvidence(input)
+                let probeFocusBefore = try clipboardProbe.sample(lastStage + "-focus-before")
+                modalProgress[progressIndex]["probeFocusBefore"] = probeFocusBefore
+                let inputTapUptime = ProcessInfo.processInfo.systemUptime
+                modalProgress[progressIndex]["inputTapUptime"] = inputTapUptime
                 input.tap()
+                let inputTapReturnedUptime = ProcessInfo.processInfo.systemUptime
+                modalProgress[progressIndex]["inputTapReturnedUptime"] = inputTapReturnedUptime
                 let typedPayload = " added"
                 let typingBefore = clipboardReceipt()
                 modalProgress[progressIndex]["typingBefore"] = typingBefore
@@ -581,11 +597,18 @@ final class SettingsInteractionTests: XCTestCase {
                     "probeTypingBefore": probeTypingBefore, "probeTypingAfter": probeTypingAfter,
                     "probeActionBefore": probeActionBefore, "probeTapReturned": probeTapReturned,
                     "probeActionAfter": probeActionAfter, "actionTapUptime": actionTapUptime,
+                    "probePresentationBefore": probePresentationBefore, "probeFocusBefore": probeFocusBefore,
+                    "inputTapUptime": inputTapUptime, "inputTapReturnedUptime": inputTapReturnedUptime,
                     "tapTarget": actualTap, "viewport": frame(app), "alertDismissed": app.alerts.count == 0,
                     "drainSeconds": 0.8, "noResurrection": app.alerts.count == 0,
                     "pickerBefore": lastPickerBefore, "pickerAfter": lastPickerAfter, "pickerTap": lastPickerTap,
                     "triggerTap": lastTriggerTap,
                     "attachments": attachments]) { _, new in new }
+                // These values were captured inside open(), immediately around
+                // the actual trigger tap and retained before alert assertions.
+                for key in ["triggerTapUptime", "triggerTapReturnedUptime"] {
+                    row[key] = modalProgress[progressIndex][key]
+                }
                 observations.append(row)
             }
         }

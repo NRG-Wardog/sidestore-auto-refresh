@@ -2,8 +2,8 @@
 from pathlib import Path
 import hashlib, math, shutil, uuid
 
-FIELDS=('probeTypingBefore','probeTypingAfter','probeActionBefore','probeTapReturned','probeActionAfter')
-STAGES=('typing-before','typing-after','action-before','tap-returned','action-after')
+FIELDS=('probePresentationBefore','probeFocusBefore','probeTypingBefore','probeTypingAfter','probeActionBefore','probeTapReturned','probeActionAfter')
+STAGES=('presentation-before','focus-before','typing-before','typing-after','action-before','tap-returned','action-after')
 def require(ok,message):
  if not ok:raise ValueError(message)
 def number(value):return type(value) in (int,float) and math.isfinite(value) and value>=0
@@ -75,7 +75,8 @@ def verify_case(data,rows,traces):
  if data['evidenceCase']!='textfield-buttons':
   require(requests==acks==[],'Unexpected fixture clipboard request')
   return
- require(len(requests)==len(acks)==len(rows)*5,'Missing/extra causal sample request')
+ require(len(rows)==8,'Missing/extra modal action rows')
+ require(len(requests)==len(acks)==len(rows)*len(FIELDS)<=64,'Missing/extra causal sample request')
  nonce=rows[0]['before']['sessionToken'];trace=traces.get(nonce)
  require(trace is not None,'Missing modal app-process trace')
  require(len(trace['acks'])==len(requests),'App and runner sample inventories differ')
@@ -90,21 +91,38 @@ def verify_case(data,rows,traces):
   require(request['requestUptime']<=request['ackUptime']==ack['runnerUptime']<=request['returnUptime'] and request['returnUptime']-request['requestUptime']<=5.1,'Missing or stale causal acknowledgement')
   if index:require(request['requestUptime']>=requests[index-1]['returnUptime'] and request['runnerProcessIdentifier']==requests[index-1]['runnerProcessIdentifier'],'Concurrent or replaced runner sample request')
  for index,row in enumerate(rows):
-  before=row['before'];after=row['after'];group=requests[index*5:(index+1)*5];samples=[]
+  before=row['before'];after=row['after'];group=requests[index*len(FIELDS):(index+1)*len(FIELDS)];samples=[]
   for field,stage,request in zip(FIELDS,STAGES,group):
    require(row.get(field)==request and request['stage']==row['language']+'-'+row['action']+'-'+stage,'Causal sample belongs to wrong action or phase')
    app=trace['acks'][request['requestSequence']]
    require(all(app[k]==before[k] for k in ('processToken','sessionToken','processIdentifier')),'Causal sample came from another app process')
    require(request['runnerProcessIdentifier']==row['typingBefore']['processIdentifier']!=app['processIdentifier'],'App and runner provenance differ')
    samples.append(app)
-  t0,t1,t2,t3,t4=group
+  presentation,focus,t0,t1,t2,t3,t4=group
+  trigger_tap=row.get('triggerTapUptime');trigger_returned=row.get('triggerTapReturnedUptime')
+  input_tap=row.get('inputTapUptime');input_returned=row.get('inputTapReturnedUptime')
+  require(all(number(value) for value in (trigger_tap,trigger_returned,input_tap,input_returned)),'Missing actual presentation/focus tap boundaries')
+  require(presentation['returnUptime']<=trigger_tap<=trigger_returned<=focus['requestUptime'],
+   'Presentation samples do not surround the actual trigger tap')
+  require(focus['returnUptime']<=input_tap<=input_returned<=row['typingBefore']['uptime'],
+   'Focus samples do not surround the actual input tap')
   tap=row.get('actionTapUptime');require(number(tap),'Missing actual tap boundary')
   require(row['typingBefore']['uptime']<=t0['requestUptime']<=t0['returnUptime']<=row['typingAfter']['uptime']<=t1['requestUptime'],'Typing boundaries do not surround causal app samples')
   require(t1['returnUptime']<=row['actionBefore']['uptime']<=t2['requestUptime']<=t2['returnUptime']<=tap<=row['tapReturned']['uptime']<=t3['requestUptime'],'Real tap was not causally after the acknowledged baseline')
   require(t3['returnUptime']<=row['actionAfter']['uptime']<=t4['requestUptime'] and row['actionAfter']['uptime']-t3['returnUptime']>=0.8,'Missing settled dismissal window')
-  require(samples[4]['uptime']-samples[3]['uptime']>=0.8,'App trace lacks its own settled dismissal duration')
-  require(samples[0]['count']==before['clipboardChangeCount'] and samples[1]['count']>=samples[0]['count'],'Wrong same-app typing baseline')
-  require(samples[1]['count']==samples[2]['count']==samples[3]['count']==samples[4]['count']==after['clipboardChangeCount'],'App clipboard generation changed after measured typing baseline or during action')
-  measured=trace['rows'][samples[1]['sequence']-1:samples[4]['sequence']]
-  require(measured and all(x['count']==samples[1]['count'] for x in measured),'Unexpected generation within actual action interval')
+  require(samples[6]['uptime']-samples[5]['uptime']>=0.8,'App trace lacks its own settled dismissal duration')
+  require(samples[0]['count']==before['clipboardChangeCount'],'Wrong same-app pre-presentation baseline')
+  require(samples[1]['count']==samples[0]['count'],'App clipboard generation changed during presentation')
+  presentation_trace=trace['rows'][samples[0]['sequence']-1:samples[1]['sequence']]
+  require(presentation_trace and all(x['count']==samples[0]['count'] for x in presentation_trace),
+   'Unexpected generation within actual presentation interval')
+  require(all(b['uptime']-a['uptime']<=0.5 for a,b in zip(presentation_trace,presentation_trace[1:])),
+   'Gap in app-process presentation trace')
+  # The two acknowledged sides of the actual focus tap are observations only.
+  # Do not subtract an assumed delta or attribute any change to UIKit/XCTest.
+  require(samples[2]['count']>=samples[1]['count'] and samples[3]['count']>=samples[2]['count'],
+   'App clipboard generation regressed across observed focus/typing intervals')
+  require(samples[3]['count']==samples[4]['count']==samples[5]['count']==samples[6]['count']==after['clipboardChangeCount'],'App clipboard generation changed after measured typing baseline or during action')
+  measured=trace['rows'][samples[3]['sequence']-1:samples[6]['sequence']]
+  require(measured and all(x['count']==samples[3]['count'] for x in measured),'Unexpected generation within actual action interval')
   require(all(b['uptime']-a['uptime']<=0.5 for a,b in zip(measured,measured[1:])),'Gap in app-process action trace')
