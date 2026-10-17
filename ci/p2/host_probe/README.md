@@ -1,8 +1,11 @@
 # Unchanged real-host Settings feasibility probe
 
-Status: locally prepared, portable-tested candidate. No simulator run, publication,
-or real-host feasibility result is claimed by this change. Review and authorization
-must precede publishing the workflow-triggering paths.
+Status: the first native attempt, run `39052489875` on builder `8d189028`,
+stopped during dependency verification before product compilation or simulator
+launch. The verifier rejected legitimate committed OpenSSL framework symlinks.
+This test-only correction supports authenticated relative links; it changes no
+product, dependency, project, or UI test bytes. Fresh native feasibility remains
+unproved. Independent review precedes publication and the authorized retry.
 
 ## Question and scope
 
@@ -39,6 +42,13 @@ probe means bounded feasibility, not full-app or glyph/layout acceptance.
   The stale fishhook `.gitmodules` declaration is recorded and never initialized.
   New/nested dependencies fail closed. Missing Git LFS/framework bytes are not
   replaced; they remain a dependency/build failure.
+- Committed mode-`120000` links are authenticated using the raw link-target bytes
+  and their Git blob hash, without dereferencing to hash the destination. The
+  target SHA-256, literal target and resolved tracked destination are retained.
+  Resolution follows only authenticated relative links and tracked tree paths,
+  stays inside the checkout, and rejects absolute, escaping, missing, cyclic,
+  excessive, untracked or substituted links. Regular source files retain their
+  existing exact byte/mode checks. The pinned OpenSSL tree contains 20 such links.
 
 ## Native stages and failure boundaries
 

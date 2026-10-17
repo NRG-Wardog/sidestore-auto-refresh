@@ -110,10 +110,58 @@ def tree_entries(raw):
         mode, kind, object_id = header.split()
         safe_relative(name)
         require(name not in rows and re.fullmatch('[0-9a-f]{40}', object_id), 'Invalid or duplicate tree entry')
-        require((mode, kind) in {('100644', 'blob'), ('100755', 'blob'), ('160000', 'commit')}, 'Unsupported source entry: ' + name)
+        require((mode, kind) in {('100644', 'blob'), ('100755', 'blob'), ('120000', 'blob'), ('160000', 'commit')}, 'Unsupported source entry: ' + name)
         rows[name] = {'mode': mode, 'type': kind, 'gitObject': object_id}
     require(rows, 'Empty source tree')
     return rows
+
+
+def source_link_target(root, name, row):
+    path = root / name
+    require(path.is_symlink() and row['mode'] == '120000', 'Source link mode differs: ' + name)
+    raw = os.readlink(os.fsencode(path))
+    object_id = hashlib.sha1(b'blob ' + str(len(raw)).encode('ascii') + b'\0' + raw).hexdigest()
+    require(object_id == row['gitObject'], 'Source link bytes differ: ' + name)
+    target = os.fsdecode(raw)
+    require(target and not PurePosixPath(target).is_absolute(), 'Absolute or empty source link: ' + name)
+    return target, raw
+
+
+def source_link_destination(root, name, entries):
+    # Resolve through the authenticated tree, never following an untracked or
+    # escaping filesystem link. Framework directory links are legitimate inputs.
+    directories = {''}
+    for entry in entries:
+        directories.update(str(p) for p in PurePosixPath(entry).parents if str(p) != '.')
+    pending = name.split('/')
+    resolved = []
+    traversed = set()
+    while pending:
+        part = pending.pop(0)
+        if part in ('', '.'):
+            continue
+        if part == '..':
+            require(resolved, 'Source link escapes checkout: ' + name)
+            resolved.pop()
+            continue
+        candidate = '/'.join([*resolved, part])
+        row = entries.get(candidate)
+        if row and row['mode'] == '120000':
+            require(candidate not in traversed and len(traversed) < 128, 'Cyclic or excessive source link: ' + name)
+            traversed.add(candidate)
+            target, _ = source_link_target(root, candidate, row)
+            pending = target.split('/') + pending
+            continue
+        require(candidate in directories or (row and row['type'] == 'blob'), 'Untracked or missing source link target: ' + name)
+        path = root / candidate
+        require(not path.is_symlink(), 'Untracked intermediate source link: ' + candidate)
+        if candidate in directories:
+            require(path.is_dir(), 'Source link directory missing: ' + candidate)
+        else:
+            require(path.is_file() and not pending, 'Source link file missing or used as directory: ' + candidate)
+        resolved.append(part)
+    require(resolved, 'Source link resolves to checkout root: ' + name)
+    return '/'.join(resolved)
 
 
 def checkout_proof(root, commit, tree, origin, *, dependencies=False):
@@ -134,6 +182,13 @@ def checkout_proof(root, commit, tree, origin, *, dependencies=False):
         if row['type'] == 'commit':
             continue
         path = root / name
+        if row['mode'] == '120000':
+            target, raw = source_link_target(root, name, row)
+            row['sha256'] = hashlib.sha256(raw).hexdigest()
+            row['linkTarget'] = target
+            row['resolvedTarget'] = source_link_destination(root, name, entries)
+            continue
+        require(all(not parent.is_symlink() for parent in path.parents if parent != root and root in parent.parents), 'Source parent directory linked: ' + name)
         require(path.is_file() and not path.is_symlink(), 'Source file missing or linked: ' + name)
         require(git(root, 'hash-object', '--', str(path)) == row['gitObject'], 'Source bytes differ: ' + name)
         require(bool(path.stat().st_mode & 0o111) == (row['mode'] == '100755'), 'Source executable mode differs: ' + name)

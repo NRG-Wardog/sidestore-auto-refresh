@@ -30,10 +30,11 @@ class ParseTests(unittest.TestCase):
                 probe.safe_relative(value)
         self.assertEqual(str(probe.safe_relative('one/two.txt')), 'one/two.txt')
 
-    def test_tree_rejects_duplicate_symlink_and_invalid_object(self):
+    def test_tree_accepts_link_mode_and_rejects_invalid_entries(self):
         row = '100644 blob ' + 'a' * 40 + '\tx\0'
         self.assertEqual(probe.tree_entries(row)['x']['type'], 'blob')
-        for bad in [row + row, row.replace('100644', '120000'), row.replace('a' * 40, 'bad'), row.replace('\tx', '\t../x')]:
+        self.assertEqual(probe.tree_entries(row.replace('100644', '120000'))['x']['mode'], '120000')
+        for bad in [row + row, row.replace('100644', '100600'), row.replace('a' * 40, 'bad'), row.replace('\tx', '\t../x')]:
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 probe.tree_entries(bad)
 
@@ -113,6 +114,80 @@ class SourceTests(unittest.TestCase):
     def test_source_symlink_fails(self):
         (self.root / 'source.swift').unlink()
         (self.root / 'source.swift').symlink_to('/etc/hosts')
+        with self.assertRaises(ValueError): self.proof()
+
+    def commit_links(self):
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'portable tracked links')
+        self.commit = self.git('rev-parse', 'HEAD')
+        self.tree = self.git('rev-parse', 'HEAD^{tree}')
+
+    def framework_links(self):
+        framework = self.root / 'Framework.framework'
+        for name in ['Headers', 'Modules', 'Resources']:
+            directory = framework / 'Versions/A' / name
+            directory.mkdir(parents=True)
+            (directory / 'content').write_text('authentic fixture bytes')
+        (framework / 'Versions/A/OpenSSL').write_text('synthetic binary')
+        (framework / 'Versions/Current').symlink_to('A')
+        for name in ['Headers', 'Modules', 'Resources', 'OpenSSL']:
+            (framework / name).symlink_to('Versions/Current/' + name)
+        self.commit_links()
+        return framework
+
+    def test_exact_framework_links_are_hashed_without_dereference(self):
+        self.framework_links()
+        rows = self.proof()['files']
+        links = {name: row for name, row in rows.items() if row['mode'] == '120000'}
+        self.assertEqual(len(links), 5)
+        for name, row in links.items():
+            raw = os.readlink(os.fsencode(self.root / name))
+            self.assertEqual(row['sha256'], probe.hashlib.sha256(raw).hexdigest())
+            self.assertEqual(row['gitObject'], self.git('rev-parse', 'HEAD:' + name))
+            self.assertTrue(row['resolvedTarget'].startswith('Framework.framework/Versions/A'))
+
+    def test_committed_absolute_escape_missing_cycle_and_untracked_targets_fail(self):
+        for target in ['/etc/hosts', '../outside', 'missing', 'link', '.git/HEAD']:
+            with self.subTest(target=target):
+                path = self.root / 'link'
+                if path.is_symlink(): path.unlink()
+                path.symlink_to(target)
+                self.commit_links()
+                with self.assertRaises(ValueError): self.proof()
+
+    def test_contained_parent_relative_target_is_supported(self):
+        (self.root / 'nested').mkdir()
+        (self.root / 'nested/link').symlink_to('../source.swift')
+        self.commit_links()
+        self.assertEqual(self.proof()['files']['nested/link']['resolvedTarget'], 'source.swift')
+
+    def test_mutual_link_cycle_fails(self):
+        (self.root / 'one').symlink_to('two')
+        (self.root / 'two').symlink_to('one')
+        self.commit_links()
+        with self.assertRaises(ValueError): self.proof()
+
+    def test_modified_link_bytes_and_regular_file_substitution_fail(self):
+        framework = self.framework_links()
+        path = framework / 'Headers'
+        rows = probe.tree_entries(probe.git(self.root, 'ls-tree', '-rz', '--full-tree', 'HEAD'))
+        for target in ['Versions/A/Headers', '/etc/hosts']:
+            path.unlink(); path.symlink_to(target)
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                probe.source_link_target(self.root, 'Framework.framework/Headers', rows['Framework.framework/Headers'])
+            with self.assertRaises(ValueError): self.proof()
+        path.unlink(); path.write_text('Versions/Current/Headers')
+        with self.assertRaises(ValueError): self.proof()
+        with self.assertRaises(ValueError):
+            probe.source_link_target(self.root, 'Framework.framework/Headers', rows['Framework.framework/Headers'])
+
+    def test_changed_target_file_and_parent_directory_substitution_fail(self):
+        framework = self.framework_links()
+        (framework / 'Versions/A/Headers/content').write_text('changed target')
+        with self.assertRaises(ValueError): self.proof()
+        self.git('checkout', '--', 'Framework.framework/Versions/A/Headers/content')
+        path = framework / 'Versions/A/Headers'
+        (path / 'content').unlink(); path.rmdir(); path.symlink_to('/tmp')
         with self.assertRaises(ValueError): self.proof()
 
     def test_actual_pinned_source_when_available(self):
