@@ -7,12 +7,21 @@ import Combine
 // application root. Production declarations are supplied unchanged by the
 // generator. The fixture owns its window, safe input, state and observations.
 @MainActor
+final class SettingsLayoutReceiptStore: ObservableObject {
+    @Published var value = ""
+}
+
+@MainActor
 final class SettingsFixtureModel: ObservableObject {
     static let processToken = UUID().uuidString
     static let opaqueName = "Fixture % app • 日本語 • עברית"
     static let rawError = "fixture diagnostic % @ : / • 日本語 • עברית\nopaque=001"
     let sessionToken = UUID().uuidString
     let existingMessage = V3DisplayMessage.localized("lc.webView.pageLaunch %@", SettingsFixtureModel.opaqueName)
+    weak var window: UIWindow?
+    private let viewIdentities = NSMapTable<NSObject, NSString>(keyOptions: .weakMemory, valueOptions: .strongMemory)
+    private var layoutSequence = 0
+    let layoutReceipt = SettingsLayoutReceiptStore()
     @Published var text = ""
     @Published var confirmStarted = 0
     @Published var confirmCompleted = 0
@@ -25,6 +34,61 @@ final class SettingsFixtureModel: ObservableObject {
     @Published var textPresented = false
     @Published private(set) var clipboardValue = "<unmatched>"
     @Published private(set) var clipboardChangeCount = 0
+
+    private func identity(_ object: NSObject) -> String {
+        if let value = viewIdentities.object(forKey: object) { return value as String }
+        let value = UUID().uuidString
+        viewIdentities.setObject(value as NSString, forKey: object)
+        return value
+    }
+
+    func captureLayout(locale: Locale, direction: LayoutDirection) {
+        // Passive public UIKit reads only. Never adjust transforms, semantic
+        // direction, view identity, or production state to make a gate pass.
+        guard let window = window, let controller = window.rootViewController else { return }
+        var views: [[String: Any]] = []
+        var complete = true
+        func rect(_ value: CGRect) -> [String: Double] {
+            ["x": Double(value.origin.x), "y": Double(value.origin.y),
+             "width": Double(value.size.width), "height": Double(value.size.height)]
+        }
+        func visit(_ view: UIView, parent: String?, depth: Int = 0) {
+            guard views.count < 2000 && depth < 128 else { complete = false; return }
+            let id = identity(view)
+            let transform = view.transform
+            var row: [String: Any] = [
+                "identity": id, "parent": parent ?? "", "class": String(describing: type(of: view)),
+                "frame": rect(view.frame), "bounds": rect(view.bounds),
+                "transform": [Double(transform.a), Double(transform.b), Double(transform.c),
+                              Double(transform.d), Double(transform.tx), Double(transform.ty)],
+                "semantic": view.semanticContentAttribute.rawValue,
+                "effectiveDirection": view.effectiveUserInterfaceLayoutDirection.rawValue,
+                "hidden": view.isHidden, "alpha": Double(view.alpha),
+                "identifier": view.accessibilityIdentifier ?? "",
+            ]
+            if let collection = view as? UICollectionView {
+                row["collectionLayoutClass"] = String(describing: type(of: collection.collectionViewLayout))
+                row["collectionLayoutFlips"] = collection.collectionViewLayout.flipsHorizontallyInOppositeLayoutDirection
+            }
+            views.append(row)
+            for child in view.subviews { visit(child, parent: id, depth: depth + 1) }
+        }
+        visit(window, parent: nil)
+        layoutSequence += 1
+        let value: [String: Any] = [
+            "schema": "p2-passive-layout-v1", "sequence": layoutSequence,
+            "processToken": Self.processToken, "sessionToken": sessionToken,
+            "windowIdentity": identity(window), "hostIdentity": identity(controller),
+            "language": V3AppLanguage.selected.rawValue, "locale": locale.identifier,
+            "direction": direction == .rightToLeft ? "rtl" : "ltr",
+            "source": "app-process public UIKit read-only traversal", "complete": complete, "views": views,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+              let result = String(data: data, encoding: .utf8) else {
+            layoutReceipt.value = "invalid layout snapshot"; return
+        }
+        layoutReceipt.value = result
+    }
 
     func observeClipboard() {
         // Passive, sanitized observation. Never seed or rewrite the clipboard.
@@ -51,6 +115,7 @@ final class SettingsFixtureModel: ObservableObject {
             "schema": "p2-settings-state-v1",
             "processArguments": process.arguments, "languageEnvironment": languageEnvironment,
             "processToken": Self.processToken, "sessionToken": sessionToken,
+            "processIdentifier": Int(process.processIdentifier),
             "language": V3AppLanguage.selected.rawValue,
             "hostDefaultLanguage": V3Localization.hostDefaults.string(forKey: V3AppLanguage.storageKey) ?? "<missing>",
             "locale": locale.identifier, "direction": direction == .rightToLeft ? "rtl" : "ltr",
@@ -69,19 +134,36 @@ final class SettingsFixtureModel: ObservableObject {
     }
 }
 
+@MainActor private struct SettingsLayoutReceiptView: View {
+    @ObservedObject var store: SettingsLayoutReceiptStore
+    var body: some View {
+        Text("Layout receipt").accessibilityIdentifier("p2-layout")
+            .accessibilityValue(store.value)
+    }
+}
+
 @MainActor private struct SettingsFixtureTelemetry: View {
     @ObservedObject var model: SettingsFixtureModel
     @Environment(\.locale) private var locale
     @Environment(\.layoutDirection) private var direction
     @Environment(\.sizeCategory) private var sizeCategory
     var body: some View {
-        Text("Fixture observation")
-            .font(.system(size: 9))
-            .environment(\.sizeCategory, .large)
-            .frame(maxWidth: .infinity, minHeight: 22)
-            .background(Color(.systemBackground))
-            .accessibilityIdentifier("p2-state")
-            .accessibilityValue(model.state(locale: locale, direction: direction, sizeCategory: sizeCategory))
+        VStack(spacing: 0) {
+            Text("Fixture observation")
+                .accessibilityIdentifier("p2-state")
+                .accessibilityValue(model.state(locale: locale, direction: direction, sizeCategory: sizeCategory))
+            HStack(spacing: 16) {
+                Text("C").accessibilityIdentifier("p2-outside-first")
+                Text("D").accessibilityIdentifier("p2-outside-last")
+                Button("Capture layout") { model.captureLayout(locale: locale, direction: direction) }
+                    .accessibilityIdentifier("p2-capture-layout")
+                SettingsLayoutReceiptView(store: model.layoutReceipt)
+            }
+        }
+        .font(.system(size: 9))
+        .environment(\.sizeCategory, .large)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .background(Color(.systemBackground))
     }
 }
 
@@ -205,6 +287,7 @@ final class SettingsFixtureWindowDelegate: UIResponder, UIWindowSceneDelegate {
         let context = SceneDelegate() // Exact production declaration supplied by generator.
         context.window = window      // Fixture-owned window attachment, no service stub.
         let model = SettingsFixtureModel()
+        model.window = window
         window.rootViewController = UIHostingController(rootView: SettingsFixtureRoot(model: model, sceneContext: context))
         self.window = window
         self.model = model

@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import UIKit
 
 // ExpectedStrings is independently generated from the pinned catalog and the
 // verified builder commit. No production localization helper is linked here.
@@ -13,6 +14,8 @@ final class SettingsInteractionTests: XCTestCase {
     private var evidenceCase = ""
     private var method = ""
     private var lastStage = "not-started"
+    private var inputReceipts: [[String: Any]] = []
+    private var layoutSnapshots: [[String: Any]] = []
     private var observations: [[String: Any]] = []
     private var failures: [String] = []
     private var completed = false
@@ -50,7 +53,7 @@ final class SettingsInteractionTests: XCTestCase {
     private func begin(_ name: String, _ testMethod: String, largest: Bool = false) throws {
         continueAfterFailure = true
         evidenceCase = name; method = testMethod; lastStage = "launch"
-        observations = []; failures = []; completed = false; reported = false
+        observations = []; inputReceipts = []; layoutSnapshots = []; failures = []; completed = false; reported = false
         bootstrap = [:]; lastPickerTap = [:]; lastPickerBefore = [:]; lastPickerAfter = [:]; lastTriggerTap = [:]
         addTeardownBlock { @MainActor [self] in finish() }
         XCUIDevice.shared.orientation = .portrait
@@ -59,10 +62,12 @@ final class SettingsInteractionTests: XCTestCase {
                     "Language environment overrides are forbidden")
         app.launch()
         try until("Fixture did not become ready") { self.readState() != nil }
+        try captureLayout("initial")
         let beforeBootstrap = try state()
         // Genuine picker bootstrap guarantees that the first tested English
         // selection is a change and writes a real defaults value.
         try chooseLanguage("he")
+        try captureLayout("bootstrap-he")
         bootstrap = ["before": beforeBootstrap, "after": try state(), "pickerTap": lastPickerTap]
     }
     private func readState() -> [String: Any]? {
@@ -131,6 +136,30 @@ final class SettingsInteractionTests: XCTestCase {
             picker.label.contains(self.expected("Language", language))
         }
     }
+    private func clipboardReceipt() -> [String: Any] {
+        // This is the external XCTest runner process, reading the shared count
+        // only. It never reads or writes arbitrary clipboard payloads.
+        ["source": "XCTest-runner UIPasteboard.general.changeCount",
+         "processIdentifier": Int(ProcessInfo.processInfo.processIdentifier),
+         "count": UIPasteboard.general.changeCount,
+         "uptime": ProcessInfo.processInfo.systemUptime]
+    }
+    private func captureLayout(_ stage: String) throws {
+        let before = try state()
+        let button = app.buttons["p2-capture-layout"]
+        try require(button.exists && button.isHittable, "Passive layout capture control unavailable")
+        button.tap()
+        let element = app.staticTexts["p2-layout"]
+        guard let raw = element.value as? String, let data = raw.data(using: .utf8),
+              let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            try require(false, "Missing public UIKit layout snapshot"); return
+        }
+        let after = try state()
+        try require(NSDictionary(dictionary: before).isEqual(to: after), "Passive layout capture changed state")
+        let first = app.staticTexts["p2-outside-first"], last = app.staticTexts["p2-outside-last"]
+        layoutSnapshots.append(["stage": stage, "state": after, "snapshot": snapshot,
+            "outsideFirstFrame": frame(first), "outsideLastFrame": frame(last), "viewport": frame(app)])
+    }
     private func unchangedState(_ before: [String: Any], _ after: [String: Any]) throws {
         for key in ["processToken", "sessionToken", "text", "originalMessage"] {
             try require(Array(string(before, key).utf8) == Array(string(after, key).utf8),
@@ -148,19 +177,28 @@ final class SettingsInteractionTests: XCTestCase {
         lastPickerAfter = try state()
         try unchangedState(lastPickerBefore, lastPickerAfter)
         try checkLocale(language, lastPickerAfter)
+        try captureLayout("selected-" + language)
     }
     private func enterSafeText() throws {
         let input = app.textFields["p2-synthetic-input"]
         try reveal(input)
-        try require((try state())["text"] as? String == "", "Fresh fixture input must start empty")
+        let before = try state()
+        try require(before["text"] as? String == "", "Fresh fixture input must start empty")
         input.tap()
+        let typingBefore = clipboardReceipt()
+        try require(count(typingBefore, "count") == count(before, "clipboardChangeCount"), "App/runner clipboard baseline mismatch")
         input.typeText(safeText)
+        let typingAfter = clipboardReceipt()
         let dismiss = app.buttons["p2-dismiss-input"]
         try until("Fixture keyboard dismiss control missing") { dismiss.exists && dismiss.isHittable }
         dismiss.tap()
         try until("Typed fixture input was not retained or keyboard stayed open") {
             self.readState()?["text"] as? String == self.safeText && self.app.keyboards.count == 0
         }
+        let after = try state()
+        try require(count(after, "clipboardChangeCount") == count(typingAfter, "count"), "Clipboard changed after outer typing")
+        inputReceipts.append(["before": before, "after": after,
+            "typingBefore": typingBefore, "typingAfter": typingAfter, "typedPayload": safeText])
     }
     @discardableResult private func capture(_ stem: String) -> [String] {
         let png = stem + ".png"
@@ -177,7 +215,8 @@ final class SettingsInteractionTests: XCTestCase {
         let result: [String: Any] = ["schema": "p2-settings-interaction-v1",
             "evidenceCase": evidenceCase, "method": method, "completed": completed,
             "failures": failures, "observations": observations, "lastStage": lastStage,
-            "bootstrap": bootstrap, "finalState": readState() ?? [:]]
+            "bootstrap": bootstrap, "inputReceipts": inputReceipts, "layoutSnapshots": layoutSnapshots,
+            "finalState": readState() ?? [:]]
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
             let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
             attachment.name = evidenceCase + ".json"; attachment.lifetime = .keepAlways; add(attachment)
@@ -260,6 +299,7 @@ final class SettingsInteractionTests: XCTestCase {
             try enterSafeText()
             let before = try state()
             try chooseLanguage(language)
+            try captureLayout("selected-" + language)
             try settingsRow(language, phase: "live", before: before, expectedText: safeText, largest: largest)
             let preTermination = try state()
             lastStage = language + "-terminate"
@@ -271,6 +311,7 @@ final class SettingsInteractionTests: XCTestCase {
                         "Relaunch cannot inject system language")
             app.launch()
             try until("App did not relaunch") { self.readState() != nil }
+            try captureLayout("relaunched-" + language)
             try settingsRow(language, phase: "relaunched", before: preTermination, expectedText: "", largest: largest,
                             terminated: terminated)
         }
@@ -362,7 +403,10 @@ final class SettingsInteractionTests: XCTestCase {
                 let before = try state()
                 let alert = try open("p2-open-error")
                 let identifier = language == "he" ? "\u{2066}SS-NATIVE-BANNER\u{2069}" : "SS-NATIVE-BANNER"
-                let message = expected("Some details are unavailable in the selected language.", language)
+                let unavailable = expected("Some details are unavailable in the selected language.", language)
+                // Each of the two nonempty unknown raw lines independently
+                // receives the source-defined fallback; neither line is lost.
+                let message = unavailable + "\n" + unavailable
                     + "\n" + expected("Error ID:", language) + " " + identifier
                 var row = try alertSnapshot(alert, language: language, message: message,
                     actions: [expected("lc.common.ok", language), expected("lc.common.copy", language)])
@@ -420,7 +464,10 @@ final class SettingsInteractionTests: XCTestCase {
                 let inputTap = tapEvidence(input)
                 input.tap()
                 let typedPayload = " added"
+                let typingBefore = clipboardReceipt()
+                try require(count(typingBefore, "count") == count(before, "clipboardChangeCount"), "App/runner modal clipboard baseline mismatch")
                 input.typeText(typedPayload)
+                let typingAfter = clipboardReceipt()
                 let entered = input.value as? String ?? ""
                 try require(!entered.isEmpty && entered.components(separatedBy: typedPayload).count == 2,
                             "Native field must contain exactly one actual typed payload")
@@ -430,9 +477,17 @@ final class SettingsInteractionTests: XCTestCase {
                 let target = alert.buttons[expected(action == "confirm" ? "lc.common.ok" : "lc.common.cancel", language)]
                 let actualTap = tapEvidence(target)
                 try require(target.isHittable, "Text-field action is not hittable")
+                let actionBefore = clipboardReceipt()
+                try require(count(actionBefore, "count") == count(typingAfter, "count"), "Clipboard changed between typing and actual action")
                 target.tap()
+                let tapReturned = clipboardReceipt()
                 try dismissAndDrain()
+                let actionAfter = clipboardReceipt()
                 let after = try state()
+                try require(count(actionBefore, "count") == count(tapReturned, "count") &&
+                            count(tapReturned, "count") == count(actionAfter, "count") &&
+                            count(after, "clipboardChangeCount") == count(actionAfter, "count"),
+                            "Actual text-field action changed clipboard")
                 try checkLocale(language, after)
                 let result = action == "confirm" ? entered : "nil"
                 try require(count(after, "textStarted") == count(before, "textStarted") + 1 &&
@@ -448,6 +503,8 @@ final class SettingsInteractionTests: XCTestCase {
                     "after": after, "expectedResult": result, "actualResult": string(after, "textResult"),
                     "initialText": safeText, "enteredText": entered, "outerTextAfter": string(after, "text"),
                     "typedPayload": typedPayload, "inputTap": inputTap,
+                    "typingBefore": typingBefore, "typingAfter": typingAfter,
+                    "actionBefore": actionBefore, "tapReturned": tapReturned, "actionAfter": actionAfter,
                     "tapTarget": actualTap, "viewport": frame(app), "alertDismissed": app.alerts.count == 0,
                     "drainSeconds": 0.8, "noResurrection": app.alerts.count == 0,
                     "pickerBefore": lastPickerBefore, "pickerAfter": lastPickerAfter, "pickerTap": lastPickerTap,

@@ -17,6 +17,8 @@ ANCHORS=('private final class V3NativeAlertPresentation','extension UIViewContro
 LIMITS=['Standalone exact-component host; no whole LCSettingsView or production root/model lifetime proof',
  'Fixture-owned equivalent locale/direction root and synthetic model/input state; no production auth operations',
  'Actual picker and alert-action taps are sequential; no action tap precisely during language replacement',
+ 'Public UIKit layout snapshots and outside-Form witness are supplemental diagnostics; they cannot override failing Form geometry',
+ 'Driver typing clipboard effects are retained separately; app/runner count agreement is mandatory for actual action intervals',
  'Standalone defaults/bundle fallback; no host capture across guest execution',
  'One simulator and bounded Dynamic Type screenshots; no full-app device matrix, IME or VoiceOver acceptance',
  'No OS-driven scene destruction or arbitrary unmanaged dismissal proof',
@@ -161,10 +163,11 @@ def validate_state(value,allow_missing_default=False):
  require(arguments.count('--largest')==(1 if value['contentSizeCategory']=='accessibilityExtraExtraExtraLarge' else 0),'Actual launch text-size argument differs')
  require(isinstance(environment,dict) and set(environment)<=set(('LANG','LANGUAGE','LC_ALL','LC_MESSAGES'))
   and all(isinstance(x,str) for x in environment.values()),'Unexpected or unsafe actual language environment receipt')
- for key in (*COUNTERS,'clipboardChangeCount'):
+ for key in (*COUNTERS,'clipboardChangeCount','processIdentifier'):
   require(type(value.get(key)) is int and value[key]>=0,'Invalid state count: '+key)
  for key in ('text','originalMessage','confirmOutcome','textOutcome','textResult','clipboardValue'):
   require(isinstance(value.get(key),str),'Invalid state string: '+key)
+ require(value['processIdentifier']>0,'Invalid app process identifier')
  require(OPAQUE_NAME in value['originalMessage'],'Original message lost opaque Unicode')
  require(type(value.get('textPresented')) is bool,'Invalid binding state')
  return value
@@ -178,6 +181,35 @@ def geometry(value,viewport=None):
   require(value['x']>=viewport['x']-0.5 and value['y']>=viewport['y']-0.5
    and value['x']+value['width']<=viewport['x']+viewport['width']+0.5
    and value['y']+value['height']<=viewport['y']+viewport['height']+0.5,'Control extends outside captured viewport')
+ return value
+
+def validate_layout(value,state):
+ import math,uuid
+ require(isinstance(value,dict) and value.get('schema')=='p2-passive-layout-v1','Missing passive layout snapshot')
+ require(value.get('source')=='app-process public UIKit read-only traversal' and value.get('complete') is True,'Incomplete or untrusted layout traversal')
+ for key in ('processToken','sessionToken','language','locale','direction'):
+  require(value.get(key)==state[key],'Layout snapshot differs from state: '+key)
+ require(type(value.get('sequence')) is int and value['sequence']>0,'Invalid layout capture sequence')
+ for key in ('windowIdentity','hostIdentity'):uuid.UUID(value[key])
+ views=value.get('views');require(isinstance(views,list) and 0<len(views)<=2000,'Missing/oversized layout hierarchy')
+ seen=set()
+ for index,row in enumerate(views):
+  require(isinstance(row,dict),'Invalid layout row');uuid.UUID(row['identity'])
+  require(row['identity'] not in seen,'Duplicate layout view identity')
+  require(row.get('parent')=='' if index==0 else row.get('parent') in seen,'Invalid layout parent/order')
+  seen.add(row['identity'])
+  require(isinstance(row.get('class'),str) and 0<len(row['class'])<=256,'Invalid public runtime class')
+  require(isinstance(row.get('identifier'),str) and len(row['identifier'])<=1024,'Invalid view identifier')
+  for key in ('frame','bounds'):
+   rect=row.get(key);require(isinstance(rect,dict) and set(rect)=={'x','y','width','height'},'Invalid public layout rectangle')
+   require(all(type(v) in (int,float) and math.isfinite(v) for v in rect.values()),'Nonfinite public layout rectangle')
+  transform=row.get('transform');require(isinstance(transform,list) and len(transform)==6 and all(type(v) in (int,float) and math.isfinite(v) for v in transform),'Invalid public affine transform')
+  require(type(row.get('semantic')) is int and row['semantic'] in range(5),'Invalid semantic direction')
+  require(type(row.get('effectiveDirection')) is int and row['effectiveDirection'] in (0,1),'Invalid effective direction')
+  require(type(row.get('hidden')) is bool and type(row.get('alpha')) in (int,float) and math.isfinite(row['alpha']),'Invalid visibility observation')
+  if 'collectionLayoutClass' in row or 'collectionLayoutFlips' in row:
+   require(isinstance(row.get('collectionLayoutClass'),str) and type(row.get('collectionLayoutFlips')) is bool,'Invalid collection-layout observation')
+ require(views[0]['identity']==value['windowIdentity'],'Window hierarchy identity mismatch')
  return value
 
 def verify_observations(directory,catalog,builder_commit=None):
@@ -221,7 +253,7 @@ def verify_observations(directory,catalog,builder_commit=None):
   require(text('Language',before_language) in picks['picker']['label'],'Picker tap label was not localized')
   tap(picks.get('selection'),viewport,label=NATIVE_NAMES[language])
  def retained_state(before,after):
-  for key in ('processToken','sessionToken','text','originalMessage',*COUNTERS,'clipboardValue','clipboardChangeCount','confirmOutcome','textOutcome','textResult','textPresented','processArguments','languageEnvironment'):
+  for key in ('processToken','sessionToken','text','originalMessage',*COUNTERS,'clipboardValue','clipboardChangeCount','confirmOutcome','textOutcome','textResult','textPresented','processArguments','languageEnvironment','processIdentifier'):
    require(before[key]==after[key],'Picker changed retained state: '+key)
  result={};used=[];report_paths=set()
  for case,method in CASES.items():
@@ -241,6 +273,34 @@ def verify_observations(directory,catalog,builder_commit=None):
   require(all(start[key]==0 for key in COUNTERS) and start['text']=='' and not start['textPresented'],'Bootstrap did not start fresh fixture state')
   matching_message(start['originalMessage'],start['language']);retained_state(start,boot)
   picker(bootstrap.get('pickerTap'),'he',geometry(rows[0].get('viewport')),start['language'])
+  inputs=data.get('inputReceipts');require(isinstance(inputs,list) and len(inputs)==(4 if settings else (1 if case=='textfield-buttons' else 0)),'Missing/extra actual input receipts')
+  input_index=0;runner_pid=None
+  def clipboard_receipt(value,app_state):
+   nonlocal runner_pid
+   import math
+   require(isinstance(value,dict) and set(value)=={'source','processIdentifier','count','uptime'},'Malformed clipboard-count receipt')
+   require(value['source']=='XCTest-runner UIPasteboard.general.changeCount','Wrong clipboard count source')
+   require(type(value['processIdentifier']) is int and value['processIdentifier']>0 and value['processIdentifier']!=app_state['processIdentifier'],'Clipboard count is not from external runner')
+   if runner_pid is None:runner_pid=value['processIdentifier']
+   require(value['processIdentifier']==runner_pid,'Clipboard runner identity changed')
+   require(type(value['count']) is int and value['count']>=0,'Invalid clipboard count')
+   require(type(value['uptime']) in (int,float) and math.isfinite(value['uptime']) and value['uptime']>=0,'Invalid clipboard receipt time')
+   return value
+  def typing_receipts(before,after,app_state):
+   first=clipboard_receipt(before,app_state);last=clipboard_receipt(after,app_state)
+   require(first['count']==app_state['clipboardChangeCount'],'App/runner clipboard baseline mismatch')
+   require(first['uptime']<=last['uptime'] and first['count']<=last['count'],'Unordered typing receipts')
+   return first,last
+  def entered_input(previous):
+   nonlocal input_index
+   item=inputs[input_index];input_index+=1
+   require(isinstance(item,dict) and item.get('typedPayload')==SAFE_TEXT,'Missing actual outer input payload')
+   before=validate_state(item.get('before'));after=validate_state(item.get('after'))
+   require(before==previous and before['text']=='','Input receipt predecessor mismatch')
+   first,last=typing_receipts(item.get('typingBefore'),item.get('typingAfter'),before)
+   require(after['clipboardChangeCount']==last['count'],'Clipboard changed after outer driver typing')
+   require(after==dict(before,text=SAFE_TEXT,clipboardChangeCount=last['count'],clipboardValue=after['clipboardValue']),'Outer input changed unrelated state')
+   return after
   previous=boot;previous_pick=None;records=[]
   for row in rows:
    language=row['language'];value=row[axis];require(row.get('verified') is True,'Unverified interaction')
@@ -278,7 +338,7 @@ def verify_observations(directory,catalog,builder_commit=None):
     require(isinstance(row.get('pickerLabel'),str) and text('Language',language) in row['pickerLabel'],'Picker label is not localized')
     require(isinstance(row.get('pickerValue'),str),'Missing selected picker value')
     if value=='live':
-     expected_before=dict(previous,text=SAFE_TEXT)
+     expected_before=entered_input(previous)
      require(before==expected_before,'Live switch predecessor is not prior retained process plus actual input')
      picker(row.get('pickerTap'),language,viewport,before['language']);previous_pick=row['pickerTap']
     else:
@@ -291,14 +351,14 @@ def verify_observations(directory,catalog,builder_commit=None):
     retained_state(pick_before,pick_after);picker(row.get('pickerTap'),language,viewport,pick_before['language'])
     if value==values[0]:
      expected_pick_before=dict(previous)
-     if case=='textfield-buttons' and language=='en':expected_pick_before['text']=SAFE_TEXT
+     if case=='textfield-buttons' and language=='en':expected_pick_before=entered_input(previous)
      require(pick_before==expected_pick_before and before==pick_after,'Action picker is not bound to immediate predecessor')
      previous_pick=(pick_before,pick_after,row['pickerTap'])
     else:
      require((pick_before,pick_after,row['pickerTap'])==previous_pick and before==previous,'Action duplicated or changed picker/predecessor evidence')
     trigger={'confirmation-buttons':'p2-open-confirmation','error-buttons':'p2-open-error','textfield-buttons':'p2-open-textfield'}[case]
     tap(row.get('triggerTap'),viewport,identifier=trigger)
-    require(before['language']==language and before['processToken']==after['processToken'] and before['sessionToken']==after['sessionToken'],'Action replaced process/model or language')
+    require(before['language']==language and before['processToken']==after['processToken'] and before['sessionToken']==after['sessionToken'] and before['processIdentifier']==after['processIdentifier'],'Action replaced process/model or language')
     require(before['originalMessage']==after['originalMessage'],'Action rewrote original message')
     require(before['processArguments']==after['processArguments'] and before['languageEnvironment']==after['languageEnvironment'],'Action changed actual process launch receipt')
     require(before['text']==after['text'],'Action unexpectedly changed outer input binding')
@@ -311,7 +371,7 @@ def verify_observations(directory,catalog,builder_commit=None):
     require(isinstance(all_labels,list) and all(isinstance(x,str) for x in all_labels),'Missing raw alert button inventory')
     require(sorted([x for x in all_labels if x in expected_actions] if case=='textfield-buttons' else all_labels)==sorted(expected_actions),'Unexpected raw action button inventory')
     require(after['textPresented'] is False,'Action left presentation binding open')
-    if case!='error-buttons':require(before['clipboardValue']==after['clipboardValue'],'Noncopy action changed clipboard bytes')
+    if case=='confirmation-buttons':require(before['clipboardValue']==after['clipboardValue'],'Confirmation action changed clipboard bytes')
     for key in (('textOutcome','textResult') if case=='confirmation-buttons' else ('confirmOutcome',)):
      require(before[key]==after[key],'Action changed unrelated callback result')
     action_key='lc.common.copy' if value=='copy' else ('lc.common.cancel' if value=='cancel' else 'lc.common.ok')
@@ -324,7 +384,7 @@ def verify_observations(directory,catalog,builder_commit=None):
      for key in ('errorStarted','textStarted','textCompleted','clipboardChangeCount'):delta(key,0)
     elif case=='error-buttons':
      identifier='\u2066SS-NATIVE-BANNER\u2069' if language=='he' else 'SS-NATIVE-BANNER'
-     require(row.get('displayedMessage')==text('Some details are unavailable in the selected language.',language)+'\n'+text('Error ID:',language)+' '+identifier,'Wrong localized unknown-error explanation/ID')
+     require(row.get('displayedMessage')=='\n'.join([text('Some details are unavailable in the selected language.',language)]*2)+'\n'+text('Error ID:',language)+' '+identifier,'Wrong localized unknown-error explanation/ID')
      require(row.get('expectedResult')==row.get('actualResult')=='dismissed','Wrong error dismissal result')
      expected=RAW_ERROR+'\nError ID: SS-NATIVE-BANNER\nbuilder_commit='+builder_commit if value=='copy' else before['clipboardValue']
      require(row.get('expectedClipboard')==after['clipboardValue']==expected,'Wrong copied original diagnostic bytes')
@@ -343,7 +403,11 @@ def verify_observations(directory,catalog,builder_commit=None):
      require(row.get('initialText')==row.get('outerTextAfter')==before['text']==after['text']==SAFE_TEXT,'Wrong production input binding')
      require(after['textOutcome']==value and before['textPresented'] is False and after['textPresented'] is False,'Text-field binding did not close with expected outcome')
      delta('textStarted',1);delta('textCompleted',1)
-     for key in ('confirmStarted','confirmCompleted','errorStarted','clipboardChangeCount'):delta(key,0)
+     for key in ('confirmStarted','confirmCompleted','errorStarted'):delta(key,0)
+     typing_before,typing_after=typing_receipts(row.get('typingBefore'),row.get('typingAfter'),before)
+     action_before=clipboard_receipt(row.get('actionBefore'),before);tap_returned=clipboard_receipt(row.get('tapReturned'),before);action_after=clipboard_receipt(row.get('actionAfter'),before)
+     require(typing_after['uptime']<=action_before['uptime']<=tap_returned['uptime']<=action_after['uptime'],'Action count receipts are out of order')
+     require(typing_after['count']==action_before['count']==tap_returned['count']==action_after['count']==after['clipboardChangeCount'],'Clipboard changed after typing or during actual action')
     expected_attachments=[stem+'-before.png',stem+'-before.txt',stem+'-after.png',stem+'-after.txt']
    require(row.get('attachments')==expected_attachments,'Missing, extra or misplaced screenshot/AX evidence')
    retained=[]
@@ -356,8 +420,26 @@ def verify_observations(directory,catalog,builder_commit=None):
     retained.append({'name':name,'filename':attachment.name,'sha256':sha(attachment)})
    previous=after
    records.append({'language':language,axis:value,'attachments':retained,'observation':row})
+  require(input_index==len(inputs),'Unused input receipt')
+  snapshots=data.get('layoutSnapshots');stages=['initial','bootstrap-he']
+  expected_states=[start,boot]
+  if settings:
+   for row in rows:
+    stages.append(('selected-' if row['phase']=='live' else 'relaunched-')+row['language']);expected_states.append(row['after'])
+  else:
+   for row in rows[::2]:stages.append('selected-'+row['language']);expected_states.append(row['pickerAfter'])
+  require(isinstance(snapshots,list) and [item.get('stage') for item in snapshots]==stages,'Missing, extra or unordered layout diagnostic snapshots')
+  identities={}
+  for item,expected_state in zip(snapshots,expected_states):
+   require(item.get('state')==expected_state,'Layout diagnostic is not tied to exact captured state')
+   snapshot=validate_layout(item.get('snapshot'),expected_state)
+   viewport=geometry(item.get('viewport'));geometry(item.get('outsideFirstFrame'),viewport);geometry(item.get('outsideLastFrame'),viewport)
+   process=snapshot['processToken'];prior=identities.get(process)
+   if prior is None:require(snapshot['sequence']==1,'First process capture sequence is not one')
+   else:require(snapshot['sequence']==prior['sequence']+1 and all(snapshot[key]==prior[key] for key in ('sessionToken','windowIdentity','hostIdentity')),'Capture replaced host/window or lost ordering')
+   identities[process]=snapshot
   require(validate_state(data.get('finalState'))==previous,'Final settled state differs from last observation')
-  result[case]={'method':method,'filename':path.name,'sha256':sha(path),'observations':records}
+  result[case]={'method':method,'filename':path.name,'sha256':sha(path),'observations':records,'inputReceipts':inputs,'layoutSnapshots':snapshots}
  # Reject extra report payloads even when they use an unexpected attachment name.
  for association,meta,path in attachments:
   if path.suffix=='.json':
