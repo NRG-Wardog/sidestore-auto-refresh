@@ -457,6 +457,62 @@ for modern in [false, true] {
 
 
 class CombinedWorkflowTests(unittest.TestCase):
+    def test_release_installs_and_selects_exact_rust_before_format_gate(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        release = workflow.split('  source-and-host-build:\n', 1)[1]
+        self.assertIn('      RUSTUP_TOOLCHAIN: "1.98.1"\n', release.split('    steps:', 1)[0])
+        self.assertEqual(workflow.count('RUSTUP_TOOLCHAIN:'), 1)
+        title = '- name: Install pinned Rust toolchain before transport prerequisites\n'
+        self.assertLess(workflow.index(title), workflow.index(
+            '- name: Verify pinned transport format prerequisites before layout\n'))
+        block = release.split(title, 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('shell: bash', block)
+        self.assertNotIn('continue-on-error', block)
+        shell = block.split('        run: |\n', 1)[1].replace('          ', '')
+        for code in (0, 23):
+            for custom_home in (False, True):
+                with self.subTest(install_exit=code, custom_home=custom_home), \
+                        tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    env = dict(os.environ, RUSTUP_TOOLCHAIN='1.98.1', INSTALL_EXIT=str(code),
+                               HOME=str(root / 'home'), GITHUB_PATH=str(root / 'github-path'))
+                    env.pop('CARGO_HOME', None)
+                    if custom_home:
+                        env['CARGO_HOME'] = str(root / 'custom-cargo')
+                    stubs = '''rustup() { printf '%s\\n' "$*" > install-args; return "$INSTALL_EXIT"; }
+'''
+                    result = subprocess.run(['bash', '-c', stubs + shell + '\ntouch install-finished\n'],
+                        cwd=root, env=env, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    self.assertEqual((root / 'install-args').read_text().strip(),
+                                     'toolchain install 1.98.1 --profile minimal --component rustfmt')
+                    self.assertEqual((root / 'install-finished').exists(), code == 0)
+                    self.assertEqual((root / 'github-path').exists(), code == 0)
+                    if code == 0:
+                        expected = root / ('custom-cargo' if custom_home else 'home/.cargo') / 'bin'
+                        self.assertEqual((root / 'github-path').read_text().strip(), str(expected))
+
+    def test_later_build_tools_keep_release_rust_and_target_selection(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        block = workflow.split('- name: Install build tools\n', 1)[1].split('\n      - name:', 1)[0]
+        shell = block.split('        run: |\n', 1)[1].replace('          ', '')
+        stubs = '''ldid() { :; }
+bindgen() { echo 'bindgen stale-runner-version'; }
+cargo() { printf '%s|%s\\n' "$RUSTUP_TOOLCHAIN" "$*" >> tool-calls; }
+rustup() { printf '%s|%s\\n' "$RUSTUP_TOOLCHAIN" "$*" >> tool-calls; }
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            result = subprocess.run(['bash', '-c', stubs + shell], cwd=temporary,
+                env=dict(os.environ, RUSTUP_TOOLCHAIN='1.98.1'), capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(Path(temporary, 'tool-calls').read_text().splitlines(), [
+                '1.98.1|install --locked --force bindgen-cli --version 0.72.1',
+                '1.98.1|target add --toolchain 1.98.1 aarch64-apple-ios',
+            ])
+        # No later command may silently replace the release-job toolchain selection.
+        later = workflow.split('- name: Install build tools\n', 1)[1]
+        self.assertNotRegex(later, r'(?:rustup (?:default|override|update)|RUSTUP_TOOLCHAIN\s*=|cargo \+)')
+
     def test_exact_format_prerequisites_gate_layout_once_and_preserve_proof(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
         title = '- name: Verify pinned transport format prerequisites before layout\n'
@@ -472,18 +528,22 @@ class CombinedWorkflowTests(unittest.TestCase):
         self.assertIn('maintained_sources.py verify', later)
         self.assertNotIn('cargo fmt', later)
         shell = block[block.index('          {'):].replace('          ', '')
-        for code in (0, 7):
-            with self.subTest(format_exit=code), tempfile.TemporaryDirectory() as temporary:
+        for drift, code in (('', 0), ('', 7), ('rustc', 1), ('cargo', 1), ('rustfmt', 1)):
+            with self.subTest(version_drift=drift, format_exit=code), tempfile.TemporaryDirectory() as temporary:
                 Path(temporary, 'artifacts/logs').mkdir(parents=True)
                 stubs = '''set -euo pipefail
-rustc() { echo 'rustc 1.98.1 (48a229cea 2026-09-01)'; }
-rustfmt() { echo 'rustfmt 1.9.0-stable (48a229ceae 2026-09-01)'; }
-cargo() { if [[ "$1" == --version ]]; then echo 'cargo 1.98.1 (797e8a9bc 2026-08-05)'; else return "$FORMAT_EXIT"; fi; }
+rustc() { if [[ "$DRIFT_TOOL" == rustc ]]; then echo 'rustc 1.99.0 (runner drift)'; else echo 'rustc 1.98.1 (48a229cea 2026-09-01)'; fi; }
+rustfmt() { if [[ "$DRIFT_TOOL" == rustfmt ]]; then echo 'rustfmt 1.10.0-stable (runner drift)'; else echo 'rustfmt 1.9.0-stable (48a229ceae 2026-09-01)'; fi; }
+cargo() { if [[ "$1" == --version ]]; then
+    if [[ "$DRIFT_TOOL" == cargo ]]; then echo 'cargo 1.99.0 (runner drift)'; else echo 'cargo 1.98.1 (797e8a9bc 2026-08-05)'; fi
+    else touch format-started; return "$FORMAT_EXIT"; fi; }
 '''
                 result = subprocess.run(['bash', '-c', stubs + shell + '\ntouch layout-started\n'],
-                    cwd=temporary, env=dict(os.environ, FORMAT_EXIT=str(code)), capture_output=True, text=True)
+                    cwd=temporary, env=dict(os.environ, FORMAT_EXIT=str(code), DRIFT_TOOL=drift),
+                    capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, code)
                 self.assertEqual(Path(temporary, 'layout-started').exists(), code == 0)
+                self.assertEqual(Path(temporary, 'format-started').exists(), not drift)
                 self.assertTrue(Path(temporary, 'artifacts/logs/transport-format-prerequisites.log').is_file())
 
     def test_matching_rust_reader_failure_blocks_framework_staging(self):

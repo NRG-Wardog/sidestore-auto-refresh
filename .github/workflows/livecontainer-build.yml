@@ -167,6 +167,9 @@ jobs:
   source-and-host-build:
     needs: select-lane
     if: needs.select-lane.outputs.lane == 'release'
+    env:
+      # Keep formatting, build tools, targets and native builds on the reviewed toolchain.
+      RUSTUP_TOOLCHAIN: "1.98.1"
     # Restore the original ARM64 runner after the controlled preflight passed.
     # All source/native/layout/package/upload verification gates remain required.
     runs-on: macos-26
@@ -229,6 +232,14 @@ jobs:
           git -C work/LegacySideStore submodule update --init --recursive
           python3 builder/scripts/verify_pinned_sources.py --live work/LegacyLiveContainer --side work/LegacySideStore \
             > artifacts/logs/historical-fixture-identity.json
+
+      - name: Install pinned Rust toolchain before transport prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt
+          # Prefer rustup proxies over any runner-provided unpinned binaries.
+          echo "${CARGO_HOME:-$HOME/.cargo}/bin" >> "$GITHUB_PATH"
 
       - name: Verify pinned transport format prerequisites before layout
         shell: bash
@@ -408,7 +419,7 @@ jobs:
           set -euo pipefail
           if ! command -v ldid >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install ldid; fi
           if ! command -v bindgen >/dev/null 2>&1 || [ "$(bindgen --version)" != "bindgen 0.72.1" ]; then cargo install --locked --force bindgen-cli --version 0.72.1; fi
-          rustup target add aarch64-apple-ios
+          rustup target add --toolchain "$RUSTUP_TOOLCHAIN" aarch64-apple-ios
 
       - name: Verify maintained CoreDevice transport sources
         run: |
