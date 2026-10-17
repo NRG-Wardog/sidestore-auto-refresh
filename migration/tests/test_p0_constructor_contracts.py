@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2];STAGE=ROOT/'migration/p0-constructor-diagnostics-v1';PRIOR=ROOT/'migration/p0-native-basis-v1'
 spec=importlib.util.spec_from_file_location('constructor_contract_gate',STAGE/'validate_contracts.py');gate=importlib.util.module_from_spec(spec);spec.loader.exec_module(gate)
 def sha(raw):return hashlib.sha256(raw).hexdigest()
@@ -51,7 +52,7 @@ class ConstructorMetadataTests(unittest.TestCase):
         self.assertIn('Native/Loader/vm_initialization_diagnostics.h',[item['path']for item in manifest['files']])
 class ConstructorSyntheticGraphTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name).resolve()
         self.reg=read(STAGE/'compatibility-registry.json');self.ev=read(STAGE/self.reg['evidence']['path']);self.manifests={};self.roots={}
         for owner,pin in self.reg['owners'].items():
             m=read(STAGE/pin['manifest_path']);self.roots[owner]=str(self.root/'sources'/owner)
@@ -66,6 +67,17 @@ class ConstructorSyntheticGraphTests(unittest.TestCase):
     def check(self):return gate.validate(self.path,self.anchor,self.roots)
     def test_exact_synthetic_graph(self):
         result=self.check();self.assertEqual((result['source_files'],result['contracts'],result['edges']),(95,13,29))
+    def test_linked_temporary_ancestor_is_canonicalized_but_linked_source_is_rejected(self):
+        # Model macOS /var -> /private/var using a bounded, test-owned link.
+        linked_tmp=self.root/'linked-tmp';linked_tmp.symlink_to(self.root,target_is_directory=True)
+        fixture=ConstructorSyntheticGraphTests('test_exact_synthetic_graph');self.addCleanup(fixture.doCleanups)
+        with patch.object(tempfile,'tempdir',str(linked_tmp)):fixture.setUp()
+        self.assertNotEqual(Path(fixture.tmp.name),fixture.root)
+        self.assertEqual(fixture.root,Path(fixture.tmp.name).resolve())
+        fixture.test_exact_synthetic_graph()
+        linked_source=fixture.root/'linked-source';linked_source.symlink_to(fixture.roots['AnisetteKit'],target_is_directory=True)
+        fixture.roots['AnisetteKit']=str(linked_source)
+        with self.assertRaises(OSError):fixture.check()
     def test_missing_constructor_provider_rejected(self):
         m=self.manifests['SideStore'];m['provides']=[v for v in m['provides']if v['contract']!='constructor-diagnostics'];self.seal_test_fixture()
         with self.assertRaises(gate.ContractError):self.check()

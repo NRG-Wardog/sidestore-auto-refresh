@@ -121,7 +121,7 @@ class ArtifactIntegrityTests(unittest.TestCase):
 
 class CandidateFixture(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name).resolve()
         self.a=MemoryArtifact(123);self.b=MemoryArtifact(456);self.runner=self.root/'runner'
         _,self.prior,_=f.p0.approval(ROOT);self.old_inventory=f.load(ROOT/f.p0.DIRECTORY/'source-inventory.json')
         self.final=c('final SideStore lock-only');self.repos={n:self.root/n for n in f.admission.CHANGED_OWNERS}
@@ -252,6 +252,15 @@ class FinalizationEvidenceTests(CandidateFixture):
         files,review,summary=self.build();out=self.root/'candidate';f.write_candidate(out,files,review,summary)
         for n,data in files.items():self.assertEqual((out/'metadata'/n).read_bytes(),data)
         with self.assertRaises(ValueError):f.write_candidate(out,files,review,summary)
+    def test_linked_temporary_ancestor_is_canonicalized_but_linked_output_is_rejected(self):
+        # Canonicalize only our fixture root; attacker-supplied paths stay linked.
+        linked_tmp=self.root/'linked-tmp';linked_tmp.symlink_to(self.root,target_is_directory=True)
+        fixture=FinalizationEvidenceTests('test_candidate_write_is_fresh_and_exact');self.addCleanup(fixture.doCleanups)
+        with patch.object(tempfile,'tempdir',str(linked_tmp)):fixture.setUp()
+        self.assertNotEqual(Path(fixture.tmp.name),fixture.root)
+        self.assertEqual(fixture.root,Path(fixture.tmp.name).resolve())
+        fixture.test_candidate_write_is_fresh_and_exact()
+        fixture.test_output_inside_builder_or_linked_parent_rejected()
     def test_unapproved_input_bytes_rejected(self):
         with self.assertRaises(ValueError):f.verify_phase2(self.b,self.runner,self.approved+b'\n',self.approved_sha)
     def test_input_hash_cannot_substitute_artifact_inputs(self):
