@@ -1,11 +1,13 @@
 {
   "adapterFiles": {
     "HostSettingsProbeTests.swift.in": "2ae360ae4e04e1334e23aabafa5205f8eb771a3ac2969f78f0365ae6d9ae54f8",
-    "README.md": "d66a0d3ca936f33ca66f7c56ab95fa4dcab1ac761c1e356f884d578600dcdef8",
+    "README.md": "5b2859ed6e5e19847d05b896d4041047f4ce369558bf107ed2eca9494f6b4822",
+    "install_contract.py": "b2fcf4494444eb908f7a58a3b25a55dfc8d0c73becb9d1be6a121fd342b210ac",
     "project/HostSettingsProbe.xcscheme": "14d744762a541d81f0c3fadb1d5e2bf26ab0d929e566b2063df4736be5f3167b",
     "project/project.pbxproj": "38203612a40f07974fba401da08d652da430d92d48fc312727c2612bb610efe3",
-    "run.py": "199cdbb52f414bb0363fa8bc0b241a900ee6275926bc079b821f4c8e1a7e493e",
-    "test_probe.py": "aecea02a2f26013847c4d32e2ac719b8398e5e5c0aa53db23f2803710299ca10"
+    "run.py": "72dd4074ea9e03c09ec967f2b8e5841af521402af884c37d5fe5aca3eded547e",
+    "test_install_contract.py": "b9e83d3147db8296b08161da3577cba91353122926cd9c2829c992288fffcdd5",
+    "test_probe.py": "28a182fa692a70f81d7e99a36b602852a6c5a80662ac4c75b8a3c1dec7f2dab8"
   },
   "builderParent": "4fe6738d3223fe632e179642d52d429866b052d1",
   "configuration": "Release",

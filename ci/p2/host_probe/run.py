@@ -18,6 +18,7 @@ import platform
 import plistlib
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -25,6 +26,9 @@ import zipfile
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
+INSTALL_SPEC = importlib.util.spec_from_file_location('p2_install_contract', HERE / 'install_contract.py')
+INSTALL_CONTRACT = importlib.util.module_from_spec(INSTALL_SPEC)
+INSTALL_SPEC.loader.exec_module(INSTALL_CONTRACT)
 SOURCE = 'eb10cedb772bc0496d67edd7a269679e24826b9f'
 TREE = 'd6960a99a2f022a333c364fa4d28e264568a28ca'
 BUILDER_PARENT = '4fe6738d3223fe632e179642d52d429866b052d1'
@@ -218,7 +222,8 @@ def verify_inputs(host, approved):
             (1, SOURCE, TREE, SOURCE_URL, BUILDER_PARENT, PROJECT, SCHEME, CONFIGURATION, TEST_ID), 'Probe identity drift')
     require(data['dependencies'] == DEPENDENCIES, 'Unreviewed dependency pins')
     expected = {'run.py', 'test_probe.py', 'HostSettingsProbeTests.swift.in',
-                'project/project.pbxproj', 'project/HostSettingsProbe.xcscheme', 'README.md'}
+                'project/project.pbxproj', 'project/HostSettingsProbe.xcscheme', 'README.md',
+                'install_contract.py', 'test_install_contract.py'}
     require(set(data['adapterFiles']) == expected, 'Unexpected probe adapter inventory')
     for name, digest in data['adapterFiles'].items():
         safe_relative(name)
@@ -270,9 +275,12 @@ def bundle_inventory(root, *, strict=True):
         if path.is_symlink():
             if strict:
                 require(path.resolve().is_relative_to(root), 'Bundle link escapes root: ' + relative)
-            rows[relative] = {'link': os.readlink(path)}
+            raw = os.readlink(os.fsencode(path))
+            rows[relative] = {'type': 'symlink', 'mode': stat.S_IMODE(path.lstat().st_mode),
+                              'link': os.fsdecode(raw), 'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
         elif path.is_file():
-            rows[relative] = {'sha256': sha(path), 'bytes': path.stat().st_size,
+            rows[relative] = {'type': 'regular', 'mode': stat.S_IMODE(path.lstat().st_mode),
+                              'sha256': sha(path), 'bytes': path.stat().st_size,
                               'executable': bool(path.stat().st_mode & 0o111)}
         else:
             if not path.is_dir():
@@ -300,13 +308,15 @@ def archive_bundle(root, destination):
             if path.is_symlink():
                 raw = os.readlink(os.fsencode(path))
                 archive.writestr(info, raw)
-                captured[relative] = {'link': os.fsdecode(raw)}
+                captured[relative] = {'type': 'symlink', 'mode': stat.S_IMODE(info.external_attr >> 16),
+                                      'link': os.fsdecode(raw), 'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
             elif path.is_file():
                 digest = hashlib.sha256(); size = 0
                 with path.open('rb') as source, archive.open(info, 'w') as target:
                     for chunk in iter(lambda: source.read(1024 * 1024), b''):
                         target.write(chunk); digest.update(chunk); size += len(chunk)
-                captured[relative] = {'sha256': digest.hexdigest(), 'bytes': size,
+                captured[relative] = {'type': 'regular', 'mode': stat.S_IMODE(info.external_attr >> 16),
+                                      'sha256': digest.hexdigest(), 'bytes': size,
                                       'executable': bool((info.external_attr >> 16) & 0o111)}
             else:
                 require(path.is_dir(), 'Unsupported installed entry during archive: ' + relative)
@@ -581,6 +591,7 @@ class Probe:
         self.app = None
         self.installed = None
         self.identity = None
+        self.installed_baseline = None
         self.before = None
         self.dependencies_ready = False
         self.report = {'status': 'BLOCKED', 'stage': self.stage, 'sourceCommit': SOURCE, 'sourceTree': TREE,
@@ -651,11 +662,14 @@ class Probe:
         write(self.evidence / 'preflight-expected.json', expected)
         paths = ['ci/p2/host_probe/inputs.json', '.github/workflows/p2-host-settings-probe.yml',
                  *['ci/p2/host_probe/' + name for name in ['run.py', 'test_probe.py', 'README.md',
-                    'HostSettingsProbeTests.swift.in', 'project/project.pbxproj', 'project/HostSettingsProbe.xcscheme']],
+                    'HostSettingsProbeTests.swift.in', 'project/project.pbxproj', 'project/HostSettingsProbe.xcscheme',
+                    'install_contract.py', 'test_install_contract.py']],
                  'scripts/p2_localization_contract.py', 'scripts/p2_permission_contract.py',
                  'ci/p2/preflight.py', 'tests/fixtures/p2_localization_contracts/compiled-translations.json']
         for name in paths:
-            target = self.evidence / 'preflight-inputs' / name
+            # Retain the fixed workflow under a visible name: artifact upload omits dot directories.
+            retained_name = 'workflow/p2-host-settings-probe.yml' if name == '.github/workflows/p2-host-settings-probe.yml' else name
+            target = self.evidence / 'preflight-inputs' / retained_name
             target.parent.mkdir(parents=True, exist_ok=True)
             self.retain_try('preflight input ' + name, lambda name=name, target=target: shutil.copyfile(ROOT / name, target))
         self.checkout_diagnostics(self.host, 'source-observed-before-verification',
@@ -681,7 +695,7 @@ class Probe:
     def installed_identity_gate(self, settings, label, message):
         # Persist raw operands before schema, containment or equality assertions.
         # A diagnostic inventory never authorizes launch; verify_product and
-        # the original exact equality remain mandatory below.
+        # the parsed, exact-content installation contract remain mandatory below.
         inventory = bundle_inventory(self.installed, strict=False)
         write(self.evidence / ('provenance/installed-' + label + '-inventory.json'),
               {'path': str(self.installed), 'files': inventory})
@@ -695,8 +709,43 @@ class Probe:
         write(self.evidence / ('provenance/installed-' + label + '-observation-stability.json'),
               inventory_difference(inventory, actual['files']))
         require(inventory == actual['files'], 'Installed bundle changed during identity observation')
-        require(actual['files'] == self.identity['files'], message)
+        try:
+            contract = INSTALL_CONTRACT.verify_installation_identity(
+                self.app, self.installed, self.identity['files'], actual['files'])
+        except Exception as error:
+            write(self.evidence / ('provenance/installed-' + label + '-contract.json'),
+                  {'status': 'rejected', 'error': type(error).__name__ + ': ' + str(error)})
+            raise ValueError(message + ': ' + str(error)) from error
+        write(self.evidence / ('provenance/installed-' + label + '-contract.json'), contract)
+        if self.installed_baseline is None:
+            self.installed_baseline = actual['files']
+        else:
+            write(self.evidence / ('provenance/installed-' + label + '-baseline-diff.json'),
+                  inventory_difference(self.installed_baseline, actual['files']))
+            require(actual['files'] == self.installed_baseline, 'Installed identity changed after initial accepted observation')
         return actual
+
+    def installed_signature_gate(self, settings, label):
+        # Verify the real installed bundle and each exact embedded library. No
+        # chmod, re-signing, source substitution, or availability fallback.
+        receipt = {'status': 'blocked', 'scope': 'installed bundle and seven exact embedded libraries',
+                   'objects': [], 'label': label}
+        try:
+            before = self.installed_identity_gate(settings, label + '-presignature', 'Installed identity differs before signature verification')
+            for relative in (None, *sorted(INSTALL_CONTRACT.ALLOWED_DYLIB_PATHS)):
+                target = self.installed if relative is None else self.installed / relative
+                self.command('codesign', '--verify', '--deep', '--strict', target)
+                receipt['objects'].append({'path': '.' if relative is None else relative, 'command': self.number, 'verified': True})
+            after = self.installed_identity_gate(settings, label + '-postsignature', 'Installed identity differs after signature verification')
+            write(self.evidence / ('provenance/installed-' + label + '-signature-stability.json'),
+                  inventory_difference(before['files'], after['files']))
+            require(before == after, 'Installed identity changed during signature verification')
+            receipt['status'] = 'verified'
+        except Exception as error:
+            receipt['error'] = type(error).__name__ + ': ' + str(error)
+            raise
+        finally:
+            write(self.evidence / ('provenance/installed-' + label + '-signatures.json'), receipt)
 
     def retain_installed_bundle(self):
         # Only the exact app path returned by this run's simctl acquisition.
@@ -790,7 +839,8 @@ class Probe:
         require(BUNDLE_ID not in installed_before, 'App already exists on supposedly fresh simulator')
         self.command('xcrun', 'simctl', 'install', self.device, self.app)
         self.installed = Path(self.command('xcrun', 'simctl', 'get_app_container', self.device, BUNDLE_ID, 'app'))
-        self.installed_identity_gate(settings, 'initial', 'Installed product bytes differ from exact build')
+        self.installed_identity_gate(settings, 'initial', 'Installed product violates exact-content installation contract')
+        self.installed_signature_gate(settings, 'initial')
         self.stage = 'external-runner-generation'
         catalog = strict_json((self.host / 'Resources/Localizable.xcstrings').read_text())
         runner = prepare_runner(self.work / 'runner', self.identity, self.report['builderCommit'], catalog)
@@ -811,6 +861,7 @@ class Probe:
         write(self.evidence / 'runner-wiring.json', {**wiring, 'xctestrunSHA256': before_xctestrun})
         self.command('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', wiring['runnerPath'], self.evidence / 'external-runner.app.zip')
         self.installed_identity_gate(settings, 'prelaunch', 'Installed identity changed before launch')
+        self.installed_signature_gate(settings, 'prelaunch')
         self.stage = 'actual-host-settings-navigation'
         self.report['nativeExecution'] = True
         self.command('xcodebuild', 'test-without-building', '-xctestrun', xctestrun,
@@ -830,6 +881,7 @@ class Probe:
         write(self.evidence / 'selected-language-evidence.json', observations)
         self.stage = 'final-installed-identity'
         self.installed_identity_gate(settings, 'postnavigation', 'Installed identity changed after navigation')
+        self.installed_signature_gate(settings, 'postnavigation')
         self.report['status'] = 'FEASIBLE_SETTINGS_PICKER'
         self.report['stage'] = 'bounded-settings-round-trip-observed'
 

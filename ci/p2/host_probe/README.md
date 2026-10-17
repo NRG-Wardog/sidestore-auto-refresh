@@ -1,12 +1,21 @@
 # Unchanged real-host Settings feasibility probe
 
-Status: run `39053484315` on builder `5daba20d` compiled the unchanged genuine
-Release simulator app and passed its actual four-language catalog/plural and
-permission-resource contracts. It then failed strict installed-bundle equality
-before any UI runner generation or app launch. The installed inventory was not
-retained, so the difference is unknown. This retention-only correction preserves
-both operands before assertions and keeps exact equality mandatory. No metadata,
-signature, mode, added-file or byte-difference exception is introduced.
+Status: run `39058140157` on builder `44966603` compiled the unchanged genuine
+Release simulator app and passed its actual four-language resources, then stopped
+before runner preparation or launch. Its retained built and installed archives
+contain 123 byte-identical files. The only observed differences are seven embedded
+dynamic libraries whose modes changed from 0755 to 0644; the main executable
+remained 0755. This run remains failed. Installed signature verification and all
+genuine-host UI evidence remain unexecuted.
+
+This successor implements the separately reviewed narrow installation contract
+below. It does not chmod, re-sign, replace or modify either product. The observed
+mode transition is an inference about this Simulator installation, not a documented
+guarantee about all installers. The prior artifact also omitted one indexed
+`.github` path under the uploader's hidden-file default; its exact bytes survived
+as `workflow.yml`. New preflight capture retains that fixed workflow at the visible
+`preflight-inputs/workflow/p2-host-settings-probe.yml` path; it does not enable
+broad hidden-file upload.
 
 ## Question and scope
 
@@ -28,7 +37,7 @@ probe means bounded feasibility, not full-app or glyph/layout acceptance.
 - Builder preparation parent: `4fe6738d3223fe632e179642d52d429866b052d1`.
   Native runs require a clean descendant builder, record its actual commit/tree,
   and match `GITHUB_SHA` when present. This does not claim a fixed future commit.
-- `inputs.json` seals this lane's six adapter/document files and the four existing
+- `inputs.json` seals this lane's eight adapter/test/document files and the four existing
   resource-contract inputs. Its externally reviewed SHA-256 is required on the
   command line and in the workflow. The workflow is retained with its own hash.
 - The entire actual main source tree is byte/mode checked against Git objects,
@@ -71,8 +80,10 @@ probe means bounded feasibility, not full-app or glyph/layout acceptance.
    function is only `verify_exact_plural_values`; no fixture builder is called.
 5. Verify the genuine product's signature as built. Install onto the newly created
    simulator, convert raw `simctl listapps` through `plutil` rather than assuming
-   OpenStep output is an XML plist, and compare every installed file/link with
-   the authenticated product. Verify again immediately before and after UI tests.
+   OpenStep output is an XML plist, and verify every installed file/link against
+   the authenticated product using the exact-content/full-mode contract below.
+   Strictly verify the installed bundle and all seven embedded library signatures
+   before runner preparation, and again immediately before and after UI tests.
 6. Generate a **separate UI-test-only project**, Target Application=None, outside
    the source checkout. It has no application target, product dependency,
    `TEST_TARGET_NAME`, `TEST_HOST`, or product module import. Build it for testing,
@@ -112,11 +123,13 @@ later navigation; a later startup failure does not erase successful package proo
 - At initial install, immediately before launch and after navigation, save the
   exact installed file/link inventory, expected-versus-actual added/removed paths
   and changed fields, validated identity, and raw-versus-validated stability diff
-  before the original strict equality assertion. Missing/malformed identity or
-  changing observations fail; no runner generation or launch follows a mismatch.
+  before the exact-content installation-contract assertion. Missing/malformed
+  identity or changing observations fail; no runner generation or launch follows
+  a forbidden mismatch or signature failure. Once the first installed snapshot is
+  accepted, every later snapshot must equal that full snapshot, including modes.
 - Guarded finalization archives only the exact app path returned by this run's
   `simctl get_app_container`. Links are archived as literal link bytes without
-  following targets. File hashes, sizes and executable bits captured while
+  following targets. File hashes, sizes, full permission modes and types captured while
   archiving must agree with the before/after inventories. Archive failure is an
   additional retention error and cannot mask the original mismatch.
 - Generated runner files, build settings, original xctestrun and partial products
@@ -126,14 +139,52 @@ later navigation; a later startup failure does not erase successful package proo
   available even if later install/navigation gates fail.
 - Final raw source/dependency Git operands are attempted independently before
   final proof. These diagnostic snapshots are never accepted provenance by
-  themselves. Every existing source, product, installed equality, UI and resource
-  gate remains mandatory. Unexpected IO/tool failure remains a failure, including
+  themselves. Every source, product, revised installed-identity, UI and resource
+  gate remains mandatory; only the seven explicitly reviewed mode transitions
+  below differ from the previous literal-mode equality contract. Unexpected IO/tool failure remains a failure, including
   any inability to retain evidence; this does not guarantee recovery of bytes
   that the OS has already removed or made unreadable.
 
 The archive records the file/link bytes and modes used by the inventory contract;
 it does not claim an extended-attribute or runtime-memory snapshot. No installed
 bundle is modified, normalized, re-signed, substituted or launched to collect it.
+
+## Exact installation-mode and signature contract
+
+- Preserve the exact regular-file/symlink path set, types, file lengths and SHA-256,
+  raw link targets, link lengths/hashes, full `stat.S_IMODE` bits, bundle identity,
+  Info.plist, and main executable identity. No changed content, added/removed path,
+  unknown schema, escaping link, type substitution or unreadable byte is accepted.
+- Equal modes are accepted normally. The sole additional transition is exactly
+  0755 to 0644 for these mandatory embedded regular-file paths:
+  `Frameworks/LiveContainerShared.framework/LiveContainerShared`,
+  `Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI`,
+  `Frameworks/OpenSSL.framework/OpenSSL`,
+  `Frameworks/SideStoreSupport.framework/SideStoreSupport`,
+  `Frameworks/TestJITLess.dylib`, `Frameworks/TweakLoader.dylib`,
+  and `Frameworks/ZSign.dylib`.
+- Bounds-checked thin/fat Mach-O parsing must prove every slice of all seven is
+  MH_DYLIB with explicit iOS Simulator platform metadata, and must preserve the
+  exact built bytes and architecture/platform metadata. The main `LiveContainer`
+  must remain regular MH_EXECUTE and 0755. Mode additions, altered read/write or
+  special bits, unknown paths, mixed/non-dylib slices and malformed structures
+  fail closed. The accepted receipt records observed exceptions, not normalization
+  performed by the probe.
+- `codesign --verify --deep --strict` must succeed on the exact installed app and
+  individually on all seven allowed library files, before runner preparation.
+  Failure of any one object blocks runner generation and launch. Each command and
+  partial signature receipt is retained before failure propagation.
+- Re-read and compare identity after signature inspection, immediately before UI,
+  and after UI. Later installed snapshots must equal the initial accepted installed
+  snapshot. Signatures are checked at each of those stages as well. No exception
+  is made for command availability, unknown output, or a changed package.
+
+The platform reasoning is limited: dyld maps library segments from read-only file
+descriptors, and filesystem executable bits are distinct from executable mapping
+protections. This is not proof of installed signature validity or of launch success.
+References: [Apple mmap](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/mmap.2.html),
+[Apple dyld Loader](https://github.com/apple-oss-distributions/dyld/blob/main/dyld/Loader.cpp),
+and [Apple XNU mappings](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_mman.c).
 
 ## Narrow startup cancellation
 
@@ -158,7 +209,7 @@ Portable tests, including exact local source verification, without Xcode:
 
 ```sh
 P2_HOST_PROBE_SOURCE=/absolute/path/to/maintained-source \
-  python3 -B -m unittest discover -s ci/p2/host_probe -p test_probe.py -v
+  python3 -B -m unittest discover -s ci/p2/host_probe -p 'test_*.py' -v
 ```
 
 After review and explicit authorization, on the selected macOS/Xcode runner:

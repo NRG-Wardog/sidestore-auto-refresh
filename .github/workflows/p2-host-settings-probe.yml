@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 50
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
-      APPROVED_HOST_PROBE_INPUTS_SHA256: d08b7050e34919730f83676fcd027606784fb50b2f906702c933329e37974734
+      APPROVED_HOST_PROBE_INPUTS_SHA256: d90ebf4e6729b0c87498b1fc5c6037120753b4d40fb9c2abeedac6a9055c3bb2
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
       GIT_CONFIG_NOSYSTEM: '1'
@@ -45,7 +45,7 @@ jobs:
           P2_HOST_PROBE_SOURCE: ${{ github.workspace }}/maintained-source
         run: |
           set -euo pipefail
-          python3 -B -m unittest discover -s builder/ci/p2/host_probe -p test_probe.py -v 2>&1 | tee p2-host-probe-portable.log
+          python3 -B -m unittest discover -s builder/ci/p2/host_probe -p 'test_*.py' -v 2>&1 | tee p2-host-probe-portable.log
       - name: Build unchanged real target and probe ordinary Settings feasibility
         run: |
           set -euo pipefail

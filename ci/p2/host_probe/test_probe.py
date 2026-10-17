@@ -10,6 +10,7 @@ from pathlib import Path
 import plistlib
 import re
 import shutil
+import struct
 import zipfile
 from unittest.mock import patch
 import subprocess
@@ -223,7 +224,14 @@ class ProductAndRunnerTests(unittest.TestCase):
         self.info = {'CFBundleIdentifier': probe.BUNDLE_ID, 'CFBundleExecutable': 'LiveContainer',
                      'CFBundlePackageType': 'APPL', 'CFBundleSupportedPlatforms': ['iPhoneSimulator']}
         (self.app / 'Info.plist').write_bytes(plistlib.dumps(self.info))
-        (self.app / 'LiveContainer').write_bytes(b'portable-test-binary-not-native')
+        # Synthetic headers for portable parser checks, never native execution.
+        def binary(kind):
+            return struct.pack('<8I', 0xfeedfacf, 0x100000c, 0, kind, 1, 24, 0, 0) + struct.pack('<6I', 0x32, 24, 7, 0x1a0500, 0x1a0500, 0)
+        (self.app / 'LiveContainer').write_bytes(binary(2))
+        (self.app / 'LiveContainer').chmod(0o755)
+        for relative in probe.INSTALL_CONTRACT.ALLOWED_DYLIB_PATHS:
+            path = self.app / relative; path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(binary(6)); path.chmod(0o755)
         self.settings = {'TARGET_NAME': 'LiveContainer', 'PRODUCT_NAME': 'LiveContainer', 'CONFIGURATION': 'Release',
                          'PRODUCT_BUNDLE_IDENTIFIER': probe.BUNDLE_ID, 'WRAPPER_EXTENSION': 'app', 'MACH_O_TYPE': 'mh_execute',
                          'EFFECTIVE_PLATFORM_NAME': '-iphonesimulator', 'FULL_PRODUCT_NAME': 'LiveContainer.app',
@@ -287,6 +295,7 @@ class ProductAndRunnerTests(unittest.TestCase):
         work = self.root / 'work'; evidence = self.root / 'evidence'
         work.mkdir(); evidence.mkdir()
         instance = probe.Probe(self.host, work, evidence, '0' * 64)
+        instance.app = self.app
         instance.identity = probe.verify_product(self.app, self.settings)
         instance.installed = self.root / 'installed/LiveContainer.app'
         shutil.copytree(self.app, instance.installed)
@@ -423,6 +432,9 @@ class ProductAndRunnerTests(unittest.TestCase):
         expected = json.loads((instance.evidence / 'preflight-expected.json').read_text())
         self.assertEqual(expected['approvedInputsSHA256'], '0' * 64)
         self.assertTrue((instance.evidence / 'preflight-inputs/ci/p2/host_probe/run.py').exists())
+        self.assertEqual((instance.evidence / 'preflight-inputs/workflow/p2-host-settings-probe.yml').read_bytes(),
+                         (probe.ROOT / '.github/workflows/p2-host-settings-probe.yml').read_bytes())
+        self.assertFalse(any(part.startswith('.') for path in (instance.evidence / 'preflight-inputs').rglob('*') for part in path.relative_to(instance.evidence).parts))
         self.assertTrue((instance.evidence / 'provenance/source-observed-before-verification-expected.json').exists())
         self.assertTrue(any('ls-tree' in args for args in calls))
         self.assertTrue(any('--binary' in args for args in calls))
@@ -452,6 +464,127 @@ class ProductAndRunnerTests(unittest.TestCase):
         self.assertEqual(meta['ambientOverrideKeys'], ['SDKROOT'])
         self.assertIn('error', meta)
         self.assertNotIn('synthetic-override', json.dumps(meta))
+
+    def test_installed_signature_gate_verifies_every_object_and_preserves_full_modes(self):
+        instance = self.installed_probe()
+        for relative in probe.INSTALL_CONTRACT.ALLOWED_DYLIB_PATHS:
+            (instance.installed / relative).chmod(0o644)
+        instance.installed_identity_gate(self.settings, 'initial', 'strict mismatch')
+        calls = []
+        instance.command = lambda *args, **kwargs: calls.append(args) or ''
+        before = probe.bundle_inventory(instance.installed)
+        instance.installed_signature_gate(self.settings, 'initial')
+        self.assertEqual(before, probe.bundle_inventory(instance.installed))
+        self.assertEqual(len(calls), 8)
+        self.assertTrue(all(args[:4] == ('codesign', '--verify', '--deep', '--strict') for args in calls))
+        self.assertEqual({str(args[-1].relative_to(instance.installed)) for args in calls}, {'.', *probe.INSTALL_CONTRACT.ALLOWED_DYLIB_PATHS})
+        receipt = json.loads((instance.evidence / 'provenance/installed-initial-signatures.json').read_text())
+        self.assertEqual(receipt['status'], 'verified')
+        self.assertEqual(len(receipt['objects']), 8)
+        self.assertEqual(before['LiveContainer']['mode'], 0o755)
+        self.assertTrue(all(before[p]['mode'] == 0o644 for p in probe.INSTALL_CONTRACT.ALLOWED_DYLIB_PATHS))
+
+    def test_signature_failure_preserves_receipt_and_blocks_actual_main_runner_and_launch(self):
+        instance = self.installed_probe()
+        proof = {'synthetic': 'source proof'}
+        runtime = {'isAvailable': True, 'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-26-5', 'version': '26.5'}
+        device = {'identifier': 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro'}
+        data = {'contractFiles': {}, 'adapterFiles': {}}
+        def git(root, *args):
+            if args[0] == 'status': return ''
+            return 'a' * 40
+        for failed in ('.', *sorted(probe.INSTALL_CONTRACT.ALLOWED_DYLIB_PATHS)):
+            calls = []
+            def command(*args, **kwargs):
+                calls.append(args)
+                if args[:4] == ('xcrun', 'simctl', 'list', 'runtimes'): return json.dumps({'runtimes': [runtime]})
+                if args[:4] == ('xcrun', 'simctl', 'list', 'devicetypes'): return json.dumps({'devicetypes': [device]})
+                if args[:3] == ('xcrun', 'simctl', 'create'): return '12345678-1234-1234-1234-123456789abc'
+                if args[:3] == ('xcrun', 'simctl', 'get_app_container'): return str(instance.installed)
+                if args[0] == 'plutil': return '{}'
+                if args[:3] == ('xcrun', 'vtool', '-show-build'): return 'platform IOSSIMULATOR'
+                if args[:4] == ('codesign', '--verify', '--deep', '--strict'):
+                    target = Path(args[-1])
+                    if target.is_relative_to(instance.installed) and str(target.relative_to(instance.installed)) == failed:
+                        raise ValueError('synthetic installed signature rejection')
+                return ''
+            with self.subTest(failed=failed), patch.dict(os.environ, {'GITHUB_SHA': ''}), \
+                 patch.object(instance, 'retain_preflight_inputs'), patch.object(probe, 'verify_inputs', return_value=(data, proof)), \
+                 patch.object(probe, 'git', side_effect=git), patch.object(probe.platform, 'system', return_value='Darwin'), \
+                 patch.object(instance, 'acquire_dependencies'), patch.object(instance, 'proof', return_value={'host': proof}), \
+                 patch.object(instance, 'command', side_effect=command), \
+                 patch.object(probe, 'host_build_settings', return_value=(self.settings, self.app)), \
+                 patch.object(probe, 'compiled_resource_contracts', return_value={name: {'status': 'passed'} for name in ('localization', 'exactPluralValues', 'permissions')}), \
+                 patch.object(probe, 'prepare_runner') as prepare:
+                with self.assertRaisesRegex(ValueError, 'synthetic installed signature rejection'): instance.main()
+                prepare.assert_not_called()
+                self.assertFalse(any('test-without-building' in args for args in calls))
+                self.assertFalse(instance.report['nativeExecution'])
+                receipt = json.loads((instance.evidence / 'provenance/installed-initial-signatures.json').read_text())
+                self.assertEqual(receipt['status'], 'blocked')
+                self.assertIn('synthetic installed signature rejection', receipt['error'])
+
+    def test_signature_inspection_cannot_hide_installed_content_or_mode_change(self):
+        instance = self.installed_probe()
+        original = (instance.installed / 'LiveContainer').read_bytes()
+        for mode in (False, True):
+            (instance.installed / 'LiveContainer').write_bytes(original)
+            (instance.installed / 'LiveContainer').chmod(0o755)
+            def changed(*args, **kwargs):
+                if mode: (instance.installed / 'LiveContainer').chmod(0o644)
+                else: (instance.installed / 'LiveContainer').write_bytes(original + b'changed')
+                return ''
+            with self.subTest(mode=mode), patch.object(instance, 'command', side_effect=changed), self.assertRaises(ValueError):
+                instance.installed_signature_gate(self.settings, 'initial')
+            receipt = json.loads((instance.evidence / 'provenance/installed-initial-signatures.json').read_text())
+            self.assertEqual(receipt['status'], 'blocked')
+
+    def test_postinstall_mode_change_cannot_reenter_the_initial_exception(self):
+        instance = self.installed_probe()
+        relative = sorted(probe.INSTALL_CONTRACT.ALLOWED_DYLIB_PATHS)[0]
+        (instance.installed / relative).chmod(0o644)
+        instance.installed_identity_gate(self.settings, 'initial', 'strict mismatch')
+        (instance.installed / relative).chmod(0o755)
+        with self.assertRaisesRegex(ValueError, 'changed after initial accepted observation'):
+            instance.installed_identity_gate(self.settings, 'prelaunch', 'strict mismatch')
+        receipt = json.loads((instance.evidence / 'provenance/installed-prelaunch-baseline-diff.json').read_text())
+        self.assertFalse(receipt['equal'])
+        self.assertEqual(receipt['changed'][relative]['mode']['expected'], 0o644)
+        self.assertEqual(receipt['changed'][relative]['mode']['actual'], 0o755)
+
+    def test_missing_signature_tool_fails_closed_with_receipt(self):
+        instance = self.installed_probe()
+        with patch.object(instance, 'command', side_effect=FileNotFoundError('codesign unavailable')), self.assertRaises(FileNotFoundError):
+            instance.installed_signature_gate(self.settings, 'initial')
+        receipt = json.loads((instance.evidence / 'provenance/installed-initial-signatures.json').read_text())
+        self.assertEqual(receipt['status'], 'blocked')
+        self.assertEqual(receipt['objects'], [])
+        self.assertIn('codesign unavailable', receipt['error'])
+
+    def test_main_signature_ordering_before_runner_and_before_after_navigation(self):
+        tree = ast.parse(textwrap.dedent(inspect.getsource(probe.Probe.main)))
+        statements = tree.body[0].body
+        def matching(name, label=None):
+            found = []
+            for index, statement in enumerate(statements):
+                for node in ast.walk(statement):
+                    if not isinstance(node, ast.Call): continue
+                    callee = node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id if isinstance(node.func, ast.Name) else ''
+                    if callee != name: continue
+                    if label is not None and not any(isinstance(arg, ast.Constant) and arg.value == label for arg in node.args): continue
+                    found.append(index)
+            self.assertEqual(len(found), 1)
+            return found[0]
+        initial = matching('installed_signature_gate', 'initial')
+        runner = matching('prepare_runner')
+        prelaunch = matching('installed_signature_gate', 'prelaunch')
+        launch = matching('command', 'test-without-building')
+        post = matching('installed_signature_gate', 'postnavigation')
+        self.assertLess(initial, runner); self.assertLess(runner, prelaunch)
+        self.assertLess(prelaunch, launch); self.assertLess(launch, post)
+        for i in (initial, prelaunch, post):
+            self.assertIsInstance(statements[i], ast.Expr)
+            self.assertIsInstance(statements[i].value, ast.Call)
 
     def test_external_generated_v1_and_v2_are_read_only(self):
         one = self.document()
