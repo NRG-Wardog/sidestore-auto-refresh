@@ -1,0 +1,251 @@
+{
+  "ADI_executed": false,
+  "canonical_native_fork83": {
+    "checks": 83,
+    "engine_archive_sha256": "4f61907db6aafc56fb3e336b524d742342312f498bb40739f1da55fb4a24614a",
+    "failures": 0,
+    "source_owner": "0dfcc89aa93411d84f7c50beb3c75599af89e852"
+  },
+  "contract_validation": {
+    "final_registry_change_scope": "SideStore lock-only descendant provenance; requires independent equivalence review",
+    "final_registry_sha256": "a0708470a065fca111a0fb5ec301bd2b1faac34b2835e848f2184d6df339b4bf",
+    "native_tested_registry_sha256": "5a7942ee97603c1f0caa5136cdd9e6794be8b57963e4abb786eac53d7a2b3f97"
+  },
+  "independent_review": {
+    "lock_descendant_review_sha256": "14328e30db957b4652ecb6ba11a73944db160c53d2ac91e2dd766922629ce095",
+    "phase2_review_sha256": "a56f9e38b00edce1f1d4595b45ebc93e50539952114bfbf9f5c1a1648096b450"
+  },
+  "ipa_built": false,
+  "native_builds": {
+    "LiveContainer": "PASS_UNSIGNED_IPHONEOS",
+    "SideSign": "PASS_MACOS_BUILD_AND_TEST",
+    "SideStore": "PASS_UNSIGNED_IPHONEOS"
+  },
+  "native_suites": [
+    {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "skips": 0,
+      "test_ids": [
+        "test_signin_certificate_creation_result.SignInCertificateCreationResultTests.test_existing_activation_retry_retains_result",
+        "test_signin_certificate_creation_result.SignInCertificateCreationResultTests.test_invalidates_list_without_claiming_local_activation",
+        "test_signin_certificate_creation_result.SignInCertificateCreationResultTests.test_native_request_and_local_retry",
+        "test_signin_certificate_creation_result.SignInCertificateCreationResultTests.test_returns_full_result_without_second_fallible_request"
+      ],
+      "tests": 4,
+      "unexpected_successes": 0
+    },
+    {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "skips": 0,
+      "test_ids": [
+        "test_dead10cc_scan_progression.Dead10ccScanProgressionTests.test_empty_path_advances",
+        "test_dead10cc_scan_progression.Dead10ccScanProgressionTests.test_failed_path_conversion_advances",
+        "test_dead10cc_scan_progression.Dead10ccScanProgressionTests.test_lookup_failure_advances",
+        "test_dead10cc_scan_progression.Dead10ccScanProgressionTests.test_negative_lookup_advances",
+        "test_dead10cc_scan_progression.Dead10ccScanProgressionTests.test_non_vnode_advances",
+        "test_dead10cc_scan_progression.Dead10ccScanProgressionTests.test_short_lookup_advances",
+        "test_dead10cc_scan_progression.Dead10ccScanProgressionTests.test_success_enumerates_every_entry_once"
+      ],
+      "tests": 7,
+      "unexpected_successes": 0
+    },
+    {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "skips": 0,
+      "test_ids": [
+        "test_pending_certificate_creation.PendingCertificateCreationTests.test_dispatch_requires_verified_retention_and_preserves_late_result",
+        "test_pending_certificate_creation.PendingCertificateCreationTests.test_existing_api_wrapper_and_app_entrypoints",
+        "test_pending_certificate_creation.PendingCertificateCreationTests.test_native_exact_pending_activation_consumer",
+        "test_pending_certificate_creation.PendingCertificateCreationTests.test_native_exact_proxy_create_and_reconciliation",
+        "test_pending_certificate_creation.PendingCertificateCreationTests.test_native_exact_record_core_fault_matrix",
+        "test_pending_certificate_creation.PendingCertificateCreationTests.test_native_exact_security_query_scope",
+        "test_pending_certificate_creation.PendingCertificateCreationTests.test_native_security_matching_mismatching_and_invalid_keys",
+        "test_pending_certificate_creation.PendingCertificateCreationTests.test_reconciliation_is_read_only_and_cryptographically_bound",
+        "test_pending_certificate_creation.PendingCertificateCreationTests.test_secure_journal_is_separate_device_local_and_strict"
+      ],
+      "tests": 9,
+      "unexpected_successes": 0
+    },
+    {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "skips": 0,
+      "test_ids": [
+        "test_pending_certificate_host_recovery.PendingCertificateHostRecoveryTests.test_distinct_capability_is_decoded_in_account_and_auth_snapshots",
+        "test_pending_certificate_host_recovery.PendingCertificateHostRecoveryTests.test_pending_recovery_policy_executes_owner_and_capability_matrix",
+        "test_pending_certificate_host_recovery.PendingCertificateHostRecoveryTests.test_reconciliation_never_dispatches_create_revoke_or_auth_begin",
+        "test_pending_certificate_host_recovery.PendingCertificateHostRecoveryTests.test_recovery_route_survives_signout_and_has_an_explicit_owner_bound_action"
+      ],
+      "tests": 4,
+      "unexpected_successes": 0
+    },
+    {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "skips": 0,
+      "test_ids": [
+        "test_pending_pkcs8_proof.PendingPKCS8Proof.test_native_exact_pkcs8_proof"
+      ],
+      "tests": 1,
+      "unexpected_successes": 0
+    },
+    {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "skips": 0,
+      "test_ids": [
+        "test_reconstructed_completion.CompletionTests.test_index_proof_inside_locked_callback",
+        "test_reconstructed_completion.CompletionTests.test_native_index_missing_retains_journal"
+      ],
+      "tests": 2,
+      "unexpected_successes": 0
+    },
+    {
+      "errors": 0,
+      "expected_failures": 0,
+      "failures": 0,
+      "skips": 0,
+      "test_ids": [
+        "test_signin_udid_failure_consumer.SignInUDIDFailureConsumerTests.test_cellular_restore_boundary_unchanged",
+        "test_signin_udid_failure_consumer.SignInUDIDFailureConsumerTests.test_extracted_native_consumer",
+        "test_signin_udid_failure_consumer.SignInUDIDFailureConsumerTests.test_logs_do_not_include_identifiers_or_raw_errors",
+        "test_signin_udid_failure_consumer.SignInUDIDFailureConsumerTests.test_preserves_first_failure_and_valid_fallback"
+      ],
+      "tests": 4,
+      "unexpected_successes": 0
+    }
+  ],
+  "native_validation": {
+    "approved_inputs_sha256": "4cdb6dc081a61c15797d36b33af9e0bd58a850d1fa5f47513ee1b6ed8544af1f",
+    "artifact_id": 11715190532,
+    "artifact_sha256": "b1a257be6c3bca075850894c1434d71d4d27b2c20020dce01702d90acb975f0a",
+    "evidence_index_sha256": "fb06a709d02aa6c9fbc9bbc1e23521ee976191b0ea744c84794388a5b5d0a07a",
+    "host_commit": "5a255a7b52bfa0351d1a5a2a934be90df985d138",
+    "host_tree": "54abf7869190d6a6653567461a5bbd61e74dd165",
+    "readiness_scope": "eligible_for_gated_full_build",
+    "review_sha256": null,
+    "run_attempt": 1,
+    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/38171788421",
+    "source_basis": "p0-abi-tls-certificate-lifecycle-v1",
+    "tested_children": {
+      "SideSign": {},
+      "SideStore": {
+        "Dependencies/SideSign": "081994b142c781f9a32bbddfa7277f305b20447b",
+        "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+      }
+    },
+    "tested_owners": {
+      "AnisetteKit": {
+        "commit": "0dfcc89aa93411d84f7c50beb3c75599af89e852",
+        "tree": "d1112813f8ea5fa93c076eb016442778b9eb29f9"
+      },
+      "LiveContainer": {
+        "commit": "00546cec351adad1fa1cad5590da4f06e612db8f",
+        "tree": "c8b298d549ff5e72221533c5e4b946d67ec2cc97"
+      },
+      "SideSign": {
+        "commit": "081994b142c781f9a32bbddfa7277f305b20447b",
+        "tree": "83ab480b1195f1cfdb8bd4fe4b2e446bdd647545"
+      },
+      "SideStore": {
+        "commit": "c9dc71e5e4a48963ca7f73b0aba6eb8a5975295d",
+        "tree": "9a4c37c0f482c03898a9bb8db3d2e0f68643e53d"
+      },
+      "idevice": {
+        "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+        "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+      },
+      "jktcp": {
+        "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+        "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+      },
+      "minimuxer": {
+        "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+        "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+      }
+    }
+  },
+  "phase_evidence": {
+    "SideSign": {
+      "approved_inputs_sha256": "bc393100be268480513c1ce051c6e225a55d468d994bfac6113696f2cfcd8fda",
+      "artifact_id": 11707262628,
+      "artifact_sha256": "326eff483f75e91aacff580deebb12a88362ce62f4f2c21b462b48fd06e4590e",
+      "evidence_index_sha256": "8b4fdfb43864e454bd2ac618fffd87049e3ff65427cae3eb40621b9b4bfe67e5",
+      "host_commit": "fbf2cb7cf087a3df7f87cffc62aa452dce694039",
+      "host_tree": "59014d345c715e50a5bc4c6c240aa7d32af85ebf",
+      "lock_before_sha256": "61f6121a252c102d978e23d27c2e7f6888dd973286a1c260d8902c6218aaa944",
+      "lock_sha256": "9821202b215f31e818c001fdbdd2b6874fc3e62a88c8ebaa104671f96d58ec66",
+      "origin_hash": {
+        "present": true,
+        "value": "2485f239e750be9702e25b4c0e0c3cd03426ce114a527ad0add21c9583da1cc0"
+      },
+      "resolver_tested_commit": "39d97e618c5178235ce5a7e415cae9d1c2a4a35c",
+      "resolver_tested_tree": "56907f46d33e9cf9ee6c6d884460a693bfc4edaf",
+      "run_attempt": 1,
+      "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/38152687076",
+      "status": "CAPTURED_FOR_REVIEW"
+    },
+    "SideStore": {
+      "approved_inputs_sha256": "4cdb6dc081a61c15797d36b33af9e0bd58a850d1fa5f47513ee1b6ed8544af1f",
+      "artifact_id": 11715190532,
+      "artifact_sha256": "b1a257be6c3bca075850894c1434d71d4d27b2c20020dce01702d90acb975f0a",
+      "evidence_index_sha256": "fb06a709d02aa6c9fbc9bbc1e23521ee976191b0ea744c84794388a5b5d0a07a",
+      "host_commit": "5a255a7b52bfa0351d1a5a2a934be90df985d138",
+      "host_tree": "54abf7869190d6a6653567461a5bbd61e74dd165",
+      "lock_before_sha256": "d2884bdf70ad36fc112394cca8cb8d566affb7a6fe0e9cd3fb9518df5c3b9076",
+      "lock_sha256": "822ab8897375eb5352cc158d311ea0d722f57974246cf4a038885f1a88ae2461",
+      "origin_hash": {
+        "present": true,
+        "value": "f4d776f176c4df8b791013ad0642ccd6c31da823bfe1caf41299b54d3c2637ad"
+      },
+      "resolver_tested_commit": "c9dc71e5e4a48963ca7f73b0aba6eb8a5975295d",
+      "resolver_tested_tree": "9a4c37c0f482c03898a9bb8db3d2e0f68643e53d",
+      "run_attempt": 1,
+      "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/38171788421",
+      "status": "CAPTURED_FOR_REVIEW"
+    }
+  },
+  "source_basis": "p0-abi-tls-certificate-lifecycle-v1",
+  "status": "INDEPENDENTLY_REVIEWED_P0_NATIVE_PASS",
+  "tested_submodules": {
+    "LiveContainer/OpenSSL": {
+      "commit": "623c84da314e85363236507ca38a4bde65df21c3",
+      "declared_repository": "https://github.com/krzyzanowskim/OpenSSL",
+      "repository": "https://github.com/krzyzanowskim/OpenSSL",
+      "tree": "21bc09387e7f91a46eb8bd26587ce1d052277801"
+    },
+    "LiveContainer/litehook": {
+      "commit": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55",
+      "declared_repository": "https://github.com/LiveContainer/litehook",
+      "repository": "https://github.com/LiveContainerMirror/litehook.git",
+      "tree": "62bc06a17a1c12d805aec1ada25910bfa9f89781"
+    },
+    "SideStore/Dependencies/SideSign": {
+      "commit": "081994b142c781f9a32bbddfa7277f305b20447b",
+      "declared_repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "tree": "83ab480b1195f1cfdb8bd4fe4b2e446bdd647545"
+    },
+    "SideStore/Dependencies/minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "declared_repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    },
+    "idevice/cpp/plist_ffi": {
+      "commit": "66e6e6362b58bc361725c3e1b0a34af498aa2b3a",
+      "declared_repository": "https://github.com/jkcoxson/plist_ffi.git",
+      "repository": "https://github.com/jkcoxson/plist_ffi.git",
+      "tree": "1dc97bcad12d41a13417ae05fbcdc4408c6df553"
+    }
+  }
+}

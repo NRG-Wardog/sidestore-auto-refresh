@@ -1,0 +1,211 @@
+{
+  "ADI_executed": false,
+  "canonical_native_fork83": {
+    "checks": 83,
+    "engine_archive_sha256": "4f61907db6aafc56fb3e336b524d742342312f498bb40739f1da55fb4a24614a",
+    "failures": 0,
+    "source_owner": "94659b4d54eed5729b34f4103b3f70579aa8d8e9"
+  },
+  "constructor_diagnostics": {
+    "case_ids": [
+      "normal_nonzero_w0",
+      "normal_error_shaped_w0",
+      "protected_access",
+      "unsupported_interrupt",
+      "abnormal_stop",
+      "dt_init_failure",
+      "dt_init_array_first_failure",
+      "dt_init_array_second_failure",
+      "array_entry_read_first",
+      "array_entry_read_second",
+      "invalid_vm",
+      "poisoned_vm",
+      "caller_snapshot_independence",
+      "serialization_bounds",
+      "serialization_privacy"
+    ],
+    "checks": 2105,
+    "failures": 0,
+    "skipped": 0,
+    "source_owner": "94659b4d54eed5729b34f4103b3f70579aa8d8e9"
+  },
+  "constructor_regression": {
+    "failures": 0,
+    "skipped": 0,
+    "tests": 8
+  },
+  "consumer_suites": {
+    "adi_consumption": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "test_ids": [
+        "test_contract.ConsumerContractTests.test_disabled_trace_preserves_classification_and_drops_diagnostics",
+        "test_contract.ConsumerContractTests.test_legacy_comparison_is_read_only_snapshot_bound_and_failure_scoped",
+        "test_contract.ConsumerContractTests.test_native_pipeline_wire_copy_and_importing_host",
+        "test_contract.ConsumerContractTests.test_real_cpp_producer_descriptor_and_pinned_schema",
+        "test_contract.ConsumerContractTests.test_shared_parser_and_schema_are_exact_across_owners",
+        "test_contract.ConsumerContractTests.test_wire_and_render_use_real_finite_contract"
+      ],
+      "tests": 6
+    },
+    "init_diagnostics": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0,
+      "test_ids": [
+        "test_contract.InitializerDiagnosticContract.test_actual_swift_parser_service_wire_and_host_copy",
+        "test_contract.InitializerDiagnosticContract.test_bounded_primary_only_contract_and_no_recovery_mutation",
+        "test_contract.InitializerDiagnosticContract.test_real_native_producer_fixture",
+        "test_contract.InitializerDiagnosticContract.test_shared_capture_validation_and_copy_contracts_match",
+        "test_contract.InitializerDiagnosticContract.test_trace_disabled_preserves_constructor_evidence"
+      ],
+      "tests": 5
+    },
+    "tested_owners": {
+      "AnisetteKit": {
+        "commit": "94659b4d54eed5729b34f4103b3f70579aa8d8e9",
+        "tree": "78d7fdb9f77c461419b89df5a285dfd74fa642b5"
+      },
+      "LiveContainer": {
+        "commit": "1df50257f6255522e6ff48db226508fe74d6b17d",
+        "tree": "205350ead530a22f4d04eb762e8b47fa27063879"
+      },
+      "SideStore": {
+        "commit": "b1013534f4b9be78e56b44c977dcaff2805d636b",
+        "tree": "e3f2195b7dc11fdeec98ff5e038aa005371cf64e"
+      }
+    }
+  },
+  "device_validation": false,
+  "native_builds": {
+    "LiveContainer": "PASS_UNSIGNED_IPHONEOS",
+    "SideSign": "PASS_MACOS_BUILD_AND_TEST",
+    "SideStore": "PASS_UNSIGNED_IPHONEOS"
+  },
+  "native_validation": {
+    "approved_inputs_sha256": "97e46c0324b78769c9bf7dc4fd4f6a99cd711435d981851b27eee99ae55ff6a5",
+    "artifact_id": 12095672731,
+    "artifact_sha256": "8b9c1ed753ce9093a1c484b304cfab2cdf33f2a9079f81046bc32446b7e0cbdc",
+    "evidence_index_sha256": "00d936c2f5ca5f5f3bab700b5c0d3ab81fb21041be1dedbd7c0efb4ecd2109f4",
+    "host_commit": "1d0a875bf4e7257c44022aac6e0b77c9f5a11925",
+    "host_tree": "fbaa0de996def434915a5a84da3212ccd7d91133",
+    "inherited_p0_review_sha256": "34d12b14364d4db4ed24ee80bf206332d383c27e958b497d6f5cd1c9d28cc6dc",
+    "readiness_scope": "eligible_for_gated_full_build",
+    "review_sha256": null,
+    "run_attempt": 1,
+    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/39017114598",
+    "source_basis": "p0-constructor-diagnostics-v1",
+    "tested_children": {
+      "SideSign": {},
+      "SideStore": {
+        "Dependencies/SideSign": "b829a21c3955b4084fc3a6f613bad9162a8d43ef",
+        "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+      }
+    },
+    "tested_owners": {
+      "AnisetteKit": {
+        "commit": "94659b4d54eed5729b34f4103b3f70579aa8d8e9",
+        "tree": "78d7fdb9f77c461419b89df5a285dfd74fa642b5"
+      },
+      "LiveContainer": {
+        "commit": "1df50257f6255522e6ff48db226508fe74d6b17d",
+        "tree": "205350ead530a22f4d04eb762e8b47fa27063879"
+      },
+      "SideSign": {
+        "commit": "b829a21c3955b4084fc3a6f613bad9162a8d43ef",
+        "tree": "47ba01d42aa6a6b0bd3a7a4f9f6ec48a18fd780c"
+      },
+      "SideStore": {
+        "commit": "b1013534f4b9be78e56b44c977dcaff2805d636b",
+        "tree": "e3f2195b7dc11fdeec98ff5e038aa005371cf64e"
+      },
+      "idevice": {
+        "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+        "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+      },
+      "jktcp": {
+        "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+        "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+      },
+      "minimuxer": {
+        "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+        "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+      }
+    }
+  },
+  "phase_evidence": {
+    "SideSign": {
+      "approved_inputs_sha256": "82004ff45a6e97063c4d596902eb3bb72e0730c97fbb05a2a3ee1959d9bba0f6",
+      "artifact_id": 12078575730,
+      "artifact_sha256": "29655fbd29879207b92dbfd5cc56d21c487bf9ccbf8dd0a166925491b1f875b2",
+      "evidence_index_sha256": "fcd70a683b97d741a896621d3b991ba7b3c74df10acbea1170a249e15d1b0ded",
+      "host_commit": "1b583103a5495b1fdac32678b48415403579abd3",
+      "host_tree": "a97bd226c2fca99754434e324a0425970d61a3d9",
+      "lock_before_sha256": "9821202b215f31e818c001fdbdd2b6874fc3e62a88c8ebaa104671f96d58ec66",
+      "lock_sha256": "26c810668908416d018d54802e4145315a73e9da2f6f305bf6499446426063ee",
+      "origin_hash": {
+        "present": true,
+        "value": "fb346d161dacb3d66e3665030be1f59e9be75ad3856b0445e9e4d9d3dc1acaa9"
+      },
+      "resolver_tested_commit": "6702f091dcb17e63bb131c47d7c85c653968ef11",
+      "resolver_tested_tree": "3be3fd6b6d19028cedd2e583b695f46211b304fd",
+      "run_attempt": 1,
+      "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/38973641877",
+      "status": "CAPTURED_FOR_REVIEW"
+    },
+    "SideStore": {
+      "approved_inputs_sha256": "97e46c0324b78769c9bf7dc4fd4f6a99cd711435d981851b27eee99ae55ff6a5",
+      "artifact_id": 12095672731,
+      "artifact_sha256": "8b9c1ed753ce9093a1c484b304cfab2cdf33f2a9079f81046bc32446b7e0cbdc",
+      "evidence_index_sha256": "00d936c2f5ca5f5f3bab700b5c0d3ab81fb21041be1dedbd7c0efb4ecd2109f4",
+      "host_commit": "1d0a875bf4e7257c44022aac6e0b77c9f5a11925",
+      "host_tree": "fbaa0de996def434915a5a84da3212ccd7d91133",
+      "lock_before_sha256": "822ab8897375eb5352cc158d311ea0d722f57974246cf4a038885f1a88ae2461",
+      "lock_sha256": "4248d71cc3036c8cd0a89966141e15f0da74a78e2bb5a053698a189e6f4dbabe",
+      "origin_hash": {
+        "present": true,
+        "value": "f4d776f176c4df8b791013ad0642ccd6c31da823bfe1caf41299b54d3c2637ad"
+      },
+      "resolver_tested_commit": "b1013534f4b9be78e56b44c977dcaff2805d636b",
+      "resolver_tested_tree": "e3f2195b7dc11fdeec98ff5e038aa005371cf64e",
+      "run_attempt": 1,
+      "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/39017114598",
+      "status": "CAPTURED_FOR_REVIEW"
+    }
+  },
+  "source_basis": "p0-constructor-diagnostics-v1",
+  "status": "INDEPENDENTLY_REVIEWED_P0_CONSTRUCTOR_DIAGNOSTICS_NATIVE_PASS",
+  "tested_submodules": {
+    "LiveContainer/OpenSSL": {
+      "commit": "623c84da314e85363236507ca38a4bde65df21c3",
+      "declared_repository": "https://github.com/krzyzanowskim/OpenSSL",
+      "repository": "https://github.com/krzyzanowskim/OpenSSL",
+      "tree": "21bc09387e7f91a46eb8bd26587ce1d052277801"
+    },
+    "LiveContainer/litehook": {
+      "commit": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55",
+      "declared_repository": "https://github.com/LiveContainer/litehook",
+      "repository": "https://github.com/LiveContainerMirror/litehook.git",
+      "tree": "62bc06a17a1c12d805aec1ada25910bfa9f89781"
+    },
+    "SideStore/Dependencies/SideSign": {
+      "commit": "b829a21c3955b4084fc3a6f613bad9162a8d43ef",
+      "declared_repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "tree": "47ba01d42aa6a6b0bd3a7a4f9f6ec48a18fd780c"
+    },
+    "SideStore/Dependencies/minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "declared_repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    },
+    "idevice/cpp/plist_ffi": {
+      "commit": "66e6e6362b58bc361725c3e1b0a34af498aa2b3a",
+      "declared_repository": "https://github.com/jkcoxson/plist_ffi.git",
+      "repository": "https://github.com/jkcoxson/plist_ffi.git",
+      "tree": "1dc97bcad12d41a13417ae05fbcdc4408c6df553"
+    }
+  }
+}

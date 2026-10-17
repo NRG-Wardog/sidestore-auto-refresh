@@ -18,7 +18,7 @@ from verify_candidate_ipa import (MACHO_MAGICS, is_java_class_file, macho_cpu_su
                                  DEFAULT_ARCHIVE_LIMITS, preflight_archive,
                                  preflight_zip_directory, validate_ipa_size,
                                  ANISETTE_EVIDENCE_DIRECTORY, ANISETTE_EVIDENCE_MANIFEST,
-                                 verify_isolated_anisette_binary,
+                                 verify_isolated_anisette_binary, verify_constructor_diagnostic_binaries,
                                  verify_isolated_anisette_evidence, verify_source_evidence)
 from maintained_package_evidence import (CONTRACT_DIRECTORY, EVIDENCE_KIND,
     LEGACY_HOST_MANIFESTS, LEGACY_EMBEDDED_MANIFESTS, collect_contract_evidence,
@@ -318,6 +318,11 @@ def main():
                     side_store_executable_data = data
                     assert b'UNIQUE_DEVICE_ID_QUERY_FAIL' in data, 'Issue 24 query diagnostics absent'
                     assert b'lc_stage=uniqueDeviceID' in data, 'Issue 24 structured category absent'
+            if maintained is not None and maintained.get('source_basis') == 'p0-constructor-diagnostics-v1':
+                verify_constructor_diagnostic_binaries(
+                    archive.read('Payload/LiveContainer.app/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI'),
+                    side_store_executable_data,
+                    archive.read('Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport'), maintained)
         require_unchanged_ipa_path(args.ipa, ipa_signature)
     finally:
         snapshot_directory.cleanup()

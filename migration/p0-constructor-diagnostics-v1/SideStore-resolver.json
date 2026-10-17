@@ -1,0 +1,23 @@
+{
+  "anisette_commit": "94659b4d54eed5729b34f4103b3f70579aa8d8e9",
+  "approved_inputs_sha256": "97e46c0324b78769c9bf7dc4fd4f6a99cd711435d981851b27eee99ae55ff6a5",
+  "artifact_id": 12095672731,
+  "artifact_sha256": "8b9c1ed753ce9093a1c484b304cfab2cdf33f2a9079f81046bc32446b7e0cbdc",
+  "evidence_index_sha256": "00d936c2f5ca5f5f3bab700b5c0d3ab81fb21041be1dedbd7c0efb4ecd2109f4",
+  "host_commit": "1d0a875bf4e7257c44022aac6e0b77c9f5a11925",
+  "host_tree": "fbaa0de996def434915a5a84da3212ccd7d91133",
+  "lock_before_sha256": "822ab8897375eb5352cc158d311ea0d722f57974246cf4a038885f1a88ae2461",
+  "lock_sha256": "4248d71cc3036c8cd0a89966141e15f0da74a78e2bb5a053698a189e6f4dbabe",
+  "origin_hash": {
+    "present": true,
+    "value": "f4d776f176c4df8b791013ad0642ccd6c31da823bfe1caf41299b54d3c2637ad"
+  },
+  "owner": "SideStore",
+  "purpose": "independently_reviewed_p0_constructor_diagnostics_swiftpm_resolution",
+  "resolver_tested_commit": "b1013534f4b9be78e56b44c977dcaff2805d636b",
+  "resolver_tested_tree": "e3f2195b7dc11fdeec98ff5e038aa005371cf64e",
+  "run_attempt": 1,
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/39017114598",
+  "source_basis": "p0-constructor-diagnostics-v1",
+  "status": "CAPTURED_FOR_REVIEW"
+}

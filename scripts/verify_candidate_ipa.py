@@ -601,6 +601,20 @@ REQUIRED_GENERATED_EMBEDDED_SOURCES = {
 }
 
 
+def verify_constructor_diagnostic_binaries(host: bytes, embedded: bytes, support: bytes, maintained: dict | None) -> None:
+    """Require constructor protocol evidence in each actual diagnostic product."""
+    if maintained is None or maintained.get("source_basis") != "p0-constructor-diagnostics-v1":
+        return
+    keys = (b"native_init_kind", b"native_init_reason", b"native_init_engine", b"native_init_library", b"native_init_initializer")
+    for name, code in (("host", host), ("embedded", embedded), ("support", support)):
+        if any(key not in code for key in keys):
+            raise ValueError("compiled constructor diagnostic keys missing in " + name)
+    if b"setupConstructors" not in embedded or b"setupConstructors" not in support:
+        raise ValueError("compiled constructor diagnostic phase missing")
+    if b"Library constructor execution failed [v1;kind=" not in embedded:
+        raise ValueError("compiled native constructor diagnostic producer missing")
+
+
 def verify_isolated_anisette_binary(executable: bytes, manifest: dict | None = None) -> None:
     # Require the active normal-provider staging correction. Automatic isolated
     # recovery is disabled, so its unused API may legitimately be dead-stripped;
@@ -608,7 +622,7 @@ def verify_isolated_anisette_binary(executable: bytes, manifest: dict | None = N
     if (ANISETTE_COMPILED_MARKER not in executable or
             ANISETTE_COMPILED_LITERAL not in executable):
         raise ValueError("embedded SideStore is missing the compiled checked Anisette staging path")
-    if manifest is not None and manifest.get("source_basis") in {"maintained-adi-consumption-v1", "maintained-adi-consumption-v2", "p0-abi-tls-certificate-lifecycle-v1"}:
+    if manifest is not None and manifest.get("source_basis") in {"maintained-adi-consumption-v1", "maintained-adi-consumption-v2", "p0-abi-tls-certificate-lifecycle-v1", "p0-constructor-diagnostics-v1"}:
         for item in manifest["required_compiled_evidence"]["literals"]:
             if item["value"].encode("utf-8") not in executable:
                 raise ValueError("embedded SideStore is missing reviewed ADI consumer evidence")
@@ -1157,6 +1171,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         support_executable = support_path + "/" + support_bundle["info"]["CFBundleExecutable"]
         support_code = archive.read(support_executable)
         verify_auth_answer_transport(host_code, side_store_executable_data, support_code)
+        verify_constructor_diagnostic_binaries(host_code, side_store_executable_data, support_code, maintained)
         legacy_intents = find_legacy_side_store_intent_symbols(side_store_executable_data)
         if legacy_intents:
             raise ValueError("embedded SideStore still contains legacy app intent code: "
