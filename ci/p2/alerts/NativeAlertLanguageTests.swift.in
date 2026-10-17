@@ -1,0 +1,370 @@
+// Append to exact extracted production declarations in the SAME Swift file.
+// These XCTest cases require an iOS UIKit test host. They have not been executed
+// in the Linux review workspace. No app credentials, payloads or real guest are used.
+import XCTest
+
+// Test-only inspection; the production declaration above is unmodified.
+private extension V3NativeAlertPresentation {
+    static func fixtureSession(for controller: UIAlertController) -> V3NativeAlertPresentation? {
+        objc_getAssociatedObject(controller, &associationKey) as? V3NativeAlertPresentation
+    }
+    var fixtureFinished: Bool { isFinished }
+    var fixtureTransitioning: Bool { isTransitioning }
+    var fixtureController: UIAlertController? { controller }
+    func fixtureRefreshLanguage() { refreshLanguage() }
+    func fixtureSceneDisconnected() { cancelUnavailable(forceCompletion: true) }
+}
+
+@MainActor
+private final class FixturePresenter: UIViewController {
+    var appeared = false
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        appeared = true
+    }
+}
+
+@MainActor
+private final class NativeAlertFixture {
+    let window: UIWindow
+    let presenter = FixturePresenter()
+    private weak var previousKeyWindow: UIWindow?
+    var session: V3NativeAlertPresentation?
+    var current: UIAlertController?
+    var outcomes: [String] = []
+    var replacementCount = 0
+
+    static func ready() async throws -> NativeAlertFixture {
+        for _ in 0..<300 {
+            if UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene && $0.activationState == .foregroundActive }) {
+                let fixture = try NativeAlertFixture()
+                for _ in 0..<300 {
+                    if fixture.window.isKeyWindow && fixture.presenter.view.window === fixture.window && fixture.presenter.appeared {
+                        return fixture
+                    }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+                fixture.close()
+                throw NSError(domain: "P2AlertFixture.PresenterNotReady", code: 1)
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw NSError(domain: "P2AlertFixture.SceneNotReady", code: 1)
+    }
+
+    private init() throws {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }) else {
+            throw NSError(domain: "P2AlertFixture.SceneUnavailable", code: 1)
+        }
+        previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        window = UIWindow(windowScene: scene)
+        window.rootViewController = presenter
+        window.makeKeyAndVisible()
+        presenter.loadViewIfNeeded()
+    }
+
+    func start(text: String = "opaque name • 日本語 • עברית • 123") {
+        V3NativeAlertPresentation.present(from: presenter,
+            didReplace: { [weak self] alert in
+                self?.current = alert
+                self?.replacementCount += 1
+            },
+            onUnavailable: { [weak self] in self?.outcomes.append("unavailable") }) { [weak self] language, presentation in
+            self?.session = presentation
+            let alert = UIAlertController(title: V3Localization.string("lc.common.error", language: language),
+                message: V3Localization.string("lc.webView.installAppDesc", language: language), preferredStyle: .alert)
+            alert.addTextField { $0.text = text }
+            alert.addAction(UIAlertAction(title: V3Localization.string("lc.common.ok", language: language), style: .default) { [weak alert, weak self] _ in
+                guard let alert else { return }
+                presentation.finish(from: alert) { self?.outcomes.append("confirm") }
+            })
+            alert.addAction(UIAlertAction(title: V3Localization.string("lc.common.cancel", language: language), style: .cancel) { [weak alert, weak self] _ in
+                guard let alert else { return }
+                presentation.finish(from: alert) { self?.outcomes.append("cancel") }
+            })
+            return alert
+        }
+    }
+
+    func close() {
+        if let current = presenter.presentedViewController as? UIAlertController {
+            let presentation = V3NativeAlertPresentation.fixtureSession(for: current)
+            V3NativeAlertPresentation.stop(current)
+            presentation?.fixtureSceneDisconnected()
+        }
+        session?.fixtureSceneDisconnected()
+        window.isHidden = true
+        window.rootViewController = nil
+        previousKeyWindow?.makeKeyAndVisible()
+    }
+}
+
+@MainActor
+final class NativeAlertLanguageTests: XCTestCase {
+    private func until(_ predicate: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+        for _ in 0..<300 {
+            if predicate() { return }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("UIKit lifecycle condition did not settle", file: file, line: line)
+        throw NSError(domain: "P2AlertFixture.Timeout", code: 1)
+    }
+
+    private func drainTransitions() async {
+        // Observe beyond normal UIKit presentation/dismiss completion; do not
+        // accept an immediate count before deferred callbacks can be delivered.
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        await Task.yield()
+    }
+
+    private func assertRendered(_ alert: UIAlertController, language: V3AppLanguage,
+                                file: StaticString = #filePath, line: UInt = #line) {
+        let title = V3Localization.string("lc.common.error", language: language)
+        XCTAssertNotEqual(title, "lc.common.error", file: file, line: line)
+        XCTAssertEqual(alert.title, title, file: file, line: line)
+        XCTAssertEqual(alert.message, V3Localization.string("lc.webView.installAppDesc", language: language), file: file, line: line)
+        XCTAssertEqual(alert.actions.map(\.title), [V3Localization.string("lc.common.ok", language: language),
+            V3Localization.string("lc.common.cancel", language: language)], file: file, line: line)
+        XCTAssertEqual(alert.view.semanticContentAttribute, language.isRightToLeft ? .forceRightToLeft : .forceLeftToRight, file: file, line: line)
+    }
+
+    private func record(_ name: String, _ value: [String: Any]) throws {
+        var observation = value
+        observation["evidenceCase"] = name
+        let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: observation, options: [.sortedKeys]), uniformTypeIdentifier: "public.json")
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testRapidLanguageChangesPreserveTextAndRejectStaleAction() async throws {
+        let previousLanguage = V3AppLanguage.selected
+        let fixture = try await NativeAlertFixture.ready()
+        defer { fixture.close(); V3AppLanguage.persist(previousLanguage) }
+        V3AppLanguage.persist(.english)
+        fixture.start()
+        try await until { fixture.current != nil && fixture.session?.fixtureTransitioning == false }
+        let first = try XCTUnwrap(fixture.current)
+        let field = try XCTUnwrap(first.textFields?.first)
+        let opaque = "user text: % @ : / • עברית • 日本語"
+        field.text = opaque
+        XCTAssertTrue(field.becomeFirstResponder())
+        if let start = field.position(from: field.beginningOfDocument, offset: 2),
+           let end = field.position(from: field.beginningOfDocument, offset: 7) {
+            field.selectedTextRange = field.textRange(from: start, to: end)
+        }
+        for language in [V3AppLanguage.hebrew, .simplifiedChinese, .traditionalChinese, .english, .hebrew] {
+            V3AppLanguage.persist(language)
+        }
+        // No explicit refresh: this case must traverse the production defaults observer.
+        try await until { fixture.current?.title == V3Localization.string("lc.common.error", language: .hebrew) && fixture.session?.fixtureTransitioning == false }
+        let current = try XCTUnwrap(fixture.current)
+        XCTAssertFalse(current === first)
+        XCTAssertTrue(fixture.presenter.presentedViewController === current)
+        assertRendered(current, language: .hebrew)
+        XCTAssertEqual(current.textFields?.first?.text, opaque)
+        if let currentField = current.textFields?.first, let range = currentField.selectedTextRange {
+            XCTAssertTrue(currentField.isFirstResponder)
+            XCTAssertEqual(currentField.offset(from: currentField.beginningOfDocument, to: range.start), 2)
+            XCTAssertEqual(currentField.offset(from: currentField.beginningOfDocument, to: range.end), 7)
+        } else { XCTFail("Selection was lost") }
+        fixture.session?.finish(from: first) { fixture.outcomes.append("stale") }
+        XCTAssertEqual(fixture.outcomes, [])
+        fixture.session?.finish(from: current) { fixture.outcomes.append("confirm") }
+        fixture.session?.finish(from: current) { fixture.outcomes.append("duplicate") }
+        try await until { fixture.outcomes.count == 1 }
+        XCTAssertEqual(fixture.outcomes, ["confirm"])
+        V3AppLanguage.persist(.traditionalChinese)
+        fixture.session?.fixtureRefreshLanguage()
+        await drainTransitions()
+        XCTAssertEqual(fixture.outcomes, ["confirm"])
+        XCTAssertEqual(fixture.session?.fixtureFinished, true)
+        XCTAssertNil(fixture.presenter.presentedViewController)
+        try record("rapid-observer", ["callbackCount": fixture.outcomes.count, "outcomes": fixture.outcomes,
+            "renderedTitle": current.title ?? "", "renderedBody": current.message ?? "", "direction": current.view.semanticContentAttribute.rawValue,
+            "preservedText": current.textFields?.first?.text ?? "", "replacements": fixture.replacementCount,
+            "actionDelivery": "direct finish callback simulation; no physical action-button tap"])
+    }
+
+    private func finishAtReplacementBoundary(_ outcome: String) async throws {
+        let previousLanguage = V3AppLanguage.selected
+        let fixture = try await NativeAlertFixture.ready()
+        defer { fixture.close(); V3AppLanguage.persist(previousLanguage) }
+        V3AppLanguage.persist(.english)
+        fixture.start()
+        try await until { fixture.current != nil && fixture.session?.fixtureTransitioning == false }
+        let previous = try XCTUnwrap(fixture.current)
+        V3AppLanguage.persist(.hebrew)
+        fixture.session?.fixtureRefreshLanguage()
+        // UIKit may complete a nonanimated dismissal synchronously. Target the
+        // currently owned alert at this precise replacement boundary in either case.
+        let current = try XCTUnwrap(fixture.session?.fixtureController)
+        fixture.session?.finish(from: current) { fixture.outcomes.append(outcome) }
+        fixture.session?.finish(from: previous) { fixture.outcomes.append("stale duplicate") }
+        V3AppLanguage.persist(.simplifiedChinese)
+        fixture.session?.fixtureRefreshLanguage()
+        try await until { fixture.outcomes.count == 1 && fixture.presenter.presentedViewController == nil }
+        await drainTransitions()
+        XCTAssertEqual(fixture.outcomes, [outcome])
+        XCTAssertEqual(fixture.session?.fixtureFinished, true)
+        XCTAssertNil(fixture.presenter.presentedViewController)
+        try record("boundary-" + outcome, ["callbackCount": fixture.outcomes.count, "outcomes": fixture.outcomes,
+            "actionDelivery": "direct finish callback simulation; no physical action-button tap"])
+    }
+
+    func testConfirmAtReplacementBoundaryCompletesOnce() async throws {
+        try await finishAtReplacementBoundary("confirm")
+    }
+
+    func testCancelAtReplacementBoundaryCompletesOnce() async throws {
+        try await finishAtReplacementBoundary("cancel")
+    }
+
+    func testExternalBindingDismissalCannotResurrectOrCallAction() async throws {
+        let previousLanguage = V3AppLanguage.selected
+        let fixture = try await NativeAlertFixture.ready()
+        defer { fixture.close(); V3AppLanguage.persist(previousLanguage) }
+        V3AppLanguage.persist(.english)
+        fixture.start()
+        try await until { fixture.current != nil && fixture.session?.fixtureTransitioning == false }
+        let first = try XCTUnwrap(fixture.current)
+        V3AppLanguage.persist(.traditionalChinese)
+        fixture.session?.fixtureRefreshLanguage()
+        // Exact path used by TextFieldAlertModifier when isPresented becomes false.
+        V3NativeAlertPresentation.stop(first)
+        fixture.session?.finish(from: first) { fixture.outcomes.append("late action") }
+        try await until { fixture.session?.fixtureFinished == true && fixture.presenter.presentedViewController == nil }
+        fixture.session?.fixtureRefreshLanguage()
+        await drainTransitions()
+        XCTAssertEqual(fixture.outcomes, []) // External binding already resolved; no second action callback.
+        XCTAssertNil(fixture.presenter.presentedViewController)
+        try record("external-dismissal", ["callbackCount": fixture.outcomes.count, "outcomes": fixture.outcomes])
+    }
+
+    func testPresenterDisappearanceResolvesUnavailableOnce() async throws {
+        let previousLanguage = V3AppLanguage.selected
+        let fixture = try await NativeAlertFixture.ready()
+        defer { fixture.close(); V3AppLanguage.persist(previousLanguage) }
+        V3AppLanguage.persist(.english)
+        fixture.start()
+        try await until { fixture.current != nil && fixture.session?.fixtureTransitioning == false }
+        let old = try XCTUnwrap(fixture.current)
+        V3AppLanguage.persist(.hebrew)
+        fixture.session?.fixtureRefreshLanguage()
+        // Settle replacement first: its window guard must not masquerade as
+        // evidence that the registered scene observer delivered cancellation.
+        try await until { fixture.session?.fixtureTransitioning == false && fixture.current !== old }
+        XCTAssertEqual(fixture.outcomes, [])
+        fixture.window.isHidden = true
+        fixture.window.rootViewController = nil
+        // Exercise the actual registered scene observer with a synthetic notification.
+        NotificationCenter.default.post(name: UIScene.didDisconnectNotification, object: fixture.window.windowScene)
+        NotificationCenter.default.post(name: UIScene.didDisconnectNotification, object: fixture.window.windowScene)
+        try await until { fixture.outcomes.count == 1 }
+        fixture.session?.finish(from: old) { fixture.outcomes.append("stale") }
+        try await until { fixture.outcomes.count == 1 }
+        await drainTransitions()
+        XCTAssertEqual(fixture.outcomes, ["unavailable"])
+        XCTAssertEqual(fixture.session?.fixtureFinished, true)
+        XCTAssertNil(fixture.window.rootViewController)
+        try record("scene-notification", ["callbackCount": fixture.outcomes.count, "outcomes": fixture.outcomes,
+            "sceneDelivery": "synthetic UIScene.didDisconnectNotification on actual fixture UIWindowScene"])
+    }
+
+    func testShowErrorResolvesPendingConfirmationBeforeReplacingIt() async throws {
+        let previousLanguage = V3AppLanguage.selected
+        let fixture = try await NativeAlertFixture.ready()
+        defer { fixture.close(); V3AppLanguage.persist(previousLanguage) }
+        var completionCount = 0
+        var didComplete = false
+        var result: Bool?
+        let confirmation = Task { @MainActor in
+            result = await fixture.presenter.presentConfirmation(
+                title: .localized("lc.common.error"), message: .localized("lc.webView.installAppDesc"),
+                confirmTitle: .localized("lc.common.ok"), cancelTitle: .localized("lc.common.cancel"))
+            completionCount += 1
+            didComplete = true
+        }
+        defer { confirmation.cancel() }
+        try await until { fixture.presenter.presentedViewController is UIAlertController }
+        let original = try XCTUnwrap(fixture.presenter.presentedViewController as? UIAlertController)
+        let oldSession = try XCTUnwrap(V3NativeAlertPresentation.fixtureSession(for: original))
+        fixture.presenter.showError("opaque native diagnostic domain/code")
+        try await until { didComplete && fixture.presenter.presentedViewController is UIAlertController && fixture.presenter.presentedViewController !== original }
+        XCTAssertNil(result)
+        XCTAssertTrue(didComplete)
+        // Replacing the old controller programmatically must not rely on the
+        // adaptive-dismiss delegate, which UIKit does not call for this action.
+        XCTAssertFalse(fixture.presenter.presentedViewController === original)
+        oldSession.finish(from: original) { completionCount += 1 }
+        oldSession.fixtureRefreshLanguage()
+        await drainTransitions()
+        XCTAssertEqual(completionCount, 1)
+        XCTAssertEqual(oldSession.fixtureFinished, true)
+        XCTAssertFalse(fixture.presenter.presentedViewController === original)
+        try record("confirmation-replaced", ["completionCount": completionCount, "resultIsNil": result == nil])
+    }
+
+    func testAsyncErrorAfterLanguageSwitchUsesLatestLanguageAndKeepsOriginal() async throws {
+        let previousLanguage = V3AppLanguage.selected
+        defer { V3AppLanguage.persist(previousLanguage) }
+        for language in V3AppLanguage.allCases {
+            let fixture = try await NativeAlertFixture.ready()
+            defer { fixture.close() }
+            // Construct while a different language is selected, then hold the
+            // actual async completion until after the preference has changed.
+            V3AppLanguage.persist(language == .english ? .hebrew : .english)
+            let opaqueName = "Fixture % app • 日本語 • עברית"
+            let produced = V3DisplayMessage.localized("lc.webView.pageLaunch %@", opaqueName)
+            let original = produced.original
+            var continuation: CheckedContinuation<Void, Never>?
+            var received: V3DisplayMessage?
+            var deliveryCount = 0
+            var staleCallbackCount = 0
+            let pendingResult = Task { @MainActor in
+                await withCheckedContinuation { continuation = $0 }
+                do { throw produced }
+                catch {
+                    let display = V3DisplayMessage.preserving(error)
+                    received = display
+                    deliveryCount += 1
+                    fixture.presenter.showError(display)
+                }
+            }
+            try await until { continuation != nil }
+            V3AppLanguage.persist(language)
+            let release = try XCTUnwrap(continuation)
+            continuation = nil
+            release.resume()
+            await pendingResult.value
+            try await until { fixture.presenter.presentedViewController is UIAlertController }
+            let alert = try XCTUnwrap(fixture.presenter.presentedViewController as? UIAlertController)
+            let display = try XCTUnwrap(received)
+            let expectedTitle = V3Localization.string("lc.common.error", language: language)
+            XCTAssertNotEqual(expectedTitle, "lc.common.error", "Compile the candidate language resources into the test host")
+            XCTAssertEqual(Array(display.original.utf8), Array(original.utf8))
+            XCTAssertEqual(alert.title, expectedTitle)
+            XCTAssertEqual(alert.message, display.appendingDiagnostic(LCNativeErrorSite.banner.rawValue).rendered(language: language))
+            XCTAssertTrue(alert.message?.contains(opaqueName) == true)
+            XCTAssertEqual(alert.view.semanticContentAttribute, language.isRightToLeft ? .forceRightToLeft : .forceLeftToRight)
+            let diagnostic = LCNativeErrorPresentation.details(display.original, site: .banner)
+            XCTAssertTrue(diagnostic.contains(original))
+            XCTAssertTrue(diagnostic.contains("SS-NATIVE-BANNER"))
+            XCTAssertEqual(Array(display.original.utf8), Array(original.utf8))
+            let session = try XCTUnwrap(V3NativeAlertPresentation.fixtureSession(for: alert))
+            V3NativeAlertPresentation.stop(alert)
+            session.finish(from: alert) { staleCallbackCount += 1 }
+            session.fixtureRefreshLanguage()
+            try await until { fixture.presenter.presentedViewController == nil }
+            await drainTransitions()
+            XCTAssertEqual(deliveryCount, 1)
+            XCTAssertEqual(staleCallbackCount, 0)
+            XCTAssertTrue(session.fixtureFinished)
+            XCTAssertNil(fixture.presenter.presentedViewController)
+            try record("async-error-" + language.rawValue, ["deliveryCount": deliveryCount, "staleCallbackCount": staleCallbackCount,
+                "title": alert.title ?? "", "message": alert.message ?? "", "original": original,
+                "direction": alert.view.semanticContentAttribute.rawValue])
+        }
+    }
+
+}
