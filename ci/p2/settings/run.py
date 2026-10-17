@@ -18,7 +18,7 @@ LIMITS=['Standalone exact-component host; no whole LCSettingsView or production 
  'Fixture-owned equivalent locale/direction root and synthetic model/input state; no production auth operations',
  'Actual picker and alert-action taps are sequential; no action tap precisely during language replacement',
  'Public UIKit layout snapshots and outside-Form witness are supplemental diagnostics; they cannot override failing Form geometry',
- 'Outer fixture typing counters are diagnostic-only across processes; strict app/runner agreement remains mandatory for modal product-action intervals',
+ 'Clipboard evidence measures same-app change generations after causal baseline acknowledgement, not setter invocations or unobserved pre-baseline intervals',
  'Standalone defaults/bundle fallback; no host capture across guest execution',
  'One simulator and bounded Dynamic Type screenshots; no full-app device matrix, IME or VoiceOver acceptance',
  'No OS-driven scene destruction or arbitrary unmanaged dismissal proof',
@@ -35,6 +35,7 @@ def module(name,path):
 ALERT_LANE=module('accepted_alert_lane',HERE.parent/'alerts/run.py')
 strict_json=ALERT_LANE.strict_json
 select_device=ALERT_LANE.select_device
+CLIPBOARD=module('p2_settings_clipboard_trace',HERE/'clipboard_trace.py')
 
 def verify_inputs(host,approved):
  require(sha(HERE/'inputs.json')==approved,'Unapproved interaction inputs')
@@ -88,9 +89,9 @@ def prepare(host,output):
  require(tuple(re.findall(r'^    func (test\w+)\(',tests,re.M))==METHODS,'UI-test method drift')
  fragments=['import UIKit\nimport SwiftUI\nimport ObjectiveC\n',localization.read_text(),settings.read_text(),
   *[extracted[a] for a in ANCHORS],extracted['class SceneDelegate'],
-  'extension View {\n'+extracted['View.textFieldAlert']+'}\n',template]
+  'extension View {\n'+extracted['View.textFieldAlert']+'}\n',(HERE/'ClipboardProbeApp.swift.in').read_text(),template]
  (source/'App.swift').write_text('\n\n'.join(fragments))
- (source/'SettingsInteractionTests.swift').write_text(tests)
+ (source/'SettingsInteractionTests.swift').write_text((HERE/'ClipboardProbeRunner.swift.in').read_text()+'\n\n'+tests)
  builder_commit=git(ROOT,'rev-parse','HEAD')
  (source/'ExpectedStrings.swift').write_text(expected_strings(strict_json(catalog.read_text()),builder_commit))
  shutil.copyfile(catalog,source/'Localizable.xcstrings')
@@ -110,6 +111,7 @@ def prepare(host,output):
   'rootReferenceSHA256':hashlib.sha256(reference.encode()).hexdigest(),
   'rootReferenceCompiled':False,'fixtureOwnsRootCompositionAndWindowAttachment':True,
   'templateSHA256':sha(HERE/'App.swift.in'),'testTemplateSHA256':sha(HERE/'SettingsInteractionTests.swift.in'),
+  'clipboardAppTemplateSHA256':sha(HERE/'ClipboardProbeApp.swift.in'),'clipboardRunnerTemplateSHA256':sha(HERE/'ClipboardProbeRunner.swift.in'),
   'generatedFiles':{str(p.relative_to(output)):sha(p) for p in sorted(output.rglob('*')) if p.is_file()},
   'methods':list(METHODS),'scope':LIMITS}
  write(output/'source-identity.json',identity)
@@ -168,6 +170,7 @@ def validate_state(value,allow_missing_default=False):
  for key in ('text','originalMessage','confirmOutcome','textOutcome','textResult','clipboardValue'):
   require(isinstance(value.get(key),str),'Invalid state string: '+key)
  require(value['processIdentifier']>0,'Invalid app process identifier')
+ require(value.get('clipboardProbeReady') is True,'App-process clipboard probe is unavailable')
  require(OPAQUE_NAME in value['originalMessage'],'Original message lost opaque Unicode')
  require(type(value.get('textPresented')) is bool,'Invalid binding state')
  return value
@@ -232,7 +235,30 @@ def validate_layout(value,state):
  require(views[0]['layerIdentity']==layers[0]['identity'],'Window layer identity mismatch')
  return value
 
-def verify_observations(directory,catalog,builder_commit=None):
+def validate_message_samples(samples,expected,title):
+ import math
+ require(isinstance(expected,str) and expected and isinstance(title,str) and title,'Missing expected exact alert labels')
+ require(isinstance(samples,list) and 1<=len(samples)<=101,'Missing/oversized exact-message observations')
+ previous=-1.0
+ for index,sample in enumerate(samples):
+  require(isinstance(sample,dict) and set(sample)=={'sequence','uptime','alertCount','labels','samplingStart','deadline'},'Malformed exact-message observation')
+  require(type(sample['sequence']) is int and sample['sequence']==index+1,'Message observation sequence differs')
+  now=sample['uptime'];require(type(now) in (int,float) and math.isfinite(now) and now>previous,'Nonfinite or unordered message observation')
+  start=sample['samplingStart'];deadline=sample['deadline']
+  require(all(type(x) in (int,float) and math.isfinite(x) for x in (start,deadline)) and start>=0 and deadline==start+10,'Invalid message observation deadline')
+  require(start<=now<=deadline,'Exact message observation exceeded its 10-second deadline')
+  require(start==samples[0]['samplingStart'] and deadline==samples[0]['deadline'],'Message observation changed its timing boundary')
+  previous=now
+  require(type(sample['alertCount']) is int and sample['alertCount']==1,'Message observation has an ambiguous alert')
+  labels=sample['labels'];require(isinstance(labels,list) and len(labels)<=64 and all(isinstance(x,str) and len(x.encode('utf-8'))<=16384 for x in labels),'Invalid raw alert label inventory')
+  matches=[x for x in labels if x.encode('utf-8')==expected.encode('utf-8')]
+  require(len(matches)==(1 if index==len(samples)-1 else 0),'Missing/duplicate or post-success message observations')
+  if index==len(samples)-1:require(sum(x.encode('utf-8')==title.encode('utf-8') for x in labels)==1,'Message observation lacks exact unique title')
+ return samples
+
+def verify_observations(directory,catalog,builder_commit=None,clipboard_directory=None):
+ traces=CLIPBOARD.read(clipboard_directory or Path(directory)/'clipboard-traces',strict_json)
+ expected_trace_sessions=set()
  builder_commit=builder_commit or git(ROOT,'rev-parse','HEAD')
  require(re.fullmatch('[0-9a-f]{40}',builder_commit) is not None,'Invalid evidence builder identity')
  def text(key,language):return catalog['strings'][key]['localizations'][language]['stringUnit']['value']
@@ -289,6 +315,7 @@ def verify_observations(directory,catalog,builder_commit=None):
   category='accessibilityExtraExtraExtraLarge' if case=='settings-largest' else 'large'
   bootstrap=data.get('bootstrap');require(isinstance(bootstrap,dict),'Missing genuine picker bootstrap')
   start=validate_state(bootstrap.get('before'),allow_missing_default=True);boot=validate_state(bootstrap.get('after'))
+  expected_trace_sessions.update((start['sessionToken'],boot['sessionToken']))
   require(boot['language']=='he' and start['contentSizeCategory']==boot['contentSizeCategory']==category,'Wrong bootstrap language/category')
   require(all(start[key]==0 for key in COUNTERS) and start['text']=='' and not start['textPresented'],'Bootstrap did not start fresh fixture state')
   matching_message(start['originalMessage'],start['language']);retained_state(start,boot)
@@ -325,6 +352,7 @@ def verify_observations(directory,catalog,builder_commit=None):
   for row in rows:
    language=row['language'];value=row[axis];require(row.get('verified') is True,'Unverified interaction')
    before=validate_state(row.get('before'));after=validate_state(row.get('after'))
+   expected_trace_sessions.update((before['sessionToken'],after['sessionToken']))
    require(after['language']==language,'Wrong selected/rendered language')
    category='accessibilityExtraExtraExtraLarge' if case=='settings-largest' else 'large'
    require(before['contentSizeCategory']==after['contentSizeCategory']==category,'Wrong independent text-size case')
@@ -385,6 +413,8 @@ def verify_observations(directory,catalog,builder_commit=None):
     require(row.get('alertDismissed') is True and row.get('noResurrection') is True,'Missing settled alert dismissal')
     require(type(row.get('drainSeconds')) in (int,float) and row['drainSeconds']>=0.8,'Missing post-dismissal drain')
     require(row.get('displayedTitle')==text('lc.common.error',language),'Wrong localized alert title')
+    if case=='textfield-buttons':require(row.get('messageSamples')==[],'Text-field alert invented a message observation')
+    else:validate_message_samples(row.get('messageSamples'),row.get('displayedMessage'),text('lc.common.error',language))
     expected_actions=[text('lc.common.ok',language),text('lc.common.copy' if case=='error-buttons' else 'lc.common.cancel',language)]
     require(isinstance(row.get('displayedActions'),list) and sorted(row['displayedActions'])==sorted(expected_actions),'Wrong exact alert action set')
     all_labels=row.get('allButtonLabels')
@@ -424,10 +454,10 @@ def verify_observations(directory,catalog,builder_commit=None):
      require(after['textOutcome']==value and before['textPresented'] is False and after['textPresented'] is False,'Text-field binding did not close with expected outcome')
      delta('textStarted',1);delta('textCompleted',1)
      for key in ('confirmStarted','confirmCompleted','errorStarted'):delta(key,0)
-     typing_before,typing_after=typing_receipts(row.get('typingBefore'),row.get('typingAfter'),before)
+     typing_before,typing_after=typing_receipts(row.get('typingBefore'),row.get('typingAfter'),before,require_app_agreement=False)
      action_before=clipboard_receipt(row.get('actionBefore'),before);tap_returned=clipboard_receipt(row.get('tapReturned'),before);action_after=clipboard_receipt(row.get('actionAfter'),before)
      require(typing_after['uptime']<=action_before['uptime']<=tap_returned['uptime']<=action_after['uptime'],'Action count receipts are out of order')
-     require(typing_after['count']==action_before['count']==tap_returned['count']==action_after['count']==after['clipboardChangeCount'],'Clipboard changed after typing or during actual action')
+     # Foreign runner generations are diagnostic only. Same-app causal proof is mandatory below.
     expected_attachments=[stem+'-before.png',stem+'-before.txt',stem+'-after.png',stem+'-after.txt']
    require(row.get('attachments')==expected_attachments,'Missing, extra or misplaced screenshot/AX evidence')
    retained=[]
@@ -441,8 +471,10 @@ def verify_observations(directory,catalog,builder_commit=None):
    previous=after
    records.append({'language':language,axis:value,'attachments':retained,'observation':row})
   require(input_index==len(inputs),'Unused input receipt')
+  require(data.get('messageProgress')==[row['messageSamples'] for row in rows if row.get('messageSamples')],'Message observation progress differs from completed rows')
   progress=data.get('modalProgress');require(isinstance(progress,list),'Missing durable modal progress receipts')
-  progress_keys=('language','action','before','typingBefore','typingAfter','actionBefore','tapReturned','actionAfter','after')
+  CLIPBOARD.verify_case(data,rows,traces)
+  progress_keys=('language','action','before','typingBefore','typingAfter','actionBefore','tapReturned','actionAfter','probeTypingBefore','probeTypingAfter','probeActionBefore','probeTapReturned','probeActionAfter','actionTapUptime','after')
   require(progress==[{key:row[key] for key in progress_keys} for row in rows] if case=='textfield-buttons' else progress==[],
    'Durable modal progress differs from exact completed action receipts')
   snapshots=data.get('layoutSnapshots');stages=['initial','bootstrap-he']
@@ -470,17 +502,73 @@ def verify_observations(directory,catalog,builder_commit=None):
    data=strict_json(path.read_text())
    if isinstance(data,dict) and data.get('schema')=='p2-settings-interaction-v1':
     require(path in report_paths,'Unexpected extra interaction report')
- return {'status':'passed','cases':result,'observationCount':40,'screenshotCount':80,'hierarchyCount':80,
+ require(set(traces)==expected_trace_sessions,'Missing/extra app-process trace session')
+ return {'status':'passed','clipboardTraceFiles':{key:value['sha256'] for key,value in traces.items()},'cases':result,'observationCount':40,'screenshotCount':80,'hierarchyCount':80,
   'visualClippingReview':'required separately; accessibility and PNG presence do not establish visual quality','scope':LIMITS}
 
-def evaluate_native_evidence(summary, tests, attachments, catalog, command_failure=None):
+def evaluate_native_evidence(summary, tests, attachments, catalog, command_failure=None,clipboard_directory=None,trace_failure=None):
  result={'status':'failed','nativeCounts':{key:summary.get(key) for key in ['result','passedTests','failedTests','skippedTests','totalTestCount']},'errors':[]}
+ if trace_failure is not None:result['errors'].append('Clipboard trace retention: '+str(trace_failure))
  if command_failure is not None:result['errors'].append('Xcodebuild test command failed: '+str(command_failure))
  try:result['xctest']=verify_results(summary,tests)
  except Exception as error:result['errors'].append('XCTest gate: '+str(error))
- try:result['observations']=verify_observations(attachments,catalog)
+ try:result['observations']=verify_observations(attachments,catalog,clipboard_directory=clipboard_directory)
  except Exception as error:result['errors'].append('Observation gate: '+str(error))
  if not result['errors']:result['status']='passed'
+ return result
+
+def absent_synthetic_process(argv,returncode,output):
+ # Fail closed on any unrecognized simctl error, while preserving its raw log.
+ return (list(argv[:3])==['xcrun','simctl','terminate'] and len(argv)==5
+  and argv[4]=='org.sidestore.fixture.p2settings' and returncode==3
+  and 'domain=NSPOSIXErrorDomain, code=3' in output
+  and 'found nothing to terminate' in output.lower())
+
+def recover_clipboard_traces(command,app,device,evidence):
+ """Independent best-effort retention; any uncertainty remains a gate failure."""
+ errors=[];container=None
+ try:
+  bundle_id=plistlib.loads((app/'Info.plist').read_bytes())['CFBundleIdentifier']
+  require(bundle_id=='org.sidestore.fixture.p2settings','Unexpected synthetic trace owner bundle')
+  container=Path(command('xcrun','simctl','get_app_container',device['udid'],bundle_id,'data'))
+  try:command('xcrun','simctl','terminate',device['udid'],bundle_id,allow_missing_process=True)
+  except Exception as error:errors.append('Synthetic app termination: '+str(error))
+  # Still retain files after an unexpected termination failure for diagnosis.
+  inventory=CLIPBOARD.retain(container,evidence/'clipboard-traces')
+  write(evidence/'clipboard-traces-sha256.json',inventory)
+  time.sleep(0.2)
+  source=container/'Library/Caches/P2ClipboardTrace'
+  require({p.name for p in source.iterdir()}==set(inventory),'Trace inventory changed after quiescence')
+  for name,entry in inventory.items():
+   path=source/name
+   require(not path.is_symlink() and path.stat().st_size==entry['bytes'] and sha(path)==entry['sha256'],'Trace changed after quiescence: '+name)
+ except Exception as error:errors.append('Trace copy/stability: '+str(error))
+ write(evidence/'clipboard-retention.json',{'status':'failed' if errors else 'passed','errors':errors,
+  'scope':'Only synthetic app count traces; independent of xcresult export and its outcome'})
+ return '; '.join(errors) if errors else None
+
+def collect_native_evidence(command,app,device,evidence,catalog,command_failure):
+ """Each export and trace recovery runs even when another evidence gate fails."""
+ summary={};tests={};errors=[];trace_failure=None;bundle=evidence/'settings.xcresult'
+ try:
+  if not bundle.exists():errors.append('No XCTest result bundle')
+  else:
+   for kind in ['summary','tests']:
+    try:
+     data=json.loads(command('xcrun','xcresulttool','get','test-results',kind,'--path',bundle))
+     write(evidence/('xctest-'+kind+'.json'),data)
+     if kind=='summary':summary=data
+     else:tests=data
+    except Exception as error:errors.append('XCTest '+kind+' export: '+str(error))
+   try:command('xcrun','xcresulttool','export','attachments','--path',bundle,'--output-path',evidence/'attachments')
+   except Exception as error:errors.append('XCTest attachment export: '+str(error))
+ finally:
+  try:trace_failure=recover_clipboard_traces(command,app,device,evidence)
+  except Exception as error:trace_failure='Unexpected trace finalization failure: '+str(error)
+ result=evaluate_native_evidence(summary,tests,evidence/'attachments',catalog,command_failure,
+  evidence/'clipboard-traces',trace_failure)
+ result['errors'].extend(errors)
+ if result['errors']:result['status']='failed'
  return result
 
 def main():
@@ -491,8 +579,8 @@ def main():
  evidence.mkdir(parents=True,exist_ok=False);work.mkdir(parents=True,exist_ok=False)
  report={'status':'failed','sourceCommit':SOURCE,'sourceTree':TREE,'builderCommit':git(ROOT,'rev-parse','HEAD'),
   'inputSHA256':args.approved_inputs_sha256,'scope':LIMITS,'errors':[]}
- count=0;device=None;booted_here=False
- def command(*argv,timeout=300):
+ count=0;device=None;booted_here=False;test_started=False;app=None;test_failure=None
+ def command(*argv,timeout=300,allow_missing_process=False):
   nonlocal count
   count+=1;stem=evidence/'commands'/f'{count:03d}';stem.parent.mkdir(exist_ok=True)
   argv=[str(x) for x in argv];started=time.monotonic()
@@ -503,7 +591,7 @@ def main():
    write(stem.with_suffix('.json'),{'command':argv,'timedOut':True,'elapsedSeconds':time.monotonic()-started});raise
   stem.with_suffix('.log').write_text(result.stdout+'\n'+result.stderr)
   write(stem.with_suffix('.json'),{'command':argv,'returncode':result.returncode,'elapsedSeconds':time.monotonic()-started})
-  require(result.returncode==0,'Command failed; retained log '+stem.name)
+  require(result.returncode==0 or (allow_missing_process and absent_synthetic_process(argv,result.returncode,result.stdout+'\n'+result.stderr)),'Command failed; retained log '+stem.name)
   return result.stdout.strip()
  try:
   require(platform.system()=='Darwin','Darwin/Xcode required; no skipped execution allowed')
@@ -529,32 +617,29 @@ def main():
   device=select_device(inventory);write(evidence/'device.json',device)
   if device['state']!='Booted':command('xcrun','simctl','boot',device['udid']);booted_here=True
   command('xcrun','simctl','bootstatus',device['udid'],'-b',timeout=300)
-  bundle=evidence/'settings.xcresult';failure=None
+  bundle=evidence/'settings.xcresult';test_started=True
   try:
    command('xcodebuild','test-without-building','-xctestrun',runs[0],'-destination','id='+device['udid'],
     '-resultBundlePath',bundle,'-parallel-testing-enabled','NO','-maximum-concurrent-test-simulator-destinations','1',
     '-test-timeouts-enabled','YES','-default-test-execution-time-allowance','240','-maximum-test-execution-time-allowance','240',
     *['-only-testing:P2SettingsUITests/SettingsInteractionTests/'+name for name in METHODS],timeout=1800)
-  except Exception as error:failure=str(error)
-  require(bundle.exists(),'No XCTest result bundle: '+str(failure))
-  for kind in ['summary','tests']:
-   data=json.loads(command('xcrun','xcresulttool','get','test-results',kind,'--path',bundle))
-   write(evidence/('xctest-'+kind+'.json'),data)
-  command('xcrun','xcresulttool','export','attachments','--path',bundle,'--output-path',evidence/'attachments')
-  native=evaluate_native_evidence(json.loads((evidence/'xctest-summary.json').read_text()),
-   json.loads((evidence/'xctest-tests.json').read_text()),evidence/'attachments',
-   json.loads((host/'Resources/Localizable.xcstrings').read_text()),failure)
-  report['nativeEvidence']=native;write(evidence/'native-evidence.json',native)
-  if 'observations' in native:
-   report['observations']=native['observations'];write(evidence/'observations.json',native['observations'])
-  if 'xctest' in native:report['xctest']=native['xctest']
-  report['errors'].extend(native['errors'])
-  require(native['status']=='passed','Native interaction evidence rejected; inspect all retained gate failures')
+  except Exception as error:test_failure=str(error)
   verify_inputs(host,args.approved_inputs_sha256)
   report['status']='passed'
  except Exception as error:
   report['errors'].append(str(error))
  finally:
+  if test_started:
+   try:
+    native=collect_native_evidence(command,app,device,evidence,
+     json.loads((host/'Resources/Localizable.xcstrings').read_text()),test_failure)
+    report['nativeEvidence']=native;write(evidence/'native-evidence.json',native)
+    if 'observations' in native:
+     report['observations']=native['observations'];write(evidence/'observations.json',native['observations'])
+    if 'xctest' in native:report['xctest']=native['xctest']
+    report['errors'].extend(native['errors'])
+    if native['status']!='passed':report['status']='failed'
+   except Exception as error:report['errors'].append('Native evidence finalization failed: '+str(error));report['status']='failed'
   products=work/'DerivedData/Build/Products'
   if products.is_dir():
    try:

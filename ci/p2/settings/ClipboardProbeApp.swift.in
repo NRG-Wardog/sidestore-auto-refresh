@@ -1,0 +1,134 @@
+import Foundation
+import UIKit
+import CoreFoundation
+
+// Fixture-owned measurement only. No production alert/action is intercepted.
+// Darwin messages carry only an unguessable fixture session ID and sequence.
+@MainActor
+final class SettingsClipboardProbe {
+    static let maximumRequests = 64
+    static let maximumRecords = 30_000
+    let nonce: String
+    private let processToken: String
+    private var output: FileHandle?
+    private var timer: Timer?
+    private var turnObserver: CFRunLoopObserver?
+    private var turn = 0
+    private var sequence = 0
+    private var nextRequest = 1
+    private var pending: (id: Int, turn: Int, uptime: TimeInterval)?
+    private var names: [String: Int] = [:]
+    private(set) var failure = ""
+    private(set) var ready = false
+
+    init(processToken: String, sessionToken: String) {
+        self.processToken = processToken
+        nonce = sessionToken
+        guard UUID(uuidString: nonce) != nil else { failure = "invalid-session"; return }
+        do {
+            let directory = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true).appendingPathComponent("P2ClipboardTrace", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let file = directory.appendingPathComponent(nonce + ".jsonl")
+            guard !FileManager.default.fileExists(atPath: file.path),
+                  FileManager.default.createFile(atPath: file.path, contents: nil) else {
+                failure = "trace-create-failed"; return
+            }
+            output = try FileHandle(forWritingTo: file)
+        } catch { failure = "trace-open-failed"; return }
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        for id in 1...Self.maximumRequests {
+            let name = "p2.clipboard." + nonce + ".request." + String(id)
+            names[name] = id
+            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), observer,
+                { _, pointer, name, _, _ in
+                    guard let pointer, let name else { return }
+                    let value = Unmanaged<SettingsClipboardProbe>.fromOpaque(pointer).takeUnretainedValue()
+                    MainActor.assumeIsolated { value.receive(name.rawValue as String) }
+                }, name as CFString, nil, .deliverImmediately)
+        }
+        turnObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault,
+            CFRunLoopActivity.afterWaiting.rawValue, true, 0) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.turn += 1 }
+            }
+        guard let turnObserver else { fail("run-loop-observer-unavailable"); return }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), turnObserver, .commonModes)
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        ready = record(kind: "initial", request: 0, synchronize: true)
+    }
+
+    private func fail(_ reason: String) {
+        guard failure.isEmpty else { return }
+        failure = reason
+        ready = false
+        // A recorded failure is not an acknowledgement or an accepted sample.
+        _ = record(kind: "failure", request: pending?.id ?? 0, synchronize: true)
+    }
+
+    @discardableResult
+    private func record(kind: String, request: Int, synchronize: Bool = false) -> Bool {
+        guard let output, sequence < Self.maximumRecords else {
+            ready = false
+            if failure.isEmpty { failure = "trace-unavailable-or-limit" }
+            return false
+        }
+        sequence += 1
+        let row: [String: Any] = ["schema": "p2-app-clipboard-trace-v1", "sequence": sequence,
+            "processToken": processToken, "sessionToken": nonce, "nonce": nonce,
+            "processIdentifier": ProcessInfo.processInfo.processIdentifier,
+            "uptime": ProcessInfo.processInfo.systemUptime, "runLoopTurn": turn,
+            "kind": kind, "requestSequence": request, "count": UIPasteboard.general.changeCount,
+            "failure": failure]
+        do {
+            var data = try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
+            data.append(0x0a)
+            try output.write(contentsOf: data)
+            if synchronize { try output.synchronize() }
+            return true
+        } catch {
+            ready = false
+            if failure.isEmpty { failure = "trace-write-failed" }
+            return false
+        }
+    }
+
+    private func receive(_ name: String) {
+        guard ready, failure.isEmpty, let id = names[name], pending == nil, id == nextRequest else {
+            fail("unexpected-or-duplicate-request"); return
+        }
+        pending = (id, turn, ProcessInfo.processInfo.systemUptime)
+        _ = record(kind: "request", request: id)
+    }
+
+    private func tick() {
+        guard ready, failure.isEmpty else { return }
+        guard record(kind: "periodic", request: pending?.id ?? 0) else { return }
+        guard let pending else { return }
+        let elapsed = ProcessInfo.processInfo.systemUptime - pending.uptime
+        guard elapsed <= 3 else { fail("next-turn-sample-timeout"); return }
+        // Counter changes may be batched until the end of an event-loop turn.
+        // Require an observed later loop wake and a delayed timer firing.
+        guard turn > pending.turn, elapsed >= 0.05 else { return }
+        guard record(kind: "acknowledged-sample", request: pending.id, synchronize: true) else { return }
+        self.pending = nil
+        nextRequest += 1
+        let name = "p2.clipboard." + nonce + ".ack." + String(pending.id)
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(rawValue: name as CFString), nil, nil, false)
+    }
+
+    func stop() {
+        timer?.invalidate(); timer = nil
+        CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque())
+        if let turnObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), turnObserver, .commonModes) }
+        turnObserver = nil
+        if ready { _ = record(kind: "stopped", request: 0, synchronize: true) }
+        ready = false
+        try? output?.close(); output = nil
+    }
+}

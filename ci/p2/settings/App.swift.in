@@ -16,7 +16,14 @@ final class SettingsFixtureModel: ObservableObject {
     static let processToken = UUID().uuidString
     static let opaqueName = "Fixture % app • 日本語 • עברית"
     static let rawError = "fixture diagnostic % @ : / • 日本語 • עברית\nopaque=001"
-    let sessionToken = UUID().uuidString
+    let sessionToken: String
+    let clipboardProbe: SettingsClipboardProbe
+
+    init() {
+        let session = UUID().uuidString
+        sessionToken = session
+        clipboardProbe = SettingsClipboardProbe(processToken: Self.processToken, sessionToken: session)
+    }
     let existingMessage = V3DisplayMessage.localized("lc.webView.pageLaunch %@", SettingsFixtureModel.opaqueName)
     weak var window: UIWindow?
     private let viewIdentities = NSMapTable<NSObject, NSString>(keyOptions: .weakMemory, valueOptions: .strongMemory)
@@ -142,7 +149,7 @@ final class SettingsFixtureModel: ObservableObject {
             "schema": "p2-settings-state-v1",
             "processArguments": process.arguments, "languageEnvironment": languageEnvironment,
             "processToken": Self.processToken, "sessionToken": sessionToken,
-            "processIdentifier": Int(process.processIdentifier),
+            "processIdentifier": Int(process.processIdentifier), "clipboardProbeReady": clipboardProbe.ready,
             "language": V3AppLanguage.selected.rawValue,
             "hostDefaultLanguage": V3Localization.hostDefaults.string(forKey: V3AppLanguage.storageKey) ?? "<missing>",
             "locale": locale.identifier, "direction": direction == .rightToLeft ? "rtl" : "ltr",
@@ -308,6 +315,7 @@ final class SettingsFixtureWindowDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
     private var model: SettingsFixtureModel?
     private var productionSceneContext: SceneDelegate?
+    func sceneDidDisconnect(_ scene: UIScene) { model?.clipboardProbe.stop() }
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
         guard let scene = scene as? UIWindowScene else { return }
         let window = UIWindow(windowScene: scene)

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme LastUpgradeVersion="2640" version="1.7">
+ <BuildAction parallelizeBuildables="NO" buildImplicitDependencies="YES">
+  <BuildActionEntries><BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="YES">
+   <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="00000000000000000000000E" BuildableName="HostSettingsProbeUITests.xctest" BlueprintName="HostSettingsProbeUITests" ReferencedContainer="container:HostSettingsProbe.xcodeproj"/>
+  </BuildActionEntry></BuildActionEntries>
+ </BuildAction>
+ <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.PosixSpawn" shouldUseLaunchSchemeArgsEnv="NO">
+  <Testables><TestableReference skipped="NO" parallelizable="NO">
+   <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="00000000000000000000000E" BuildableName="HostSettingsProbeUITests.xctest" BlueprintName="HostSettingsProbeUITests" ReferencedContainer="container:HostSettingsProbe.xcodeproj"/>
+  </TestableReference></Testables>
+ </TestAction>
+ <AnalyzeAction buildConfiguration="Debug"/>
+</Scheme>

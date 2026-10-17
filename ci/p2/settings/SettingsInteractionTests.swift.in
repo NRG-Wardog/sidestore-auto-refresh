@@ -15,6 +15,8 @@ final class SettingsInteractionTests: XCTestCase {
     private var method = ""
     private var lastStage = "not-started"
     private var modalProgress: [[String: Any]] = []
+    private var messageProgress: [[[String: Any]]] = []
+    private var clipboardProbe: SettingsClipboardProbeRunner?
     private var inputReceipts: [[String: Any]] = []
     private var layoutSnapshots: [[String: Any]] = []
     private var observations: [[String: Any]] = []
@@ -54,7 +56,7 @@ final class SettingsInteractionTests: XCTestCase {
     private func begin(_ name: String, _ testMethod: String, largest: Bool = false) throws {
         continueAfterFailure = true
         evidenceCase = name; method = testMethod; lastStage = "launch"
-        observations = []; modalProgress = []; inputReceipts = []; layoutSnapshots = []; failures = []; completed = false; reported = false
+        observations = []; modalProgress = []; messageProgress = []; inputReceipts = []; layoutSnapshots = []; failures = []; completed = false; reported = false
         bootstrap = [:]; lastPickerTap = [:]; lastPickerBefore = [:]; lastPickerAfter = [:]; lastTriggerTap = [:]
         addTeardownBlock { @MainActor [self] in finish() }
         XCUIDevice.shared.orientation = .portrait
@@ -63,6 +65,7 @@ final class SettingsInteractionTests: XCTestCase {
                     "Language environment overrides are forbidden")
         app.launch()
         try until("Fixture did not become ready") { self.readState() != nil }
+        try require(readState()?["clipboardProbeReady"] as? Bool == true, "App-process clipboard probe unavailable")
         try captureLayout("initial")
         let beforeBootstrap = try state()
         // Genuine picker bootstrap guarantees that the first tested English
@@ -217,16 +220,28 @@ final class SettingsInteractionTests: XCTestCase {
     }
     private func finish() {
         guard !reported else { return }; reported = true
+        if let clipboardProbe, !clipboardProbe.failures.isEmpty {
+            failures += clipboardProbe.failures
+            completed = false
+            XCTFail("Clipboard measurement acknowledgement failed")
+        }
         if !completed { capture(evidenceCase + "-partial-failure") }
         let result: [String: Any] = ["schema": "p2-settings-interaction-v1",
             "evidenceCase": evidenceCase, "method": method, "completed": completed,
             "failures": failures, "observations": observations, "lastStage": lastStage,
-            "bootstrap": bootstrap, "inputReceipts": inputReceipts, "modalProgress": modalProgress, "layoutSnapshots": layoutSnapshots,
+            "bootstrap": bootstrap, "inputReceipts": inputReceipts, "modalProgress": modalProgress, "messageProgress": messageProgress, "layoutSnapshots": layoutSnapshots,
+            "clipboardRequests": clipboardProbe?.requests ?? [],
+            "clipboardAcknowledgements": clipboardProbe?.acknowledgements ?? [],
+            "clipboardFailures": clipboardProbe?.failures ?? [],
             "finalState": readState() ?? [:]]
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
             let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
             attachment.name = evidenceCase + ".json"; attachment.lifetime = .keepAlways; add(attachment)
         } else { XCTFail("Could not serialize mandatory evidence") }
+        clipboardProbe?.stop()
+        // End only this synthetic test host after retaining the final evidence.
+        // Its allowlisted count trace is collected after XCTest returns.
+        app.terminate()
     }
     private func checkLocale(_ language: String, _ value: [String: Any]) throws {
         try require(string(value, "language") == language, "Wrong persisted language")
@@ -336,15 +351,45 @@ final class SettingsInteractionTests: XCTestCase {
                                actions: [String]) throws -> [String: Any] {
         let title = expected("lc.common.error", language)
         try require(alert.staticTexts[title].exists, "Wrong localized alert title")
-        let messageElement = alert.staticTexts.matching(NSPredicate(format: "label == %@", message)).firstMatch
-        if !message.isEmpty { try require(messageElement.exists, "Wrong localized alert message") }
+        var messageSamples: [[String: Any]] = []
+        var displayedMessage = ""
+        if !message.isEmpty {
+            let progressIndex = messageProgress.count
+            messageProgress.append([])
+            let samplingStart = ProcessInfo.processInfo.systemUptime
+            let deadline = samplingStart + 10
+            for sequence in 1...101 {
+                let labels = alert.staticTexts.allElementsBoundByIndex.map(\.label)
+                let alertCount = app.alerts.count
+                let now = ProcessInfo.processInfo.systemUptime
+                let sample: [String: Any] = ["sequence": sequence, "uptime": now,
+                    "alertCount": alertCount, "labels": labels,
+                    "samplingStart": samplingStart, "deadline": deadline]
+                messageSamples.append(sample)
+                messageProgress[progressIndex] = messageSamples // Keep failed observations before assertions.
+                try require(now >= samplingStart && now <= deadline, "Exact alert observation exceeded its 10-second deadline")
+                try require(alertCount == 1 && labels.count <= 64 && labels.allSatisfy { $0.utf8.count <= 16384 },
+                            "Invalid or oversized alert label snapshot")
+                let matches = labels.filter { Array($0.utf8) == Array(message.utf8) }
+                try require(matches.count <= 1, "Duplicate exact localized alert message")
+                if matches.count == 1 {
+                    try require(labels.filter { Array($0.utf8) == Array(title.utf8) }.count == 1,
+                                "Message snapshot lacks unique localized alert title")
+                    displayedMessage = matches[0]
+                    break
+                }
+                if now >= deadline { break }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            try require(Array(displayedMessage.utf8) == Array(message.utf8), "Wrong localized alert message")
+        }
         let allLabels = alert.buttons.allElementsBoundByIndex.map(\.label)
         // UITextField's native Clear button is an accessory, not an alert
         // action. Retain all labels, but identify the exact action controls.
         let labels = alert.textFields.count == 0 ? allLabels : allLabels.filter { actions.contains($0) }
         try require(labels.count == actions.count && Set(labels) == Set(actions), "Wrong production alert buttons")
         return ["displayedTitle": alert.staticTexts[title].label,
-                "displayedMessage": message.isEmpty ? "" : messageElement.label,
+                "displayedMessage": displayedMessage, "messageSamples": messageSamples,
                 "displayedActions": labels, "allButtonLabels": allLabels]
     }
     private func dismissAndDrain() throws {
@@ -433,7 +478,7 @@ final class SettingsInteractionTests: XCTestCase {
                 try checkLocale(language, after)
                 let delta = count(after, "clipboardChangeCount") - count(before, "clipboardChangeCount")
                 try require(count(after, "errorStarted") == count(before, "errorStarted") + 1, "Wrong error presentation count")
-                try require(delta == (action == "copy" ? 1 : 0), "Wrong actual clipboard-write count")
+                try require(delta == (action == "copy" ? 1 : 0), "Wrong observed clipboard-change generation")
                 let expectedClipboard = action == "copy" ? clipboard : string(before, "clipboardValue")
                 try require(Array(string(after, "clipboardValue").utf8) == Array(expectedClipboard.utf8),
                             "OK or Copy changed unexpected clipboard bytes")
@@ -455,6 +500,8 @@ final class SettingsInteractionTests: XCTestCase {
         try begin("textfield-buttons", "testTextFieldButtons")
         defer { finish() }
         try enterSafeText()
+        clipboardProbe = SettingsClipboardProbeRunner(nonce: string(try state(), "sessionToken"))
+        guard let clipboardProbe else { throw NSError(domain: "P2ClipboardProbe", code: 3) }
         for language in languages {
             try selectForAction(language)
             for action in ["confirm", "cancel"] {
@@ -475,10 +522,13 @@ final class SettingsInteractionTests: XCTestCase {
                 let typedPayload = " added"
                 let typingBefore = clipboardReceipt()
                 modalProgress[progressIndex]["typingBefore"] = typingBefore
-                try require(count(typingBefore, "count") == count(before, "clipboardChangeCount"), "App/runner modal clipboard baseline mismatch")
+                let probeTypingBefore = try clipboardProbe.sample(lastStage + "-typing-before")
+                modalProgress[progressIndex]["probeTypingBefore"] = probeTypingBefore
                 input.typeText(typedPayload)
                 let typingAfter = clipboardReceipt()
                 modalProgress[progressIndex]["typingAfter"] = typingAfter
+                let probeTypingAfter = try clipboardProbe.sample(lastStage + "-typing-after")
+                modalProgress[progressIndex]["probeTypingAfter"] = probeTypingAfter
                 let entered = input.value as? String ?? ""
                 try require(!entered.isEmpty && entered.components(separatedBy: typedPayload).count == 2,
                             "Native field must contain exactly one actual typed payload")
@@ -490,19 +540,27 @@ final class SettingsInteractionTests: XCTestCase {
                 try require(target.isHittable, "Text-field action is not hittable")
                 let actionBefore = clipboardReceipt()
                 modalProgress[progressIndex]["actionBefore"] = actionBefore
-                try require(count(actionBefore, "count") == count(typingAfter, "count"), "Clipboard changed between typing and actual action")
+                let probeActionBefore = try clipboardProbe.sample(lastStage + "-action-before")
+                modalProgress[progressIndex]["probeActionBefore"] = probeActionBefore
+                // The exact app-process sample has been durably acknowledged.
+                // No synthetic action or foreign clipboard count is used.
+                let actionTapUptime = ProcessInfo.processInfo.systemUptime
+                modalProgress[progressIndex]["actionTapUptime"] = actionTapUptime
                 target.tap()
                 let tapReturned = clipboardReceipt()
                 modalProgress[progressIndex]["tapReturned"] = tapReturned
+                let probeTapReturned = try clipboardProbe.sample(lastStage + "-tap-returned")
+                modalProgress[progressIndex]["probeTapReturned"] = probeTapReturned
                 try dismissAndDrain()
                 let actionAfter = clipboardReceipt()
                 modalProgress[progressIndex]["actionAfter"] = actionAfter
+                let probeActionAfter = try clipboardProbe.sample(lastStage + "-action-after")
+                modalProgress[progressIndex]["probeActionAfter"] = probeActionAfter
                 let after = try state()
                 modalProgress[progressIndex]["after"] = after
-                try require(count(actionBefore, "count") == count(tapReturned, "count") &&
-                            count(tapReturned, "count") == count(actionAfter, "count") &&
-                            count(after, "clipboardChangeCount") == count(actionAfter, "count"),
-                            "Actual text-field action changed clipboard")
+                try require(clipboardProbe.failures.isEmpty, "App-process clipboard handshake failed")
+                // Exact count-generation equality is checked from the retained
+                // same-app trace. Runner counts remain diagnostic observations.
                 try checkLocale(language, after)
                 let result = action == "confirm" ? entered : "nil"
                 try require(count(after, "textStarted") == count(before, "textStarted") + 1 &&
@@ -520,6 +578,9 @@ final class SettingsInteractionTests: XCTestCase {
                     "typedPayload": typedPayload, "inputTap": inputTap,
                     "typingBefore": typingBefore, "typingAfter": typingAfter,
                     "actionBefore": actionBefore, "tapReturned": tapReturned, "actionAfter": actionAfter,
+                    "probeTypingBefore": probeTypingBefore, "probeTypingAfter": probeTypingAfter,
+                    "probeActionBefore": probeActionBefore, "probeTapReturned": probeTapReturned,
+                    "probeActionAfter": probeActionAfter, "actionTapUptime": actionTapUptime,
                     "tapTarget": actualTap, "viewport": frame(app), "alertDismissed": app.alerts.count == 0,
                     "drainSeconds": 0.8, "noResurrection": app.alerts.count == 0,
                     "pickerBefore": lastPickerBefore, "pickerAfter": lastPickerAfter, "pickerTap": lastPickerTap,

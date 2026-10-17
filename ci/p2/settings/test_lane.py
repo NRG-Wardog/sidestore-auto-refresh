@@ -60,6 +60,8 @@ class SettingsLaneTests(unittest.TestCase):
    app=(output/'Sources/App.swift').read_text()
    for path in ['LiveContainerSwiftUI/Utilities/V3Localization.swift','LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift']:
     self.assertIn((source/path).read_text(),app)
+   self.assertIn((HERE/'ClipboardProbeApp.swift.in').read_text(),app)
+   self.assertTrue((output/'Sources/SettingsInteractionTests.swift').read_text().startswith((HERE/'ClipboardProbeRunner.swift.in').read_text()+'\n\n'))
    self.assertIn('@MainActor\nprivate final class V3NativeAlertPresentation',app)
    self.assertIn('public struct TextFieldAlertModifier',app);self.assertIn('class SceneDelegate:',app)
    self.assertNotIn('presentationController?.delegate =',app)
@@ -89,11 +91,11 @@ class SettingsLaneTests(unittest.TestCase):
   def state(language='en',category='large',clipboard='<unmatched>',clipcount=0):
    nonlocal token
    token+=1
-   value={'schema':'p2-settings-state-v1','processToken':str(uuid.UUID(int=token)),'sessionToken':str(uuid.UUID(int=100+token)),
+   value={'schema':'p2-settings-state-v1','processToken':str(uuid.UUID(int=token)).upper(),'sessionToken':str(uuid.UUID(int=100+token)).upper(),
     'language':language,'hostDefaultLanguage':language,'locale':language,'direction':'rtl' if language=='he' else 'ltr',
     'processIdentifier':100+token,'processArguments':['/synthetic/P2SettingsHost']+(['--largest'] if category=='accessibilityExtraExtraExtraLarge' else []),'languageEnvironment':{'LANG':'en_US.UTF-8'},
     'contentSizeCategory':category,'text':'','originalMessage':message(language),'confirmOutcome':'none','textOutcome':'none',
-    'textResult':'nil','textPresented':False,'clipboardValue':clipboard,'clipboardChangeCount':clipcount}
+    'textResult':'nil','textPresented':False,'clipboardValue':clipboard,'clipboardChangeCount':clipcount,'clipboardProbeReady':True}
    value.update({key:0 for key in lane.COUNTERS});return value
   def selected(value,language):return dict(value,language=language,hostDefaultLanguage=language,locale=language,direction='rtl' if language=='he' else 'ltr')
   reports={};manifest=[]
@@ -104,6 +106,26 @@ class SettingsLaneTests(unittest.TestCase):
    start=state(category=category);start['hostDefaultLanguage']='<missing>'
    current=selected(start,'he');bootstrap={'before':start,'after':copy.deepcopy(current),'pickerTap':picker('he','en')}
    rows=[];inputs=[];settings=case.startswith('settings-');clock=0.0
+   probe_requests=[];probe_acks=[];trace_rows=[];app_clock=1000.0;turn=0
+   def trace_event(kind,request=0,advance=0.1):
+    nonlocal app_clock,turn
+    app_clock+=advance;turn+=1
+    trace_rows.append({'schema':'p2-app-clipboard-trace-v1','sequence':len(trace_rows)+1,
+     'processToken':current['processToken'],'sessionToken':current['sessionToken'],'nonce':current['sessionToken'],
+     'processIdentifier':current['processIdentifier'],'uptime':app_clock,'runLoopTurn':turn,
+     'kind':kind,'requestSequence':request,'count':current['clipboardChangeCount'],'failure':''})
+   trace_event('initial')
+   def probe(stage):
+    nonlocal clock
+    clock+=0.02;request_time=clock;clock+=0.08;ack_time=clock;clock+=0.01
+    request_id=len(probe_requests)+1
+    request={'nonce':current['sessionToken'],'requestSequence':request_id,'stage':stage,
+     'runnerProcessIdentifier':2,'requestUptime':request_time,'ackUptime':ack_time,'returnUptime':clock}
+    probe_requests.append(request)
+    probe_acks.append({'nonce':current['sessionToken'],'requestSequence':request_id,'runnerUptime':ack_time,'runnerProcessIdentifier':2})
+    trace_event('request',request_id);trace_event('periodic',request_id);trace_event('acknowledged-sample',request_id)
+    return copy.deepcopy(request)
+
    def receipt(value):
     nonlocal clock
     clock+=0.01
@@ -151,13 +173,18 @@ class SettingsLaneTests(unittest.TestCase):
        row.update(displayedMessage='\n'.join([text('Some details are unavailable in the selected language.',language)]*2)+'\n'+text('Error ID:',language)+' '+error_id,
         expectedResult='dismissed',actualResult='dismissed',expectedClipboard=current['clipboardValue'],clipboardDelta=1 if action=='copy' else 0)
       else:
-       typing_before=receipt(current['clipboardChangeCount']);current['clipboardChangeCount']+=2
-       typing_after=receipt(current['clipboardChangeCount']);action_before=receipt(current['clipboardChangeCount']);tap_returned=receipt(current['clipboardChangeCount']);action_after=receipt(current['clipboardChangeCount'])
+       typing_before=receipt(0);p0=probe(language+'-'+action+'-typing-before');current['clipboardChangeCount']+=2
+       typing_after=receipt(0);p1=probe(language+'-'+action+'-typing-after');action_before=receipt(0);p2=probe(language+'-'+action+'-action-before')
+       clock+=0.01;tap_time=clock;tap_returned=receipt(0);p3=probe(language+'-'+action+'-tap-returned')
+       clock+=0.81
+       for _ in range(9):trace_event('periodic')
+       action_after=receipt(0);p4=probe(language+'-'+action+'-action-after')
        current['textStarted']+=1;current['textCompleted']+=1;current['textOutcome']=action
        entered=lane.SAFE_TEXT+' added';current['textResult']=entered if action=='confirm' else 'nil'
        row.update(displayedMessage='',expectedResult=current['textResult'],actualResult=current['textResult'],initialText=lane.SAFE_TEXT,
         enteredText=entered,outerTextAfter=lane.SAFE_TEXT,typedPayload=' added',inputTap=tap('Fixture value'),
-        typingBefore=typing_before,typingAfter=typing_after,actionBefore=action_before,tapReturned=tap_returned,actionAfter=action_after)
+        typingBefore=typing_before,typingAfter=typing_after,actionBefore=action_before,tapReturned=tap_returned,actionAfter=action_after,probeTypingBefore=p0,probeTypingAfter=p1,probeActionBefore=p2,probeTapReturned=p3,probeActionAfter=p4,actionTapUptime=tap_time)
+      row['messageSamples']=[{'sequence':1,'uptime':float(len(rows)+1),'samplingStart':float(len(rows)+1)-0.01,'deadline':float(len(rows)+1)-0.01+10,'alertCount':1,'labels':[row['displayedTitle'],row['displayedMessage']]}] if row['displayedMessage'] else []
       row['after']=copy.deepcopy(current);rows.append(row)
    snapshots=[];sequences={};identities={}
    expected_states=[('initial',start),('bootstrap-he',bootstrap['after'])]
@@ -174,10 +201,22 @@ class SettingsLaneTests(unittest.TestCase):
     snapshot=dict(schema='p2-passive-layout-v1' ,source='app-process public UIKit read-only traversal',complete=True,sequence=sequences[process],
      windowIdentity=window,hostIdentity=host,views=[view],layers=[layer],**{key:value[key] for key in ('processToken','sessionToken','language','locale','direction')})
     snapshots.append({'stage':stage,'state':copy.deepcopy(value),'snapshot':snapshot,'outsideFirstFrame':dict(frame),'outsideLastFrame':dict(frame,x=150),'viewport':dict(viewport)})
-   progress_keys=('language','action','before','typingBefore','typingAfter','actionBefore','tapReturned','actionAfter','after')
+   progress_keys=('language','action','before','typingBefore','typingAfter','actionBefore','tapReturned','actionAfter','probeTypingBefore','probeTypingAfter','probeActionBefore','probeTapReturned','probeActionAfter','actionTapUptime','after')
    progress=[{key:copy.deepcopy(row[key]) for key in progress_keys} for row in rows] if case=='textfield-buttons' else []
    data={'schema':'p2-settings-interaction-v1' ,'evidenceCase':case,'method':method,'completed':True,'failures':[],
-    'observations':rows,'modalProgress':progress,'inputReceipts':inputs,'layoutSnapshots':snapshots,'lastStage':'complete','bootstrap':bootstrap,'finalState':copy.deepcopy(current)}
+    'clipboardRequests':probe_requests,'clipboardAcknowledgements':probe_acks,'clipboardFailures':[],
+    'observations':rows,'modalProgress':progress,'messageProgress':[row['messageSamples'] for row in rows if row.get('messageSamples')],'inputReceipts':inputs,'layoutSnapshots':snapshots,'lastStage':'complete','bootstrap':bootstrap,'finalState':copy.deepcopy(current)}
+   trace_directory=directory/'clipboard-traces';trace_directory.mkdir(exist_ok=True)
+   states=[start]+[state for row in rows for state in (row['before'],row['after'])]
+   for value in states:
+    file=trace_directory/(value['sessionToken'].upper()+'.jsonl')
+    if file.exists():continue
+    initial={'schema':'p2-app-clipboard-trace-v1','sequence':1,'processToken':value['processToken'],
+     'sessionToken':value['sessionToken'].upper(),'nonce':value['sessionToken'].upper(),'processIdentifier':value['processIdentifier'],
+     'uptime':1000.0,'runLoopTurn':0,'kind':'initial','requestSequence':0,'count':value['clipboardChangeCount'],'failure':''}
+    file.write_text(json.dumps(initial)+'\n')
+   if case=='textfield-buttons':
+    (trace_directory/(current['sessionToken']+'.jsonl')).write_text(''.join(json.dumps(x)+'\n' for x in trace_rows))
    reports[case]=data;group={'testIdentifier':'SettingsInteractionTests/'+method+'()','attachments':[]}
    for name in [case+'.json']+[name for row in rows for name in row['attachments']]:
     group['attachments'].append({'suggestedHumanReadableName':name,'exportedFileName':name,'isAssociatedWithFailure':False})
@@ -258,7 +297,7 @@ class SettingsLaneTests(unittest.TestCase):
     ('textfield-buttons',lambda d:d['observations'][0]['tapReturned'].update(count=99)),
     ('textfield-buttons',lambda d:d['observations'][0]['actionAfter'].update(count=d['observations'][0]['actionAfter']['count']+1)),
     ('textfield-buttons',lambda d:d['observations'][0]['after'].update(clipboardChangeCount=d['observations'][0]['after']['clipboardChangeCount']+1)),
-    ('textfield-buttons',lambda d:d['observations'][0]['typingAfter'].update(count=0)),
+    ('textfield-buttons',lambda d:d['observations'][0]['typingAfter'].update(count=-1)),
     ('textfield-buttons',lambda d:d['observations'][0]['typingBefore'].update(source='app count inferred')),
     ('textfield-buttons',lambda d:d['observations'][0]['actionBefore'].update(uptime=0)),
     ('textfield-buttons',lambda d:d['observations'][0]['actionAfter'].update(count=True)),
@@ -268,7 +307,7 @@ class SettingsLaneTests(unittest.TestCase):
     data=copy.deepcopy(reports[case]);mutate(data);path=root/(case+'.json');path.write_text(json.dumps(data))
     with self.subTest(index=index),self.assertRaises((ValueError,KeyError,TypeError)):lane.verify_observations(root,catalog,commit)
     path.write_text(json.dumps(reports[case]));self.assertEqual(lane.verify_observations(root,catalog,commit)['status'],'passed')
- def test_outer_driver_counts_are_diagnostic_without_relaxing_picker_or_modal_counts(self):
+ def test_driver_counts_are_diagnostic_without_relaxing_same_app_generations(self):
   with tempfile.TemporaryDirectory() as temporary:
    root=Path(temporary);catalog,commit,reports,manifest=self.valid_observations(root)
    for case in ('settings-default','settings-largest','textfield-buttons'):
@@ -276,7 +315,7 @@ class SettingsLaneTests(unittest.TestCase):
     for item in report['inputReceipts']:item['typingBefore']['count']=70;item['typingAfter']['count']=73
     (root/(case+'.json')).write_text(json.dumps(report))
    self.assertEqual(lane.verify_observations(root,catalog,commit)['status'],'passed')
-   for case,key in [('settings-default','after'),('textfield-buttons','actionBefore')]:
+   for case,key in [('settings-default','after'),('textfield-buttons','after')]:
     report=json.loads((root/(case+'.json')).read_text());field='clipboardChangeCount' if key=='after' else 'count'
     report['observations'][0][key][field]+=1;(root/(case+'.json')).write_text(json.dumps(report))
     with self.subTest(case=case),self.assertRaises(ValueError):lane.verify_observations(root,catalog,commit)
@@ -346,14 +385,167 @@ class SettingsLaneTests(unittest.TestCase):
   app=(HERE/'App.swift.in').read_text();tests=(HERE/'SettingsInteractionTests.swift.in').read_text()
   for value in ['V3LanguageSettingsSection()','V3Localization.hostDefaults','presenter.presentConfirmation(','.showError(.raw(SettingsFixtureModel.rawError))','.textFieldAlert(isPresented: $model.textPresented','suffix.count == 40','"processArguments": process.arguments','process.environment[key].map']:
    self.assertIn(value,app)
-  self.assertIn('alert.staticTexts.matching(NSPredicate(format: "label == %@", message)).firstMatch',tests)
+  self.assertIn(r'alert.staticTexts.allElementsBoundByIndex.map(\.label)',tests)
   self.assertNotIn('alert.staticTexts[message]',tests)
   self.assertLess(tests.index('inputReceipts[receiptIndex]["after"] = after'),tests.index('"App clipboard counter regressed during outer typing"'))
-  self.assertLess(tests.index('modalProgress[progressIndex]["typingBefore"] = typingBefore'),tests.index('"App/runner modal clipboard baseline mismatch"'))
+  self.assertLess(tests.index('modalProgress[progressIndex]["probeActionBefore"] = probeActionBefore'),tests.index('let actionTapUptime'))
   for value in ['option.tap()','target.tap()','input.typeText(typedPayload)','app.terminate()','self.app.state == .notRunning','lastPickerTap','Array(string(after, "textResult").utf8)','Thread.sleep(forTimeInterval: 0.8)','expected("Language", currentLanguage)']:
    self.assertIn(value,tests)
   for value in ['view.transform =','semanticContentAttribute =','setNeedsLayout(','.id(', 'V3AppLanguage.persist(','.finish(','.accessibilityActivate(','.press(forDuration:','launchEnvironment =','removePersistentDomain','UIPasteboard.general.string =']:
    self.assertNotIn(value,app+tests)
   self.assertNotRegex(app+tests,r'(?:AppleLanguages|AppleLocale)"\]\s*=(?!=)')
+
+
+ def test_exact_alert_label_enumeration_requires_unique_utf8_observation(self):
+  import copy
+  expected='first paragraph\nsecond paragraph\nError ID: SS-NATIVE-BANNER';title='Error'
+  samples=[{'sequence':1,'uptime':1.0,'samplingStart':1.0,'deadline':11.0,'alertCount':1,'labels':[title]},
+   {'sequence':2,'uptime':1.1,'samplingStart':1.0,'deadline':11.0,'alertCount':1,'labels':[title,expected]}]
+  self.assertEqual(lane.validate_message_samples(samples,expected,title),samples)
+  mutations=[lambda x:x[-1]['labels'].append(expected),lambda x:x[-1]['labels'].remove(expected),
+   lambda x:x[-1].update(labels=[title,expected.replace('second paragraph','changed paragraph')]),
+   lambda x:x[-1].update(labels=[title,expected.replace('SS-NATIVE-BANNER','SS-OTHER')]),
+   lambda x:x[-1].update(labels=[title,expected.replace('first paragraph\n','')]),
+   lambda x:x[-1].update(uptime=float('inf')),lambda x:x[-1].update(sequence=1),
+   lambda x:x[-1].update(alertCount=2),lambda x:x[0]['labels'].append(expected),
+   lambda x:x[-1].update(uptime=600),lambda x:x[-1].update(uptime=11.00001),
+   lambda x:x[-1].update(samplingStart=0),lambda x:x[-1].update(deadline=600),
+   lambda x:x[0].update(samplingStart=float('nan')),lambda x:x[0].pop('deadline')]
+  for mutate in mutations:
+   bad=copy.deepcopy(samples);mutate(bad)
+   with self.assertRaises((ValueError,KeyError)):lane.validate_message_samples(bad,expected,title)
+  with self.assertRaises(ValueError):lane.validate_message_samples([],expected,title)
+  with self.assertRaises(ValueError):lane.validate_message_samples([{'sequence':1,'uptime':1,'samplingStart':1.0,'deadline':11.0,'alertCount':1,'labels':[title,'e\u0301']}],'é',title)
+  template=(HERE/'SettingsInteractionTests.swift.in').read_text()
+  self.assertIn(r'alert.staticTexts.allElementsBoundByIndex.map(\.label)',template)
+  self.assertIn('Array($0.utf8) == Array(message.utf8)',template)
+  self.assertLess(template.index('now <= deadline'),template.index('if matches.count == 1'))
+  bad=copy.deepcopy(samples);bad[-1]['uptime']=11.0
+  lane.validate_message_samples(bad,expected,title)
+  self.assertNotIn('NSPredicate(format: "label == %@", message)',template)
+
+
+ def test_causal_clipboard_receipts_reject_missing_stale_and_pretap_acknowledgements(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);catalog,commit,reports,manifest=self.valid_observations(root)
+   traces=lane.CLIPBOARD.read(root/'clipboard-traces',lane.strict_json);original=reports['textfield-buttons']
+   lane.CLIPBOARD.verify_case(original,original['observations'],traces)
+   mutations=[lambda d:d['clipboardRequests'].pop(),lambda d:d['clipboardAcknowledgements'].pop(),
+    lambda d:d['clipboardAcknowledgements'][1].update(requestSequence=1),
+    lambda d:d['clipboardAcknowledgements'][0].update(nonce='wrong'),
+    lambda d:d['clipboardAcknowledgements'][0].update(runnerProcessIdentifier=2.0),
+    lambda d:d['clipboardRequests'][0].update(returnUptime=float('inf')),
+    lambda d:d['clipboardRequests'][2].update(ackUptime=100),
+    lambda d:d['observations'][0].update(actionTapUptime=0),
+    lambda d:d['observations'][0].update(probeActionBefore=d['observations'][0]['probeTypingAfter']),
+    lambda d:d['clipboardFailures'].append('native-unavailable')]
+   for index,mutate in enumerate(mutations):
+    value=copy.deepcopy(original);mutate(value)
+    with self.subTest(index=index),self.assertRaises((ValueError,KeyError,TypeError)):
+     lane.CLIPBOARD.verify_case(value,value['observations'],traces)
+    lane.CLIPBOARD.verify_case(original,original['observations'],traces)
+   # Runner counters may differ, but the actual app-generation trace still decides.
+   value=copy.deepcopy(original)
+   for row in value['observations']:
+    for key in ('typingBefore','typingAfter','actionBefore','tapReturned','actionAfter'):row[key]['count']=987
+   lane.CLIPBOARD.verify_case(value,value['observations'],traces)
+
+ def test_same_app_trace_rejects_writes_gaps_and_forged_baselines(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);catalog,commit,reports,manifest=self.valid_observations(root)
+   original=lane.CLIPBOARD.read(root/'clipboard-traces',lane.strict_json);data=reports['textfield-buttons'];nonce=data['observations'][0]['before']['sessionToken']
+   def check(traces):lane.CLIPBOARD.verify_case(data,data['observations'],traces)
+   mutations=[lambda t:t[nonce]['acks'][1].update(count=999),
+    lambda t:t[nonce]['acks'][3].update(count=t[nonce]['acks'][3]['count']+1),
+    lambda t:t[nonce]['acks'][4].update(count=t[nonce]['acks'][4]['count']+1),
+    lambda t:t[nonce]['acks'][5].update(count=t[nonce]['acks'][5]['count']+1),
+    lambda t:t[nonce]['acks'][3].update(processIdentifier=99999),
+    lambda t:t[nonce]['acks'].pop(3)]
+   for index,mutate in enumerate(mutations):
+    traces=copy.deepcopy(original);mutate(traces)
+    with self.subTest(index=index),self.assertRaises((ValueError,KeyError,TypeError)):check(traces)
+    check(original)
+   traces=copy.deepcopy(original);start=traces[nonce]['acks'][2]['sequence']
+   # A write hidden between acknowledgement endpoints is still rejected.
+   traces[nonce]['rows'][start]['count']+=1
+   with self.assertRaises(ValueError):check(traces)
+   traces=copy.deepcopy(original)
+   for row in traces[nonce]['rows'][start:]:row['uptime']+=1
+   with self.assertRaises(ValueError):check(traces)
+
+ def test_app_trace_parser_and_export_are_bounded_and_fail_closed(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);catalog,commit,reports,manifest=self.valid_observations(root)
+   folder=root/'clipboard-traces';nonce=reports['textfield-buttons']['observations'][0]['before']['sessionToken'];path=folder/(nonce+'.jsonl');raw=path.read_bytes()
+   rows=[json.loads(x) for x in raw.splitlines()]
+   mutations=[lambda x:x.pop(2),lambda x:x[1].update(sequence=1),lambda x:x[1].update(nonce='wrong'),
+    lambda x:x[1].update(processIdentifier=123),lambda x:x[1].update(uptime=float('inf')),
+    lambda x:x[2].update(requestSequence=64),lambda x:x[3].update(runLoopTurn=x[1]['runLoopTurn']),
+    lambda x:x[3].update(failure='trace-write-failed')]
+   for index,mutate in enumerate(mutations):
+    value=copy.deepcopy(rows);mutate(value);path.write_text(''.join(json.dumps(x)+'\n' for x in value))
+    with self.subTest(index=index),self.assertRaises((ValueError,KeyError,TypeError)):lane.CLIPBOARD.read(folder,lane.strict_json)
+    path.write_bytes(raw);lane.CLIPBOARD.read(folder,lane.strict_json)
+   path.write_bytes(raw[:-1])
+   with self.assertRaises(ValueError):lane.CLIPBOARD.read(folder,lane.strict_json)
+   path.write_bytes(raw)
+   container=root/'synthetic-container';source=container/'Library/Caches/P2ClipboardTrace';source.mkdir(parents=True)
+   (source/path.name).write_bytes(raw)
+   inventory=lane.CLIPBOARD.retain(container,root/'retained');self.assertEqual(set(inventory),{path.name})
+   (source/'unexpected.txt').write_text('not a trace')
+   with self.assertRaises(ValueError):lane.CLIPBOARD.retain(container,root/'rejected')
+   (source/'unexpected.txt').unlink();(source/'linked.jsonl').symlink_to(path)
+   with self.assertRaises(ValueError):lane.CLIPBOARD.retain(container,root/'rejected-link')
+
+ def test_trace_recovery_survives_missing_bundle_and_every_xcresult_export_failure(self):
+  for mode in ('missing','summary','tests','attachments'):
+   with self.subTest(mode=mode),tempfile.TemporaryDirectory() as temporary:
+    root=Path(temporary);calls=[]
+    if mode!='missing':(root/'settings.xcresult').mkdir()
+    def command(*argv,**kwargs):
+     calls.append(argv)
+     if mode in argv:raise ValueError('synthetic '+mode+' failure')
+     return json.dumps({})
+    with patch.object(lane,'recover_clipboard_traces',return_value=None) as recover:
+     result=lane.collect_native_evidence(command,root/'app',{'udid':'owned-device'},root,{},'original native failure')
+    recover.assert_called_once()
+    self.assertEqual(result['status'],'failed')
+    self.assertTrue(any('original native failure' in error for error in result['errors']))
+    self.assertTrue(any(('No XCTest' if mode=='missing' else 'export') in error for error in result['errors']))
+    if mode!='missing':self.assertEqual(len(calls),3)
+
+ def test_trace_recovery_retains_unexpected_termination_failure_and_strict_absent_process(self):
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary);app=root/'app';app.mkdir();(app/'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':'org.sidestore.fixture.p2settings'}))
+   container=root/'container';source=container/'Library/Caches/P2ClipboardTrace';source.mkdir(parents=True)
+   name='00000000-0000-4000-8000-000000000001.jsonl';(source/name).write_bytes(b'{"synthetic":"trace"}\n')
+   evidence=root/'evidence';evidence.mkdir();calls=[]
+   def command(*argv,**kwargs):
+    calls.append((argv,kwargs))
+    if 'terminate' in argv:raise ValueError('unexpected termination failure')
+    return str(container)
+   with patch.object(lane.time,'sleep'):
+    error=lane.recover_clipboard_traces(command,app,{'udid':'owned-device'},evidence)
+   self.assertIn('unexpected termination failure',error)
+   self.assertEqual((evidence/'clipboard-traces'/name).read_bytes(),(source/name).read_bytes())
+   self.assertEqual(calls[1][0],('xcrun','simctl','terminate','owned-device','org.sidestore.fixture.p2settings'))
+   self.assertEqual(calls[1][1],{'allow_missing_process':True})
+  argv=['xcrun','simctl','terminate','owned-device','org.sidestore.fixture.p2settings']
+  message='An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=3): found nothing to terminate'
+  self.assertTrue(lane.absent_synthetic_process(argv,3,message))
+  for args,code,text in [(argv,1,message),(argv,3,'unknown failure'),(argv[:-1]+['another.app'],3,message),(['xcrun','simctl','shutdown','owned-device','org.sidestore.fixture.p2settings'],3,message)]:
+   self.assertFalse(lane.absent_synthetic_process(args,code,text))
+
+ def test_fixture_handshake_preserves_real_tap_and_launch_contract(self):
+  app=(HERE/'ClipboardProbeApp.swift.in').read_text();runner=(HERE/'ClipboardProbeRunner.swift.in').read_text();tests=(HERE/'SettingsInteractionTests.swift.in').read_text()
+  for text in ('CFNotificationCenterAddObserver','CFNotificationCenterRemoveEveryObserver','requestSequence'):self.assertIn(text,app+runner)
+  self.assertLess(app.index('record(kind: "acknowledged-sample"'),app.index('CFNotificationCenterPostNotification'))
+  self.assertIn('try output.synchronize()',app);self.assertIn('turn > pending.turn',app)
+  self.assertIn('RunLoop.current.run(mode: .default',runner);self.assertNotIn('Thread.sleep(',runner)
+  self.assertIn('SettingsClipboardProbeRunner(nonce: string(try state(), "sessionToken"))',tests)
+  block=tests[tests.index('let probeActionBefore ='):]
+  self.assertLess(block.index('try clipboardProbe.sample'),block.index('target.tap()'))
+  for forbidden in ('UIPasteboard.general.string =','accessibilityActivate','presentConfirmation','.finish(','.id(', 'notify_set_state'):
+   self.assertNotIn(forbidden,app+runner)
 
 if __name__=='__main__':unittest.main()
