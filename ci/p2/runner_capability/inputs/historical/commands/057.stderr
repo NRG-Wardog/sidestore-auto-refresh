@@ -1,0 +1,4 @@
+2026-10-17 20:05:56.310 xcodebuild[50966:183576] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
+2026-10-17 20:05:56.316 xcodebuild[50966:183576] Writing error result bundle to /var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/ResultBundle_2026-17-10_20-05-0056.xcresult
+xcodebuild: error: Could not configure request to show build settings: Unable to find a destination matching the provided destination specifier:
+		{ platform:iOS Simulator, id:12BE5DE8-FF70-4AF1-9A36-7706F4BD4062 }

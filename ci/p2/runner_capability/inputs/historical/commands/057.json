@@ -1,0 +1,27 @@
+{
+  "ambientOverrideKeys": [],
+  "argv": [
+    "xcodebuild",
+    "-project",
+    "/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/p2-host-probe-work/runner/HostSettingsProbe.xcodeproj",
+    "-scheme",
+    "HostSettingsProbe",
+    "-configuration",
+    "Debug",
+    "-sdk",
+    "iphonesimulator",
+    "-destination",
+    "platform=iOS Simulator,id=12BE5DE8-FF70-4AF1-9A36-7706F4BD4062",
+    "-derivedDataPath",
+    "/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/p2-host-probe-work/runner-derived",
+    "-showBuildSettings",
+    "-json"
+  ],
+  "cwd": "/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh",
+  "developerDir": "/Applications/Xcode_26.4.1.app/Contents/Developer",
+  "elapsedSeconds": 3.24277379199998,
+  "error": "ValueError: Command failed; see commands/057",
+  "returncode": 64,
+  "stage": "external-runner-generation",
+  "timeoutSeconds": 300
+}

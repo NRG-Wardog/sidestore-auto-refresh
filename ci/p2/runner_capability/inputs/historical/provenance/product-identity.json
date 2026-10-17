@@ -1,0 +1,872 @@
+{
+  "bundleIdentifier": "com.kdt.livecontainer",
+  "executable": "LiveContainer",
+  "executableSHA256": "72eae07bb0f34fed85e47fa5d40b61383f2a774f5ffe9433c5d296f6e77d9f3f",
+  "files": {
+    "AppIcon60x60@2x.png": {
+      "bytes": 8393,
+      "executable": false,
+      "mode": 420,
+      "sha256": "fd635abca7c1f8b381d6a5e717a7e04c4fc6e4290db90c8f22ba100c255a19e6",
+      "type": "regular"
+    },
+    "AppIcon76x76@2x~ipad.png": {
+      "bytes": 11237,
+      "executable": false,
+      "mode": 420,
+      "sha256": "235d1f156af512d8b86ab7599f22d17e4648829b5101494d810baca5a67c351f",
+      "type": "regular"
+    },
+    "AppIconGrey60x60@2x.png": {
+      "bytes": 7541,
+      "executable": false,
+      "mode": 420,
+      "sha256": "6cac2e035e0b6e6cab7ba66eb1cbb11b89dcbee502568a71fa7c1e4e71cb33f0",
+      "type": "regular"
+    },
+    "AppIconGrey76x76@2x~ipad.png": {
+      "bytes": 9966,
+      "executable": false,
+      "mode": 420,
+      "sha256": "c4de824cc04b181e5d22f3e9d0f456d6dcd373caf15b7cbe1c8bbef503e04149",
+      "type": "regular"
+    },
+    "Assets.car": {
+      "bytes": 632840,
+      "executable": false,
+      "mode": 420,
+      "sha256": "3a6adf1fd923d9526656ede1a20ea9a1e75cfc37c30e636b38fdab2d8e66ed53",
+      "type": "regular"
+    },
+    "DefaultIcon.png": {
+      "bytes": 11815,
+      "executable": false,
+      "mode": 420,
+      "sha256": "4cad048c3bbf362f346391bc2c3ae0ccbe0cf718d4866ba62e150025aa3d125b",
+      "type": "regular"
+    },
+    "Frameworks/CydiaSubstrate.framework/CydiaSubstrate": {
+      "bytes": 395888,
+      "executable": false,
+      "mode": 420,
+      "sha256": "9c35a2b81dff8c96f68a7e9357c74bf64b2302ff3f80a8c83483ea2eef9a3450",
+      "type": "regular"
+    },
+    "Frameworks/CydiaSubstrate.framework/Info.plist": {
+      "bytes": 569,
+      "executable": false,
+      "mode": 420,
+      "sha256": "e4fc927cb1eb9e7d6397dad1972cb016e463265d2c95fc30422cda394d5ac5c3",
+      "type": "regular"
+    },
+    "Frameworks/CydiaSubstrate.framework/LICENSE": {
+      "bytes": 1466,
+      "executable": false,
+      "mode": 420,
+      "sha256": "ac3842df55783a43c093806730c480cecdd3c011dfb7fd001ec1ed5258fb0c08",
+      "type": "regular"
+    },
+    "Frameworks/CydiaSubstrate.framework/_CodeSignature/CodeResources": {
+      "bytes": 2006,
+      "executable": false,
+      "mode": 420,
+      "sha256": "ada9e174f4d95b726c1b04f96b2503b19898bfc35b78e8eb425f1341f1ae0b41",
+      "type": "regular"
+    },
+    "Frameworks/LiveContainerShared.framework/Info.plist": {
+      "bytes": 765,
+      "executable": false,
+      "mode": 420,
+      "sha256": "0b6d71f925eae08932c6754d1e9c0207e49f454e399f5533f5946a1fdc1b7b7c",
+      "type": "regular"
+    },
+    "Frameworks/LiveContainerShared.framework/LiveContainerShared": {
+      "bytes": 426800,
+      "executable": true,
+      "mode": 493,
+      "sha256": "3574fc81c753311979e36d72b3d0eaa4024b72b13814a1151ee674e7918ad53d",
+      "type": "regular"
+    },
+    "Frameworks/LiveContainerShared.framework/_CodeSignature/CodeResources": {
+      "bytes": 1798,
+      "executable": false,
+      "mode": 420,
+      "sha256": "b808d2077fee8d031bbe985a48830b49868e266378c910bca63fe494131076cc",
+      "type": "regular"
+    },
+    "Frameworks/LiveContainerSwiftUI.framework/Info.plist": {
+      "bytes": 752,
+      "executable": false,
+      "mode": 420,
+      "sha256": "264b40df230da640a914f0f2461e2585b0e245d67772e2ceba2b8e256d79665b",
+      "type": "regular"
+    },
+    "Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI": {
+      "bytes": 21810992,
+      "executable": true,
+      "mode": 493,
+      "sha256": "8c41e8c0f5dba9b6f17096cedf6b5690221c73231ee22137990a01d10ff8963d",
+      "type": "regular"
+    },
+    "Frameworks/LiveContainerSwiftUI.framework/Metadata.appintents/extract.actionsdata": {
+      "bytes": 2578,
+      "executable": false,
+      "mode": 420,
+      "sha256": "652a46834609dcc8f7ac030096e3f0f7a38dc21daf2ae7158c3006d38e1d834f",
+      "type": "regular"
+    },
+    "Frameworks/LiveContainerSwiftUI.framework/Metadata.appintents/version.json": {
+      "bytes": 52,
+      "executable": false,
+      "mode": 420,
+      "sha256": "e42b392ce7d4ffb4053760e876effd283adc476e92d499802f97ff68458a3713",
+      "type": "regular"
+    },
+    "Frameworks/LiveContainerSwiftUI.framework/ViewApp.intentdefinition": {
+      "bytes": 5022,
+      "executable": false,
+      "mode": 420,
+      "sha256": "38fa4fe01fbc55ab972fde4efe71612c244d62de5e2f32e3728ccee4db2c702c",
+      "type": "regular"
+    },
+    "Frameworks/LiveContainerSwiftUI.framework/_CodeSignature/CodeResources": {
+      "bytes": 2554,
+      "executable": false,
+      "mode": 420,
+      "sha256": "08339b13e6c7657924fde6dd2f446f90f689f552743e07ac849a125f2323e6ae",
+      "type": "regular"
+    },
+    "Frameworks/OpenSSL.framework/Info.plist": {
+      "bytes": 748,
+      "executable": false,
+      "mode": 420,
+      "sha256": "a5501795c49785b9e02de6be272b3089d64096afaac2e61b6d31703dd114c294",
+      "type": "regular"
+    },
+    "Frameworks/OpenSSL.framework/OpenSSL": {
+      "bytes": 9001536,
+      "executable": true,
+      "mode": 493,
+      "sha256": "4140c4fb312f0232ba3259f426d64f351534068f299e9376cc211e20c15cef1f",
+      "type": "regular"
+    },
+    "Frameworks/OpenSSL.framework/PrivacyInfo.xcprivacy": {
+      "bytes": 373,
+      "executable": false,
+      "mode": 420,
+      "sha256": "5a9b8fc0cddb10201bb47cc2804b3f004c7251476622d25bfc4eb54ed46e1084",
+      "type": "regular"
+    },
+    "Frameworks/OpenSSL.framework/_CodeSignature/CodeResources": {
+      "bytes": 2034,
+      "executable": false,
+      "mode": 420,
+      "sha256": "0710f7cb9e42701d275533eb4be9dd9cf4bda3c5a1c6e25afd620d4cfd4d5511",
+      "type": "regular"
+    },
+    "Frameworks/SideStoreSupport.framework/Info.plist": {
+      "bytes": 759,
+      "executable": false,
+      "mode": 420,
+      "sha256": "eeed92e57f47d674586ffcb0537db3493de96de23e4757d783d1775ceb7e9b63",
+      "type": "regular"
+    },
+    "Frameworks/SideStoreSupport.framework/Metadata.appintents/extract.actionsdata": {
+      "bytes": 3044,
+      "executable": false,
+      "mode": 420,
+      "sha256": "73716ec64a75eda3c1ec3235c713b0e6885069752d37f4f3c7417124ecd236f0",
+      "type": "regular"
+    },
+    "Frameworks/SideStoreSupport.framework/Metadata.appintents/version.json": {
+      "bytes": 52,
+      "executable": false,
+      "mode": 420,
+      "sha256": "e42b392ce7d4ffb4053760e876effd283adc476e92d499802f97ff68458a3713",
+      "type": "regular"
+    },
+    "Frameworks/SideStoreSupport.framework/SideStoreSupport": {
+      "bytes": 2436432,
+      "executable": true,
+      "mode": 493,
+      "sha256": "e34a441ad0133bb677d4c5ac602f064a02fabebdd8564265b100950cb5013093",
+      "type": "regular"
+    },
+    "Frameworks/SideStoreSupport.framework/_CodeSignature/CodeResources": {
+      "bytes": 2320,
+      "executable": false,
+      "mode": 420,
+      "sha256": "3589986b113b943600cb1034306ddf426255ea75be23dd502a2bd76a118de83b",
+      "type": "regular"
+    },
+    "Frameworks/TestJITLess.dylib": {
+      "bytes": 134464,
+      "executable": true,
+      "mode": 493,
+      "sha256": "1c0b69df6dc9ce5a8038637b4654613b9eb9e8fb3175349515850775e24ba628",
+      "type": "regular"
+    },
+    "Frameworks/TweakLoader.dylib": {
+      "bytes": 234416,
+      "executable": true,
+      "mode": 493,
+      "sha256": "5b1ad9410ff226de9ea060a6ffb4c97e4a64122809614f0f7efbbbc15d08f67a",
+      "type": "regular"
+    },
+    "Frameworks/ZSign.dylib": {
+      "bytes": 691568,
+      "executable": true,
+      "mode": 493,
+      "sha256": "43f24bf4075871e04cb4361ebcc4c07d4a55c1038954c5592e7442b3344f2066",
+      "type": "regular"
+    },
+    "Info.plist": {
+      "bytes": 12942,
+      "executable": false,
+      "mode": 420,
+      "sha256": "2c1c3f506f21a40025919ca615c7897d17bfa6f89bf18640320fed6fb48380fa",
+      "type": "regular"
+    },
+    "LiveContainer": {
+      "bytes": 151520,
+      "executable": true,
+      "mode": 493,
+      "sha256": "72eae07bb0f34fed85e47fa5d40b61383f2a774f5ffe9433c5d296f6e77d9f3f",
+      "type": "regular"
+    },
+    "PkgInfo": {
+      "bytes": 8,
+      "executable": false,
+      "mode": 420,
+      "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0",
+      "type": "regular"
+    },
+    "PlugIns/LaunchAppExtension.appex/Info.plist": {
+      "bytes": 1051,
+      "executable": false,
+      "mode": 420,
+      "sha256": "876f717d0bd52bbe4d4468ac5dd8b9693d55fe9609684b9e9b7ee08f0eaddf4c",
+      "type": "regular"
+    },
+    "PlugIns/LaunchAppExtension.appex/LaunchAppExtension": {
+      "bytes": 254128,
+      "executable": true,
+      "mode": 493,
+      "sha256": "b5576340bcce02deb902ddf05a410e11170db28e4b125259310aa301121f1dfd",
+      "type": "regular"
+    },
+    "PlugIns/LaunchAppExtension.appex/Metadata.appintents/extract.actionsdata": {
+      "bytes": 1843,
+      "executable": false,
+      "mode": 420,
+      "sha256": "c2c0616f8be46f07966ffe275e5395861c8a40c2aecefcabe39919dca63c2f2b",
+      "type": "regular"
+    },
+    "PlugIns/LaunchAppExtension.appex/Metadata.appintents/version.json": {
+      "bytes": 52,
+      "executable": false,
+      "mode": 420,
+      "sha256": "8b270d0cbe9931206f22b5ab24021d9bbce88698b1bc0bb340170221055d8e7d",
+      "type": "regular"
+    },
+    "PlugIns/LaunchAppExtension.appex/_CodeSignature/CodeResources": {
+      "bytes": 2320,
+      "executable": false,
+      "mode": 420,
+      "sha256": "fdf5bd4a255da8ffce10841e1591b5ff36e6d22d25ecfaa21e5f23950ed34c75",
+      "type": "regular"
+    },
+    "PlugIns/LiveProcess.appex/Info.plist": {
+      "bytes": 4093,
+      "executable": false,
+      "mode": 420,
+      "sha256": "ededfc43398da39d19c6a9957280d07c62e5701ed4c074e940cfb68c10bae208",
+      "type": "regular"
+    },
+    "PlugIns/LiveProcess.appex/LiveProcess": {
+      "bytes": 218272,
+      "executable": true,
+      "mode": 493,
+      "sha256": "24a3da8ce6ee8f01d36b2cad3477cc67046a14cc77c766f16e6a4fc2a65b6c15",
+      "type": "regular"
+    },
+    "PlugIns/LiveProcess.appex/_CodeSignature/CodeResources": {
+      "bytes": 1798,
+      "executable": false,
+      "mode": 420,
+      "sha256": "ef0059534d811e7998a9248f2766dd8e50b8504553a1b033e622e9926a6d69bc",
+      "type": "regular"
+    },
+    "PlugIns/ShareExtension.appex/Info.plist": {
+      "bytes": 1061,
+      "executable": false,
+      "mode": 420,
+      "sha256": "b28d58b3f4b3d3609b45f39456f540bed772181543ba002b31ce35c545168932",
+      "type": "regular"
+    },
+    "PlugIns/ShareExtension.appex/ShareExtension": {
+      "bytes": 953296,
+      "executable": true,
+      "mode": 493,
+      "sha256": "c6d70fd83ee5505b93cdf8fd921da59cde5632893e2e9459ade1333f14594a8f",
+      "type": "regular"
+    },
+    "PlugIns/ShareExtension.appex/_CodeSignature/CodeResources": {
+      "bytes": 1798,
+      "executable": false,
+      "mode": 420,
+      "sha256": "67c4334f0e78df9299691a96b93e1af9d5be72776a5bc73d427f57669a1b4cfe",
+      "type": "regular"
+    },
+    "Settings.bundle/Root.plist": {
+      "bytes": 657,
+      "executable": false,
+      "mode": 420,
+      "sha256": "47a6937c3fe04251447835e7618ab1741bb5d097c34c1b9f15b96be101196d99",
+      "type": "regular"
+    },
+    "_CodeSignature/CodeResources": {
+      "bytes": 40642,
+      "executable": false,
+      "mode": 420,
+      "sha256": "c74feb81dc1cbad9e3d03d6aa7684b07bec3a86701a9ed81d770391fb00538e4",
+      "type": "regular"
+    },
+    "ar.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "ar.lproj/Localizable.strings": {
+      "bytes": 35348,
+      "executable": false,
+      "mode": 420,
+      "sha256": "3436eddb91326cd63fe794eda798cbd0e43de6fbdb9fcbeb0eeff8d062e68cfc",
+      "type": "regular"
+    },
+    "ar.lproj/Localizable.stringsdict": {
+      "bytes": 1244,
+      "executable": false,
+      "mode": 420,
+      "sha256": "e8adb5ef2ac95ba9f2afb0d06bbf3648de520ad7c203d015430efe0922bda137",
+      "type": "regular"
+    },
+    "ca.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "cs.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "da.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "de.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "de.lproj/Localizable.strings": {
+      "bytes": 37568,
+      "executable": false,
+      "mode": 420,
+      "sha256": "cf292289830da3c7ff67f04faa255b72e19e531c936a9f5017b4dee1afe0f83f",
+      "type": "regular"
+    },
+    "de.lproj/Localizable.stringsdict": {
+      "bytes": 765,
+      "executable": false,
+      "mode": 420,
+      "sha256": "af20b173062c1ab12d2285309df91acd0e57e4022bb7ba2d685209f2ca625349",
+      "type": "regular"
+    },
+    "el.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "en.lproj/InfoPlist.strings": {
+      "bytes": 1354,
+      "executable": false,
+      "mode": 420,
+      "sha256": "93a9a18944a207b7ecbd814f2a7137f436110838ebb4406604bc4f64f459c6e9",
+      "type": "regular"
+    },
+    "en.lproj/Localizable.strings": {
+      "bytes": 130491,
+      "executable": false,
+      "mode": 420,
+      "sha256": "626e1269530736e54db8e6a0cd099eb575fac546c787e6271ce49a840a1d31eb",
+      "type": "regular"
+    },
+    "en.lproj/Localizable.stringsdict": {
+      "bytes": 1342,
+      "executable": false,
+      "mode": 420,
+      "sha256": "90b77de0cc42d310aa068f23abdc54352f643685d5f331b308b022ecb370f79a",
+      "type": "regular"
+    },
+    "en_AU.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "en_GB.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "es.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "es.lproj/Localizable.strings": {
+      "bytes": 34479,
+      "executable": false,
+      "mode": 420,
+      "sha256": "ebbfe6bda0cf0d8af4395eb66d13da98b50e738cd6ec409ca6d279739188a2fd",
+      "type": "regular"
+    },
+    "es.lproj/Localizable.stringsdict": {
+      "bytes": 829,
+      "executable": false,
+      "mode": 420,
+      "sha256": "55d737dedda4d827fe655f311be238cdf0e10bbe7f586392c1e4527c6ba8d511",
+      "type": "regular"
+    },
+    "es_419.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "fi.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "fr.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "fr.lproj/Localizable.strings": {
+      "bytes": 41206,
+      "executable": false,
+      "mode": 420,
+      "sha256": "92fcee5b152139157ca03435ca3d793a552dd24f4b2325ff82534f3290108bc9",
+      "type": "regular"
+    },
+    "fr.lproj/Localizable.stringsdict": {
+      "bytes": 988,
+      "executable": false,
+      "mode": 420,
+      "sha256": "9aee2764224ea96545b3157d171474289cc67eba306834006766ef3831d5a296",
+      "type": "regular"
+    },
+    "fr_CA.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "he.lproj/InfoPlist.strings": {
+      "bytes": 1366,
+      "executable": false,
+      "mode": 420,
+      "sha256": "cf5c5ee97e8dd7f306a7cf918f51d587d22d84c4e06f4c598e744e4ce5602f4a",
+      "type": "regular"
+    },
+    "he.lproj/Localizable.strings": {
+      "bytes": 299165,
+      "executable": false,
+      "mode": 420,
+      "sha256": "6b0e88158305aba49209660831ae22aecf2ea421e89701a08c9827b885630709",
+      "type": "regular"
+    },
+    "he.lproj/Localizable.stringsdict": {
+      "bytes": 1873,
+      "executable": false,
+      "mode": 420,
+      "sha256": "1d491b4337ec459ffb756e37617fc62b77ea471376168a1cf1f8655056a36a5d",
+      "type": "regular"
+    },
+    "hi.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "hr.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "hu.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "id.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "it.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "it.lproj/Localizable.strings": {
+      "bytes": 26884,
+      "executable": false,
+      "mode": 420,
+      "sha256": "96f79d6fde3714b650865a1c4d42f010f8b9511cdb4c34dc0d671ec242a7fc5f",
+      "type": "regular"
+    },
+    "it.lproj/Localizable.stringsdict": {
+      "bytes": 714,
+      "executable": false,
+      "mode": 420,
+      "sha256": "b5e18b53d31eeeab16ba772db8e8689a9a8c4b1e16fb08f60aa04eee4d4e1bae",
+      "type": "regular"
+    },
+    "ja.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "ja.lproj/Localizable.strings": {
+      "bytes": 25130,
+      "executable": false,
+      "mode": 420,
+      "sha256": "e53f5e07b1b22a242df6b1f205019f393ede2fce034d8e71a8ab978f5890609b",
+      "type": "regular"
+    },
+    "ja.lproj/Localizable.stringsdict": {
+      "bytes": 602,
+      "executable": false,
+      "mode": 420,
+      "sha256": "e1157043125484030982b6331e73448401328f41b68e31be004b370270e469ec",
+      "type": "regular"
+    },
+    "ko.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "ko.lproj/Localizable.strings": {
+      "bytes": 23397,
+      "executable": false,
+      "mode": 420,
+      "sha256": "c8e28c25083562ffb780b42cfe6c8b696440b531d57ad4aea99c8937a5b75a77",
+      "type": "regular"
+    },
+    "ko.lproj/Localizable.stringsdict": {
+      "bytes": 608,
+      "executable": false,
+      "mode": 420,
+      "sha256": "d5ccdffefd5cfb8c82a720d0b8d9dcac55a69a474f14df977bb0ab6b209a00d5",
+      "type": "regular"
+    },
+    "ms.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "nl.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "no.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "pl.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "pl.lproj/Localizable.strings": {
+      "bytes": 37886,
+      "executable": false,
+      "mode": 420,
+      "sha256": "95a2c024e05bafdadf55968afce6bf5a764d32b11f41e72dc79bc2c8591db11c",
+      "type": "regular"
+    },
+    "pl.lproj/Localizable.stringsdict": {
+      "bytes": 1143,
+      "executable": false,
+      "mode": 420,
+      "sha256": "312ba89415c4aa86d426c33299d9e012f0a07da93ac2b502f95f864440897c26",
+      "type": "regular"
+    },
+    "pt-BR.lproj/Localizable.strings": {
+      "bytes": 33925,
+      "executable": false,
+      "mode": 420,
+      "sha256": "ca09d1e70fde28cb71d02eeaf26e6e1b7d9ded5900edcd57c12c23dc0869f84c",
+      "type": "regular"
+    },
+    "pt-BR.lproj/Localizable.stringsdict": {
+      "bytes": 738,
+      "executable": false,
+      "mode": 420,
+      "sha256": "71861c1e7552d72ef40e696f0bfdfc2b148612815cd6a6eb035ee0b8eb3d5e1e",
+      "type": "regular"
+    },
+    "pt_BR.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "pt_PT.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "ro.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "ru.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "ru.lproj/Localizable.strings": {
+      "bytes": 39036,
+      "executable": false,
+      "mode": 420,
+      "sha256": "fe5fe01ddfe80428f7f591c0a351c168974a7e11863a35080e332b896bd0cc48",
+      "type": "regular"
+    },
+    "ru.lproj/Localizable.stringsdict": {
+      "bytes": 1253,
+      "executable": false,
+      "mode": 420,
+      "sha256": "78568f15db3ecabe0b9bce14bfb4c6f807f1d2cad122d44602c3298a0bc502dc",
+      "type": "regular"
+    },
+    "sk.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "sv.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "sv.lproj/Localizable.strings": {
+      "bytes": 27203,
+      "executable": false,
+      "mode": 420,
+      "sha256": "49eb9b8c9ee15395c8a51401bae8771aa7e254e8614dbc0510cdec68585099a1",
+      "type": "regular"
+    },
+    "sv.lproj/Localizable.stringsdict": {
+      "bytes": 755,
+      "executable": false,
+      "mode": 420,
+      "sha256": "ea1e7cf7b29a7d9b08ae920be3a0b9deb3916c17a7fae25bb4dff431e8c8492b",
+      "type": "regular"
+    },
+    "th.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "tr.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "tr.lproj/Localizable.strings": {
+      "bytes": 38424,
+      "executable": false,
+      "mode": 420,
+      "sha256": "24a786114db1224ac4660a4e87089691a9f414f04593372bd5e3ada5d0b779b7",
+      "type": "regular"
+    },
+    "tr.lproj/Localizable.stringsdict": {
+      "bytes": 720,
+      "executable": false,
+      "mode": 420,
+      "sha256": "61854ac34141809f1a6d91f758922275e015be063a8ea4b63339b96ae6f5b7bd",
+      "type": "regular"
+    },
+    "uk.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "universal.js": {
+      "bytes": 9828,
+      "executable": false,
+      "mode": 420,
+      "sha256": "086fe817349c526b414a9e9fb04892544f1658d77abf31524311220a40c7f021",
+      "type": "regular"
+    },
+    "vi.lproj/InfoPlist.strings": {
+      "bytes": 73,
+      "executable": false,
+      "mode": 420,
+      "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+      "type": "regular"
+    },
+    "vi.lproj/Localizable.strings": {
+      "bytes": 35359,
+      "executable": false,
+      "mode": 420,
+      "sha256": "08429b1a3b41856a38190b6baf25aa5cb3e4fcab5b2ad9778beb282cdc617a16",
+      "type": "regular"
+    },
+    "vi.lproj/Localizable.stringsdict": {
+      "bytes": 710,
+      "executable": false,
+      "mode": 420,
+      "sha256": "7678722296ae393a4cd48b30a7677088129e4cb5f93fb6f9257664a41aebd6d0",
+      "type": "regular"
+    },
+    "zh-Hans.lproj/InfoPlist.strings": {
+      "bytes": 1332,
+      "executable": false,
+      "mode": 420,
+      "sha256": "a2f80aa3247adb34c777a1338252dd7f1987cc2afa6b4d77196b3c731f3bdda8",
+      "type": "regular"
+    },
+    "zh-Hans.lproj/Localizable.strings": {
+      "bytes": 200658,
+      "executable": false,
+      "mode": 420,
+      "sha256": "a11c9307cb7f7cf16e8fc538ff17dd63faf7597fd9d857aacf6f7ed2cbb725c7",
+      "type": "regular"
+    },
+    "zh-Hans.lproj/Localizable.stringsdict": {
+      "bytes": 1051,
+      "executable": false,
+      "mode": 420,
+      "sha256": "45d30e8071ffdffc2b463c17cc5f44f46a053c91b7eb029a58b7656b95f42ca9",
+      "type": "regular"
+    },
+    "zh-Hant.lproj/InfoPlist.strings": {
+      "bytes": 1336,
+      "executable": false,
+      "mode": 420,
+      "sha256": "d3c165222696071f2bd843dc780169efa9e83c98f0b307bafe9d2ddef1f0724f",
+      "type": "regular"
+    },
+    "zh-Hant.lproj/Localizable.strings": {
+      "bytes": 203395,
+      "executable": false,
+      "mode": 420,
+      "sha256": "11e74e076272096a390e0986017e9590456d620138904e4f8167232f413187e0",
+      "type": "regular"
+    },
+    "zh-Hant.lproj/Localizable.stringsdict": {
+      "bytes": 1075,
+      "executable": false,
+      "mode": 420,
+      "sha256": "1db2e6026f929d1995c96d77eebf8e4b68759a8fa98123aaa8b9619bc2dc0fbe",
+      "type": "regular"
+    },
+    "zh_CN.lproj/InfoPlist.strings": {
+      "bytes": 1332,
+      "executable": false,
+      "mode": 420,
+      "sha256": "a2f80aa3247adb34c777a1338252dd7f1987cc2afa6b4d77196b3c731f3bdda8",
+      "type": "regular"
+    },
+    "zh_HK.lproj/InfoPlist.strings": {
+      "bytes": 1336,
+      "executable": false,
+      "mode": 420,
+      "sha256": "d3c165222696071f2bd843dc780169efa9e83c98f0b307bafe9d2ddef1f0724f",
+      "type": "regular"
+    },
+    "zh_TW.lproj/InfoPlist.strings": {
+      "bytes": 1336,
+      "executable": false,
+      "mode": 420,
+      "sha256": "d3c165222696071f2bd843dc780169efa9e83c98f0b307bafe9d2ddef1f0724f",
+      "type": "regular"
+    }
+  },
+  "infoPlistSHA256": "2c1c3f506f21a40025919ca615c7897d17bfa6f89bf18640320fed6fb48380fa",
+  "machOPlatforms": [
+    "IOSSIMULATOR"
+  ]
+}
