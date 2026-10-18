@@ -7,7 +7,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 SOURCE = 'eb10cedb772bc0496d67edd7a269679e24826b9f'
 TREE = 'd6960a99a2f022a333c364fa4d28e264568a28ca'
-APPROVED_INPUTS = 'cf197daa691ae0e6c4d379a562c22cbfeb3ba5e753aa72dc8f05095a31374007'
+APPROVED_INPUTS = '78155e5b562aa90f612b07993089f0e3aa4236f6a91aa63ec794774c95fff382'
 RUNTIME = 'com.apple.CoreSimulator.SimRuntime.iOS-26-5'
 DEVICE_TYPE = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro'
 METHODS = {'control': 'testControlRoundTrip', 'candidate': 'testCandidateRoundTrip'}
@@ -221,15 +221,35 @@ def archive(root, target, deadline=None):
     digest,size=file_digest(target,deadline)
     return {'sha256':digest,'bytes':size,'entries':len(before),'stable':True,'limits':{'entries':MAX_ARCHIVE_ENTRIES,'bytes':MAX_ARCHIVE_BYTES,'perFileBytes':MAX_ARCHIVE_FILE_BYTES}}
 
-def publish_evidence(evidence, publish, settled, deadline=None, reason=None, context=None):
+def publish_failure(publish, receipt, outputs):
+    """Fallback bytes come only from bounded parent-owned memory, never evidence files."""
+    write(publish/'failure.json', receipt)  # Preserve the primary result first.
+    try:
+        require(isinstance(outputs,list) and len(outputs)<=8,'Failed output receipt count exceeds bound')
+        if outputs:
+            payload={'schema':'p2-failed-command-output-v1',
+                     'source':'immutable-parent-owned-Popen-capture',
+                     'completeProcessOutputProven':False,
+                     'selection':'first failed command plus latest seven failures',
+                     'commands':outputs}
+            encoded=json.dumps(payload,indent=2,sort_keys=True,allow_nan=False)+'\n'
+            require(len(encoded.encode('utf-8'))<=128*1024,'Failed output receipt exceeds byte bound')
+            (publish/'failure-command-output.json').write_text(encoded)
+    except Exception as error:
+        path=publish/'failure-command-output.json'
+        if path.exists():path.unlink()
+        receipt['outputRetentionError']=type(error).__name__+': '+str(error)[:256]
+        write(publish/'failure.json',receipt)
+
+def publish_evidence(evidence, publish, settled, deadline=None, reason=None, context=None, outputs=None):
     """Only verified quiescent evidence reaches the workflow upload directory."""
     publish.mkdir(parents=True, exist_ok=False)
     context = context or {}
     require(len(json.dumps(context, allow_nan=False).encode()) <= 64 * 1024, 'Failure context exceeds bound')
     if not settled:
-        write(publish/'failure.json', {'status':'failed','fullEvidenceTransported':False,
+        publish_failure(publish, {'status':'failed','fullEvidenceTransported':False,
               'ownedWritersSettled':False,'reason':reason or 'Owned writer or simulator quiescence unresolved',
-              'primaryOutcome':context})
+              'primaryOutcome':context}, outputs or [])
         return False
     staging=publish.parent/(publish.name+'-staging')
     try:
@@ -246,9 +266,9 @@ def publish_evidence(evidence, publish, settled, deadline=None, reason=None, con
         for name in ['evidence.zip','transport.json']:
             path=publish/name
             if path.exists():path.unlink()
-        write(publish/'failure.json',{'status':'failed','fullEvidenceTransported':False,
+        publish_failure(publish,{'status':'failed','fullEvidenceTransported':False,
               'ownedWritersSettled':True,'reason':'Evidence retention: '+type(error).__name__+': '+str(error),
-              'primaryOutcome':context})
+              'primaryOutcome':context}, outputs or [])
         return False
 
 class Probe:
@@ -364,7 +384,7 @@ class Probe:
                                   'primaryError':row.get('command',{}).get('primaryError'),
                                   'ownedProcessGroup':row.get('command',{}).get('ownedProcessGroup')}
                              for arm,row in self.report['arms'].items()}}
-            transported=publish_evidence(self.evidence,self.publish,self.commands.all_settled and simulator_settled,self.commands.deadline,reason='Owned command/simulator quiescence gate',context=context)
+            transported=publish_evidence(self.evidence,self.publish,self.commands.all_settled and simulator_settled,self.commands.deadline,reason='Owned command/simulator quiescence gate',context=context,outputs=getattr(self.commands,'failed_output_receipts',[]))
             if not transported:
                 self.report['status']='failed';self.report['errors'].append('Full evidence transport blocked; inspect stable failure receipt')
         return self.report

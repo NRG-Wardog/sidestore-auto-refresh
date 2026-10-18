@@ -1,9 +1,31 @@
 """Bounded synchronous command ownership; no signals after child reaping."""
-import json, os, signal, subprocess, time
+import base64, hashlib, json, os, signal, subprocess, time
 from pathlib import Path
 
 def require(value, message):
     if not value: raise ValueError(message)
+
+def output_snapshot(value, origin='parent-owned-value'):
+    """Bounded immutable bytes already owned by this Popen caller, never a file read."""
+    if value is None: value = ''
+    require(isinstance(value, (str, bytes)), 'Unexpected owned output type')
+    raw = value.encode('utf-8') if isinstance(value, str) else value
+    head = raw[:1024]
+    tail = raw[max(len(head), len(raw)-3072):]
+    return {'captureOrigin':origin,
+            'representation': 'utf8-of-decoded-popen-text' if isinstance(value,str) else 'popen-partial-bytes',
+            'capturedBytes': len(raw), 'capturedSHA256': hashlib.sha256(raw).hexdigest(),
+            'headBase64': base64.b64encode(head).decode('ascii'),
+            'tailBase64': base64.b64encode(tail).decode('ascii'),
+            'truncated': len(head)+len(tail) < len(raw),
+            'completeProcessOutputProven': False}
+
+def output_text(value):
+    return value.decode('utf-8', errors='replace') if isinstance(value,bytes) else value or ''
+
+def bounded_receipts(rows):
+    # Keep the initiating failure even if subsequent exporter/cleanup calls fail.
+    return rows if len(rows) <= 8 else rows[:1] + rows[-7:]
 
 def finish_owned_child(process):
     """Signal only a retained, unreaped child identity. Never a reaped PGID."""
@@ -79,6 +101,7 @@ class Commands:
         self.all_settled = True
         self.finalizing = False
         self.failed_receipts = []
+        self.failed_output_receipts = []
 
     def begin_finalization(self):
         self.finalizing = True
@@ -96,6 +119,7 @@ class Commands:
                   'finalization': self.finalizing, 'primaryError': None}
         process = None
         stdout = stderr = ''
+        stdout_origin = stderr_origin = 'no-output-returned'
         try:
             require(signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL,
                     'Ordinary owned-child reservation unavailable')
@@ -109,13 +133,21 @@ class Commands:
                 if remaining <= 0:
                     raise subprocess.TimeoutExpired(argv, budget)
                 stdout, stderr = process.communicate(timeout=remaining)
-            except subprocess.TimeoutExpired:
+                stdout_origin = stderr_origin = 'communicate-return'
+            except subprocess.TimeoutExpired as error:
                 record['primaryError'] = 'Command deadline exceeded'
+                stdout, stderr = error.stdout or '', error.stderr or ''
+                stdout_origin = 'timeout-partial' if error.stdout is not None else 'no-output-returned'
+                stderr_origin = 'timeout-partial' if error.stderr is not None else 'no-output-returned'
             except Exception as error:
                 record['primaryError'] = 'Command collection failed: ' + type(error).__name__
             cleanup = finish_owned_child(process)
-            stdout = cleanup.pop('stdout', stdout)
-            stderr = cleanup.pop('stderr', stderr)
+            captured_stdout = cleanup.pop('stdout', None)
+            captured_stderr = cleanup.pop('stderr', None)
+            # communicate returns cumulative output. Replace, never concatenate
+            # with TimeoutExpired's partial prefix, and keep streams independent.
+            if captured_stdout is not None: stdout, stdout_origin = captured_stdout, 'cleanup-communicate-return'
+            if captured_stderr is not None: stderr, stderr_origin = captured_stderr, 'cleanup-communicate-return'
             record.update(cleanup)
             record['returncode'] = process.returncode
             if cleanup.get('quiescenceError'):
@@ -145,10 +177,16 @@ class Commands:
                                'reapedBeforeSignals','postReapPolicy','leaderReaped']},
                            'cleanupErrors': [str(x)[:250] for x in group.get('errors', [])[:4]]}
                 self.failed_receipts.append(receipt)
-                self.failed_receipts = self.failed_receipts[-8:]
-            stem.with_suffix('.log').write_text((stdout or '') + '\n' + (stderr or ''))
+                self.failed_receipts = bounded_receipts(self.failed_receipts)
+                self.failed_output_receipts = bounded_receipts(self.failed_output_receipts + [{
+                    'number': self.number, 'phase': receipt['phase'],
+                    'commandIdentity': receipt['commandIdentity'],
+                    'primaryError': receipt['primaryError'],
+                    'source': 'immutable-parent-owned-Popen-capture',
+                    'stdout': output_snapshot(stdout,stdout_origin), 'stderr': output_snapshot(stderr,stderr_origin)}])
+            stem.with_suffix('.log').write_text(output_text(stdout) + '\n' + output_text(stderr))
             stem.with_suffix('.json').write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
         if checked:
             require(not record['primaryError'] and not record.get('quiescenceError'),
                     'Command failed: ' + stem.name + ': ' + str(record['primaryError'] or record.get('quiescenceError')))
-        return stdout, record
+        return output_text(stdout), record

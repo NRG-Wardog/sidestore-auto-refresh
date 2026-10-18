@@ -1,4 +1,4 @@
-import ast, copy, hashlib, importlib.util, json, os, pathlib, signal, stat, subprocess, sys, tempfile, time, types, unittest, zipfile
+import ast, base64, copy, hashlib, importlib.util, json, os, pathlib, signal, stat, subprocess, sys, tempfile, time, types, unittest, zipfile
 from unittest.mock import patch, Mock
 HERE=pathlib.Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
@@ -199,6 +199,57 @@ class OwnershipTests(unittest.TestCase):
             self.assertEqual(r['postSpawnRemainingSeconds'],0)
             self.assertEqual(r['primaryError'],'Command deadline exceeded')
 
+class OutputSnapshotTests(unittest.TestCase):
+    def decode(self,row):
+        return base64.b64decode(row['headBase64'],validate=True)+base64.b64decode(row['tailBase64'],validate=True)
+    def test_short_bytes_and_utf8_are_exact(self):
+        for value in [b'raw\x00\xff', 'עברית Unicode 🧪', '', b'']:
+            row=runtime.output_snapshot(value)
+            raw=value.encode('utf-8') if isinstance(value,str) else value
+            self.assertEqual(self.decode(row),raw)
+            self.assertEqual(row['capturedBytes'],len(raw))
+            self.assertEqual(row['capturedSHA256'],hashlib.sha256(raw).hexdigest())
+            self.assertFalse(row['truncated']);self.assertFalse(row['completeProcessOutputProven'])
+            self.assertEqual(row['representation'],'utf8-of-decoded-popen-text' if isinstance(value,str) else 'popen-partial-bytes')
+    def test_long_multibyte_output_has_byte_bounds(self):
+        raw=('🧪עברית'*4000).encode('utf-8');row=runtime.output_snapshot(raw)
+        self.assertEqual(base64.b64decode(row['headBase64']),raw[:1024])
+        self.assertEqual(base64.b64decode(row['tailBase64']),raw[-3072:])
+        self.assertEqual(len(self.decode(row)),4096);self.assertTrue(row['truncated'])
+        self.assertEqual(row['capturedSHA256'],hashlib.sha256(raw).hexdigest())
+    def test_partial_timeout_streams_survive_failed_join(self):
+        with tempfile.TemporaryDirectory() as t:
+            process=Mock(pid=123,returncode=None)
+            process.communicate.side_effect=subprocess.TimeoutExpired(['fixture'],1,output=b'partial\xff',stderr=b'err')
+            cleanup={'ownedProcessGroup':{'quiescent':False,'pipesJoined':False},'quiescenceError':'unsettled'}
+            with patch.object(runtime.subprocess,'Popen',return_value=process),patch.object(runtime,'finish_owned_child',return_value=cleanup):
+                c=runtime.Commands(pathlib.Path(t).resolve());_,record=c.run(['fixture'],1,checked=False)
+            row=c.failed_output_receipts[0]
+            self.assertEqual(self.decode(row['stdout']),b'partial\xff');self.assertEqual(self.decode(row['stderr']),b'err')
+            self.assertEqual(row['stdout']['captureOrigin'],'timeout-partial')
+            self.assertFalse(c.all_settled);self.assertEqual(record['primaryError'],'Command deadline exceeded')
+    def test_cumulative_join_replaces_partial_without_duplication(self):
+        with tempfile.TemporaryDirectory() as t:
+            process=Mock(pid=123,returncode=-15)
+            process.communicate.side_effect=subprocess.TimeoutExpired(['fixture'],1,output=b'prefix',stderr=b'error-prefix')
+            cleanup={'stdout':'prefix plus final','stderr':None,'ownedProcessGroup':{'quiescent':True,'pipesJoined':True}}
+            with patch.object(runtime.subprocess,'Popen',return_value=process),patch.object(runtime,'finish_owned_child',return_value=cleanup):
+                c=runtime.Commands(pathlib.Path(t).resolve());c.run(['fixture'],1,checked=False)
+            row=c.failed_output_receipts[0]
+            self.assertEqual(self.decode(row['stdout']),b'prefix plus final')
+            self.assertEqual(self.decode(row['stderr']),b'error-prefix')
+            self.assertEqual(row['stdout']['captureOrigin'],'cleanup-communicate-return')
+            self.assertEqual(row['stderr']['captureOrigin'],'timeout-partial')
+    def test_first_failure_survives_more_than_eight_failures(self):
+        with tempfile.TemporaryDirectory() as t:
+            c=runtime.Commands(pathlib.Path(t).resolve())
+            process=Mock(pid=123,returncode=1);process.communicate.return_value=('failed','')
+            cleanup={'ownedProcessGroup':{'quiescent':True,'pipesJoined':True}}
+            with patch.object(runtime.subprocess,'Popen',return_value=process),patch.object(runtime,'finish_owned_child',return_value=cleanup):
+                for i in range(12):c.run(['fixture',str(i)],1,checked=False)
+            for rows in [c.failed_receipts,c.failed_output_receipts]:
+                self.assertEqual([row['number'] for row in rows],[1,6,7,8,9,10,11,12])
+
 class TransportTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=pathlib.Path(self.tmp.name).resolve()
@@ -213,6 +264,31 @@ class TransportTests(unittest.TestCase):
         self.assertFalse((self.evidence/'evidence-index.json').exists())
         self.assertEqual([p.name for p in self.publish.iterdir()],['failure.json'])
         self.assertEqual(json.loads((self.publish/'failure.json').read_text())['primaryOutcome']['errors'],['native timeout'])
+    def test_unsettled_output_uses_only_parent_memory(self):
+        outputs=[{'number':1,'stdout':runtime.output_snapshot('native-start'),'stderr':runtime.output_snapshot(b'error\xff')}]
+        with patch.object(run,'archive') as archive,patch.object(run,'inventory') as inventory,patch.object(pathlib.Path,'read_bytes',side_effect=AssertionError('mutable read')),patch.object(pathlib.Path,'read_text',side_effect=AssertionError('mutable read')):
+            self.assertFalse(run.publish_evidence(self.evidence,self.publish,False,outputs=outputs))
+        archive.assert_not_called();inventory.assert_not_called()
+        self.assertEqual(set(p.name for p in self.publish.iterdir()),{'failure.json','failure-command-output.json'})
+        self.assertEqual(json.loads((self.publish/'failure-command-output.json').read_text())['commands'],outputs)
+    def test_output_bounds_preserve_primary_failure(self):
+        for outputs in [[{}]*9,[{'oversized':'x'*(129*1024)}]]:
+            publish=self.root/('limit-'+str(len(outputs)))
+            self.assertFalse(run.publish_evidence(self.evidence,publish,False,context={'errors':['primary']},outputs=outputs))
+            self.assertEqual(set(p.name for p in publish.iterdir()),{'failure.json'})
+            receipt=json.loads((publish/'failure.json').read_text())
+            self.assertEqual(receipt['primaryOutcome']['errors'],['primary']);self.assertIn('outputRetentionError',receipt)
+    def test_eight_maximum_output_receipts_fit_bound(self):
+        outputs=[{'number':i,'phase':'p'*256,'commandIdentity':'c'*1024,'primaryError':'e'*1024,'stdout':runtime.output_snapshot(b'x'*100000),'stderr':runtime.output_snapshot(b'y'*100000)} for i in range(8)]
+        self.assertFalse(run.publish_evidence(self.evidence,self.publish,False,outputs=outputs))
+        path=self.publish/'failure-command-output.json'
+        self.assertTrue(path.is_file());self.assertLessEqual(path.stat().st_size,128*1024)
+    def test_failed_archive_keeps_output_without_partial_transport(self):
+        outputs=[{'number':1,'stdout':runtime.output_snapshot('captured before archive'),'stderr':runtime.output_snapshot('')}]
+        def partial(root,target,deadline):target.write_bytes(b'partial');raise ValueError('injected')
+        with patch.object(run,'archive',side_effect=partial):self.assertFalse(run.publish_evidence(self.evidence,self.publish,True,outputs=outputs))
+        self.assertEqual(set(p.name for p in self.publish.iterdir()),{'failure.json','failure-command-output.json'})
+        self.assertEqual(json.loads((self.publish/'failure-command-output.json').read_text())['commands'],outputs)
     def test_full_transport_is_verified_archive_only(self):
         self.assertTrue(run.publish_evidence(self.evidence,self.publish,True))
         self.assertEqual(set(p.name for p in self.publish.iterdir()),{'transport.json','evidence.zip'})
@@ -227,7 +303,7 @@ class TransportTests(unittest.TestCase):
     def main_failure_case(self, export_failure=True, shutdown_failure=False):
         host=self.root/'host';host.mkdir();work=self.root/'work';evidence=self.root/'main-evidence';publish=self.root/'main-publish'
         class FakeCommands:
-            def __init__(self,*args):self.deadline=time.monotonic()+360;self.all_settled=True;self.failed_receipts=[]
+            def __init__(self,*args):self.deadline=time.monotonic()+360;self.all_settled=True;self.failed_receipts=[];self.failed_output_receipts=[]
             def begin_finalization(self):pass
             def run(self,argv,timeout=60,checked=True):
                 a=list(map(str,argv));rec={'primaryError':None,'returncode':0}
@@ -249,6 +325,7 @@ class TransportTests(unittest.TestCase):
                     path=pathlib.Path(a[a.index('--output-path')+1]);path.mkdir(parents=True);(path/'still-writing.txt').write_text('mutable')
                     if export_failure:
                         self.all_settled=False
+                        self.failed_output_receipts=[{'number':14,'stdout':runtime.output_snapshot('export phase reached'),'stderr':runtime.output_snapshot('owned writer unresolved')}]
                         self.failed_receipts=[{'phase':'xcresulttool export','primaryError':'timeout','ownedProcessGroup':{'quiescent':False}}]
                         raise ValueError('Injected unresolved export writer')
                 elif a[:3]==['xcrun','simctl','shutdown'] and shutdown_failure:
@@ -269,7 +346,11 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(result['status'],'failed')
         self.assertTrue((evidence/'control/attachments/still-writing.txt').exists())
         self.assertFalse((evidence/'evidence-index.json').exists())
-        self.assertEqual(set(p.name for p in publish.iterdir()),{'failure.json'})
+        self.assertEqual(set(p.name for p in publish.iterdir()),{'failure.json','failure-command-output.json'} if export_failure else {'failure.json'})
+        if export_failure:
+            output=json.loads((publish/'failure-command-output.json').read_text())
+            self.assertEqual(base64.b64decode(output['commands'][0]['stdout']['headBase64']),b'export phase reached')
+            self.assertFalse(output['completeProcessOutputProven'])
         if export_failure:self.assertNotIn('candidate',result['arms'])
         else:self.assertIn('candidate',result['arms'])
         receipt=json.loads((publish/'failure.json').read_text())

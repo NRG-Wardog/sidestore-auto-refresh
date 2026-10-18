@@ -34,3 +34,14 @@ Synchronous command ownership retains the actual unreaped child identity before 
 Failure-first logs, raw xcresults, generated sources, visible workflow.yml, source/builder seals and compiled products are retained. Archives preserve exact paths/types/full modes/symlink targets/bytes and verify before/after inventories plus readback. Retention is bounded to 25,000 entries, 2 GiB total and 1 GiB per file with shared finalization-deadline checks per chunk. Incomplete retention fails; no missing or unstable archive is promoted to valid evidence. Mutable evidence is outside the upload path. Only after owned writers and the owned simulator settle is it indexed, archived, read back and atomically moved into the publish directory. Otherwise that directory receives only a bounded parent-written failure receipt retaining the primary outcome and bounded in-memory failed-command identity/phase, timeout and owned-group settlement metadata. No mutable-file reads supply that fallback receipt. The workflow uploads only this publish directory and the portable test log. The evidence index excludes only itself. Dot-directory workflow bytes are copied to visible workflow.yml so upload-artifact retains the indexed file.
 
 Portable checks: P2_FORM_SOURCE=/absolute/verified/source python3 -B -m unittest discover -s ci/p2/form_direction -p 'test_*.py' -v. Native behavior is unproved until the actual artifact is independently reviewed.
+
+Failure-only command output retention: when full evidence transport is blocked,
+the parent may retain a separate bounded JSON receipt from its already-owned
+Popen return values or TimeoutExpired partial bytes. It never reads mutable
+command logs for this fallback. Each stream records its capture origin, byte
+count/hash, UTF-8 text-versus-partial-byte representation, and base64-encoded
+1 KiB head plus 3 KiB tail. These excerpts do not prove complete process output.
+Cumulative communicate output replaces partial output; it is never appended.
+At most eight failed commands are retained (the initiating failure plus latest
+seven), within 128 KiB. The original failure and strict settlement gate remain
+unchanged, and failed receipt serialization cannot promote the result to success.
