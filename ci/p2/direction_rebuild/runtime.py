@@ -1,5 +1,5 @@
 """Bounded synchronous command ownership; no signals after child reaping."""
-import base64, hashlib, json, os, signal, subprocess, time
+import base64, hashlib, json, os, re, signal, subprocess, time
 from pathlib import Path
 
 def require(value, message):
@@ -91,6 +91,28 @@ def finish_owned_child(process):
     return result
 
 
+UI_COMMAND_SHAPE = ['xcodebuild','test-without-building','-xctestrun','<run>',
+    '-destination','<device>','-resultBundlePath','<result>',
+    '-parallel-testing-enabled','NO','-maximum-concurrent-test-simulator-destinations','1',
+    '-test-timeouts-enabled','YES','-default-test-execution-time-allowance','150',
+    '-maximum-test-execution-time-allowance','150',
+    '-only-testing:P2SettingsUITests/FormDirectionTests/testCandidateRoundTrip']
+
+def reviewed_ui_command(argv):
+    args=list(map(str,argv))
+    if len(args)!=len(UI_COMMAND_SHAPE): return False
+    if not (Path(args[3]).is_absolute() and args[3].endswith('.xctestrun') and
+            Path(args[7]).is_absolute() and args[7].endswith('.xcresult') and
+            re.fullmatch(r'id=[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}',args[5])): return False
+    args[3],args[5],args[7]='<run>','<device>','<result>'
+    return args==UI_COMMAND_SHAPE
+
+def command_budget(argv, timeout, remaining, finalizing=False):
+    # The fixed test, flags and bounded native allowance must match exactly.
+    ceiling = 540.0 if reviewed_ui_command(argv) and not finalizing else 240.0
+    return min(float(timeout), ceiling, remaining)
+
+
 class Commands:
     """One synchronous owner, a shared deadline, and failure-first command receipts."""
     def __init__(self, directory, seconds=18 * 60):
@@ -109,7 +131,7 @@ class Commands:
 
     def run(self, argv, timeout=60, checked=True):
         require(isinstance(argv, list) and argv, 'Empty command')
-        budget = min(float(timeout), 240.0, self.deadline - time.monotonic())
+        budget = command_budget(argv, timeout, self.deadline - time.monotonic(), self.finalizing)
         require(budget > 0, 'Shared experiment/finalization deadline exhausted')
         self.number += 1
         stem = self.directory / ('%03d' % self.number)

@@ -7,10 +7,11 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 SOURCE = 'eb10cedb772bc0496d67edd7a269679e24826b9f'
 TREE = 'd6960a99a2f022a333c364fa4d28e264568a28ca'
-APPROVED_INPUTS = 'c448bb547a5f1816f55421a8f31de6ce14c620e624242eaf741ba5eac82c231b'
+APPROVED_INPUTS = 'df7855c313ac104645d1a140a452d2620682d4e8086721ff4b692f7689c1ea2b'
 RUNTIME = 'com.apple.CoreSimulator.SimRuntime.iOS-26-5'
 DEVICE_TYPE = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro'
 METHODS = {'candidate': 'testCandidateRoundTrip'}
+UI_COMMAND_BUDGET = {'startupAllowanceSeconds':300,'nativeTestLimitSeconds':150,'resultFinalizationAllowanceSeconds':90,'outerCommandLimitSeconds':540,'sharedExperimentLimitSeconds':1080}
 ANCHORS = ('private final class V3NativeAlertPresentation', 'extension UIViewController', 'enum LCNativeErrorSite', 'enum LCNativeErrorPresentation', 'public struct TextFieldAlertModifier')
 LIMITS = ['Candidate-only component, not complete host', 'Historical genuine-host failure is the control; no fixed-LTR acceptance reused', 'Native state harness uses extracted production methods with a fake service', 'Independent raster acceptance still required', 'All-four-language and composed-host checks remain open', 'SS-LAUNCH-C11-L15 and device authentication remain unresolved']
 
@@ -262,7 +263,7 @@ def publish_evidence(evidence, publish, settled, deadline=None, reason=None, con
 class Probe:
     def __init__(self, host, work, evidence, publish, approved):
         self.host,self.work,self.evidence,self.publish,self.approved=host,work,evidence,publish,approved
-        self.device=None; self.report={'status':'failed','visualAcceptance':False,'visualVerdict':'pending-independent-review','errors':[], 'arms':{},'scope':LIMITS}
+        self.device=None; self.report={'status':'failed','visualAcceptance':False,'visualVerdict':'pending-independent-review','errors':[], 'arms':{},'scope':LIMITS,'uiCommandBudget':UI_COMMAND_BUDGET}
         self.commands=None
         self.generated_expected=None
     def run(self):
@@ -327,7 +328,7 @@ class Probe:
                 bundle=self.work/(arm+'.xcresult'); target=self.evidence/arm;target.mkdir()
                 try:
                     require(sha(runs[0])==original_run,'xctestrun changed before arm')
-                    _,record=self.commands.run(['xcodebuild','test-without-building','-xctestrun',runs[0],'-destination','id='+self.device,'-resultBundlePath',bundle,'-parallel-testing-enabled','NO','-maximum-concurrent-test-simulator-destinations','1','-test-timeouts-enabled','YES','-default-test-execution-time-allowance','150','-maximum-test-execution-time-allowance','150','-only-testing:P2SettingsUITests/FormDirectionTests/'+method],240,checked=False)
+                    _,record=self.commands.run(['xcodebuild','test-without-building','-xctestrun',runs[0],'-destination','id='+self.device,'-resultBundlePath',bundle,'-parallel-testing-enabled','NO','-maximum-concurrent-test-simulator-destinations','1','-test-timeouts-enabled','YES','-default-test-execution-time-allowance','150','-maximum-test-execution-time-allowance','150','-only-testing:P2SettingsUITests/FormDirectionTests/'+method],UI_COMMAND_BUDGET['outerCommandLimitSeconds'],checked=False)
                     outcome['command']=record
                     if record['primaryError'] or record.get('quiescenceError'):outcome['errors'].append('Native command failed')
                     for kind in ['summary','tests']:
@@ -375,7 +376,7 @@ class Probe:
                     except Exception as error:self.report['errors'].append('Retain '+name+': '+str(error))
             if self.report['errors']:self.report['status']='failed'
             write(self.evidence/'result.json',self.report)
-            context={'status':self.report['status'],'nativeState':self.report.get('nativeState',{'status':'not-completed'}),'errors':[str(x)[:1000] for x in self.report['errors'][:6]],
+            context={'status':self.report['status'],'uiCommandBudget':UI_COMMAND_BUDGET,'nativeState':self.report.get('nativeState',{'status':'not-completed'}),'errors':[str(x)[:1000] for x in self.report['errors'][:6]],
                      'failedCommands':getattr(self.commands,'failed_receipts',[]),
                      'arms':{arm:{'status':row['status'],'errors':[str(x)[:1000] for x in row['errors'][:4]],
                                   'primaryError':row.get('command',{}).get('primaryError'),

@@ -29,6 +29,21 @@ class CandidateTests(unittest.TestCase):
         self.assertIn('Toggle setup failed:',tests)
         source=(HERE/'run.py').read_text()
         self.assertIn("'nativeState':self.report.get('nativeState'",source)
+    def test_ui_budget_is_bounded_and_other_commands_unchanged(self):
+        runtime=run.load('rebuild_runtime_test',HERE/'runtime.py')
+        argv=runtime.UI_COMMAND_SHAPE.copy()
+        argv[3]='/tmp/fixture.xctestrun';argv[5]='id=11111111-1111-1111-1111-111111111111';argv[7]='/tmp/candidate.xcresult'
+        self.assertEqual(runtime.command_budget(argv,540,1000),540)
+        self.assertEqual(runtime.command_budget(argv,999,1000),540)
+        self.assertEqual(runtime.command_budget(argv,540,87),87)
+        self.assertEqual(runtime.command_budget(argv,540,1000,True),240)
+        variants=[['xcodebuild','test-without-building'],['xcodebuild','build-for-testing'],['xcrun','simctl'],['bash'],argv+['extra']]
+        for index,value in [(3,'relative.xctestrun'),(5,'id=wrong'),(7,'/tmp/other'),(15,'999'),(18,'-only-testing:Other/test')]:
+            variant=argv.copy();variant[index]=value;variants.append(variant)
+        for variant in variants:
+            self.assertEqual(runtime.command_budget(variant,540,1000),240)
+        self.assertEqual(run.UI_COMMAND_BUDGET['nativeTestLimitSeconds'],150)
+        self.assertEqual(sum(run.UI_COMMAND_BUDGET[k] for k in ['startupAllowanceSeconds','nativeTestLimitSeconds','resultFinalizationAllowanceSeconds']),540)
     def make_evidence(self,directory):
         rows=[]
         for stage,lang in [('candidate-en-initial','en'),('candidate-he','he'),('candidate-en-return','en')]:
