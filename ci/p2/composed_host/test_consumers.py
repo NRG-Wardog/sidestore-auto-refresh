@@ -8,7 +8,7 @@ class ConsumerTests(unittest.TestCase):
    self.assertEqual(result_contract(r)['successful'],expected)
  def test_exact_peer_children_and_restoration(self):
   original={'original':{'commit':'original'}};seen=[]
-  p=types.SimpleNamespace(DEPENDENCIES=original)
+  p=types.SimpleNamespace(DEPENDENCIES=original,source_link_destination=lambda *args:None)
   def proof(root,commit,tree,origin,dependencies):
    seen.append(dict(p.DEPENDENCIES));return {'commit':commit,'tree':tree}
   p.checkout_proof=proof

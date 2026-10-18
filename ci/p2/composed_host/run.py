@@ -28,12 +28,33 @@ def build_command(host,derived,udid):
     return ['xcodebuild','-project',str(host/'LiveContainer.xcodeproj'),'-scheme','LiveContainer','-configuration','Release','-sdk','iphonesimulator','-destination','platform=iOS Simulator,id='+udid,'-derivedDataPath',str(derived),'-disableAutomaticPackageResolution','-onlyUsePackageVersionsFromResolvedFile']
 PEER={'commit':'59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218','tree':'c58017caf7e392e238f47a5e0fa9511fa6f74ca0','origin':'https://github.com/NRG-Wardog/SideStore.git','children':{'Dependencies/SideSign':'c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e','Dependencies/minimuxer':'efbcab05d7d636aa37c6bf6c7f364d122c5610f6'}}
 PRODUCER={'commit':'161435bcc0344e1a9853669455c1ca8d9dda2bf1','tree':'0df50020ddd774a5b7ab941944501f1ecd591a4a','origin':'https://github.com/NRG-Wardog/AnisetteKit.git','children':{}}
+def peer_link_destination(prior,root,name,entries,fallback):
+    special='AltStore/Resources/SideBackup.ipa'
+    if name!=special:return fallback(root,name,entries)
+    row=entries.get(name,{})
+    require(row.get('mode')=='120000' and row.get('type')=='blob' and row.get('gitObject')=='54a080c4e8a5029ad8d22842c16acde4d6d01b43','Generated resource link identity differs')
+    target,raw=prior.source_link_target(root,name,row)
+    require(target=='../../build/SideBackup.ipa' and raw==b'../../build/SideBackup.ipa','Generated resource target differs')
+    for relative in ['AltStore','AltStore/Resources','build']:
+        path=root/relative
+        require(not path.is_symlink(),'Generated resource ancestor linked')
+    require(not any(n=='build' or n.startswith('build/') for n in entries),'Generated resource unexpectedly tracked')
+    require(not os.path.lexists(root/'build/SideBackup.ipa'),'Generated resource unexpectedly present')
+    # This exact committed generated IPA link is not read by the consumer tests.
+    # Preserve its bytes and absence; never follow, create or substitute it.
+    return {'classification':'committed-dangling-generated-resource','target':'build/SideBackup.ipa','consumed':False}
+
 def owner_proof(prior,root,pin):
     original=prior.DEPENDENCIES
+    resolver=prior.source_link_destination
     try:
         prior.DEPENDENCIES={name:{'commit':commit}for name,commit in pin['children'].items()}
+        if pin==PEER:
+            prior.source_link_destination=lambda source,name,entries:peer_link_destination(prior,source,name,entries,resolver)
         return prior.checkout_proof(root,pin['commit'],pin['tree'],pin['origin'],dependencies=True)
-    finally:prior.DEPENDENCIES=original
+    finally:
+        prior.DEPENDENCIES=original
+        prior.source_link_destination=resolver
 
 def execute(host,peer,producer,work,evidence,publish,approved):
     inputs=verify_inputs(approved)

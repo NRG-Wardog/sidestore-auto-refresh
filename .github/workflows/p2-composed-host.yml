@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 45
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
-      APPROVED_HOST_INPUTS: 433d485ca8ef73911d74e9252be1c374bf965b80dfd4170cd1eaf7d679a5ab5f
+      APPROVED_HOST_INPUTS: 5d1f466bae1fa20c707a8e164b05e33a1e8a92e99be91e73db592ad032d308a8
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
       GIT_CONFIG_NOSYSTEM: '1'
