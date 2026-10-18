@@ -14,21 +14,36 @@
     "tests/fixtures/p2_localization_contracts/compiled-translations.json": "23d7e7dc60e88e23cf80814eaf6328e998079150dbd7d10b52c38b4eafe3bcb5"
   },
   "files": {
-    "HostSettingsProbeTests.swift.in": "87f083c893f1145b6967fb0b9979f9da7f70bb7994b5854b9475c2768bb0859f",
-    "README.md": "92dc6d3fb358ac0e7e5e5352e4566ca7bd048c53ef37a2158be1db8bd3abb7d5",
+    "HostSettingsProbeTests.swift.in": "5aa16c9a6e139091efe09556fe12c804d9885dbc4420e256cb963aa2119b0cef",
+    "README.md": "e8dddb6fba6abc1f318178b1bac424b5575212aab3fd05a5a13060b4068514fe",
     "artifact_contract.py": "3acf5809e0b91e81dcf21aaa23c42a8fc6cb54c99208f845b353a759e9258d16",
     "fetch_artifact.py": "3a3d9d7c2e25e6e2df7cc66eeebad64844fc129b24412d0668e7645ff2139aee",
     "generated-contract.json": "996bc66327a2f09d28081482272bff9bd3508bfea8ed667f7bd3a96816555d66",
     "products-layout.json": "4cc549d3ef761202fc55a8b9512a5ac17af39c81daab2c32041fb6cb4b3a3a87",
-    "runner_contract.py": "cdb04f14c4bb7807bf21efe3a843702dfc5bc4e5d6dac5a9ca98d493ba9b4467",
+    "runner_contract.py": "31f689d2b4862c132dd7e7614352e6e3a896930baee0eadc899e2e0fe594e074",
     "test_artifact_contract.py": "8498befd8051afbc463cee8dd85a6e5fa90e977438a178dcee2ffb313057dbeb",
     "test_fetch_artifact.py": "6fd7b54474b2b1c1b4edd69d8afd2e42abbde1e7470f9e87998fb390e224fa3d",
-    "test_reuse.py": "f940b56e6c56b2a9ee7c2a657c2a95ab3e9c88c7e43a7906ce6338ec1532b802"
+    "test_reuse.py": "064f7fb3a93e3892c2d7b1d355dadc6f0d28c07462eeee40f4da7e1ab446827a"
+  },
+  "initialRequestedInputsEvidence": {
+    "artifactBytes": 209364504,
+    "artifactId": 12129710793,
+    "artifactSHA256": "5e4d66bbc216bacfb0c39b177d0ab2aae20886e50d7abbfcd3a3b207e4c3cd8b",
+    "builderCommit": "8843e1e3b24073a02afe38f5cc29e8f48319d358",
+    "claim": "Exact empirical external-proxy getters, independent of generated xctestrun maps; no effective-process environment claim.",
+    "initialRequestedArguments": [],
+    "initialRequestedEnvironment": {},
+    "launchCount": 0,
+    "nativeObservationSHA256": "39d51ad9ad39edfefec53fa90cf4ce68291c8ba78acd82e99590fd57d6a6495d",
+    "originalConclusion": "failure",
+    "originalResultReplaced": false,
+    "policyVersion": 2,
+    "runId": 39108204781
   },
   "normalization": "Only the one approved-input SHA field is replaced with TO_BE_SEALED; all other bytes remain bound.",
   "normalizedSources": {
     ".github/workflows/p2-host-reuse.yml": "457cea22afa2b600b0dd532f3c670d7431dd29cbba7ec15c8e1a26c3b940abf1",
-    "ci/p2/host_reuse/run.py": "2949efe5207d47e0cfaafae1fd4731c63a98ef8672c3782699b94514da5569cf"
+    "ci/p2/host_reuse/run.py": "ce84e741fe43e1207445b359cd8d2b86220ba932dcb4abe44625368907e82384"
   },
   "originalHostArtifact": {
     "artifactId": 12112643772,

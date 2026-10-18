@@ -107,7 +107,7 @@ def expand(value, bindings):
     return ':'.join(output)
 
 
-def requested_environment(bindings):
+def generated_target_environment(bindings):
     target = reference()[TARGET]['UITargetAppEnvironmentVariables']
     return {key: expand(value, bindings) if value.startswith('__') else value for key, value in target.items()}
 
@@ -140,10 +140,11 @@ def validate_generated(raw, testroot, app, developer, runtime):
     for role in ('EnvironmentVariables', 'TestingEnvironmentVariables', 'UITargetAppEnvironmentVariables'):
         expanded[role] = {key: expand(value, bindings) if value.startswith('__') or value.startswith('/') else value
                           for key, value in target[role].items()}
-    return {'runnerPath': str(runner), 'testBundlePath': str(bundle), 'formatVersion': 1,
+    return {'runnerPath': str(runner), 'testBundlePath': str(bundle), 'formatVersion': 2,
             'targetApplicationMode': 'external-XCUIApplication-bundleIdentifier', 'unmodifiedGeneratedFile': True,
             'rootBindings': bindings, 'expandedEnvironmentMaps': expanded,
-            'expectedInitialEnvironment': requested_environment(bindings),
+            'generatedTargetEnvironment': generated_target_environment(bindings),
+            'expectedInitialRequestedEnvironment': {}, 'expectedInitialRequestedArguments': [],
             'performanceCheckerEnabled': True, 'effectiveEnvironmentEmptyProven': False}
 
 
@@ -182,9 +183,9 @@ def inspect_products(wiring, parser):
 
 def verify_launch_policy(report, expected):
     policy = report.get('launchPolicy')
-    exact(policy, {'status': 'cleared-before-single-launch', 'initialEnvironment': expected,
-                  'initialArguments': [], 'expectedInitialEnvironment': expected,
-                  'initialEnvironmentMatched': True, 'initialEnvironmentKeyCount': 7, 'initialArgumentCount': 0,
+    exact(policy, {'status': 'cleared-before-single-launch', 'initialEnvironment': {},
+                  'initialArguments': [], 'expectedInitialEnvironment': {}, 'generatedTargetEnvironment': expected,
+                  'initialEnvironmentMatched': True, 'initialEnvironmentKeyCount': 0, 'initialArgumentCount': 0,
                   'missingExpectedKeys': [], 'mismatchedExpectedKeys': [], 'unknownKeyCount': 0,
                   'requestedEnvironmentEmpty': True, 'requestedArgumentsEmpty': True,
                   'performanceCheckerEnabled': True, 'effectiveEnvironmentEmptyProven': False,
@@ -195,7 +196,7 @@ def verify_launch_policy(report, expected):
 
 def policy_events(output, expected):
     """Retain only bounded source-emitted receipts, never unknown launch values."""
-    marker = 'P2_REQUESTED_LAUNCH_POLICY_V1:'
+    marker = 'P2_REQUESTED_LAUNCH_POLICY_V2:'
     rows = []
     def pairs(values):
         result = {}
@@ -210,16 +211,17 @@ def policy_events(output, expected):
         require(len(raw.encode()) <= 32768 and len(rows) < 3, 'Oversized/repeated policy event')
         row = json.loads(raw, object_pairs_hook=pairs, parse_constant=lambda _: require(False, 'Nonfinite event'))
         require(type(row) is dict and set(row) == {'schemaVersion', 'stage', 'launchCount', 'policy'}, 'Wrong event envelope')
-        require(type(row['schemaVersion']) is int and row['schemaVersion'] == 1 and type(row['launchCount']) is int and row['launchCount'] in (0, 1), 'Wrong event scalar')
+        require(type(row['schemaVersion']) is int and row['schemaVersion'] == 2 and type(row['launchCount']) is int and row['launchCount'] in (0, 1), 'Wrong event scalar')
         require(row['stage'] in ('requested-target-launch-policy', 'cleared-requested-target-launch-inputs', 'genuine-host-launch'), 'Unknown policy stage')
         policy = row['policy']
-        mandatory = {'status', 'expectedInitialEnvironment', 'initialEnvironmentMatched', 'initialEnvironmentKeyCount', 'initialArgumentCount',
+        mandatory = {'status', 'expectedInitialEnvironment', 'generatedTargetEnvironment', 'initialEnvironmentMatched', 'initialEnvironmentKeyCount', 'initialArgumentCount',
                      'missingExpectedKeys', 'mismatchedExpectedKeys', 'unknownKeyCount', 'performanceCheckerEnabled', 'effectiveEnvironmentEmptyProven'}
         optional = {'initialEnvironment', 'initialArguments', 'requestedEnvironmentEmpty', 'requestedArgumentsEmpty',
                     'requestedEnvironmentAfterClearing', 'requestedArgumentsAfterClearing'}
         require(type(policy) is dict and mandatory <= set(policy) <= mandatory | optional, 'Unreviewed policy keys')
         require(policy['status'] in ('initial-observed', 'cleared-before-single-launch'), 'Unknown policy status')
-        exact(policy['expectedInitialEnvironment'], expected)
+        exact(policy['expectedInitialEnvironment'], {})
+        exact(policy['generatedTargetEnvironment'], expected)
         for key in ('initialEnvironmentMatched', 'performanceCheckerEnabled', 'effectiveEnvironmentEmptyProven', 'requestedEnvironmentEmpty', 'requestedArgumentsEmpty'):
             if key in policy:
                 require(type(policy[key]) is bool, 'Wrong policy Boolean')
@@ -227,17 +229,16 @@ def policy_events(output, expected):
         for key in ('initialEnvironmentKeyCount', 'initialArgumentCount', 'unknownKeyCount'):
             require(type(policy[key]) is int and 0 <= policy[key] <= 1024, 'Wrong policy count')
         for key in ('missingExpectedKeys', 'mismatchedExpectedKeys'):
-            require(type(policy[key]) is list and all(type(v) is str and v in expected for v in policy[key]) and
-                    policy[key] == sorted(set(policy[key])), 'Unknown/redacted key metadata')
-        for key, value in [('initialEnvironment', expected), ('initialArguments', []), ('requestedEnvironmentAfterClearing', {}), ('requestedArgumentsAfterClearing', [])]:
+            exact(policy[key], [], 'empty-getter metadata ' + key)
+        for key, value in [('initialEnvironment', {}), ('initialArguments', []), ('requestedEnvironmentAfterClearing', {}), ('requestedArgumentsAfterClearing', [])]:
             if key in policy:
                 exact(policy[key], value, 'allowlisted event field ' + key)
         rows.append(row)
-    return {'schemaVersion': 1, 'events': rows, 'forwardedByXcode': bool(rows), 'effectiveEnvironmentEmptyProven': False}
+    return {'schemaVersion': 2, 'events': rows, 'forwardedByXcode': bool(rows), 'effectiveEnvironmentEmptyProven': False}
 
 
 def verify_policy_events(receipt, expected):
-    require(type(receipt) is dict and receipt.get('forwardedByXcode') is True and receipt.get('effectiveEnvironmentEmptyProven') is False,
+    require(type(receipt) is dict and type(receipt.get('schemaVersion')) is int and receipt['schemaVersion'] == 2 and receipt.get('forwardedByXcode') is True and receipt.get('effectiveEnvironmentEmptyProven') is False,
             'Unbuffered policy forwarding not observed')
     rows = receipt.get('events')
     require(type(rows) is list and len(rows) == 3, 'Missing bounded policy sequence')
@@ -247,5 +248,5 @@ def verify_policy_events(receipt, expected):
     initial['status'] = 'initial-observed'
     cleared = {**final, 'status': 'initial-observed'}
     for row, stage, count, policy in zip(rows, ('requested-target-launch-policy', 'cleared-requested-target-launch-inputs', 'genuine-host-launch'), (0, 0, 1), (initial, cleared, final)):
-        exact(row, {'schemaVersion': 1, 'stage': stage, 'launchCount': count, 'policy': policy}, 'ordered policy event')
+        exact(row, {'schemaVersion': 2, 'stage': stage, 'launchCount': count, 'policy': policy}, 'ordered policy event')
     return True

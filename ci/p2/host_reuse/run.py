@@ -23,7 +23,7 @@ import types
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 BASE_COMMIT = 'bcd6d06b94853537cc6c66474d0b2b65a2712eb1'
-APPROVED_INPUTS = 'e321ff3eb7f86b1f725a6f551994a9a13ec68abb700e2fe88011a13a1fc956b8'
+APPROVED_INPUTS = '36b1994beb430da02fcbc78b96f8679111e60a893e986e3f4e44d13b4b56d95e'
 EXPERIMENT_SECONDS = 18 * 60
 FINALIZATION_SECONDS = 6 * 60
 
@@ -153,7 +153,7 @@ class ReuseProbe(CAP.Capability):
         self.artifact = Path(artifact)
         self.deadline = time.monotonic() + EXPERIMENT_SECONDS
         self.device = self.app = self.installed = self.identity = self.adapter = None
-        self.runner_snapshot = self.source_snapshot = self.expected_environment = None
+        self.runner_snapshot = self.source_snapshot = self.generated_environment = None
         self.generated = self.wiring = None
         self.native_result = self.work / 'host-probe.xcresult'
         self.attachments = self.work / 'attachments'
@@ -304,15 +304,15 @@ class ReuseProbe(CAP.Capability):
             template = template.replace(token, value)
         testroot = self.work / 'runner-derived/Build/Products'
         binding = RC.roots(testroot, Path(CAP.DEVELOPER), Path(self.runtime['runtimeRoot']))
-        self.expected_environment = RC.requested_environment(binding)
-        literal = '[' + ', '.join(HP.swift_literal(k) + ': ' + HP.swift_literal(v) for k, v in sorted(self.expected_environment.items())) + ']'
-        template = template.replace('__EXPECTED_INITIAL_ENVIRONMENT__', literal)
+        self.generated_environment = RC.generated_target_environment(binding)
+        literal = '[' + ', '.join(HP.swift_literal(k) + ': ' + HP.swift_literal(v) for k, v in sorted(self.generated_environment.items())) + ']'
+        template = template.replace('__GENERATED_TARGET_ENVIRONMENT__', literal)
         require(not re.search(r'__[_A-Z0-9]+__', template), 'Unresolved Swift token')
         (self.work / 'runner/Sources/HostSettingsProbeTests.swift').write_text(template)
         self.runner_snapshot = CAP.snapshot(self.work / 'runner')
-        CAP.write(self.evidence / 'expected-requested-launch-policy.json', {'initialEnvironment': self.expected_environment,
+        CAP.write(self.evidence / 'expected-requested-launch-policy.json', {'schemaVersion': 2, 'initialEnvironment': {}, 'generatedTargetEnvironment': self.generated_environment,
                   'initialArguments': [], 'requestedEnvironmentAfterClearing': {}, 'requestedArgumentsAfterClearing': [],
-                  'getterEqualityObserved': False, 'performanceCheckerEnabled': True, 'effectiveEnvironmentEmptyProven': False})
+                  'initialEmptyGetterObservedInReferenceRun': 39108204781, 'currentGetterEqualityObserved': False, 'performanceCheckerEnabled': True, 'effectiveEnvironmentEmptyProven': False})
         return project
 
     def execute(self):
@@ -382,7 +382,10 @@ class ReuseProbe(CAP.Capability):
         self.generated_hash = sha(self.generated)
         shutil.copyfile(self.generated, self.evidence / 'generated.xctestrun')
         self.wiring = RC.validate_generated(self.generated.read_bytes(), self.generated.parent, self.app, Path(CAP.DEVELOPER), Path(self.runtime['runtimeRoot']))
-        require(self.wiring['expectedInitialEnvironment'] == self.expected_environment, 'Compiled getter expectation differs from generated configuration')
+        require(self.wiring['generatedTargetEnvironment'] == self.generated_environment,
+                'Compiled generated map differs from generated configuration')
+        require(self.wiring['expectedInitialRequestedEnvironment'] == {} and self.wiring['expectedInitialRequestedArguments'] == [],
+                'Initial requested-input expectation differs')
         CAP.write(self.evidence / 'runner-wiring.json', self.wiring)
         self.runner_products = RC.inspect_products(self.wiring, HP.INSTALL_CONTRACT)
         CAP.write(self.evidence / 'runner-products.json', self.runner_products)
@@ -393,13 +396,13 @@ class ReuseProbe(CAP.Capability):
         self.report['testExecutionRequested'] = True
         receipt = self.command(self.native_command(), 'native-settings-test', 240)
         self.retain_try('unbuffered launch policy events', lambda: CAP.write(self.evidence / 'requested-launch-policy-events.json',
-            RC.policy_events(receipt['stdout'] + '\n' + receipt['stderr'], self.expected_environment)))
+            RC.policy_events(receipt['stdout'] + '\n' + receipt['stderr'], self.generated_environment)))
         self.harvest_results()
         require(receipt['returncode'] == 0 and not receipt.get('error') and not receipt.get('quiescenceError'), 'Native test did not pass')
         require(sha(self.generated) == self.generated_hash, 'Generated xctestrun changed during execution')
         HP.verify_summary(CAP.strict_json((self.evidence / 'xctest-summary.json').read_text()), CAP.strict_json((self.evidence / 'xctest-tests.json').read_text()))
-        policy = verify_observations_with_policy(self.attachments, self.identity, self.report['probeBuilderCommit'], self.expected_environment)
-        RC.verify_policy_events(CAP.strict_json((self.evidence / 'requested-launch-policy-events.json').read_text()), self.expected_environment)
+        policy = verify_observations_with_policy(self.attachments, self.identity, self.report['probeBuilderCommit'], self.generated_environment)
+        RC.verify_policy_events(CAP.strict_json((self.evidence / 'requested-launch-policy-events.json').read_text()), self.generated_environment)
         CAP.write(self.evidence / 'verified-requested-launch-policy.json', policy)
         self.report.update(nativeTestExecuted=True, hostLaunchAttempted=True, hostLaunched=True)
         self.stage = 'postnavigation-identity'

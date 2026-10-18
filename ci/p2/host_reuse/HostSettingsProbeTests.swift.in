@@ -18,7 +18,10 @@ final class HostSettingsProbeTests: XCTestCase {
     private var stage = "before-launch"
     private var launchCount = 0
     private var launchPolicy: [String: Any] = ["status": "not-reached"]
-    private let expectedInitialEnvironment: [String: String] = __EXPECTED_INITIAL_ENVIRONMENT__
+    // The generated target map and this external proxy getter are separate inputs.
+    // Empty initial requested inputs were observed in authenticated run 39108204781.
+    private let expectedInitialEnvironment: [String: String] = [:]
+    private let generatedTargetEnvironment: [String: String] = __GENERATED_TARGET_ENVIRONMENT__
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -32,14 +35,14 @@ final class HostSettingsProbeTests: XCTestCase {
     }
 
     private func publishLaunchPolicy() -> Bool {
-        let record: [String: Any] = ["schemaVersion": 1, "stage": stage,
+        let record: [String: Any] = ["schemaVersion": 2, "stage": stage,
                                     "launchCount": launchCount, "policy": launchPolicy]
         guard let data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
               data.count <= 32_768 else {
             XCTFail("Bounded launch-policy serialization failed")
             return false
         }
-        var line = Data("P2_REQUESTED_LAUNCH_POLICY_V1:".utf8)
+        var line = Data("P2_REQUESTED_LAUNCH_POLICY_V2:".utf8)
         line.append(data)
         line.append(Data("\n".utf8))
         // Write directly, avoiding Swift stdout buffering. Xcode forwarding is
@@ -188,6 +191,7 @@ final class HostSettingsProbeTests: XCTestCase {
             initialEnvironment[$0] != nil && initialEnvironment[$0] != expectedInitialEnvironment[$0]
         }.sorted()
         launchPolicy = ["status": "initial-observed", "expectedInitialEnvironment": expectedInitialEnvironment,
+                        "generatedTargetEnvironment": generatedTargetEnvironment,
                         "initialEnvironmentMatched": initialMatches, "initialEnvironmentKeyCount": initialEnvironment.count,
                         "initialArgumentCount": initialArguments.count, "missingExpectedKeys": missingKeys,
                         "mismatchedExpectedKeys": mismatchedKeys,

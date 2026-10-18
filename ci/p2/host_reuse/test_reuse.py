@@ -43,8 +43,8 @@ def fat(filetype, platform=7, cpus=((0x1000007, 3), (0x100000c, 0))):
 
 
 def success_policy(expected):
-    return {'status': 'cleared-before-single-launch', 'initialEnvironment': expected, 'initialArguments': [],
-            'expectedInitialEnvironment': expected, 'initialEnvironmentMatched': True, 'initialEnvironmentKeyCount': 7,
+    return {'status': 'cleared-before-single-launch', 'initialEnvironment': {}, 'initialArguments': [],
+            'expectedInitialEnvironment': {}, 'generatedTargetEnvironment': expected, 'initialEnvironmentMatched': True, 'initialEnvironmentKeyCount': 0,
             'initialArgumentCount': 0, 'missingExpectedKeys': [], 'mismatchedExpectedKeys': [], 'unknownKeyCount': 0,
             'requestedEnvironmentEmpty': True, 'requestedArgumentsEmpty': True, 'performanceCheckerEnabled': True,
             'effectiveEnvironmentEmptyProven': False, 'requestedEnvironmentAfterClearing': {}, 'requestedArgumentsAfterClearing': []}
@@ -55,7 +55,7 @@ def events(expected):
     initial = {k: v for k, v in final.items() if not k.startswith('requested')}
     initial['status'] = 'initial-observed'
     cleared = {**final, 'status': 'initial-observed'}
-    return [{'schemaVersion': 1, 'stage': stage, 'launchCount': count, 'policy': policy}
+    return [{'schemaVersion': 2, 'stage': stage, 'launchCount': count, 'policy': policy}
             for stage, count, policy in zip(('requested-target-launch-policy', 'cleared-requested-target-launch-inputs', 'genuine-host-launch'),
                                            (0, 0, 1), (initial, cleared, final))]
 
@@ -90,7 +90,7 @@ class ContractFixture(unittest.TestCase):
         self.app = self.base / 'LiveContainer.app'
         self.app.mkdir()
         self.bindings = RC.roots(self.products, Path('/Applications/Xcode.app/Contents/Developer'), Path('/Library/Developer/RuntimeRoot'))
-        self.expected = RC.requested_environment(self.bindings)
+        self.expected = RC.generated_target_environment(self.bindings)
 
     def validate(self, value=None):
         return RC.validate_generated(plistlib.dumps(self.reference if value is None else value), self.products, self.app,
@@ -226,22 +226,52 @@ class GeneratedContractTests(ContractFixture):
 class LaunchPolicyTests(ContractFixture):
     def test_exact_policy_and_durable_sequence(self):
         rows = events(self.expected)
-        output = '\n'.join('timestamp P2_REQUESTED_LAUNCH_POLICY_V1:' + json.dumps(row) for row in rows)
+        output = '\n'.join('timestamp P2_REQUESTED_LAUNCH_POLICY_V2:' + json.dumps(row) for row in rows)
         receipt = RC.policy_events(output, self.expected)
         self.assertTrue(RC.verify_policy_events(receipt, self.expected))
         self.assertEqual(RC.verify_launch_policy({'launchPolicy': rows[-1]['policy'], 'launchCount': 1}, self.expected)['status'], 'cleared-before-single-launch')
 
-    def test_initial_empty_getter_is_a_blocker_not_pass(self):
+    def test_nonempty_initial_getter_is_retained_redacted_but_blocks(self):
         row = events(self.expected)[0]
         row['policy'].pop('initialEnvironment'); row['policy']['initialEnvironmentMatched'] = False
-        row['policy']['initialEnvironmentKeyCount'] = 0; row['policy']['missingExpectedKeys'] = sorted(self.expected)
-        receipt = RC.policy_events('P2_REQUESTED_LAUNCH_POLICY_V1:' + json.dumps(row), self.expected)
+        row['policy']['initialEnvironmentKeyCount'] = 1; row['policy']['unknownKeyCount'] = 1
+        receipt = RC.policy_events('P2_REQUESTED_LAUNCH_POLICY_V2:' + json.dumps(row), self.expected)
         self.assertEqual(len(receipt['events']), 1)
         with self.assertRaises(ValueError): RC.verify_policy_events(receipt, self.expected)
 
     def test_unknown_getter_values_are_not_retained(self):
         row = events(self.expected)[0]; row['policy']['initialEnvironment']['SECRET'] = 'sensitive'
-        with self.assertRaises(ValueError): RC.policy_events('P2_REQUESTED_LAUNCH_POLICY_V1:' + json.dumps(row), dict(self.expected, SECRET='different'))
+        with self.assertRaises(ValueError): RC.policy_events('P2_REQUESTED_LAUNCH_POLICY_V2:' + json.dumps(row), self.expected)
+
+    def test_generated_map_never_qualifies_as_initial_getter(self):
+        for environment in (self.expected, {'AppleLanguages': '(he)'}, {'APP_DISTRIBUTOR_ID_OVERRIDE': 'com.apple.AppStore'}):
+            policy = success_policy(self.expected)
+            policy['initialEnvironment'] = environment
+            policy['initialEnvironmentKeyCount'] = len(environment)
+            with self.subTest(environment=environment), self.assertRaises(ValueError):
+                RC.verify_launch_policy({'launchPolicy': policy, 'launchCount': 1}, self.expected)
+
+    def test_empty_getter_does_not_relax_generated_map_binding(self):
+        for value in ({}, dict(self.expected, AppleLanguages='(he)'), {**self.expected, 'XCODE_SCHEME_NAME': 'other'}):
+            policy = success_policy(self.expected); policy['generatedTargetEnvironment'] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                RC.verify_launch_policy({'launchPolicy': policy, 'launchCount': 1}, self.expected)
+        policy = success_policy(self.expected); policy['expectedInitialEnvironment'] = self.expected
+        with self.assertRaises(ValueError): RC.verify_launch_policy({'launchPolicy': policy, 'launchCount': 1}, self.expected)
+
+    def test_original_version_cannot_satisfy_new_policy(self):
+        rows = events(self.expected)
+        output = '\n'.join('P2_REQUESTED_LAUNCH_POLICY_V1:' + json.dumps(row) for row in rows)
+        receipt = RC.policy_events(output, self.expected)
+        self.assertEqual(receipt['events'], [])
+        with self.assertRaises(ValueError): RC.verify_policy_events(receipt, self.expected)
+        rows[0]['schemaVersion'] = 1
+        with self.assertRaises(ValueError): RC.policy_events('P2_REQUESTED_LAUNCH_POLICY_V2:' + json.dumps(rows[0]), self.expected)
+
+    def test_empty_initial_observation_alone_is_not_launch_acceptance(self):
+        receipt = RC.policy_events('P2_REQUESTED_LAUNCH_POLICY_V2:' + json.dumps(events(self.expected)[0]), self.expected)
+        self.assertEqual(len(receipt['events']), 1)
+        with self.assertRaises(ValueError): RC.verify_policy_events(receipt, self.expected)
 
     def test_nonempty_requested_fields_and_language_arguments_fail(self):
         for key, value in [('requestedEnvironmentAfterClearing', {'AppleLanguages': '(he)'}), ('requestedArgumentsAfterClearing', ['-AppleLanguages']),
@@ -255,14 +285,14 @@ class LaunchPolicyTests(ContractFixture):
 
     def test_out_of_order_missing_or_duplicate_events_fail(self):
         for rows in (events(self.expected)[::-1], events(self.expected)[:2], [events(self.expected)[0]] * 3):
-            receipt = {'forwardedByXcode': True, 'effectiveEnvironmentEmptyProven': False, 'events': rows}
+            receipt = {'schemaVersion': 2, 'forwardedByXcode': True, 'effectiveEnvironmentEmptyProven': False, 'events': rows}
             with self.assertRaises(ValueError): RC.verify_policy_events(receipt, self.expected)
 
     def test_duplicate_json_key_and_unknown_metadata_fail(self):
-        row = json.dumps(events(self.expected)[0]).replace('"schemaVersion": 1', '"schemaVersion": 1, "schemaVersion": 1')
-        with self.assertRaises(ValueError): RC.policy_events('P2_REQUESTED_LAUNCH_POLICY_V1:' + row, self.expected)
+        row = json.dumps(events(self.expected)[0]).replace('"schemaVersion": 2', '"schemaVersion": 2, "schemaVersion": 2')
+        with self.assertRaises(ValueError): RC.policy_events('P2_REQUESTED_LAUNCH_POLICY_V2:' + row, self.expected)
         row = events(self.expected)[0]; row['policy']['missingExpectedKeys'] = ['SECRET_NAME']
-        with self.assertRaises(ValueError): RC.policy_events('P2_REQUESTED_LAUNCH_POLICY_V1:' + json.dumps(row), self.expected)
+        with self.assertRaises(ValueError): RC.policy_events('P2_REQUESTED_LAUNCH_POLICY_V2:' + json.dumps(row), self.expected)
 
     def test_wrapper_integration_uses_report_not_attachments(self):
         observation = {'launchCount': 1, 'launchPolicy': success_policy(self.expected)}
@@ -488,7 +518,11 @@ class OrchestrationTests(unittest.TestCase):
             self.assertNotRegex(rendered, r'__[_A-Z0-9]+__'); self.assertGreaterEqual(rendered.count('settingsTitle: "Settings"'), 2)
             self.assertEqual((project / 'project.pbxproj').read_bytes(), (ROOT / 'ci/p2/host_probe/project/project.pbxproj').read_bytes())
             self.assertEqual((project / 'xcshareddata/xcschemes/HostSettingsProbe.xcscheme').read_bytes(), (ROOT / 'ci/p2/host_probe/project/HostSettingsProbe.xcscheme').read_bytes())
-            self.assertEqual(len(probe.expected_environment), 7)
+            self.assertEqual(len(probe.generated_environment), 7)
+            self.assertIn('expectedInitialEnvironment: [String: String] = [:]', rendered)
+            policy = json.loads((root / 'evidence/expected-requested-launch-policy.json').read_text())
+            self.assertEqual(policy['initialEnvironment'], {})
+            self.assertEqual(policy['generatedTargetEnvironment'], probe.generated_environment)
 
     def test_swift_policy_is_durable_redacted_and_before_single_launch(self):
         raw = (HERE / 'HostSettingsProbeTests.swift.in').read_text()
