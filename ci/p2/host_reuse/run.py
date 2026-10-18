@@ -23,7 +23,7 @@ import types
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 BASE_COMMIT = 'bcd6d06b94853537cc6c66474d0b2b65a2712eb1'
-APPROVED_INPUTS = '36b1994beb430da02fcbc78b96f8679111e60a893e986e3f4e44d13b4b56d95e'
+APPROVED_INPUTS = '5eac16cf1843f6b42255c944c14ac3c03d23b82dcea8746d01fb61a28e898b24'
 EXPERIMENT_SECONDS = 18 * 60
 FINALIZATION_SECONDS = 6 * 60
 
@@ -54,7 +54,7 @@ require(INSTALL_PATH.is_file() and not any(p.is_symlink() for p in (INSTALL_PATH
 require(not (INSTALL_PATH.parent / '__pycache__').exists() and not INSTALL_PATH.with_suffix('.pyc').exists(), 'Unreviewed transitive bytecode cache before import')
 CAP = load_pinned(ROOT / 'ci/p2/runner_capability/run.py', '71813f04ea31e177bc110de5dc6e537667c550fecd888b4c809a389c25050e1a', 'p2_reuse_command_runtime')
 HP = load_pinned(ROOT / 'ci/p2/host_probe/run.py', '72dd4074ea9e03c09ec967f2b8e5841af521402af884c37d5fe5aca3eded547e', 'p2_reuse_unchanged_host_checks')
-RC = AC = None
+RC = AC = FD = None
 
 
 def normalized_source(raw, filename):
@@ -155,6 +155,7 @@ class ReuseProbe(CAP.Capability):
         self.device = self.app = self.installed = self.identity = self.adapter = None
         self.runner_snapshot = self.source_snapshot = self.generated_environment = None
         self.generated = self.wiring = None
+        self.failure_diagnostics = None
         self.native_result = self.work / 'host-probe.xcresult'
         self.attachments = self.work / 'attachments'
         self.device_name = 'P2-Reused-Host-' + os.environ.get('GITHUB_RUN_ID', 'local') + '-' + os.environ.get('GITHUB_RUN_ATTEMPT', '1')
@@ -167,7 +168,7 @@ class ReuseProbe(CAP.Capability):
                        'performanceCheckerEnabled': True, 'effectiveEnvironmentEmptyProven': False,
                        'fullAppAcceptance': False, 'finalCompositionAcceptance': False,
                        'experimentBudgetSeconds': EXPERIMENT_SECONDS, 'finalizationBudgetSeconds': FINALIZATION_SECONDS,
-                       'errors': [], 'retentionErrors': [], 'outcomes': {}}
+                       'errors': [], 'retentionErrors': [], 'diagnosticCaptureErrors': [], 'outcomes': {}}
 
     def command(self, argv, label, timeout=300):
         # Deliberate lane-local replacement: the inherited command runtime can
@@ -253,7 +254,7 @@ class ReuseProbe(CAP.Capability):
                 '-maximum-concurrent-test-simulator-destinations', '1', '-resultBundlePath', str(self.native_result)]
 
     def verify_inputs(self):
-        global RC, AC
+        global RC, AC, FD
         require(self.approved == APPROVED_INPUTS and sha(HERE / 'binding.json') == APPROVED_INPUTS, 'Approved reuse input seal differs')
         self.binding = CAP.strict_json((HERE / 'binding.json').read_text())
         require({p.relative_to(HERE).as_posix() for p in HERE.rglob('*') if not p.is_dir()} ==
@@ -271,6 +272,7 @@ class ReuseProbe(CAP.Capability):
             require(hashlib.sha256(normalized_source((ROOT / name).read_bytes(), name)).hexdigest() == digest, 'Normalized source changed: ' + name)
         RC = load_pinned(HERE / 'runner_contract.py', self.binding['files']['runner_contract.py'], 'p2_reuse_runner_contract')
         AC = load_pinned(HERE / 'artifact_contract.py', self.binding['files']['artifact_contract.py'], 'p2_reuse_artifact_contract')
+        FD = load_pinned(HERE / 'failure_diagnostics.py', self.binding['files']['failure_diagnostics.py'], 'p2_reuse_failure_diagnostics')
         self.source_snapshot = CAP.snapshot(HERE)
         CAP.write(self.evidence / 'input-binding.json', self.binding)
 
@@ -397,8 +399,11 @@ class ReuseProbe(CAP.Capability):
         receipt = self.command(self.native_command(), 'native-settings-test', 240)
         self.retain_try('unbuffered launch policy events', lambda: CAP.write(self.evidence / 'requested-launch-policy-events.json',
             RC.policy_events(receipt['stdout'] + '\n' + receipt['stderr'], self.generated_environment)))
+        self.collect_failure_diagnostics(receipt['stdout'] + '\n' + receipt['stderr'])
         self.harvest_results()
         require(receipt['returncode'] == 0 and not receipt.get('error') and not receipt.get('quiescenceError'), 'Native test did not pass')
+        require(self.failure_diagnostics is not None and self.failure_diagnostics['status'] == 'not-reached' and
+                not self.report['diagnosticCaptureErrors'], 'Unexpected failure diagnostics on successful native test')
         require(sha(self.generated) == self.generated_hash, 'Generated xctestrun changed during execution')
         HP.verify_summary(CAP.strict_json((self.evidence / 'xctest-summary.json').read_text()), CAP.strict_json((self.evidence / 'xctest-tests.json').read_text()))
         policy = verify_observations_with_policy(self.attachments, self.identity, self.report['probeBuilderCommit'], self.generated_environment)
@@ -412,8 +417,46 @@ class ReuseProbe(CAP.Capability):
         self.guard_inputs()
         self.report['status'] = 'BOUNDED_SETTINGS_ROUTE_OBSERVED'
 
+    def diagnostic_error(self, message):
+        # Secondary evidence only: never replace the primary failure or grant
+        # success, even if a later foreground observation becomes available.
+        if message not in self.report['diagnosticCaptureErrors']:
+            self.report['diagnosticCaptureErrors'].append(message)
+
+    def collect_failure_diagnostics(self, output):
+        try:
+            identity = {key: self.identity[key] for key in ('bundleIdentifier', 'executableSHA256')}
+            identity.update({'sourceCommit': HP.SOURCE, 'sourceTree': HP.TREE,
+                        'builderCommit': self.report['probeBuilderCommit']})
+            self.failure_diagnostics = FD.parse(output, identity, self.generated_environment, RC.verify_launch_policy)
+            CAP.write(self.evidence / 'failed-launch-diagnostics.json', self.failure_diagnostics)
+            for error in self.failure_diagnostics['errors']:
+                self.diagnostic_error(error)
+        except Exception as error:
+            self.diagnostic_error('Failure-only stream: ' + type(error).__name__ + ': ' + str(error))
+            try:
+                CAP.write(self.evidence / 'failed-launch-diagnostics.json', {
+                    'schemaVersion': 1, 'status': 'invalid', 'diagnosticOnly': True,
+                    'testResultReplaced': False, 'settingsAcceptance': False,
+                    'errors': [type(error).__name__ + ': ' + str(error)]})
+            except Exception as retention_error:
+                self.diagnostic_error('Failure-only receipt retention: ' + type(retention_error).__name__)
+
+    def collect_failure_attachments(self):
+        if self.failure_diagnostics is None:
+            return
+        try:
+            result = FD.verify_attachments(self.failure_diagnostics, HP.attachment_map(self.attachments))
+            CAP.write(self.evidence / 'failed-launch-attachments.json', result)
+            for error in result['errors']:
+                self.diagnostic_error(error)
+        except Exception as error:
+            self.diagnostic_error('Failure-only attachments: ' + type(error).__name__ + ': ' + str(error))
+
     def harvest_results(self):
         if not self.native_result.is_dir():
+            if self.failure_diagnostics is not None and self.failure_diagnostics['status'] != 'not-reached':
+                self.diagnostic_error('Failure-only xcresult unavailable; stream retained independently')
             return
         for kind in ('summary', 'tests'):
             if not (self.evidence / ('xctest-' + kind + '.json')).exists():
@@ -431,6 +474,7 @@ class ReuseProbe(CAP.Capability):
                 self.report['hostLaunchAttempted'] = type(observation.get('launchCount')) is int and observation['launchCount'] > 0
             except Exception as error:
                 self.report['retentionErrors'].append('Native observation extraction: ' + type(error).__name__ + ': ' + str(error))
+        self.collect_failure_attachments()
 
     def retain(self):
         self.finalizing = True

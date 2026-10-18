@@ -17,6 +17,9 @@ final class HostSettingsProbeTests: XCTestCase {
     private var status = "blocked"
     private var stage = "before-launch"
     private var launchCount = 0
+    private var launchCallEntered = false
+    private var launchCallReturned = false
+    private var failureDiagnosticSequence = 0
     private var launchPolicy: [String: Any] = ["status": "not-reached"]
     // The generated target map and this external proxy getter are separate inputs.
     // Empty initial requested inputs were observed in authenticated run 39108204781.
@@ -66,18 +69,148 @@ final class HostSettingsProbeTests: XCTestCase {
         XCTAssertLessThanOrEqual(tree.utf8.count, 512 * 1024, "AX evidence exceeds bound")
     }
 
+    // These receipts describe failure-only evidence collection, never a retry or
+    // an observation that can change the original probe status/stage. Each event
+    // is written without Swift stdout buffering and attached independently before
+    // advancing. Retained Xcode output, not this write alone, proves forwarding.
+    private func publishFailureDiagnostic(_ captureStage: String, event: String,
+                                          details: [String: Any] = [:]) throws {
+        let record: [String: Any] = [
+            "schemaVersion": 1, "identity": identity,
+            "originalStatus": status, "originalStage": stage,
+            "launchCount": launchCount, "launchCallEntered": launchCallEntered, "launchCallReturned": launchCallReturned,
+            "sequence": failureDiagnosticSequence,
+            "stage": captureStage, "event": event,
+            "monotonicSeconds": ProcessInfo.processInfo.systemUptime,
+            "details": details
+        ]
+        let data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+        var line = Data("P2_FAILED_LAUNCH_DIAGNOSTIC_V1:".utf8)
+        line.append(data)
+        line.append(Data("\n".utf8))
+        FileHandle.standardOutput.write(line)
+        let receipt = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        receipt.name = "host-probe-failed-launch-diagnostic-\(failureDiagnosticSequence).json"
+        receipt.lifetime = .keepAlways
+        add(receipt)
+        failureDiagnosticSequence += 1
+    }
+
+    private func applicationStateName(_ state: XCUIApplication.State) -> String {
+        switch state {
+        case .unknown: return "unknown"
+        case .notRunning: return "notRunning"
+        case .runningBackgroundSuspended: return "runningBackgroundSuspended"
+        case .runningBackground: return "runningBackground"
+        case .runningForeground: return "runningForeground"
+        @unknown default: return "unrecognized"
+        }
+    }
+
+    private func captureFailedLaunchDiagnostics() throws {
+        guard status == "blocked", stage == "genuine-host-launch",
+              launchCount == 1, launchCallEntered, !launchCallReturned, navigation.isEmpty, observations.isEmpty,
+              app != nil else { return }
+        try publishFailureDiagnostic("original-report", event: "complete",
+                                     details: ["attachment": "host-probe-observations.json"])
+        // Begin receipts survive an incomplete/failed public call. XCTest's
+        // failures are neither intercepted nor suppressed; raw issues remain
+        // separate from the unchanged original report. Public calls can stall:
+        // the existing outer command deadline is the only hard execution bound.
+        try publishFailureDiagnostic("state-before", event: "begin")
+        let before = app.state
+        try publishFailureDiagnostic("state-before", event: "complete", details: [
+            "state": before.rawValue, "stateName": applicationStateName(before)
+        ])
+        let waitTimeout: TimeInterval = 10
+        try publishFailureDiagnostic("foreground-wait", event: "begin", details: [
+            "requestedState": "runningForeground", "timeoutSeconds": waitTimeout
+        ])
+        let waitStarted = ProcessInfo.processInfo.systemUptime
+        let reachedForeground = app.wait(for: .runningForeground, timeout: waitTimeout)
+        let waitFinished = ProcessInfo.processInfo.systemUptime
+        let waitElapsed = waitFinished - waitStarted
+        let withinBudget = waitElapsed >= 0 && waitElapsed <= waitTimeout
+        try publishFailureDiagnostic("foreground-wait", event: "complete", details: [
+            "requestedState": "runningForeground", "timeoutSeconds": waitTimeout,
+            "returned": reachedForeground, "startedMonotonicSeconds": waitStarted,
+            "finishedMonotonicSeconds": waitFinished, "elapsedSeconds": waitElapsed,
+            "withinBudget": withinBudget
+        ])
+        try publishFailureDiagnostic("state-after", event: "begin")
+        let after = app.state
+        try publishFailureDiagnostic("state-after", event: "complete", details: [
+            "state": after.rawValue, "stateName": applicationStateName(after)
+        ])
+        var skipReasons: [String] = []
+        if !reachedForeground { skipReasons.append("wait-returned-false") }
+        if !withinBudget { skipReasons.append("wait-budget-exceeded") }
+        if after != .runningForeground { skipReasons.append("not-foreground") }
+        guard skipReasons.isEmpty else {
+            try publishFailureDiagnostic("finish", event: "skipped", details: [
+                "outcome": "skipped", "reasons": skipReasons
+            ])
+            return
+        }
+
+        try publishFailureDiagnostic("screenshot", event: "begin",
+                                     details: ["attachment": "host-probe-failure.png"])
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "host-probe-failure.png"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        try publishFailureDiagnostic("screenshot", event: "complete",
+                                     details: ["attachment": "host-probe-failure.png"])
+
+        let maximumBytes = 512 * 1024
+        try publishFailureDiagnostic("accessibility", event: "begin", details: [
+            "attachment": "host-probe-failure.txt", "maximumBytes": maximumBytes
+        ])
+        let tree = app.debugDescription
+        let observedBytes = tree.utf8.count
+        var retainedBytes = Data(tree.utf8.prefix(maximumBytes))
+        // A UTF-8 code point may straddle the byte limit. Remove only that final
+        // partial code point so decoding cannot expand the attached byte count.
+        while String(data: retainedBytes, encoding: .utf8) == nil {
+            retainedBytes.removeLast()
+        }
+        let snapshot = XCTAttachment(data: retainedBytes, uniformTypeIdentifier: "public.utf8-plain-text")
+        snapshot.name = "host-probe-failure.txt"
+        snapshot.lifetime = .keepAlways
+        add(snapshot)
+        try publishFailureDiagnostic("accessibility", event: "complete", details: [
+            "attachment": "host-probe-failure.txt", "maximumBytes": maximumBytes,
+            "observedUTF8Bytes": observedBytes, "retainedUTF8Bytes": retainedBytes.count,
+            "truncated": observedBytes > retainedBytes.count
+        ])
+        try publishFailureDiagnostic("finish", event: "complete", details: ["outcome": "captured"])
+    }
+
     override func tearDownWithError() throws {
-        if status != "observed", launchCount == 1, app != nil, app.state == .runningForeground { capture("failure") }
+        // Persist the original outcome before any extra XCUI call. Diagnostic
+        // failure/timeout must not prevent this original report from being added.
         let report: [String: Any] = [
             "identity": identity, "status": status, "stage": stage,
             "launchCount": launchCount, "navigation": navigation,
             "observations": observations, "launchPolicy": launchPolicy
         ]
         let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
+        if status == "blocked", stage == "genuine-host-launch", launchCount == 1,
+           launchCallEntered, !launchCallReturned, navigation.isEmpty, observations.isEmpty, app != nil {
+            var line = Data("P2_HOST_PROBE_OBSERVATIONS_V1:".utf8)
+            line.append(data)
+            line.append(Data("\n".utf8))
+            FileHandle.standardOutput.write(line)
+        }
         let receipt = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
         receipt.name = "host-probe-observations.json"
         receipt.lifetime = .keepAlways
         add(receipt)
+        try captureFailedLaunchDiagnostics()
+        // Preserve the existing later-route failure snapshot, after the original
+        // report. It is separate from the unreturned-launch diagnostic path.
+        if status != "observed", launchCallReturned, launchCount == 1,
+           app != nil, app.state == .runningForeground { capture("failure") }
         // No teardown termination/relaunch, preference clearing or device reset.
     }
 
@@ -227,7 +360,9 @@ final class HostSettingsProbeTests: XCTestCase {
         stage = "genuine-host-launch"
         launchCount += 1
         guard publishLaunchPolicy() else { return }
+        launchCallEntered = true
         app.launch()
+        launchCallReturned = true
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         capture("launch")
         cancelKnownNotificationExplanationIfPresent()

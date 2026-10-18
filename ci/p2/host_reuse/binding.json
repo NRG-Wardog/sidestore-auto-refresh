@@ -13,15 +13,30 @@
     "scripts/p2_permission_contract.py": "70a5e9d3bb6e6f63b28a60f30ddedb4cf3560ea22d6c2ef174d5f71e3263c2ba",
     "tests/fixtures/p2_localization_contracts/compiled-translations.json": "23d7e7dc60e88e23cf80814eaf6328e998079150dbd7d10b52c38b4eafe3bcb5"
   },
+  "failureCaptureEvidence": {
+    "artifactBytes": 211766761,
+    "artifactId": 12130308374,
+    "artifactSHA256": "4ccdc6b53a168a21684bb54ba9d75d25b50f5946e677e92a56e4623c561813ee",
+    "builderCommit": "e898a3ee208c2a5b47325e6e464924c3a6381932",
+    "nativeObservationSHA256": "e6a2bb33f80afca8c55273ba97a79661c2bc6c5aa788d5149f6bfb073132b649",
+    "originalConclusion": "failure",
+    "originalResultReplaced": false,
+    "runAttempt": 2,
+    "runId": 39109943797,
+    "scope": "Failure-only late-foreground evidence after the sole unreturned launch call; no second launch, navigation continuation or result promotion."
+  },
   "files": {
-    "HostSettingsProbeTests.swift.in": "5aa16c9a6e139091efe09556fe12c804d9885dbc4420e256cb963aa2119b0cef",
-    "README.md": "e8dddb6fba6abc1f318178b1bac424b5575212aab3fd05a5a13060b4068514fe",
+    "HostSettingsProbeTests.swift.in": "6b8d3ea0a8518f4f80f9cef17052d805290d6c48912da608ba6bc78e5ea46674",
+    "README.md": "2433ef91beff9d0124269d9a98f4df7df480453211faade04a3b428143b3a445",
     "artifact_contract.py": "3acf5809e0b91e81dcf21aaa23c42a8fc6cb54c99208f845b353a759e9258d16",
+    "failure_diagnostics.py": "07491d6f60fe091c7a1bd2d0810f89f9f669d318309320aaab8abce4fa791549",
     "fetch_artifact.py": "3a3d9d7c2e25e6e2df7cc66eeebad64844fc129b24412d0668e7645ff2139aee",
     "generated-contract.json": "996bc66327a2f09d28081482272bff9bd3508bfea8ed667f7bd3a96816555d66",
     "products-layout.json": "4cc549d3ef761202fc55a8b9512a5ac17af39c81daab2c32041fb6cb4b3a3a87",
     "runner_contract.py": "31f689d2b4862c132dd7e7614352e6e3a896930baee0eadc899e2e0fe594e074",
     "test_artifact_contract.py": "8498befd8051afbc463cee8dd85a6e5fa90e977438a178dcee2ffb313057dbeb",
+    "test_failure_diagnostics.py": "acb86715844b7aa1a6f1941e5841ef712baed14478ede7abef2b8257bebf7bac",
+    "test_failure_runtime.py": "1bb0a62e2a6123a44bdd3c5b363d355948e005ab0f63f7ed31162551162f18bf",
     "test_fetch_artifact.py": "6fd7b54474b2b1c1b4edd69d8afd2e42abbde1e7470f9e87998fb390e224fa3d",
     "test_reuse.py": "064f7fb3a93e3892c2d7b1d355dadc6f0d28c07462eeee40f4da7e1ab446827a"
   },
@@ -43,7 +58,7 @@
   "normalization": "Only the one approved-input SHA field is replaced with TO_BE_SEALED; all other bytes remain bound.",
   "normalizedSources": {
     ".github/workflows/p2-host-reuse.yml": "457cea22afa2b600b0dd532f3c670d7431dd29cbba7ec15c8e1a26c3b940abf1",
-    "ci/p2/host_reuse/run.py": "ce84e741fe43e1207445b359cd8d2b86220ba932dcb4abe44625368907e82384"
+    "ci/p2/host_reuse/run.py": "af6dc5749882afa81c1fdaa243121cdd116ad24babb85400edb639fd465c8542"
   },
   "originalHostArtifact": {
     "artifactId": 12112643772,
