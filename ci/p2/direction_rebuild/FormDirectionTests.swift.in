@@ -1,0 +1,46 @@
+import XCTest
+@MainActor final class FormDirectionTests: XCTestCase {
+    private let app = XCUIApplication()
+    private func state(_ language: String) throws {
+        let element = app.staticTexts["direction-state"]
+        let predicate = NSPredicate(format: "value == %@", language + "|Preserved user text 42|true")
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: 8) == .completed else {
+            throw NSError(domain:"P2Direction",code:1,userInfo:[NSLocalizedDescriptionKey:"Language or retained data mismatch"])
+        }
+    }
+    private func capture(_ name: String, language: String) throws {
+        try state(language)
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = name + ".png"; image.lifetime = .keepAlways; add(image)
+        try state(language) // Boundary check, not a claim of continuous/ABA-free stability.
+        let receipt: [String:Any] = ["stage":name,"language":language,"state":app.staticTexts["direction-state"].value as? String ?? "", "scope":"candidate-component-only"]
+        let data = try JSONSerialization.data(withJSONObject: receipt, options:.sortedKeys)
+        let attachment=XCTAttachment(data:data,uniformTypeIdentifier:"public.json")
+        attachment.name=name + ".json"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+    private func select(_ name: String) throws {
+        let picker=app.descendants(matching:.any).matching(identifier:"settings.language").firstMatch
+        guard picker.waitForExistence(timeout:8), picker.isHittable else { throw NSError(domain:"P2Direction",code:2) }
+        picker.tap()
+        let button=app.buttons.matching(NSPredicate(format:"label == %@",name)).firstMatch
+        if button.waitForExistence(timeout:3), button.isHittable { button.tap(); return }
+        let text=app.staticTexts.matching(NSPredicate(format:"label == %@",name)).firstMatch
+        guard text.waitForExistence(timeout:3),text.isHittable else { throw NSError(domain:"P2Direction",code:3) }
+        text.tap()
+    }
+    func testCandidateRoundTrip() throws {
+        continueAfterFailure=false
+        app.launch()
+        let input=app.textFields["retained-input"]
+        XCTAssertTrue(input.waitForExistence(timeout:8)); input.tap(); input.typeText("Preserved user text 42")
+        let dismiss=app.buttons["dismiss-input"]
+        XCTAssertTrue(dismiss.waitForExistence(timeout:3)); dismiss.tap()
+        let toggle=app.switches["retained-toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout:3)); toggle.tap()
+        try capture("candidate-en-initial",language:"en")
+        try select("עברית")
+        try capture("candidate-he",language:"he")
+        try select("English")
+        try capture("candidate-en-return",language:"en")
+    }
+}

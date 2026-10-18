@@ -1,0 +1,229 @@
+--- a/LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift
++++ b/LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift
+@@ -35,6 +35,11 @@
+ 
+ struct LCSettingsView: View {
+     @Environment(\.locale) private var selectedDisplayLocale
++    @Environment(\.layoutDirection) private var selectedDisplayDirection
++    @EnvironmentObject private var sideStoreStatus: V3SideStoreStatusStore
++    // These write trackers must survive the Form's direction-only reconstruction.
++    @StateObject private var betaUpdateState = V3BoolSettingState()
++    @StateObject private var idleTimeoutState = V3BoolSettingState()
+     @AppStorage("LCHideReturnControl", store: UserDefaults.lcShared()) private var hideReturnControl = false
+     @AppStorage("LCGuestReturnStartsCollapsed", store: UserDefaults.lcShared()) private var returnStartsCollapsed = false
+     @AppStorage("LCGuestReturnCustomColors", store: UserDefaults.lcShared()) private var returnCustomColors = false
+@@ -170,7 +175,7 @@
+         NavigationView {
+             Form {
+                 V3LanguageSettingsSection()
+-                V3AccountSettings()
++                V3AccountSettings(betaUpdateState: betaUpdateState, idleTimeoutState: idleTimeoutState)
+                 Section {
+                     Toggle("Show Return Button", isOn: Binding(get: { !hideReturnControl }, set: { hideReturnControl = !$0 }))
+                     Group {
+@@ -514,6 +519,10 @@
+                     }
+                 }
+             }
++            // Recreate only native Form layout when crossing the RTL/LTR boundary.
++            // Settings values and asynchronous write ownership live above this identity.
++            // Presentation and navigation modifiers below deliberately remain outside it.
++            .id(selectedDisplayDirection == .rightToLeft)
+             // V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1: a background is laid out
+             // outside the Form row structure, so this programmatic route cannot
+             // produce an empty Settings row at any text size or device width, and
+@@ -593,6 +602,9 @@
+             )
+         }
+         .navigationViewStyle(StackNavigationViewStyle())
++        // Load lifetime follows Settings, not reconstruction of its native Form.
++        .task { await betaUpdateState.load(key: "isBetaUpdatesEnabled", status: sideStoreStatus) }
++        .task { await idleTimeoutState.load(key: "isIdleTimeoutDisableEnabled", status: sideStoreStatus) }
+         .onAppear() {
+             if !isViewAppeared {
+                 guard sharedModel.selectedTab == .settings, let link = sharedModel.deepLink else { return }
+--- a/LiveContainerSwiftUI/Views/V3UnifiedShell.swift
++++ b/LiveContainerSwiftUI/Views/V3UnifiedShell.swift
+@@ -10526,6 +10526,8 @@
+ }
+ 
+ struct V3AccountSettings: View {
++    let betaUpdateState: V3BoolSettingState
++    let idleTimeoutState: V3BoolSettingState
+     @Environment(\.locale) private var dateLocale
+ 
+     @EnvironmentObject private var status: V3SideStoreStatusStore
+@@ -10709,8 +10711,8 @@
+             link("SideSign Configuration", icon: "pencil.and.outline") { V3SideSignView().environmentObject(status) }
+             link("SideJIT Server", icon: "bolt.fill") { V3SideJITView().environmentObject(status) }
+             link("Update Channel", icon: "arrow.triangle.merge") { V3ReleaseTrackHostView().environmentObject(status) }
+-            setting("Beta updates", "isBetaUpdatesEnabled", icon: "sparkles")
+-            setting("Disable idle timeout", "isIdleTimeoutDisableEnabled", icon: "timer")
++            setting("Beta updates", "isBetaUpdatesEnabled", icon: "sparkles", state: betaUpdateState)
++            setting("Disable idle timeout", "isIdleTimeoutDisableEnabled", icon: "timer", state: idleTimeoutState)
+         }
+ 
+         Section("Diagnostics") {
+@@ -10736,38 +10738,36 @@
+             }
+         }
+     }
+-    private func setting(_ title: String, _ key: String, icon: String) -> some View {
+-        V3BoolSettingRow(title: title, key: key, icon: icon)
++    private func setting(_ title: String, _ key: String, icon: String, state: V3BoolSettingState) -> some View {
++        V3BoolSettingRow(title: title, key: key, icon: icon, state: state)
+             .environmentObject(status)
+     }
+ }
+ 
+-struct V3BoolSettingRow: View {
+-    @EnvironmentObject private var status: V3SideStoreStatusStore
+-    let title: String
+-    let key: String
+-    let icon: String
+-    @State private var value = false
+-    @State private var loaded = false
+-    @State private var loadingRequest = false
+-    @State private var writeGenerations = V3SettingsWriteGeneration()
+-    @State private var confirmedValue: Bool?
+-    @State private var pendingWriteReconciliation = false
+-    var body: some View {
+-        Toggle(isOn: Binding(get: { value }, set: { value = $0; save($0) })) {
+-            V3LocalizedLabel(title, systemImage: icon)
+-        }
+-        .disabled(status.isStale || !loaded)
+-        .task { await load() }
+-    }
+-    private func load() async {
+-        guard !loadingRequest else { return }
++// Owned by LCSettingsView, not the direction-keyed Form subtree.
++// In-flight loads/writes continue to address the same reconciliation state.
++@MainActor final class V3BoolSettingState: ObservableObject {
++    @Published var value = false
++    @Published var loaded = false
++    var loadingRequest = false
++    var writeGenerations = V3SettingsWriteGeneration()
++    var confirmedValue: Bool?
++    var pendingWriteReconciliation = false
++    private var loadGeneration: UInt64 = 0
++
++    func load(key: String, status: V3SideStoreStatusStore) async {
++        // A new Settings attachment supersedes a canceled load even if its
++        // underlying request has not returned yet. Direction changes do not
++        // restart this task because its owner is outside the keyed Form.
++        loadGeneration &+= 1
++        let generation = loadGeneration
+         loadingRequest = true
+         let capturedWrites = writeGenerations
+-        defer { loadingRequest = false }
++        defer { if generation == loadGeneration { loadingRequest = false } }
+         do {
+             let reply = try await V3ServiceBridge.shared.request(operation: "settingsGet")
+-            guard writeGenerations.isUnchanged(since: capturedWrites) else { return }
++            guard !Task.isCancelled, generation == loadGeneration,
++                  writeGenerations.isUnchanged(since: capturedWrites) else { return }
+             pendingWriteReconciliation = false
+             if let bools = reply["bools"] as? [String: Bool], let current = bools[key] {
+                 value = current
+@@ -10778,11 +10778,26 @@
+             }
+             loaded = true
+         } catch {
+-            if writeGenerations.isUnchanged(since: capturedWrites) { status.present(error) }
+-        }
++            if !Task.isCancelled, generation == loadGeneration,
++               writeGenerations.isUnchanged(since: capturedWrites) { status.present(error) }
++        }
++    }
++}
++
++struct V3BoolSettingRow: View {
++    @EnvironmentObject private var status: V3SideStoreStatusStore
++    let title: String
++    let key: String
++    let icon: String
++    @ObservedObject var state: V3BoolSettingState
++    var body: some View {
++        Toggle(isOn: Binding(get: { state.value }, set: { state.value = $0; save($0) })) {
++            V3LocalizedLabel(title, systemImage: icon)
++        }
++        .disabled(status.isStale || !state.loaded)
+     }
+     private func save(_ newValue: Bool) {
+-        let generation = writeGenerations.begin(key)
++        let generation = state.writeGenerations.begin(key)
+         Task {
+             defer { finishWrite(generation) }
+             let mutationTicket = status.beginDirectMutation()
+@@ -10792,42 +10807,42 @@
+                 _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                     reply, operation: "settingsSet")
+                 status.finishDirectMutation(ticket: mutationTicket, requestReload: true)
+-                if writeGenerations.isCurrent(generation, for: key) {
+-                    confirmedValue = newValue
++                if state.writeGenerations.isCurrent(generation, for: key) {
++                    state.confirmedValue = newValue
+                     status.reload()
+                 } else {
+-                    pendingWriteReconciliation = true
++                    state.pendingWriteReconciliation = true
+                 }
+             } catch {
+                 status.finishDirectMutation(ticket: mutationTicket, requestReload: true)
+-                guard writeGenerations.isCurrent(generation, for: key) else {
+-                    pendingWriteReconciliation = true
++                guard state.writeGenerations.isCurrent(generation, for: key) else {
++                    state.pendingWriteReconciliation = true
+                     return
+                 }
+                 let loaded = await reloadAuthoritative(generation: generation)
+-                guard writeGenerations.isCurrent(generation, for: key) else {
+-                    pendingWriteReconciliation = true
++                guard state.writeGenerations.isCurrent(generation, for: key) else {
++                    state.pendingWriteReconciliation = true
+                     return
+                 }
+                 if !loaded {
+-                    value = confirmedValue ?? !newValue
++                    state.value = state.confirmedValue ?? !newValue
+                 }
+                 status.present(error)
+             }
+         }
+     }
+     private func finishWrite(_ generation: UInt64) {
+-        writeGenerations.finish(generation, for: key)
+-        guard pendingWriteReconciliation,
+-              !writeGenerations.hasPendingWrites(for: key) else { return }
+-        pendingWriteReconciliation = false
+-        let settledGeneration = writeGenerations.current(for: key)
++        state.writeGenerations.finish(generation, for: key)
++        guard state.pendingWriteReconciliation,
++              !state.writeGenerations.hasPendingWrites(for: key) else { return }
++        state.pendingWriteReconciliation = false
++        let settledGeneration = state.writeGenerations.current(for: key)
+         Task {
+             // Reconcile once all writes settle; response order need not match
+             // backend commit order, even when the newest reply arrived first.
+             let verified = await reloadAuthoritative(generation: settledGeneration)
+-            if !verified, writeGenerations.isCurrent(settledGeneration, for: key) {
+-                pendingWriteReconciliation = true
++            if !verified, state.writeGenerations.isCurrent(settledGeneration, for: key) {
++                state.pendingWriteReconciliation = true
+                 status.notice = "The saved setting could not be verified. Reload settings to check its value." + "\nError ID: SS-SAVE-D018"
+             }
+         }
+@@ -10835,10 +10850,10 @@
+     private func reloadAuthoritative(generation: UInt64) async -> Bool {
+         do {
+             let reply = try await V3ServiceBridge.shared.request(operation: "settingsGet")
+-            guard writeGenerations.isCurrent(generation, for: key),
++            guard state.writeGenerations.isCurrent(generation, for: key),
+                   let bools = reply["bools"] as? [String: Bool], let current = bools[key] else { return false }
+-            value = current
+-            confirmedValue = current
++            state.value = current
++            state.confirmedValue = current
+             status.reload()
+             return true
+         } catch {
