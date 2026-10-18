@@ -23,6 +23,10 @@ class CandidateTests(unittest.TestCase):
         self.assertIn('XCTAssertEqual(app.textFields["retained-input"].value',tests)
         self.assertIn('XCTAssertEqual(app.switches["retained-toggle"].value',tests)
         self.assertIn('State mismatch: label=',tests)
+        self.assertIn('frame.maxX-inset',tests)
+        self.assertIn('window.contains(point)',tests)
+        self.assertIn('XCTAssertEqual(matches.count,1)',tests)
+        self.assertIn('Toggle setup failed:',tests)
         source=(HERE/'run.py').read_text()
         self.assertIn("'nativeState':self.report.get('nativeState'",source)
     def make_evidence(self,directory):
