@@ -10,7 +10,7 @@ This dedicated lane reuses the original built `actual-LiveContainer.app.zip` fro
 4. Generate a fresh external runner. Reuse the immutable original project/scheme bytes and render only this lane's reviewed Swift template. Use explicit `build-for-testing` settings and actual runner build without product setting overrides. The entire generated xctestrun must equal `generated-contract.json`, with exact types, all three environment maps, empty language/region/arguments, `UseUITargetAppProvidedByTests=true` and performance-antipattern checker true. No xctestrun edits occur.
 5. Bind independently expanded current test/developer/runtime roots; reject traversal, ambiguous components and links. Require the exact reviewed 75-entry complete Build/Products layout, including runner, swiftmodule and sole xctestrun. No additional app/framework/search-root products or genuine bundle-ID collision are admitted. Inspect actual runner/test plist identities and exact universal fat32 x86_64 subtype 3 + arm64 subtype 0, 64-bit simulator platform 7, MH_EXECUTE/MH_BUNDLE. Hash and inventory all actual payloads before and after execution. The layout/map reference comes from failed capability run 39069474554, artifact SHA256 `646204e802cb02736ca2c3baf3f486055edc116e974de41c5142f5438d896fe4`. Recognition does not convert that original failure into a pass or reuse its compiled runner.
 6. Immediately before the only `XCUIApplication.launch()`, independently require the external app proxy's actual initial requested `launchEnvironment == [:]` and `launchArguments == []`. Authenticated failed run 39108204781 on builder 8843e1e3 observed exactly those getters, with zero launches; its original failure remains unchanged. The generated seven-key target map is independently bound and retained in every version-2 policy receipt, not presumed to equal the proxy getter. Any nonempty getter blocks, even if it equals that generated map. No dynamic baseline, alternative accepted map or calibration launch is allowed. Record only exact allowlisted values and mismatch/count metadata; never record unexpected values/arguments or unknown key names. Explicitly set both requested properties to empty and re-read them before launching. Successful admission requires all three ordered version-2 receipts in retained Xcode output and the final observation receipt to agree.
-7. Take the ordinary Settings tab and existing language picker through English → Hebrew → English in one launch. The exact known app-owned notification explanation may be dismissed through Later; the separately described one-time SS-LAUNCH-C11-L12 OK acknowledgement is also permitted, while its service failure remains unresolved. Unknown/OS/account/authentication dialogs block. Require native XCTest success, exact navigation/selected values, screenshots and AX evidence, then repeat installed identity/signatures and runner/source stability.
+7. Take the ordinary Settings tab and existing language picker through English → Hebrew → English in one launch. The exact known app-owned notification explanation may be dismissed through Later; the separately described one-time SS-LAUNCH-C11-L12 or SS-LAUNCH-C11-L15 OK acknowledgement is also permitted, while its service failure remains unresolved. Unknown/OS/account/authentication dialogs block. Require native XCTest success, exact navigation/selected values, screenshots and AX evidence, then repeat installed identity/signatures and runner/source stability.
 
 ## Environment policy and limits
 
@@ -78,3 +78,24 @@ The single launch, exact generated maps, eight-object signature gates, original
 Settings route and all native/experiment/job deadlines remain unchanged. The
 SideStore fault, effective Xcode environment, simulator-only scope and pending
 full composition/device gates prevent any all-P2 or backend-readiness claim.
+
+
+## Exact second observed code: L15
+
+Run 39120504881 reached genuine Home, completed Later and verified that the
+original notice disappeared. The successor carried SS-LAUNCH-C11-L15 rather than
+the first observed SS-LAUNCH-C11-L12. The exact guard correctly rejected it before
+any OK tap or Settings action; that native result remains failed.
+
+The approved continuation allows only these two complete diagnostic codes and
+their two complete message bodies. It does not accept a prefix, regular expression,
+other L-number, mixed code/body, or an error whose code changes between receipts.
+The actual observed code and body remain intact in both durable receipts and the
+final unresolved serviceFailure. There is still at most one OK tap. All other
+alert identity, inventory, action, Settings and launch checks are unchanged.
+
+The pinned source maps L12 to requestCancellation and L15 to
+processIdentifierUnavailable: the callback has a request identifier but its PID
+lookup is nonpositive. These identify reported launch steps, not an established
+OS root cause. Both exact alert shapes use the same display-only clearIssue OK.
+Neither acknowledgement establishes backend readiness or repairs that failure.

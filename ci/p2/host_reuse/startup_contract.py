@@ -10,6 +10,11 @@ NOTICE_BODY = 'LiveContainer can notify you when a refresh starts, completes, or
 ERROR_TITLE = 'SideStore'
 ERROR_CODE = 'SS-LAUNCH-C11-L12'
 ERROR_BODY = 'The embedded SideStore process could not be launched.\nError ID: ' + ERROR_CODE
+# Exact finite code/body pairs, never a prefix, suffix or numeric-code pattern.
+ERROR_BODIES = {
+    ERROR_CODE: ERROR_BODY,
+    'SS-LAUNCH-C11-L15': 'The embedded SideStore process could not be launched.\nError ID: SS-LAUNCH-C11-L15',
+}
 
 
 def require(value, message):
@@ -30,11 +35,14 @@ def service_failure(report, complete=False):
         return None
     fault = report['serviceFailure']
     require(isinstance(fault, dict), 'Malformed service failure')
-    actual = labels(fault.get('actualStaticTextLabels'), ERROR_TITLE, ERROR_BODY)
-    require(sorted(actual) == sorted([ERROR_TITLE, ERROR_BODY]), 'Extra service-error text')
+    code = fault.get('diagnosticCode')
+    require(isinstance(code, str) and code in ERROR_BODIES, 'Unapproved service-error code')
+    body = ERROR_BODIES[code]
+    actual = labels(fault.get('actualStaticTextLabels'), ERROR_TITLE, body)
+    require(sorted(actual) == sorted([ERROR_TITLE, body]), 'Extra service-error text')
     flags = ('preTapInventoryVerified', 'hittableBeforeTap', 'acknowledgementAttempted', 'acknowledgementReturned', 'alertAbsentAfterAcknowledgement')
     require(all(type(fault.get(k)) is bool for k in flags), 'Invalid service acknowledgement flags')
-    expected = {'diagnosticCode': ERROR_CODE, 'title': ERROR_TITLE, 'body': ERROR_BODY,
+    expected = {'diagnosticCode': code, 'title': ERROR_TITLE, 'body': body,
                 'actualStaticTextLabels': actual, 'buttons': ['Copy Diagnostics', 'OK'],
                 'presentationOnly': True, 'resolved': False, 'backendReadinessProven': False,
                 **{key: fault[key] for key in flags}}
@@ -69,7 +77,7 @@ def verify_navigation(report):
     else:
         require(fault is not None, 'Service acknowledgement success omits unresolved fault')
         second = actions[1]
-        expected = {'action': 'known-service-error-ok', 'title': ERROR_TITLE, 'body': ERROR_BODY,
+        expected = {'action': 'known-service-error-ok', 'title': ERROR_TITLE, 'body': fault['body'],
                     'actualStaticTextLabels': fault['actualStaticTextLabels'], 'buttons': ['Copy Diagnostics', 'OK'],
                     'tapped': 'OK', 'hittableBeforeTap': True, 'preTapInventoryVerified': True, 'tapAttempted': True, 'tapReturned': True,
                     'allAlertsAbsentAfterTap': True}

@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 40
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
-      APPROVED_HOST_REUSE_INPUTS_SHA256: 2324c38e1ff342d5d0ec88d10c76746a0be170507b74a7bc98c272a39bc8cb48
+      APPROVED_HOST_REUSE_INPUTS_SHA256: 290b9606b1e9fbf3f3ea33ca4c98dbda3195162a2bed88e6bdcc0e3e2c5ae0ca
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
       GIT_CONFIG_NOSYSTEM: '1'

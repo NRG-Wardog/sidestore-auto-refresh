@@ -1,4 +1,25 @@
 {
+  "additionalStartupCodeEvidence": {
+    "allowedDiagnosticCodes": [
+      "SS-LAUNCH-C11-L12",
+      "SS-LAUNCH-C11-L15"
+    ],
+    "artifactBytes": 225282571,
+    "artifactId": 12133764497,
+    "artifactSHA256": "352b7f282a612661b0dea6777ea9ed0aa0d2a418c3c05844a531277ce518eeaa",
+    "builderCommit": "5dbe130ca690dc3b8fe25984c0313c0c748109db",
+    "nativeObservationSHA256": "104755bb300e38532534e0fcd332748a6ac77e7a73712b21413693ca4edfc2fc",
+    "observedAXSHA256": "ea9e7aba9754d7092dc7ffbcdd124fc47b9f24de7da9bfa18e8558491698eb61",
+    "observedDiagnosticCode": "SS-LAUNCH-C11-L15",
+    "originalConclusion": "failure",
+    "originalResultReplaced": false,
+    "productionSideStoreSHA256": "0140bf162538bb3f6d009a94aff7f5fad20cd284a730bb2328933eae7171120a",
+    "rootCauseProven": false,
+    "runAttempt": 1,
+    "runId": 39120504881,
+    "scope": "Exactly one display-only OK for either of the two observed complete code/body pairs, retaining the actual unresolved code; no generalized error allowance.",
+    "serviceFailureResolved": false
+  },
   "baseCommit": "bcd6d06b94853537cc6c66474d0b2b65a2712eb1",
   "baseTree": "8f81f422e7dc7cef620d9b6c8a52cf941aad0481",
   "dependencies": {
@@ -26,21 +47,21 @@
     "scope": "Failure-only late-foreground evidence after the sole unreturned launch call; no second launch, navigation continuation or result promotion."
   },
   "files": {
-    "HostSettingsProbeTests.swift.in": "683610012263d3a9cd5d1d78989186494066c9094ccb13c636199c0b6e9e6928",
-    "README.md": "47652818ec260be5f10a393f0d8ec4a6ecc5421bccaeb5c9b7a9efbc285730c0",
+    "HostSettingsProbeTests.swift.in": "237ae7e3f6ea3a1231e5821b0e6b924f03baf4568dce868ed42a8400277327ce",
+    "README.md": "678c85998458bb139e5a30c924d2a9660e48d9ab71edf5f5a888c514703cf951",
     "artifact_contract.py": "3acf5809e0b91e81dcf21aaa23c42a8fc6cb54c99208f845b353a759e9258d16",
     "failure_diagnostics.py": "07491d6f60fe091c7a1bd2d0810f89f9f669d318309320aaab8abce4fa791549",
     "fetch_artifact.py": "3a3d9d7c2e25e6e2df7cc66eeebad64844fc129b24412d0668e7645ff2139aee",
     "generated-contract.json": "996bc66327a2f09d28081482272bff9bd3508bfea8ed667f7bd3a96816555d66",
     "products-layout.json": "4cc549d3ef761202fc55a8b9512a5ac17af39c81daab2c32041fb6cb4b3a3a87",
     "runner_contract.py": "31f689d2b4862c132dd7e7614352e6e3a896930baee0eadc899e2e0fe594e074",
-    "startup_contract.py": "9748e66be487933ff46b424e8a138d40d7ba599911b97cacfa7b907fde09c307",
+    "startup_contract.py": "031587597e2cc6c3fe32abc159b0a94f2b3bd9d09afe94a959e018876cda9cb0",
     "test_artifact_contract.py": "8498befd8051afbc463cee8dd85a6e5fa90e977438a178dcee2ffb313057dbeb",
     "test_failure_diagnostics.py": "acb86715844b7aa1a6f1941e5841ef712baed14478ede7abef2b8257bebf7bac",
     "test_failure_runtime.py": "c75c0be731028bd0ff09fd3fc230cfcb98537436bfd7dbd0b13e052e4bf6e886",
     "test_fetch_artifact.py": "6fd7b54474b2b1c1b4edd69d8afd2e42abbde1e7470f9e87998fb390e224fa3d",
     "test_reuse.py": "6ef4f64f7239435fa9083d9a7819ea936857c0e9c330fe880a24889f54c794b4",
-    "test_startup_contract.py": "3cee05872d67c9755b48203ad783e79ffeab23d99e51303dd02db4436d1f2658"
+    "test_startup_contract.py": "8a25a8be526cc3267cba351797eaab4664b793a1743ccde26f8ee1f7c91496a9"
   },
   "initialRequestedInputsEvidence": {
     "artifactBytes": 209364504,

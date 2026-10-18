@@ -294,7 +294,22 @@ final class HostSettingsProbeTests: XCTestCase {
         XCTAssertEqual(navigation.count, 1)
         XCTAssertEqual(app.alerts.count, 1)
         let title = "SideStore"
-        let body = "The embedded SideStore process could not be launched.\nError ID: SS-LAUNCH-C11-L12"
+        // Only these two fully specified source-owned messages are approved.
+        // Bind the actual pair once; a later code change cannot inherit the tap.
+        let approvedErrors: [(code: String, body: String)] = [
+            ("SS-LAUNCH-C11-L12", "The embedded SideStore process could not be launched.\nError ID: SS-LAUNCH-C11-L12"),
+            ("SS-LAUNCH-C11-L15", "The embedded SideStore process could not be launched.\nError ID: SS-LAUNCH-C11-L15")
+        ]
+        let matchingErrors = approvedErrors.filter { candidate in
+            app.alerts.matching(NSPredicate(format: "label == %@", title))
+                .containing(.staticText, identifier: candidate.body).count == 1
+        }
+        guard matchingErrors.count == 1 else {
+            XCTFail("Unknown or ambiguous service error blocks probe")
+            return
+        }
+        let diagnosticCode = matchingErrors[0].code
+        let body = matchingErrors[0].body
         let exactAlerts = app.alerts.matching(NSPredicate(format: "label == %@", title)).containing(.staticText, identifier: body)
         XCTAssertEqual(exactAlerts.count, 1, "Exact service alert identity missing or ambiguous")
         let alert = exactAlerts.element(boundBy: 0)
@@ -308,7 +323,7 @@ final class HostSettingsProbeTests: XCTestCase {
         let buttons = alert.buttons.allElementsBoundByIndex.map(\.label).sorted()
         XCTAssertEqual(buttons, ["Copy Diagnostics", "OK"], "Unknown service-error actions block probe")
         navigation[0]["successor"] = "exact-service-failure"
-        serviceFailure = ["diagnosticCode": "SS-LAUNCH-C11-L12", "title": title, "body": body,
+        serviceFailure = ["diagnosticCode": diagnosticCode, "title": title, "body": body,
                           "actualStaticTextLabels": labels, "buttons": buttons,
                           "presentationOnly": true, "resolved": false, "backendReadinessProven": false,
                           "hittableBeforeTap": false, "preTapInventoryVerified": false, "acknowledgementAttempted": false,
