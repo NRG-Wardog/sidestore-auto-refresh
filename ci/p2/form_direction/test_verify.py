@@ -181,3 +181,86 @@ class VerifyTests(unittest.TestCase):
         with self.assertRaises(ValueError):v.verify_pair(control,candidate)
 
 if __name__=='__main__':unittest.main()
+
+class StateDifferenceTests(unittest.TestCase):
+    def event(self):
+        return {'phase':'before-assertion','receipt':{'schema':'p2-form-state-difference-v1','arm':'control',
+            'method':'testControlRoundTrip','stage':'en-initial-immediate','foundationEqual':False,'complete':True,
+            'canonicalEqual':False,'rawJSONEqual':False,'beforeSHA256':'a'*64,'afterSHA256':'b'*64,
+            'changedPaths':['/probes/content/revision','/probes/content/uptime'],
+            'numericProbeChanges':[['content','revision',1,3],['content','uptime',1.5,2.5]]}}
+    def verify(self,event):return v.verify_state_difference(event,'control','en-initial-immediate','before-assertion')
+    def test_complete_numeric_receipt_is_diagnostic_only(self):
+        out=self.verify(self.event());self.assertFalse(out['nativeAcceptance']);self.assertFalse(out['visualAcceptance'])
+    def test_canonical_equal_foundation_unequal_is_retained(self):
+        e=self.event();r=e['receipt'];r.update(canonicalEqual=True,rawJSONEqual=True,afterSHA256='a'*64,changedPaths=[],numericProbeChanges=[])
+        self.assertEqual(self.verify(e)['changedPaths'],[])
+    def test_foreign_arm_method_stage_phase_reject(self):
+        for key,value in [('arm','candidate'),('method','testCandidateRoundTrip'),('stage','he-selected-immediate')]:
+            e=self.event();e['receipt'][key]=value
+            with self.assertRaises(ValueError):self.verify(e)
+        e=self.event();e['phase']='finalization'
+        with self.assertRaises(ValueError):self.verify(e)
+    def test_incomplete_and_extra_values_reject(self):
+        for mutation in [lambda r:r.update(complete=False),lambda r:r.update(rawEnvironment={'secret':'forbidden'}),lambda r:r.pop('changedPaths')]:
+            e=self.event();mutation(e['receipt'])
+            with self.assertRaises(ValueError):self.verify(e)
+    def test_hash_and_equality_disagreement_reject(self):
+        for mutation in [lambda r:r.update(afterSHA256='a'*64),lambda r:r.update(canonicalEqual=True),lambda r:r.update(rawJSONEqual=True),lambda r:r.update(foundationEqual=True)]:
+            e=self.event();mutation(e['receipt'])
+            with self.assertRaises(ValueError):self.verify(e)
+    def test_foreign_duplicate_and_unsorted_paths_reject(self):
+        for paths in [['/unknown'],['/probes/foreign/revision'],['/probes/content/revision']*2,['/probes/content/uptime','/probes/content/revision']]:
+            e=self.event();e['receipt']['changedPaths']=paths
+            with self.assertRaises(ValueError):self.verify(e)
+    def test_missing_duplicate_and_unchanged_numeric_rows_reject(self):
+        for mutation in [lambda r:r['numericProbeChanges'].pop(),lambda r:r['numericProbeChanges'].append(r['numericProbeChanges'][0]),lambda r:r['numericProbeChanges'][0].__setitem__(3,1)]:
+            e=self.event();mutation(e['receipt'])
+            with self.assertRaises(ValueError):self.verify(e)
+    def test_boolean_float_revision_and_nonfinite_reject(self):
+        for value in [True,1.5,float('inf'),float('nan')]:
+            e=self.event();e['receipt']['numericProbeChanges'][0][2]=value
+            with self.assertRaises(ValueError):self.verify(e)
+    def test_changed_arguments_are_paths_without_values(self):
+        e=self.event();r=e['receipt'];r.update(changedPaths=['/processArguments'],numericProbeChanges=[])
+        self.assertEqual(self.verify(e)['changedPaths'],['/processArguments'])
+        r['argumentValues']=['unexpected private value']
+        with self.assertRaises(ValueError):self.verify(e)
+    def test_original_acceptance_does_not_use_diagnostic_verifier(self):
+        import inspect
+        self.assertNotIn('verify_state_difference',inspect.getsource(v.verify_arm))
+        self.assertNotIn('verify_state_difference',inspect.getsource(v.verify_pair))
+    def test_swift_operands_and_receipt_precede_assertion(self):
+        s=(Path(__file__).parent/'FormDirectionTests.swift.in').read_text()
+        part=s[s.index('@discardableResult private func capture'):s.index('private func pair')]
+        self.assertIn('let equal = NSDictionary(dictionary: before).isEqual(to: after)',part)
+        self.assertLess(part.index('captureFailure ='),part.index('try checkState(after'))
+        self.assertLess(part.index('phase: "before-assertion"'),part.index('try require(equal'))
+        self.assertIn('"before": before, "after": after',part)
+        self.assertIn('"rawBefore": rawBefore',part);self.assertIn('"rawAfter": rawAfter',part)
+        self.assertEqual(part.count('try state()'),2)
+    def test_swift_bounds_unbuffered_output_and_final_receipt(self):
+        s=(Path(__file__).parent/'FormDirectionTests.swift.in').read_text()
+        self.assertIn('FileHandle.standardOutput.write',s)
+        self.assertIn('data.count <= 1536',s);self.assertIn('json(receipt).count <= 1400',s)
+        self.assertIn('state-difference-unavailable-or-over-bound',s)
+        finish=s[s.index('private func finish()'):s.index('private func run(')]
+        self.assertLess(finish.index('result["captureFailure"]'),finish.index('XCTAttachment(data:'))
+        self.assertLess(finish.index('phase: "finalization"'),finish.index('app.terminate()'))
+
+    def test_six_probe_revision_time_changes_fit_compact_receipt(self):
+        e=self.event();r=e['receipt']
+        r['changedPaths']=sorted('/probes/'+name+'/'+field for name in v.PROBES for field in ['revision','uptime'])
+        r['numericProbeChanges']=[[name,field,1,3] if field=='revision' else [name,field,238.838838884,241.878978783] for name in sorted(v.PROBES) for field in ['revision','uptime']]
+        self.verify(e)
+        self.assertLessEqual(len(json.dumps(r,sort_keys=True,separators=(',',':')).replace('/','\\/').encode()),1400)
+
+    def test_invalid_application_values_remain_failure_diagnostics(self):
+        e=self.event();e['receipt']['numericProbeChanges'][0][3]=-1
+        self.assertFalse(self.verify(e)['nativeAcceptance'])
+        e=self.event();e['receipt']['numericProbeChanges'][1][3]=0
+        self.assertFalse(self.verify(e)['nativeAcceptance'])
+    def test_malformed_field_type_rejects_cleanly(self):
+        for value in [[],{},False,None]:
+            e=self.event();e['receipt']['numericProbeChanges'][0][1]=value
+            with self.assertRaises(ValueError):self.verify(e)

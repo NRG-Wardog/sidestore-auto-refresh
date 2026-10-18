@@ -300,3 +300,45 @@ def visual_verdict(pair, review=None):
     elif not pair['candidateGeometryAccepted'] or not all(review[k] for k in keys[1:]): status = 'candidate-rejected'
     else: status = 'bounded-fixture-improvement-only'
     return {'status': status, 'productFixAccepted': False, 'review': review}
+
+# Failure diagnostics are deliberately separate from verify_arm/verify_pair.
+# A valid receipt never changes the native/capture/visual failure verdict.
+DIFFERENCE_ROOTS = {'schema','arm','processToken','sessionToken','processIdentifier','processArguments',
+    'languageEnvironment','bootstrapPriorLanguage','bootstrapLanguage','bootstrapScope','language',
+    'hostDefaultLanguage','locale','direction','text','originalMessage','confirmStarted','confirmCompleted',
+    'errorStarted','textStarted','textCompleted','witnessChoice'}
+
+def verify_state_difference(event, arm, stage, phase):
+    need(arm in ARMS and stage in STAGES and phase in {'before-assertion','finalization'}, 'Unknown diagnostic association')
+    need(isinstance(event,dict) and set(event)=={'phase','receipt'} and event['phase']==phase,'Wrong diagnostic phase')
+    finite_tree(event)
+    receipt=event['receipt']
+    keys={'schema','arm','method','stage','foundationEqual','complete','canonicalEqual','rawJSONEqual',
+          'beforeSHA256','afterSHA256','changedPaths','numericProbeChanges'}
+    need(isinstance(receipt,dict) and set(receipt)==keys,'Incomplete/foreign diagnostic receipt')
+    need(receipt['schema']=='p2-form-state-difference-v1' and receipt['arm']==arm and receipt['method']==ARMS[arm] and receipt['stage']==stage,'Foreign state diagnostic')
+    need(receipt['complete'] is True and receipt['foundationEqual'] is False,'Not a complete failed-equality diagnostic')
+    need(type(receipt['canonicalEqual']) is bool and type(receipt['rawJSONEqual']) is bool,'Invalid diagnostic equality types')
+    for key in ['beforeSHA256','afterSHA256']:
+        need(isinstance(receipt[key],str) and re.fullmatch('[0-9a-f]{64}',receipt[key]) is not None,'Invalid diagnostic digest')
+    need(receipt['canonicalEqual']==(receipt['beforeSHA256']==receipt['afterSHA256']),'Canonical hash/equality disagreement')
+    need(not receipt['rawJSONEqual'] or receipt['canonicalEqual'],'Identical raw JSON with different deterministic bytes')
+    paths=receipt['changedPaths']
+    allowed={'/'+key for key in DIFFERENCE_ROOTS}|{'/probes/'+name+'/'+field for name in PROBES for field in ['identity','locale','direction','revision','uptime']}
+    need(isinstance(paths,list) and all(isinstance(p,str) and p in allowed for p in paths) and paths==sorted(set(paths)),'Invalid/duplicate/foreign changed paths')
+    need((not paths)==receipt['canonicalEqual'],'Changed path/equality disagreement')
+    rows=receipt['numericProbeChanges'];need(isinstance(rows,list),'Invalid numeric diagnostic changes')
+    required={p for p in paths if p.startswith('/probes/') and p.rsplit('/',1)[1] in {'uptime','revision'}}
+    seen=[]
+    for row in rows:
+        need(isinstance(row,list) and len(row)==4,'Malformed numeric diagnostic row')
+        name,field,left,right=row
+        need(isinstance(name,str) and name in PROBES and isinstance(field,str) and field in {'uptime','revision'},'Foreign numeric diagnostic row')
+        path='/probes/'+name+'/'+field;seen.append(path)
+        number(left); number(right)
+        need(left!=right,'Unchanged numeric values')
+        if field=='revision':need(type(left) is int and type(right) is int,'Noninteger probe revision')
+    need(len(seen)==len(set(seen)) and set(seen)==required,'Missing/duplicate numeric deltas')
+    # This compact transport intentionally contains no arbitrary state string values.
+    need(len(json.dumps(event,separators=(',',':'),ensure_ascii=False).encode())<=1536,'Diagnostic exceeds transport bound')
+    return {'status':'failed-capture-diagnostic-only','changedPaths':paths,'nativeAcceptance':False,'visualAcceptance':False}

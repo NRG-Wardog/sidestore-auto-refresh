@@ -45,3 +45,25 @@ Cumulative communicate output replaces partial output; it is never appended.
 At most eight failed commands are retained (the initiating failure plus latest
 seven), within 128 KiB. The original failure and strict settlement gate remain
 unchanged, and failed receipt serialization cannot promote the result to success.
+
+Failure-only state-difference diagnostics preserve the same two already-read
+state operands and their raw JSON in the failed report before post-capture checks.
+The original Foundation dictionary equality remains mandatory. A separate
+unbuffered compact receipt records deterministic sorted-key JSON hashes/equality,
+raw JSON equality, all changed paths from the closed fixture schema and only
+numeric probe revision/uptime differences. Arbitrary argument/environment/string
+values are not printed. A 1,400-byte receipt / 1,536-byte envelope bound fails
+explicitly to an incomplete diagnostic; it does not truncate paths silently.
+The same immutable receipt is emitted again during failure finalization. These
+messages cannot make the run pass or establish complete stdout retention.
+
+The compared interval includes geometry queries before PNG/AX capture. Failure
+operands retain those runner-local boundary times. The model does not emit a
+fresh clock on every state read: probe time/revision advances only after a probe
+identity/locale/direction tuple changes. Repeated identical update callbacks do
+not advance it. A transient tuple change-and-return is a hypothesis until actual
+state differences are retained; there is no new probe counter or app query.
+
+The diagnostic field named canonicalEqual uses the same Foundation sorted-key
+serializer for both parsed operands; it is not a claim of a standardized
+canonical-JSON implementation. Raw JSON equality is recorded separately.

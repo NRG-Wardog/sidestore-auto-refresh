@@ -1,6 +1,83 @@
 import Foundation
+import CryptoKit
+import CoreFoundation
 import XCTest
 import UIKit
+
+// Failure-only diagnostic of already-read synthetic state. Never an acceptance oracle.
+private enum P2FormStateDifference {
+    static let rootKeys: Set<String> = ["schema", "arm", "processToken", "sessionToken", "processIdentifier",
+        "processArguments", "languageEnvironment", "bootstrapPriorLanguage", "bootstrapLanguage", "bootstrapScope",
+        "language", "hostDefaultLanguage", "locale", "direction", "text", "originalMessage", "probes",
+        "confirmStarted", "confirmCompleted", "errorStarted", "textStarted", "textCompleted", "witnessChoice"]
+    static let names: Set<String> = ["inherited", "container", "productionSectionBoundary", "header", "picker", "content"]
+    static let fields: Set<String> = ["identity", "locale", "direction", "uptime", "revision"]
+    static func json(_ value: Any) throws -> Data {
+        let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+        guard data.count <= 65536 else { throw NSError(domain: "P2FormDifference", code: 1) }
+        return data
+    }
+    static func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+    static func make(before: [String: Any], after: [String: Any], arm: String, method: String, stage: String, rawBefore: String, rawAfter: String) -> [String: Any] {
+        let base: [String: Any] = ["schema": "p2-form-state-difference-v1", "arm": arm, "method": method,
+            "stage": stage, "foundationEqual": false]
+        do {
+            guard Set(before.keys) == rootKeys, Set(after.keys) == rootKeys,
+                  let old = before["probes"] as? [String: [String: Any]],
+                  let new = after["probes"] as? [String: [String: Any]],
+                  Set(old.keys) == names, Set(new.keys) == names,
+                  names.allSatisfy({ Set(old[$0]!.keys) == fields && Set(new[$0]!.keys) == fields }) else {
+                throw NSError(domain: "P2FormDifference", code: 2)
+            }
+            let environmentKeys: Set<String> = ["AppleLanguages", "AppleLocale", "NSLanguages", "LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES"]
+            for state in [before, after] {
+                guard let environment = state["languageEnvironment"] as? [String: String],
+                      Set(environment.keys).isSubset(of: environmentKeys),
+                      let arguments = state["processArguments"] as? [String], arguments.count <= 32 else {
+                    throw NSError(domain: "P2FormDifference", code: 5)
+                }
+            }
+            let first = try json(before), second = try json(after)
+            var paths: [String] = [], numericChanges: [[Any]] = []
+            for key in rootKeys.subtracting(["probes"]).sorted() {
+                if try json(["value": before[key]!]) != json(["value": after[key]!]) { paths.append("/" + key) }
+            }
+            for name in names.sorted() {
+                for field in fields.sorted() {
+                    let left = old[name]![field]!, right = new[name]![field]!
+                    if try json(["value": left]) != json(["value": right]) {
+                        paths.append("/probes/" + name + "/" + field)
+                        if field == "uptime" || field == "revision" {
+                            guard let a = left as? NSNumber, let b = right as? NSNumber,
+                                  CFGetTypeID(a) != CFBooleanGetTypeID(), CFGetTypeID(b) != CFBooleanGetTypeID(),
+                                  a.doubleValue.isFinite, b.doubleValue.isFinite else {
+                                throw NSError(domain: "P2FormDifference", code: 3)
+                            }
+                            numericChanges.append([name, field, a, b])
+                        }
+                    }
+                }
+            }
+            var receipt = base
+            receipt["complete"] = true; receipt["canonicalEqual"] = first == second
+            receipt["rawJSONEqual"] = rawBefore.utf8.elementsEqual(rawAfter.utf8)
+            receipt["beforeSHA256"] = digest(first); receipt["afterSHA256"] = digest(second)
+            receipt["changedPaths"] = paths.sorted(); receipt["numericProbeChanges"] = numericChanges
+            // Leave room for the envelope in the existing bounded stdout tail.
+            guard try json(receipt).count <= 1400 else { throw NSError(domain: "P2FormDifference", code: 4) }
+            return receipt
+        } catch {
+            var receipt = base; receipt["complete"] = false
+            receipt["error"] = "state-difference-unavailable-or-over-bound"
+            return receipt
+        }
+    }
+    static func emit(_ receipt: [String: Any], phase: String) {
+        let envelope: [String: Any] = ["phase": phase, "receipt": receipt]
+        guard let data = try? json(envelope), data.count <= 1536 else { return }
+        FileHandle.standardOutput.write(Data("P2_FORM_STATE_DIFFERENCE ".utf8) + data + Data("\n".utf8))
+    }
+}
 
 // ExpectedStrings comes independently from the pinned catalog. No production
 // localization implementation is linked into this runner.
@@ -14,6 +91,8 @@ import UIKit
     private var failures: [String] = []
     private var initialState: [String: Any] = [:]
     private var lastValidState: [String: Any] = [:]
+    private var lastReadStateJSON = ""
+    private var captureFailure: [String: Any]?
     private var completed = false
     private var reported = false
     private func require(_ value: Bool, _ message: String, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -38,6 +117,7 @@ import UIKit
         guard element.exists, let raw = element.value as? String, let bytes = raw.data(using: .utf8),
               let result = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
               result["schema"] as? String == "p2-form-direction-state-v1" else { return nil }
+        lastReadStateJSON = raw
         return result
     }
     private func state() throws -> [String: Any] {
@@ -147,7 +227,10 @@ import UIKit
         return result
     }
     @discardableResult private func capture(_ stage: String, language: String) throws -> Double {
+        let stateReadStarted = ProcessInfo.processInfo.systemUptime
         let before = try state()
+        let rawBefore = lastReadStateJSON
+        let stateReadFinished = ProcessInfo.processInfo.systemUptime
         try checkState(before, language: language)
         let bounds = try geometry(language)
         let started = ProcessInfo.processInfo.systemUptime
@@ -159,9 +242,24 @@ import UIKit
         let tree = XCTAttachment(string: app.debugDescription)
         tree.name = ax; tree.lifetime = .keepAlways; add(tree)
         let finished = ProcessInfo.processInfo.systemUptime
+        let afterReadStarted = ProcessInfo.processInfo.systemUptime
         let after = try state()
+        let rawAfter = lastReadStateJSON
+        let afterReadFinished = ProcessInfo.processInfo.systemUptime
+        let equal = NSDictionary(dictionary: before).isEqual(to: after)
+        if !equal {
+            let receipt = P2FormStateDifference.make(before: before, after: after, arm: arm, method: method, stage: stage, rawBefore: rawBefore, rawAfter: rawAfter)
+            captureFailure = ["stage": stage, "before": before, "after": after, "receipt": receipt,
+                "initialState": initialState, "stateReadStartedUptime": stateReadStarted,
+                "stateReadFinishedUptime": stateReadFinished, "geometryFinishedUptime": started,
+                "pngFinishedUptime": pngFinished, "axFinishedUptime": finished,
+                "afterReadStartedUptime": afterReadStarted, "afterReadFinishedUptime": afterReadFinished,
+                "rawBefore": rawBefore.utf8.count <= 65536 ? rawBefore : "<over-bound>",
+                "rawAfter": rawAfter.utf8.count <= 65536 ? rawAfter : "<over-bound>"]
+            P2FormStateDifference.emit(receipt, phase: "before-assertion")
+        }
         try checkState(after, language: language)
-        try require(NSDictionary(dictionary: before).isEqual(to: after), "App state changed during screenshot/AX capture")
+        try require(equal, "App state changed during screenshot/AX capture")
         observations.append(["stage": stage, "language": language, "stateBefore": before, "stateAfter": after,
             "captureStartedUptime": started, "pngFinishedUptime": pngFinished, "captureFinishedUptime": finished,
             "png": png, "ax": ax, "geometry": bounds])
@@ -238,11 +336,12 @@ import UIKit
     }
     private func finish() {
         guard !reported else { return }; reported = true
-        let result: [String: Any] = ["schema": "p2-form-direction-v1", "arm": arm, "method": method,
+        var result: [String: Any] = ["schema": "p2-form-direction-v1", "arm": arm, "method": method,
             "completed": completed, "failures": failures, "observations": observations,
             "transitions": transitions, "finalState": lastValidState,
             "visualVerdict": "not-evaluated-requires-independent-raster-review",
             "scope": "standalone exact production Picker with shared synthetic Form content; not genuine host or complete preservation proof"]
+        if let captureFailure { result["captureFailure"] = captureFailure }
         if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
             let report = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
             report.name = arm + "-form-direction.json"; report.lifetime = .keepAlways; add(report)
@@ -253,6 +352,9 @@ import UIKit
             screenshot.name = arm + "-partial-failure.png"; screenshot.lifetime = .keepAlways; add(screenshot)
             let tree = XCTAttachment(string: app.debugDescription)
             tree.name = arm + "-partial-failure.txt"; tree.lifetime = .keepAlways; add(tree)
+        }
+        if let receipt = captureFailure?["receipt"] as? [String: Any] {
+            P2FormStateDifference.emit(receipt, phase: "finalization")
         }
         app.terminate()
     }
