@@ -300,7 +300,8 @@ jobs:
           P0_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/LegacyP0AnisetteKit
           P0_DIAGNOSTIC_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/LegacyConstructorAnisetteKit
           P0_BOUNDS_MANIFEST_SOURCE: ${{ github.workspace }}/work/BoundsCandidateAnisetteKit
-          P0_BOUNDS_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/AnisetteKit
+          P0_BOUNDS_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/BoundsCandidateAnisetteKit
+          P0_CXX_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/AnisetteKit
         shell: bash
         run: |
           set -euo pipefail

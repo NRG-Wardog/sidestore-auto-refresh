@@ -18,7 +18,11 @@ class BoundsPackageEvidenceTests(unittest.TestCase):
         if bounds.REVIEW_SHA256 is None:
             with self.assertRaisesRegex(ValueError,'pending'):bounds.approval(ROOT)
             return False
-        self.pins=gate.load_pins(ROOT/'migration/maintained-sources.json')
+        self.pin_path=ROOT/'migration/maintained-sources.json'
+        self.pins=gate.load_pins(self.pin_path)
+        if self.pins['source_basis']=='p0-cxx-allocation-v1':
+            self.pin_path=ROOT/'migration/p0-cxx-allocation-v1/historical-bounds-pins.json'
+            self.pins=gate.load_pins(self.pin_path)
         self.assertEqual(self.pins['source_basis'],bounds.BASIS)
         configured=os.environ.get('P0_BOUNDS_ANISETTE_TEST_SOURCE')
         self.assertTrue(configured,'explicit final bounds AK source required')
@@ -32,7 +36,7 @@ class BoundsPackageEvidenceTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.output=Path(self.tmp.name).resolve()/'evidence'
         return True
     def collect(self):
-        return collector.collect_isolated_anisette_evidence(self.source,self.root/'anisette-generated/maintained-source-manifest.json',self.output,self.binary,ROOT/'migration/maintained-sources.json')
+        return collector.collect_isolated_anisette_evidence(self.source,self.root/'anisette-generated/maintained-source-manifest.json',self.output,self.binary,self.pin_path)
     def test_actual_final_source_and_contract_roundtrip_or_pending(self):
         if not self.admitted():return
         binding=self.collect();self.assertIn('Native/Loader/elf_metadata_bounds.h',binding['source_sha256'])

@@ -30,6 +30,10 @@ def read_regular(root, name):
 
 def contract_files(pins, root=None):
     """Derive the complete metadata inventory from the independently approved hash."""
+    from p0_cxx_allocation import BASIS as CXX_BASIS
+    if pins.get('source_basis') == CXX_BASIS:
+        from p0_cxx_allocation import contract_files as cxx_contract_files
+        return cxx_contract_files(pins, ROOT, root)
     from p0_elf_metadata_bounds import BASIS as BOUNDS_BASIS
     if pins.get("source_basis") == BOUNDS_BASIS:
         from p0_elf_metadata_bounds import contract_files as bounds_contract_files
