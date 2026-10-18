@@ -2,7 +2,10 @@
 
 Pins LiveContainer f46a3e14c0752714144aa076355663c79a54f1a9 and its exact tree.
 Only the two reviewed Settings changes differ from eb10cedb. This builds the
-real LiveContainer Release target for iOS Simulator with no product build-setting
+real LiveContainer Release target for a newly created, unbooted iPhone17Pro
+iOS26.5 simulator destination, as used by the prior successful host build.
+The generic destination attempted unsupported x86_64 assembly in run39164895608.
+No product source or assembly changes are made. There is no product build-setting
 or architecture override. Declared dependency commits and trees remain pinned.
 
 The existing provenance, package inventory and localization contracts are reused.

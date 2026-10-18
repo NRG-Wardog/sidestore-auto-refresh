@@ -24,8 +24,8 @@ def verify_inputs(expected):
     require((data['sourceCommit'],data['sourceTree'])==(SOURCE,TREE),'Candidate identity mismatch')
     for name,digest in data['files'].items(): require(input_hash(name)==digest,'Changed input: '+name)
     return data
-def build_command(host,derived):
-    return ['xcodebuild','-project',str(host/'LiveContainer.xcodeproj'),'-scheme','LiveContainer','-configuration','Release','-sdk','iphonesimulator','-destination','generic/platform=iOS Simulator','-derivedDataPath',str(derived),'-disableAutomaticPackageResolution','-onlyUsePackageVersionsFromResolvedFile']
+def build_command(host,derived,udid):
+    return ['xcodebuild','-project',str(host/'LiveContainer.xcodeproj'),'-scheme','LiveContainer','-configuration','Release','-sdk','iphonesimulator','-destination','platform=iOS Simulator,id='+udid,'-derivedDataPath',str(derived),'-disableAutomaticPackageResolution','-onlyUsePackageVersionsFromResolvedFile']
 def execute(host,work,evidence,publish,approved):
     inputs=verify_inputs(approved)
     require(platform.system()=='Darwin','Native macOS required')
@@ -54,7 +54,17 @@ def execute(host,work,evidence,publish,approved):
             cmd(['git','-C',directory,'checkout','--detach',row['commit']])
             write(evidence/(name+'-provenance.json'),prior.checkout_proof(directory,row['commit'],row['tree'],row['fetch_url']))
         require(prior.checkout_proof(host,SOURCE,TREE,ORIGIN,dependencies=True)==before,'Source changed after dependency setup')
-        derived=work/'DerivedData';base=build_command(host,derived)
+        runtimes=json.loads(cmd(['xcrun','simctl','list','runtimes','--json']))
+        types=json.loads(cmd(['xcrun','simctl','list','devicetypes','--json']))
+        runtime_id='com.apple.CoreSimulator.SimRuntime.iOS-26-5'
+        device_type='com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro'
+        matches=[r for r in runtimes['runtimes'] if r.get('identifier')==runtime_id and r.get('isAvailable') is True]
+        require(len(matches)==1 and matches[0].get('buildversion')=='23F77','Pinned native runtime unavailable')
+        require(sum(t.get('identifier')==device_type for t in types['devicetypes'])==1,'Pinned device type unavailable')
+        udid=cmd(['xcrun','simctl','create','P2-Compile-'+os.environ['GITHUB_RUN_ID'],device_type,runtime_id])
+        require(re.fullmatch(r'[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}',udid),'Invalid created simulator identity')
+        write(evidence/'created-simulator.json',{'udid':udid,'runtime':matches[0],'deviceType':device_type,'bootRequested':False})
+        derived=work/'DerivedData';base=build_command(host,derived,udid)
         settings_raw=cmd(base+['-showBuildSettings','-json'],180)
         (evidence/'build-settings.json').write_text(settings_raw+'\n')
         settings,app=prior.host_build_settings(settings_raw,host,derived)

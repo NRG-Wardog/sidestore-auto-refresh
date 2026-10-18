@@ -91,12 +91,13 @@ def finish_owned_child(process):
     return result
 
 
-BUILD_SHAPE=['xcodebuild','-project','<project>','-scheme','LiveContainer','-configuration','Release','-sdk','iphonesimulator','-destination','generic/platform=iOS Simulator','-derivedDataPath','<derived>','-disableAutomaticPackageResolution','-onlyUsePackageVersionsFromResolvedFile','-resultBundlePath','<result>','build']
+BUILD_SHAPE=['xcodebuild','-project','<project>','-scheme','LiveContainer','-configuration','Release','-sdk','iphonesimulator','-destination','<destination>','-derivedDataPath','<derived>','-disableAutomaticPackageResolution','-onlyUsePackageVersionsFromResolvedFile','-resultBundlePath','<result>','build']
 def reviewed_build(argv):
     args=list(map(str,argv))
     if len(args)!=len(BUILD_SHAPE):return False
     if not (Path(args[2]).is_absolute() and args[2].endswith('/LiveContainer.xcodeproj') and Path(args[12]).is_absolute() and Path(args[16]).is_absolute() and args[16].endswith('.xcresult')):return False
-    args[2],args[12],args[16]='<project>','<derived>','<result>'
+    if not re.fullmatch(r'platform=iOS Simulator,id=[A-Fa-f0-9]{8}(?:-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}',args[10]):return False
+    args[2],args[10],args[12],args[16]='<project>','<destination>','<derived>','<result>'
     return args==BUILD_SHAPE
 
 def command_budget(argv,timeout,remaining,finalizing=False):
