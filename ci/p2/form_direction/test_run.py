@@ -415,3 +415,30 @@ class DiagnosticContinuationContracts(unittest.TestCase):
             self.assertIn(required,s)
         self.assertIn('XCTFail(message)',s)
         self.assertIn('failures.append(message)',s)
+
+class GeometryReadContracts(unittest.TestCase):
+    def source(self): return (HERE/'FormDirectionTests.swift.in').read_text()
+    def test_geometry_reads_checked_values_once(self):
+        s=self.source().split('private func geometry(',1)[1].split('@discardableResult',1)[0]
+        self.assertEqual(s.count('app.frame'),1)
+        self.assertEqual(s.count('item.exists'),1)
+        self.assertEqual(s.count('item.frame'),1)
+        self.assertIn('viewport.intersects(rect)',s)
+        self.assertIn('element(item, capturedRect: rect, capturedExists: exists)',s)
+        self.assertNotIn('query("p2-witness-navigation")',s)
+        self.assertIn('navigationElement = item',s)
+    def test_geometry_keeps_uniqueness_fields_and_live_hittability(self):
+        s=self.source()
+        self.assertIn('matches.count == 1',s)
+        helper=s.split('private func element(',1)[1].split('private func query(',1)[0]
+        for field in ['identifier','label','value','role','exists','hittable','frame']:
+            self.assertIn('"'+field+'":',helper)
+        self.assertIn('"hittable": element.isHittable',helper)
+        self.assertIn('capturedExists ?? element.exists',helper)
+        self.assertIn('capturedRect.map { frame($0) } ?? frame(element)',helper)
+    def test_no_property_cache_persists_between_captures(self):
+        s=self.source()
+        self.assertNotIn('private var viewport',s)
+        self.assertNotIn('private var navigationElement',s)
+        self.assertIn('let bounds = try geometry(language)',s)
+        self.assertIn('try require(equal, "App state changed during screenshot/AX capture")',s)

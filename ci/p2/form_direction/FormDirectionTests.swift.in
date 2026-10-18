@@ -199,12 +199,15 @@ private enum P2FormStateDifference {
         }
     }
     private func frame(_ element: XCUIElement) -> [String: Double] {
-        let rect = element.frame
+        frame(element.frame)
+    }
+    private func frame(_ rect: CGRect) -> [String: Double] {
         return ["x": Double(rect.minX), "y": Double(rect.minY), "width": Double(rect.width), "height": Double(rect.height)]
     }
-    private func element(_ element: XCUIElement) -> [String: Any] {
+    private func element(_ element: XCUIElement, capturedRect: CGRect? = nil, capturedExists: Bool? = nil) -> [String: Any] {
         ["identifier": element.identifier, "label": element.label, "value": element.value as? String ?? "",
-         "role": Int(element.elementType.rawValue), "exists": element.exists, "hittable": element.isHittable, "frame": frame(element)]
+         "role": Int(element.elementType.rawValue), "exists": capturedExists ?? element.exists, "hittable": element.isHittable,
+         "frame": capturedRect.map { frame($0) } ?? frame(element)]
     }
     private func query(_ identifier: String) throws -> XCUIElement {
         let matches = app.descendants(matching: .any).matching(identifier: identifier).allElementsBoundByIndex
@@ -214,22 +217,30 @@ private enum P2FormStateDifference {
     private func geometry(_ language: String) throws -> [String: Any] {
         let ids = ["settings.language", "p2-witness-header", "p2-witness-picker", "p2-witness-navigation",
                    "p2-direction-first", "p2-direction-last", "p2-outside-first", "p2-outside-last", "p2-existing-message"]
-        var result: [String: Any] = ["viewport": frame(app)]
+        // Reuse only values captured in this geometry call, never across actions/captures.
+        let viewport = app.frame
+        var result: [String: Any] = ["viewport": frame(viewport)]
+        var navigationElement: XCUIElement?
         var midpoints: [String: Double] = [:]
         for id in ids {
             let item = try query(id)
-            try require(item.exists, "Missing geometry target: " + id)
+            let exists = item.exists
+            try require(exists, "Missing geometry target: " + id)
             let rect = item.frame
             try require(rect.minX.isFinite && rect.minY.isFinite && rect.width.isFinite && rect.height.isFinite && rect.width > 0 && rect.height > 0, "Invalid geometry: " + id)
-            try require(app.frame.intersects(rect), "Geometry target outside screenshot: " + id)
-            result[id] = element(item)
+            try require(viewport.intersects(rect), "Geometry target outside screenshot: " + id)
+            result[id] = element(item, capturedRect: rect, capturedExists: exists)
+            if id == "p2-witness-navigation" { navigationElement = item }
             midpoints[id] = Double(rect.midX)
         }
         let expectedHeader = ExpectedStrings.text("Language", language: language)
         let headers = app.staticTexts.matching(NSPredicate(format: "label == %@", expectedHeader)).allElementsBoundByIndex
         try require(!headers.isEmpty, "Production Language header has no AX geometry")
         result["productionHeaderMatches"] = headers.map { element($0) }
-        let link = try query("p2-witness-navigation")
+        guard let link = navigationElement else {
+            try require(false, "Missing resolved navigation witness")
+            throw NSError(domain: "P2FormDirection", code: 4)
+        }
         let descendants = link.descendants(matching: .any).allElementsBoundByIndex
         try require(descendants.count <= 50, "Unexpected disclosure witness AX size")
         result["nativeDisclosureDescendants"] = descendants.map { element($0) }
