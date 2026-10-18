@@ -23,8 +23,7 @@ import UIKit
     @Published var textOutcome = "none"
     @Published var textResult = "nil"
     @Published var witnessChoice = 0
-    @Published private(set) var probeRevision = 0
-    private(set) var probes: [String: [String: Any]] = [:]
+    let probeStore = FormDirectionProbeStore()
     init() {
         let arguments = ProcessInfo.processInfo.arguments
         guard arguments.filter({ $0 == "--form-arm" }).count == 1,
@@ -37,15 +36,6 @@ import UIKit
         // Only this standalone fixture's domain, before any SwiftUI view exists.
         // All measured language transitions use the unchanged production Picker.
         V3AppLanguage.persist(.english)
-    }
-    func record(_ name: String, identity: String, locale: String, direction: String) {
-        let previous = probes[name]
-        guard previous?["identity"] as? String != identity || previous?["locale"] as? String != locale ||
-                previous?["direction"] as? String != direction else { return }
-        probes[name] = ["identity": identity, "locale": locale, "direction": direction,
-                        "uptime": ProcessInfo.processInfo.systemUptime,
-                        "revision": (previous?["revision"] as? Int ?? 0) + 1]
-        probeRevision += 1
     }
     func state(locale: Locale, direction: LayoutDirection) -> String {
         let process = ProcessInfo.processInfo
@@ -60,7 +50,7 @@ import UIKit
             "language": V3AppLanguage.selected.rawValue,
             "hostDefaultLanguage": V3Localization.hostDefaults.string(forKey: V3AppLanguage.storageKey) ?? "<missing>",
             "locale": locale.identifier, "direction": direction == .rightToLeft ? "rtl" : "ltr",
-            "text": text, "originalMessage": existingMessage.original, "probes": probes,
+            "text": text, "originalMessage": existingMessage.original, "probes": probeStore.probes,
             "confirmStarted": confirmStarted, "confirmCompleted": confirmCompleted,
             "errorStarted": errorStarted, "textStarted": textStarted, "textCompleted": textCompleted,
             "witnessChoice": witnessChoice,
@@ -71,12 +61,29 @@ import UIKit
     }
 }
 
+// Probe notifications must never invalidate the view tree being measured.
+// Only FormDirectionTelemetry observes this store; the screen model owns it
+// as a constant reference without forwarding objectWillChange.
+@MainActor final class FormDirectionProbeStore: ObservableObject {
+    @Published private(set) var probeRevision = 0
+    private(set) var probes: [String: [String: Any]] = [:]
+    func record(_ name: String, identity: String, locale: String, direction: String) {
+        let previous = probes[name]
+        guard previous?["identity"] as? String != identity || previous?["locale"] as? String != locale ||
+                previous?["direction"] as? String != direction else { return }
+        probes[name] = ["identity": identity, "locale": locale, "direction": direction,
+                        "uptime": ProcessInfo.processInfo.systemUptime,
+                        "revision": (previous?["revision"] as? Int ?? 0) + 1]
+        probeRevision += 1
+    }
+}
+
 // Passive SwiftUI environment readings at actual instrumented boundaries.
 // Production section descendants are NOT introspected: header/picker probes
 // below belong to explicitly synthetic fixture controls.
 @MainActor private struct FormEnvironmentProbe: UIViewRepresentable {
     let name: String
-    let model: FormDirectionModel
+    let store: FormDirectionProbeStore
     @Environment(\.locale) private var locale
     @Environment(\.layoutDirection) private var direction
     final class Coordinator { let identity = UUID().uuidString }
@@ -91,14 +98,15 @@ import UIKit
         let identity = context.coordinator.identity
         let locale = locale.identifier
         let direction = direction == .rightToLeft ? "rtl" : "ltr"
-        DispatchQueue.main.async { [model, name] in
-            model.record(name, identity: identity, locale: locale, direction: direction)
+        DispatchQueue.main.async { [store, name] in
+            store.record(name, identity: identity, locale: locale, direction: direction)
         }
     }
 }
 
 @MainActor private struct FormDirectionTelemetry: View {
     @ObservedObject var model: FormDirectionModel
+    @ObservedObject var probeStore: FormDirectionProbeStore
     @Environment(\.locale) private var locale
     @Environment(\.layoutDirection) private var direction
     var body: some View {
@@ -121,7 +129,7 @@ import UIKit
     @Environment(\.layoutDirection) private var selectedDisplayDirection
     @FocusState private var inputFocused: Bool
     private func probe(_ name: String) -> some View {
-        FormEnvironmentProbe(name: name, model: model).frame(width: 0, height: 0).accessibilityHidden(true)
+        FormEnvironmentProbe(name: name, store: model.probeStore).frame(width: 0, height: 0).accessibilityHidden(true)
     }
     // One shared declaration: identical row content and order in both arms.
     // Original reproducing settings fixture rows retained. Two synthetic rows
@@ -195,7 +203,7 @@ import UIKit
                 }
         }
         .navigationViewStyle(.stack).background(probe("inherited"))
-        .safeAreaInset(edge: .bottom) { FormDirectionTelemetry(model: model) }
+        .safeAreaInset(edge: .bottom) { FormDirectionTelemetry(model: model, probeStore: model.probeStore) }
         .textFieldAlert(isPresented: $model.textPresented, title: "lc.common.error", text: $model.text,
             placeholder: "Fixture value", action: { value in
                 model.textCompleted += 1; model.textOutcome = "confirm"; model.textResult = value ?? "nil"

@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 35
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
-      APPROVED_FORM_INPUTS_SHA256: 0050fbca6f60e6e3e0d2329911e397f5bfceab2a7cfa57fed770e5d67a886a24
+      APPROVED_FORM_INPUTS_SHA256: f5e007f8e1534bad74b468cf4dc9cfcb2a356b465e3827b4b1b05e6d4f2b632f
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
       GIT_CONFIG_NOSYSTEM: '1'

@@ -94,6 +94,21 @@ class VerifyTests(unittest.TestCase):
             row['geometry']['p2-direction-first']['frame']['x']=100
             row['geometry']['contentOrderCorrect']=False
         self.save();self.assertFalse(self.check()['geometryAcceptance'])
+    def test_aba_probe_churn_still_rejected(self):
+        # Same final identity/locale/direction does not excuse intermediate churn.
+        def mutate():
+            probe=self.report['observations'][0]['stateAfter']['probes']['productionSectionBoundary']
+            probe['revision'] += 1300
+            probe['uptime'] += .01
+        self.bad(mutate)
+    def test_different_probe_instance_during_capture_rejected(self):
+        self.bad(lambda:self.report['observations'][0]['stateAfter']['probes']['productionSectionBoundary'].__setitem__('identity',str(uuid4())))
+    def test_stale_probe_callback_during_capture_rejected(self):
+        def mutate():
+            probe=self.report['observations'][2]['stateAfter']['probes']['productionSectionBoundary']
+            probe['locale']='en'
+            probe['direction']='ltr'
+        self.bad(mutate)
     def test_forged_order_rejected(self):
         self.bad(lambda:self.report['observations'][0]['geometry'].__setitem__('contentOrderCorrect',False))
     def test_duplicate_attachment(self):

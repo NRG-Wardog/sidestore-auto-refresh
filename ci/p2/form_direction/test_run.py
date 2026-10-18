@@ -363,3 +363,29 @@ class TransportTests(unittest.TestCase):
         self.main_failure_case(export_failure=False,shutdown_failure=True)
 
 if __name__=='__main__':unittest.main()
+
+class ProbeIsolationContracts(unittest.TestCase):
+    def test_only_telemetry_observes_probe_store(self):
+        source=(HERE/'App.swift.in').read_text()
+        model=source.split('final class FormDirectionModel:',1)[1].split('// Probe notifications',1)[0]
+        self.assertIn('let probeStore = FormDirectionProbeStore()',model)
+        self.assertNotIn('probeRevision',model)
+        self.assertNotIn('func record(',model)
+        self.assertNotIn('objectWillChange',model)
+        telemetry=source.split('struct FormDirectionTelemetry:',1)[1].split('struct FormDirectionScreen:',1)[0]
+        self.assertIn('@ObservedObject var probeStore:',telemetry)
+        self.assertEqual(source.count('@ObservedObject var probeStore:'),1)
+    def test_probe_callback_does_not_invalidate_screen_model(self):
+        source=(HERE/'App.swift.in').read_text()
+        probe=source.split('struct FormEnvironmentProbe:',1)[1].split('struct FormDirectionTelemetry:',1)[0]
+        self.assertNotIn('model',probe)
+        self.assertIn('[store, name]',probe)
+        self.assertIn('store.record(name, identity: identity, locale: locale, direction: direction)',probe)
+    def test_identity_and_environment_changes_remain_observable(self):
+        source=(HERE/'App.swift.in').read_text()
+        record=source.split('func record(',1)[1].split('// Passive SwiftUI',1)[0]
+        for key in ['identity','locale','direction']:
+            self.assertIn('previous?["'+key+'"] as? String != '+key,record)
+        self.assertIn('"uptime": ProcessInfo.processInfo.systemUptime',record)
+        self.assertIn('"revision": (previous?["revision"] as? Int ?? 0) + 1',record)
+        self.assertIn('probeRevision += 1',record)
