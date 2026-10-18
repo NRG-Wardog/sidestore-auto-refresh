@@ -10,7 +10,7 @@ This dedicated lane reuses the original built `actual-LiveContainer.app.zip` fro
 4. Generate a fresh external runner. Reuse the immutable original project/scheme bytes and render only this lane's reviewed Swift template. Use explicit `build-for-testing` settings and actual runner build without product setting overrides. The entire generated xctestrun must equal `generated-contract.json`, with exact types, all three environment maps, empty language/region/arguments, `UseUITargetAppProvidedByTests=true` and performance-antipattern checker true. No xctestrun edits occur.
 5. Bind independently expanded current test/developer/runtime roots; reject traversal, ambiguous components and links. Require the exact reviewed 75-entry complete Build/Products layout, including runner, swiftmodule and sole xctestrun. No additional app/framework/search-root products or genuine bundle-ID collision are admitted. Inspect actual runner/test plist identities and exact universal fat32 x86_64 subtype 3 + arm64 subtype 0, 64-bit simulator platform 7, MH_EXECUTE/MH_BUNDLE. Hash and inventory all actual payloads before and after execution. The layout/map reference comes from failed capability run 39069474554, artifact SHA256 `646204e802cb02736ca2c3baf3f486055edc116e974de41c5142f5438d896fe4`. Recognition does not convert that original failure into a pass or reuse its compiled runner.
 6. Immediately before the only `XCUIApplication.launch()`, independently require the external app proxy's actual initial requested `launchEnvironment == [:]` and `launchArguments == []`. Authenticated failed run 39108204781 on builder 8843e1e3 observed exactly those getters, with zero launches; its original failure remains unchanged. The generated seven-key target map is independently bound and retained in every version-2 policy receipt, not presumed to equal the proxy getter. Any nonempty getter blocks, even if it equals that generated map. No dynamic baseline, alternative accepted map or calibration launch is allowed. Record only exact allowlisted values and mismatch/count metadata; never record unexpected values/arguments or unknown key names. Explicitly set both requested properties to empty and re-read them before launching. Successful admission requires all three ordered version-2 receipts in retained Xcode output and the final observation receipt to agree.
-7. Take the ordinary Settings tab and existing language picker through English → Hebrew → English in one launch. Only the exact known app-owned notification explanation may be dismissed through its unchanged Later action. Unknown/OS/account/authentication dialogs block. Require native XCTest success, exact navigation/selected values, screenshots and AX evidence, then repeat installed identity/signatures and runner/source stability.
+7. Take the ordinary Settings tab and existing language picker through English → Hebrew → English in one launch. The exact known app-owned notification explanation may be dismissed through Later; the separately described one-time SS-LAUNCH-C11-L12 OK acknowledgement is also permitted, while its service failure remains unresolved. Unknown/OS/account/authentication dialogs block. Require native XCTest success, exact navigation/selected values, screenshots and AX evidence, then repeat installed identity/signatures and runner/source stability.
 
 ## Environment policy and limits
 
@@ -41,3 +41,40 @@ For later route failures after launch returned, the existing generic failure sna
 An observational entry flag is set only after the final policy-emission guard and immediately before the sole launch call; a failed policy serialization cannot trigger this diagnostic route.
 
 The separate strict parser binds identity, source, exact launch policy, original report, unreturned launch flag, sequence, finite ordered times, eligibility, attachment association and payload hashes. It retains raw-stream diagnostics before attempting xcresult exports. Export/parser failures are secondary and cannot replace the original native failure. Successful route admission still requires all existing native/navigation/resource/identity gates and absence of failure-only events. All captured pixels/AX remain diagnostic and require review; they do not establish a successful launch deadline, Settings route, all-text localization or device acceptance.
+
+## Exact startup service-error acknowledgement
+
+Run 39118510081 genuinely launched the authenticated app and reached Home. After
+its source-owned notification explanation was cancelled with Later, the distinct
+SideStore alert appeared with the exact message:
+
+`The embedded SideStore process could not be launched.\nError ID: SS-LAUNCH-C11-L12`
+
+The old generic first-alert absence query could bind to this successor. This
+revision checks disappearance of the exact notification title, then permits one
+real, uniquely identified, hittable OK tap only for this exact successor title,
+message and two-button inventory (Copy Diagnostics / OK). Authenticated production
+OK calls only `status.clearIssue()`, which assigns `issue = nil` and `error = nil`.
+It neither retries the backend nor proves recovery. The service query is bound to both exact title and body. Exactly the two observed
+StaticText labels, the two buttons, unique OK, query identity and hittability are
+rechecked immediately before the tap. Unknown, multiple, repeated, reappearing
+or OS alerts block the probe. No Copy Diagnostics action is taken.
+
+An unresolved `serviceFailure` is retained before the OK lookup/tap and in every
+later native report. Identity-bound, unbuffered identified and acknowledged
+receipts preserve the exact action order and post-OK disappearance before Settings.
+The Python collector retains the fault before xcresult export, including partial
+failed outcomes. A successful Settings result requires both receipts to agree
+exactly with the final report, and still reports `serviceFailureUnresolved=true`
+and `backendReadinessProven=false`. The original failed run remains failed.
+
+The local startup verifier replaces only the inherited startup-action block;
+portable source-equality tests preserve every other identity, picker, frame,
+selected-language, screenshot and accessibility verification byte. The existing
+notice-after PNG/AX records the exact pre-OK error; the following Settings captures
+supply visual evidence after dismissal. No extra capture pair is added: at most
+13 successful or 15 ordinary-failure probe attachments fit the inherited limit16.
+The single launch, exact generated maps, eight-object signature gates, original
+Settings route and all native/experiment/job deadlines remain unchanged. The
+SideStore fault, effective Xcode environment, simulator-only scope and pending
+full composition/device gates prevent any all-P2 or backend-readiness claim.

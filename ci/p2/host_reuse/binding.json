@@ -26,19 +26,21 @@
     "scope": "Failure-only late-foreground evidence after the sole unreturned launch call; no second launch, navigation continuation or result promotion."
   },
   "files": {
-    "HostSettingsProbeTests.swift.in": "6b8d3ea0a8518f4f80f9cef17052d805290d6c48912da608ba6bc78e5ea46674",
-    "README.md": "2433ef91beff9d0124269d9a98f4df7df480453211faade04a3b428143b3a445",
+    "HostSettingsProbeTests.swift.in": "683610012263d3a9cd5d1d78989186494066c9094ccb13c636199c0b6e9e6928",
+    "README.md": "47652818ec260be5f10a393f0d8ec4a6ecc5421bccaeb5c9b7a9efbc285730c0",
     "artifact_contract.py": "3acf5809e0b91e81dcf21aaa23c42a8fc6cb54c99208f845b353a759e9258d16",
     "failure_diagnostics.py": "07491d6f60fe091c7a1bd2d0810f89f9f669d318309320aaab8abce4fa791549",
     "fetch_artifact.py": "3a3d9d7c2e25e6e2df7cc66eeebad64844fc129b24412d0668e7645ff2139aee",
     "generated-contract.json": "996bc66327a2f09d28081482272bff9bd3508bfea8ed667f7bd3a96816555d66",
     "products-layout.json": "4cc549d3ef761202fc55a8b9512a5ac17af39c81daab2c32041fb6cb4b3a3a87",
     "runner_contract.py": "31f689d2b4862c132dd7e7614352e6e3a896930baee0eadc899e2e0fe594e074",
+    "startup_contract.py": "9748e66be487933ff46b424e8a138d40d7ba599911b97cacfa7b907fde09c307",
     "test_artifact_contract.py": "8498befd8051afbc463cee8dd85a6e5fa90e977438a178dcee2ffb313057dbeb",
     "test_failure_diagnostics.py": "acb86715844b7aa1a6f1941e5841ef712baed14478ede7abef2b8257bebf7bac",
-    "test_failure_runtime.py": "1bb0a62e2a6123a44bdd3c5b363d355948e005ab0f63f7ed31162551162f18bf",
+    "test_failure_runtime.py": "c75c0be731028bd0ff09fd3fc230cfcb98537436bfd7dbd0b13e052e4bf6e886",
     "test_fetch_artifact.py": "6fd7b54474b2b1c1b4edd69d8afd2e42abbde1e7470f9e87998fb390e224fa3d",
-    "test_reuse.py": "064f7fb3a93e3892c2d7b1d355dadc6f0d28c07462eeee40f4da7e1ab446827a"
+    "test_reuse.py": "6ef4f64f7239435fa9083d9a7819ea936857c0e9c330fe880a24889f54c794b4",
+    "test_startup_contract.py": "3cee05872d67c9755b48203ad783e79ffeab23d99e51303dd02db4436d1f2658"
   },
   "initialRequestedInputsEvidence": {
     "artifactBytes": 209364504,
@@ -58,7 +60,7 @@
   "normalization": "Only the one approved-input SHA field is replaced with TO_BE_SEALED; all other bytes remain bound.",
   "normalizedSources": {
     ".github/workflows/p2-host-reuse.yml": "457cea22afa2b600b0dd532f3c670d7431dd29cbba7ec15c8e1a26c3b940abf1",
-    "ci/p2/host_reuse/run.py": "af6dc5749882afa81c1fdaa243121cdd116ad24babb85400edb639fd465c8542"
+    "ci/p2/host_reuse/run.py": "9d7a3cd46905eb65e55a8122cf799c35469bce71b9424d619d59ad52daccd997"
   },
   "originalHostArtifact": {
     "artifactId": 12112643772,
@@ -78,5 +80,20 @@
   },
   "schemaVersion": 1,
   "sourceCommit": "eb10cedb772bc0496d67edd7a269679e24826b9f",
-  "sourceTree": "d6960a99a2f022a333c364fa4d28e264568a28ca"
+  "sourceTree": "d6960a99a2f022a333c364fa4d28e264568a28ca",
+  "startupAcknowledgementEvidence": {
+    "artifactBytes": 221822248,
+    "artifactId": 12133820810,
+    "artifactSHA256": "8e2078a83ac41be53582f9372511708f34fc41013c5b1dc6669315c48240ec8b",
+    "builderCommit": "b275276e9c90fb3a99938f3cfe62a77e59aa3e3e",
+    "diagnosticCode": "SS-LAUNCH-C11-L12",
+    "nativeObservationSHA256": "a83a481a88b13dc195add866131cce40ef1cf40c9898ac27709a18afbfb5970c",
+    "originalConclusion": "failure",
+    "originalResultReplaced": false,
+    "productionShellSHA256": "276085e8daa75ea3f255c8644f2e07fef31236db232e1f3ae1e0d68bc5567597",
+    "runAttempt": 1,
+    "runId": 39118510081,
+    "scope": "Exact notification Later then one exact SideStore OK presentation acknowledgement. All other prompts block; unchanged EN-HE-EN route and success gates, service fault remains unresolved.",
+    "serviceFailureResolved": false
+  }
 }

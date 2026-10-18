@@ -296,7 +296,8 @@ class LaunchPolicyTests(ContractFixture):
 
     def test_wrapper_integration_uses_report_not_attachments(self):
         observation = {'launchCount': 1, 'launchPolicy': success_policy(self.expected)}
-        with patch.object(RUN.HP, 'verify_observations', return_value={'report': observation, 'attachments': {'proof': 'bytes'}}):
+        with patch.object(RUN, 'SC') as startup:
+            startup.verify_observations.return_value = {'report': observation, 'attachments': {'proof': 'bytes'}}
             result = RUN.verify_observations_with_policy(self.base, {}, 'builder', self.expected)
         self.assertFalse(result['effectiveEnvironmentEmptyProven'])
 

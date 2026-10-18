@@ -14,6 +14,7 @@ final class HostSettingsProbeTests: XCTestCase {
     private var app: XCUIApplication!
     private var observations: [[String: Any]] = []
     private var navigation: [[String: Any]] = []
+    private var serviceFailure: [String: Any]?
     private var status = "blocked"
     private var stage = "before-launch"
     private var launchCount = 0
@@ -189,11 +190,12 @@ final class HostSettingsProbeTests: XCTestCase {
     override func tearDownWithError() throws {
         // Persist the original outcome before any extra XCUI call. Diagnostic
         // failure/timeout must not prevent this original report from being added.
-        let report: [String: Any] = [
+        var report: [String: Any] = [
             "identity": identity, "status": status, "stage": stage,
             "launchCount": launchCount, "navigation": navigation,
             "observations": observations, "launchPolicy": launchPolicy
         ]
+        if let serviceFailure { report["serviceFailure"] = serviceFailure }
         let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
         if status == "blocked", stage == "genuine-host-launch", launchCount == 1,
            launchCallEntered, !launchCallReturned, navigation.isEmpty, observations.isEmpty, app != nil {
@@ -221,9 +223,8 @@ final class HostSettingsProbeTests: XCTestCase {
     }
 
     private func cancelKnownNotificationExplanationIfPresent() {
-        // The source at the pinned commit defines Later as role: .cancel with
-        // an empty closure. Only Allow Notifications requests OS permission.
-        // Exact title, body and complete action inventory must all match.
+        // Only the exact source-owned Later action may precede the separately
+        // approved exact service-error acknowledgement. Neither requests permission.
         guard app.alerts.firstMatch.waitForExistence(timeout: 3) else { return }
         stage = "startup-prompt-inventory"
         XCTAssertEqual(app.alerts.count, 1)
@@ -236,21 +237,122 @@ final class HostSettingsProbeTests: XCTestCase {
         let labels = alert.staticTexts.allElementsBoundByIndex.map(\.label)
         XCTAssertLessThanOrEqual(labels.count, 64)
         XCTAssertTrue(labels.allSatisfy { $0.utf8.count <= 16_384 })
+        XCTAssertEqual(alert.label, title)
         XCTAssertEqual(labels.filter { Array($0.utf8) == Array(title.utf8) }.count, 1, "Unknown/ambiguous startup title")
         XCTAssertEqual(labels.filter { Array($0.utf8) == Array(body.utf8) }.count, 1, "Unknown/ambiguous startup message")
         let buttons = alert.buttons.allElementsBoundByIndex.map(\.label).sorted()
         XCTAssertEqual(buttons, [allow, later].sorted(), "Unexpected startup actions")
         let cancel = alert.buttons[later]
-        XCTAssertTrue(cancel.isHittable, "Known Later action is not hittable")
-        stage = "ordinary-known-later-cancellation"
-        cancel.tap()
-        let absent = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: alert)
-        XCTAssertEqual(XCTWaiter.wait(for: [absent], timeout: 5), .completed)
-        noUnexpectedAlerts()
-        capture("notice-after")
+        let hittable = cancel.isHittable
         navigation.append(["action": "known-notification-later", "title": title,
                            "body": body, "actualStaticTextLabels": labels, "buttons": buttons, "tapped": later,
-                           "hittableBeforeTap": true, "noAlertsAfterTap": true])
+                           "hittableBeforeTap": hittable, "tapAttempted": false, "tapReturned": false,
+                           "originalAlertAbsent": false, "successor": "not-observed"])
+        XCTAssertTrue(hittable, "Known Later action is not hittable")
+        stage = "ordinary-known-later-cancellation"
+        navigation[0]["tapAttempted"] = true
+        cancel.tap()
+        navigation[0]["tapReturned"] = true
+        // firstMatch can rebind to a distinct successor. Observe the exact
+        // original title rather than demanding that every possible alert vanish.
+        let original = app.alerts.matching(NSPredicate(format: "label == %@", title))
+        let absent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in original.count == 0 }, object: nil)
+        let result = XCTWaiter.wait(for: [absent], timeout: 5)
+        let originalAbsent = original.count == 0
+        navigation[0]["originalAlertAbsent"] = originalAbsent
+        XCTAssertEqual(result, .completed)
+        XCTAssertTrue(originalAbsent)
+        capture("notice-after")
+        let remaining = app.alerts.count
+        navigation[0]["successor"] = remaining == 0 ? "none" : "unclassified"
+        if remaining != 0 {
+            XCTAssertEqual(remaining, 1, "Multiple successor alerts block probe")
+            acknowledgeExactServiceFailure()
+        }
+        noUnexpectedAlerts()
+    }
+
+    private func publishStartupReceipt(_ phase: String) {
+        do {
+            let receipt: [String: Any] = ["identity": identity, "phase": phase,
+                "navigation": navigation, "serviceFailure": serviceFailure!]
+            let data = try JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys])
+            var line = Data("P2_STARTUP_ACKNOWLEDGEMENT_V1:".utf8)
+            line.append(data)
+            line.append(Data("\n".utf8))
+            FileHandle.standardOutput.write(line)
+        } catch {
+            XCTFail("Unable to retain exact startup action receipt")
+        }
+    }
+
+    private func acknowledgeExactServiceFailure() {
+        // Pinned production OK only clears the displayed issue/error. This is
+        // acknowledgement, never backend recovery, retry, authentication or copy.
+        stage = "service-error-inventory"
+        XCTAssertNil(serviceFailure, "Repeated service error blocks probe")
+        XCTAssertEqual(navigation.count, 1)
+        XCTAssertEqual(app.alerts.count, 1)
+        let title = "SideStore"
+        let body = "The embedded SideStore process could not be launched.\nError ID: SS-LAUNCH-C11-L12"
+        let exactAlerts = app.alerts.matching(NSPredicate(format: "label == %@", title)).containing(.staticText, identifier: body)
+        XCTAssertEqual(exactAlerts.count, 1, "Exact service alert identity missing or ambiguous")
+        let alert = exactAlerts.element(boundBy: 0)
+        let labels = alert.staticTexts.allElementsBoundByIndex.map(\.label)
+        XCTAssertLessThanOrEqual(labels.count, 64)
+        XCTAssertTrue(labels.allSatisfy { $0.utf8.count <= 16_384 })
+        XCTAssertEqual(alert.label, title)
+        XCTAssertEqual(labels.filter { Array($0.utf8) == Array(title.utf8) }.count, 1)
+        XCTAssertEqual(labels.filter { Array($0.utf8) == Array(body.utf8) }.count, 1, "Unknown service error blocks probe")
+        XCTAssertEqual(labels.sorted(), [title, body].sorted(), "Extra service-error text blocks probe")
+        let buttons = alert.buttons.allElementsBoundByIndex.map(\.label).sorted()
+        XCTAssertEqual(buttons, ["Copy Diagnostics", "OK"], "Unknown service-error actions block probe")
+        navigation[0]["successor"] = "exact-service-failure"
+        serviceFailure = ["diagnosticCode": "SS-LAUNCH-C11-L12", "title": title, "body": body,
+                          "actualStaticTextLabels": labels, "buttons": buttons,
+                          "presentationOnly": true, "resolved": false, "backendReadinessProven": false,
+                          "hittableBeforeTap": false, "preTapInventoryVerified": false, "acknowledgementAttempted": false,
+                          "acknowledgementReturned": false, "alertAbsentAfterAcknowledgement": false]
+        publishStartupReceipt("identified")
+        let ok = alert.buttons["OK"]
+        XCTAssertEqual(alert.buttons.matching(NSPredicate(format: "label == %@", "OK")).count, 1)
+        let hittable = ok.isHittable
+        serviceFailure?["hittableBeforeTap"] = hittable
+        navigation.append(["action": "known-service-error-ok", "title": title, "body": body,
+                           "actualStaticTextLabels": labels, "buttons": buttons, "tapped": "OK",
+                           "hittableBeforeTap": hittable, "preTapInventoryVerified": false, "tapAttempted": false, "tapReturned": false,
+                           "allAlertsAbsentAfterTap": false])
+        XCTAssertTrue(hittable, "Exact service-error OK is not hittable")
+        XCTAssertEqual(XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.count, 0, "OS prompt blocks acknowledgement")
+        stage = "ordinary-known-service-error-acknowledgement"
+        // Re-evaluate the title/body-bound query and complete inventory directly
+        // before the sole tap. A different live firstMatch can never inherit OK.
+        XCTAssertEqual(app.alerts.count, 1)
+        XCTAssertEqual(exactAlerts.count, 1)
+        XCTAssertEqual(alert.label, title)
+        XCTAssertEqual(alert.staticTexts.allElementsBoundByIndex.map(\.label).sorted(), [title, body].sorted())
+        XCTAssertEqual(alert.buttons.allElementsBoundByIndex.map(\.label).sorted(), ["Copy Diagnostics", "OK"])
+        XCTAssertEqual(alert.buttons.matching(NSPredicate(format: "label == %@", "OK")).count, 1)
+        XCTAssertTrue(ok.isHittable)
+        navigation[1]["preTapInventoryVerified"] = true
+        serviceFailure?["preTapInventoryVerified"] = true
+        navigation[1]["tapAttempted"] = true
+        serviceFailure?["acknowledgementAttempted"] = true
+        ok.tap()
+        navigation[1]["tapReturned"] = true
+        serviceFailure?["acknowledgementReturned"] = true
+        let absent = XCTNSPredicateExpectation(predicate: NSPredicate { [weak self] _, _ in
+            self?.app.alerts.count == 0
+        }, object: nil)
+        let result = XCTWaiter.wait(for: [absent], timeout: 5)
+        let allAbsent = app.alerts.count == 0
+        navigation[1]["allAlertsAbsentAfterTap"] = allAbsent
+        serviceFailure?["alertAbsentAfterAcknowledgement"] = allAbsent
+        XCTAssertEqual(result, .completed)
+        XCTAssertTrue(allAbsent, "Repeated or unknown successor alert blocks probe")
+        publishStartupReceipt("acknowledged")
+        noUnexpectedAlerts()
+        // serviceFailure deliberately remains unresolved in every later outcome.
     }
 
     private func picker() -> XCUIElement {

@@ -23,7 +23,7 @@ import types
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 BASE_COMMIT = 'bcd6d06b94853537cc6c66474d0b2b65a2712eb1'
-APPROVED_INPUTS = '5eac16cf1843f6b42255c944c14ac3c03d23b82dcea8746d01fb61a28e898b24'
+APPROVED_INPUTS = '2324c38e1ff342d5d0ec88d10c76746a0be170507b74a7bc98c272a39bc8cb48'
 EXPERIMENT_SECONDS = 18 * 60
 FINALIZATION_SECONDS = 6 * 60
 
@@ -54,7 +54,7 @@ require(INSTALL_PATH.is_file() and not any(p.is_symlink() for p in (INSTALL_PATH
 require(not (INSTALL_PATH.parent / '__pycache__').exists() and not INSTALL_PATH.with_suffix('.pyc').exists(), 'Unreviewed transitive bytecode cache before import')
 CAP = load_pinned(ROOT / 'ci/p2/runner_capability/run.py', '71813f04ea31e177bc110de5dc6e537667c550fecd888b4c809a389c25050e1a', 'p2_reuse_command_runtime')
 HP = load_pinned(ROOT / 'ci/p2/host_probe/run.py', '72dd4074ea9e03c09ec967f2b8e5841af521402af884c37d5fe5aca3eded547e', 'p2_reuse_unchanged_host_checks')
-RC = AC = FD = None
+RC = AC = FD = SC = None
 
 
 def normalized_source(raw, filename):
@@ -66,7 +66,7 @@ def normalized_source(raw, filename):
 
 
 def verify_observations_with_policy(attachments, identity, builder, expected):
-    observations = HP.verify_observations(attachments, identity, builder)
+    observations = SC.verify_observations(attachments, identity, builder, HP)
     return RC.verify_launch_policy(observations['report'], expected)
 
 
@@ -156,6 +156,7 @@ class ReuseProbe(CAP.Capability):
         self.runner_snapshot = self.source_snapshot = self.generated_environment = None
         self.generated = self.wiring = None
         self.failure_diagnostics = None
+        self.startup_receipts = None
         self.native_result = self.work / 'host-probe.xcresult'
         self.attachments = self.work / 'attachments'
         self.device_name = 'P2-Reused-Host-' + os.environ.get('GITHUB_RUN_ID', 'local') + '-' + os.environ.get('GITHUB_RUN_ATTEMPT', '1')
@@ -254,7 +255,7 @@ class ReuseProbe(CAP.Capability):
                 '-maximum-concurrent-test-simulator-destinations', '1', '-resultBundlePath', str(self.native_result)]
 
     def verify_inputs(self):
-        global RC, AC, FD
+        global RC, AC, FD, SC
         require(self.approved == APPROVED_INPUTS and sha(HERE / 'binding.json') == APPROVED_INPUTS, 'Approved reuse input seal differs')
         self.binding = CAP.strict_json((HERE / 'binding.json').read_text())
         require({p.relative_to(HERE).as_posix() for p in HERE.rglob('*') if not p.is_dir()} ==
@@ -273,6 +274,7 @@ class ReuseProbe(CAP.Capability):
         RC = load_pinned(HERE / 'runner_contract.py', self.binding['files']['runner_contract.py'], 'p2_reuse_runner_contract')
         AC = load_pinned(HERE / 'artifact_contract.py', self.binding['files']['artifact_contract.py'], 'p2_reuse_artifact_contract')
         FD = load_pinned(HERE / 'failure_diagnostics.py', self.binding['files']['failure_diagnostics.py'], 'p2_reuse_failure_diagnostics')
+        SC = load_pinned(HERE / 'startup_contract.py', self.binding['files']['startup_contract.py'], 'p2_reuse_startup_contract')
         self.source_snapshot = CAP.snapshot(HERE)
         CAP.write(self.evidence / 'input-binding.json', self.binding)
 
@@ -400,6 +402,7 @@ class ReuseProbe(CAP.Capability):
         self.retain_try('unbuffered launch policy events', lambda: CAP.write(self.evidence / 'requested-launch-policy-events.json',
             RC.policy_events(receipt['stdout'] + '\n' + receipt['stderr'], self.generated_environment)))
         self.collect_failure_diagnostics(receipt['stdout'] + '\n' + receipt['stderr'])
+        self.retain_try('durable startup actions', lambda: self.collect_startup_events(receipt['stdout'] + '\n' + receipt['stderr']))
         self.harvest_results()
         require(receipt['returncode'] == 0 and not receipt.get('error') and not receipt.get('quiescenceError'), 'Native test did not pass')
         require(self.failure_diagnostics is not None and self.failure_diagnostics['status'] == 'not-reached' and
@@ -409,6 +412,9 @@ class ReuseProbe(CAP.Capability):
         policy = verify_observations_with_policy(self.attachments, self.identity, self.report['probeBuilderCommit'], self.generated_environment)
         RC.verify_policy_events(CAP.strict_json((self.evidence / 'requested-launch-policy-events.json').read_text()), self.generated_environment)
         CAP.write(self.evidence / 'verified-requested-launch-policy.json', policy)
+        require(self.startup_receipts is not None, 'Startup action receipt collection failed')
+        CAP.write(self.evidence / 'verified-startup-actions.json', SC.verify_startup_events(
+            self.startup_receipts, CAP.strict_json((self.evidence / 'native-observation.json').read_text())))
         self.report.update(nativeTestExecuted=True, hostLaunchAttempted=True, hostLaunched=True)
         self.stage = 'postnavigation-identity'
         self.adapter.installed_identity_gate(self.settings, 'postnavigation', 'Installed identity changed after navigation')
@@ -453,6 +459,25 @@ class ReuseProbe(CAP.Capability):
         except Exception as error:
             self.diagnostic_error('Failure-only attachments: ' + type(error).__name__ + ': ' + str(error))
 
+    def collect_startup_events(self, output):
+        identity = {key: self.identity[key] for key in ('bundleIdentifier', 'executableSHA256')}
+        identity.update(sourceCommit=HP.SOURCE, sourceTree=HP.TREE, builderCommit=self.report['probeBuilderCommit'])
+        events = SC.startup_events(output, identity, CAP.strict_json)
+        CAP.write(self.evidence / 'startup-action-events.json', events)
+        self.startup_receipts = events
+        if events:
+            self.retain_service_failure(events[-1])
+
+    def retain_service_failure(self, observation):
+        # Keep the original native outcome and fault independent. A later Settings
+        # success never resolves a launch/service failure acknowledged with OK.
+        fault = SC.service_failure(observation)
+        if fault is not None:
+            self.report['observedServiceFailure'] = fault
+            self.report['serviceFailureUnresolved'] = True
+            self.report['backendReadinessProven'] = False
+            CAP.write(self.evidence / 'unresolved-service-failure.json', fault)
+
     def harvest_results(self):
         if not self.native_result.is_dir():
             if self.failure_diagnostics is not None and self.failure_diagnostics['status'] != 'not-reached':
@@ -470,6 +495,7 @@ class ReuseProbe(CAP.Capability):
                 rows = HP.attachment_map(self.attachments)
                 observation = CAP.strict_json(rows['host-probe-observations.json'].read_text())
                 CAP.write(self.evidence / 'native-observation.json', observation)
+                self.retain_service_failure(observation)
                 self.report['nativeTestExecuted'] = True
                 self.report['hostLaunchAttempted'] = type(observation.get('launchCount')) is int and observation['launchCount'] > 0
             except Exception as error:

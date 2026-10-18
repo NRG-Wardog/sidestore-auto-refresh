@@ -111,8 +111,8 @@ class FailureRuntimeTests(unittest.TestCase):
 
     def test_successful_route_bytes_unchanged_except_observational_flag(self):
         source = (HERE / 'HostSettingsProbeTests.swift.in').read_text()
-        route = source[source.index('    private func noUnexpectedAlerts()'):].replace('        launchCallReturned = true\n', '', 1).replace('        launchCallEntered = true\n', '', 1)
-        self.assertEqual(hashlib.sha256(route.encode()).hexdigest(), 'c74b2b54ab512d0c70325d058cc0c1aeeafabcd68350ae170fb863e261bc3497')
+        route = source[source.index('    private func picker()'):].replace('        launchCallReturned = true\n', '', 1).replace('        launchCallEntered = true\n', '', 1)
+        self.assertEqual(hashlib.sha256(route.encode()).hexdigest(), 'f987aad34ee02b82cbdb4189cc20e2b78ab4c8ae36dfc4d5b3b1b3ad97e4d4cd')
         setup = source.split('    override func setUpWithError()', 1)[1].split('    private func attachText', 1)[0]
         self.assertEqual(setup, ' throws {\n        continueAfterFailure = false\n    }\n\n')
         self.assertEqual(source.count('launchCallReturned = true'), 1)
