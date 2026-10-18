@@ -64,7 +64,7 @@ class ContractFixture(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.base = Path(self.tmp.name)
+        self.base = Path(self.tmp.name).resolve(strict=True)
         self.products = self.base / 'Products'
         self.products.mkdir()
         self.layout = json.loads((HERE / 'products-layout.json').read_text())
@@ -278,7 +278,7 @@ class OwnedCleanupTests(unittest.TestCase):
 
     def test_real_owned_python_timeout_signals_only_before_reap(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td); (root / 'evidence').mkdir()
+            root = Path(td).resolve(strict=True); (root / 'evidence').mkdir()
             probe = RUN.ReuseProbe(root / 'artifact', root / 'work', root / 'evidence', 'seal')
             argv = [sys.executable, '-B', '-c', 'import time; time.sleep(30)']
             children, signals = [], []
@@ -377,7 +377,7 @@ class OwnedCleanupTests(unittest.TestCase):
 
     def test_timeout_preserved_after_cleanup_reaps_zero_exit(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td); (root / 'evidence').mkdir()
+            root = Path(td).resolve(strict=True); (root / 'evidence').mkdir()
             probe = RUN.ReuseProbe(root / 'artifact', root / 'work', root / 'evidence', 'seal')
             child = self.Child(poll_exit=True)
             child.communicate = unittest.mock.Mock(side_effect=[subprocess.TimeoutExpired('synthetic', 1, output=b'partial'), ('final', '')])
@@ -392,7 +392,7 @@ class OwnedCleanupTests(unittest.TestCase):
 
     def test_custom_sigchld_handler_blocks_process_start(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td); (root / 'evidence').mkdir()
+            root = Path(td).resolve(strict=True); (root / 'evidence').mkdir()
             probe = RUN.ReuseProbe(root / 'artifact', root / 'work', root / 'evidence', 'seal')
             with patch.object(RUN.subprocess, 'Popen') as popen, patch.dict(os.environ, {'DEVELOPER_DIR': RUN.CAP.DEVELOPER}), \
                  patch.object(RUN.signal, 'getsignal', return_value=signal.SIG_IGN):
@@ -401,7 +401,7 @@ class OwnedCleanupTests(unittest.TestCase):
 
     def test_exact_workflow_retained_visible_and_bound_to_current_seal(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td); evidence = root / 'evidence'; evidence.mkdir()
+            root = Path(td).resolve(strict=True); evidence = root / 'evidence'; evidence.mkdir()
             probe = RUN.ReuseProbe(root / 'artifact', root / 'work', evidence, RUN.APPROVED_INPUTS)
             raw = (ROOT / '.github/workflows/p2-host-reuse.yml').read_bytes()
             probe.binding = {'normalizedSources': {'.github/workflows/p2-host-reuse.yml': hashlib.sha256(RUN.normalized_source(raw, '.github/workflows/p2-host-reuse.yml')).hexdigest()}}
@@ -416,7 +416,7 @@ class OwnedCleanupTests(unittest.TestCase):
 class OrchestrationTests(unittest.TestCase):
     def test_unreviewed_bytecode_cache_rejected_before_import(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td); target = root / 'ci/p2/host_reuse/run.py'; target.parent.mkdir(parents=True)
+            root = Path(td).resolve(strict=True); target = root / 'ci/p2/host_reuse/run.py'; target.parent.mkdir(parents=True)
             target.write_bytes((HERE / 'run.py').read_bytes())
             parser = root / 'ci/p2/host_probe/install_contract.py'; parser.parent.mkdir(parents=True)
             parser.write_bytes((ROOT / 'ci/p2/host_probe/install_contract.py').read_bytes())
@@ -426,7 +426,7 @@ class OrchestrationTests(unittest.TestCase):
 
     def test_finalization_deadline_refuses_new_archive(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td); probe = RUN.ReuseProbe(root / 'artifact', root / 'work', root / 'evidence', 'seal')
+            root = Path(td).resolve(strict=True); probe = RUN.ReuseProbe(root / 'artifact', root / 'work', root / 'evidence', 'seal')
             probe.deadline = 0
             with patch.object(RUN.CAP, 'archive_tree') as archive, self.assertRaisesRegex(ValueError, 'budget exhausted'):
                 probe.archive_bounded(root, root / 'output.zip')
@@ -434,7 +434,7 @@ class OrchestrationTests(unittest.TestCase):
 
     def test_transitive_import_tamper_rejected_before_execution(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td); target = root / 'ci/p2/host_reuse/run.py'; target.parent.mkdir(parents=True)
+            root = Path(td).resolve(strict=True); target = root / 'ci/p2/host_reuse/run.py'; target.parent.mkdir(parents=True)
             target.write_bytes((HERE / 'run.py').read_bytes())
             parser = root / 'ci/p2/host_probe/install_contract.py'; parser.parent.mkdir(parents=True)
             marker = root / 'executed'; parser.write_text('from pathlib import Path\nPath(' + repr(str(marker)) + ').touch()\n')
@@ -444,7 +444,7 @@ class OrchestrationTests(unittest.TestCase):
 
     def test_load_pinned_hashes_same_bytes_before_execution(self):
         with tempfile.TemporaryDirectory() as td:
-            p = Path(td) / 'module.py'; p.write_text('raise AssertionError("must not run")\n')
+            p = Path(td).resolve(strict=True) / 'module.py'; p.write_text('raise AssertionError("must not run")\n')
             with self.assertRaisesRegex(ValueError, 'changed dependency'): RUN.load_pinned(p, '0' * 64, 'no_execute')
 
     def test_seal_normalization_is_unique_and_non_circular(self):
@@ -456,8 +456,8 @@ class OrchestrationTests(unittest.TestCase):
 
     def test_native_command_excludes_overrides_and_has_one_destination(self):
         with tempfile.TemporaryDirectory() as td:
-            probe = RUN.ReuseProbe(Path(td) / 'artifact', Path(td) / 'work', Path(td) / 'evidence', 'seal')
-            probe.device = '12345678-1234-1234-1234-123456789012'; probe.generated = Path(td) / 'generated.xctestrun'
+            probe = RUN.ReuseProbe(Path(td).resolve(strict=True) / 'artifact', Path(td).resolve(strict=True) / 'work', Path(td).resolve(strict=True) / 'evidence', 'seal')
+            probe.device = '12345678-1234-1234-1234-123456789012'; probe.generated = Path(td).resolve(strict=True) / 'generated.xctestrun'
             argv = probe.native_command(); self.assertTrue(probe.allowed(argv)); self.assertEqual(argv.count('-destination'), 1)
             for value in ('-AppleLanguages', 'DYLD_INSERT_LIBRARIES=x', 'CODE_SIGNING_ALLOWED=NO'):
                 self.assertFalse(probe.allowed(argv + [value]))
@@ -466,7 +466,7 @@ class OrchestrationTests(unittest.TestCase):
 
     def test_exhausted_shared_deadline_starts_no_process(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td); (root / 'evidence').mkdir()
+            root = Path(td).resolve(strict=True); (root / 'evidence').mkdir()
             probe = RUN.ReuseProbe(root / 'artifact', root / 'work', root / 'evidence', 'seal'); probe.deadline = 0
             with patch.object(RUN.CAP.subprocess, 'Popen') as popen:
                 result = probe.command(['xcodebuild', '-version'], 'expired')
@@ -478,7 +478,7 @@ class OrchestrationTests(unittest.TestCase):
         for key in ('Settings', 'Stay Informed About Refreshes', 'Later', 'Allow Notifications', 'LiveContainer can notify you when a refresh starts, completes, or needs attention. Nothing runs differently if you skip this.'):
             catalog['strings'][key] = {'localizations': {code: {'stringUnit': {'value': 'הגדרות' if code == 'he' and key == 'Settings' else key}} for code in ('en', 'he')}}
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td); source = root / 'source'; (source / 'Resources').mkdir(parents=True)
+            root = Path(td).resolve(strict=True); source = root / 'source'; (source / 'Resources').mkdir(parents=True)
             (source / 'Resources/Localizable.xcstrings').write_text(json.dumps(catalog)); (root / 'work').mkdir(); (root / 'evidence').mkdir()
             probe = RUN.ReuseProbe(root / 'artifact', root / 'work', root / 'evidence', 'seal')
             probe.identity = {'bundleIdentifier': RUN.HP.BUNDLE_ID, 'executableSHA256': 'a' * 64}
@@ -513,6 +513,55 @@ class OrchestrationTests(unittest.TestCase):
         self.assertLess(body.index("'prelaunch'"), body.index('self.command(self.native_command()'))
         self.assertLess(body.index('verify_observations_with_policy('), body.index("'postnavigation'"))
         self.assertGreater(body.index("self.report['status'] = 'BOUNDED_SETTINGS_ROUTE_OBSERVED'"), body.index("'postnavigation'"))
+
+
+class TemporaryRootAliasTests(unittest.TestCase):
+    def run_under_owned_temp_alias(self, cases):
+        # Canonicalize only directories created and owned by these fixtures.
+        # Runtime paths and attacker-created symlinks retain strict rejection.
+        original = tempfile.TemporaryDirectory
+        with original() as td:
+            parent = Path(td).resolve(strict=True)
+            real = parent / 'real'; real.mkdir()
+            alias = parent / 'temp-alias'; alias.symlink_to(real, target_is_directory=True)
+            created = []
+            def aliased_directory(*args, **kwargs):
+                self.assertNotIn('dir', kwargs)
+                temporary = original(*args, dir=str(alias), **kwargs)
+                created.append(Path(temporary.name))
+                self.assertIn(alias, Path(temporary.name).parents)
+                return temporary
+            with patch.object(tempfile, 'TemporaryDirectory', side_effect=aliased_directory):
+                for case in cases:
+                    with self.subTest(case=case.id()):
+                        result = unittest.TestResult()
+                        case.run(result)
+                        self.assertEqual(result.testsRun, 1)
+                        self.assertEqual(result.skipped, [])
+                        self.assertEqual(result.errors, [])
+                        self.assertEqual(result.failures, [])
+            self.assertEqual(len(created), len(cases))
+            self.assertTrue(alias.is_symlink())
+            self.assertEqual(list(real.iterdir()), [])
+
+    def test_actual_fixtures_use_canonical_owned_temp_roots(self):
+        from test_artifact_contract import ArtifactContractTests
+        from test_fetch_artifact import FetchArtifactTests
+        self.run_under_owned_temp_alias([
+            ArtifactContractTests('test_complete_authentication_and_restore'),
+            FetchArtifactTests('test_success_exact_bytes_and_api_only_credentials'),
+            GeneratedContractTests('test_exact_reference_and_universal_products'),
+            OrchestrationTests('test_load_pinned_hashes_same_bytes_before_execution'),
+        ])
+
+    def test_actual_guards_still_reject_attacker_linked_paths(self):
+        from test_artifact_contract import ArtifactContractTests
+        from test_fetch_artifact import FetchArtifactTests
+        self.run_under_owned_temp_alias([
+            ArtifactContractTests('test_restore_cannot_write_through_symlink'),
+            FetchArtifactTests('test_symlinked_output_parent_is_rejected'),
+            GeneratedContractTests('test_linked_runner_fails'),
+        ])
 
 
 if __name__ == '__main__': unittest.main()

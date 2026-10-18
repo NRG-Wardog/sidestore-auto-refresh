@@ -75,7 +75,7 @@ class FetchArtifactTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve(strict=True)
         self.output = self.root / 'download'
         self.raw = b'synthetic artifact payload: never executed\n'
         self.stack = ExitStack()

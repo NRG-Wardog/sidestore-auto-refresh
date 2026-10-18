@@ -21,9 +21,9 @@
     "generated-contract.json": "996bc66327a2f09d28081482272bff9bd3508bfea8ed667f7bd3a96816555d66",
     "products-layout.json": "4cc549d3ef761202fc55a8b9512a5ac17af39c81daab2c32041fb6cb4b3a3a87",
     "runner_contract.py": "cdb04f14c4bb7807bf21efe3a843702dfc5bc4e5d6dac5a9ca98d493ba9b4467",
-    "test_artifact_contract.py": "521ebac7df9228dc999c6ae641aa3cb5750e09b1aae220cf20f2a3be53aacb72",
-    "test_fetch_artifact.py": "4226c7017978f3622ef8d39553b7a71ea4003babaefbfa5206596fccf83c181e",
-    "test_reuse.py": "861fdaddd70a93446e5e838ed9a77de53a8a129efad99f43d8dbeef74d88240f"
+    "test_artifact_contract.py": "8498befd8051afbc463cee8dd85a6e5fa90e977438a178dcee2ffb313057dbeb",
+    "test_fetch_artifact.py": "6fd7b54474b2b1c1b4edd69d8afd2e42abbde1e7470f9e87998fb390e224fa3d",
+    "test_reuse.py": "f940b56e6c56b2a9ee7c2a657c2a95ab3e9c88c7e43a7906ce6338ec1532b802"
   },
   "normalization": "Only the one approved-input SHA field is replaced with TO_BE_SEALED; all other bytes remain bound.",
   "normalizedSources": {

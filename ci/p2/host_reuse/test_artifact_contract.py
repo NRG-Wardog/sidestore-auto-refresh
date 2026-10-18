@@ -186,7 +186,7 @@ class ArtifactContractTests(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve(strict=True)
 
     def patch_anchor(self, key, raw):
         self.stack.enter_context(patch.object(c, key, c.digest(raw)))
