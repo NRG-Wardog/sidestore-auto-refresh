@@ -160,6 +160,7 @@ def _verify_arm(report, groups, root, valid_png, arm):
     need(arm in ARMS and isinstance(report, dict), 'Wrong requested arm')
     finite_tree(report)
     need(report.get('schema') == 'p2-form-direction-v1' and report.get('arm') == arm and report.get('method') == ARMS[arm], 'Wrong report identity')
+    need(report.get('diagnosticOnly') is not True, 'Diagnostic-only identity failure is never admissible')
     need(report.get('completed') is True and report.get('failures') == [], 'Incomplete/failed native collection')
     need(report.get('visualVerdict') == VISUAL_PENDING and isinstance(report.get('scope'), str) and report['scope'], 'Unsupported visual acceptance/scope')
     rows = report.get('observations')

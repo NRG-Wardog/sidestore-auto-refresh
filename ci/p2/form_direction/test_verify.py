@@ -94,6 +94,19 @@ class VerifyTests(unittest.TestCase):
             row['geometry']['p2-direction-first']['frame']['x']=100
             row['geometry']['contentOrderCorrect']=False
         self.save();self.assertFalse(self.check()['geometryAcceptance'])
+    def test_diagnostic_latch_rejects_even_forged_success(self):
+        self.report['diagnosticOnly'] = True
+        self.report['completed'] = True
+        self.report['failures'] = []
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'Diagnostic-only'):
+            self.check()
+    def test_diagnostic_captures_cannot_replace_accepted(self):
+        self.report['diagnosticOnly'] = True
+        self.report['diagnosticObservations'] = self.report.pop('observations')
+        self.save()
+        with self.assertRaises(ValueError):
+            self.check()
     def test_aba_probe_churn_still_rejected(self):
         # Same final identity/locale/direction does not excuse intermediate churn.
         def mutate():

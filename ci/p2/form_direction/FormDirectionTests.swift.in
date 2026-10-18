@@ -89,6 +89,11 @@ private enum P2FormStateDifference {
     private var observations: [[String: Any]] = []
     private var transitions: [[String: Any]] = []
     private var failures: [String] = []
+    // One-way diagnostic latch. Never rebase initialState or admit this run.
+    private var identityFailureLatched = false
+    private var identityFailures: [[String: String]] = []
+    private var diagnosticObservations: [[String: Any]] = []
+    private var diagnosticTransitions: [[String: Any]] = []
     private var initialState: [String: Any] = [:]
     private var lastValidState: [String: Any] = [:]
     private var lastReadStateJSON = ""
@@ -177,7 +182,19 @@ private enum P2FormStateDifference {
             let before = initialState["probes"] as? [String: [String: Any]] ?? [:]
             let after = value["probes"] as? [String: [String: Any]] ?? [:]
             for name in probeNames {
-                try require(before[name]?["identity"] as? String == after[name]?["identity"] as? String, "Probe identity changed: " + name)
+                if before[name]?["identity"] as? String != after[name]?["identity"] as? String {
+                    // Keep the launch baseline and the first failure per named probe.
+                    // This continuation gathers pixels only; every other gate still throws.
+                    if !identityFailures.contains(where: { $0["probe"] == name }) {
+                        let message = "Probe identity changed: " + name
+                        identityFailures.append(["probe": name,
+                            "initial": before[name]?["identity"] as? String ?? "<missing>",
+                            "observed": after[name]?["identity"] as? String ?? "<missing>"])
+                        failures.append(message)
+                        XCTFail(message)
+                    }
+                    identityFailureLatched = true
+                }
             }
         }
     }
@@ -260,9 +277,11 @@ private enum P2FormStateDifference {
         }
         try checkState(after, language: language)
         try require(equal, "App state changed during screenshot/AX capture")
-        observations.append(["stage": stage, "language": language, "stateBefore": before, "stateAfter": after,
+        let observation: [String: Any] = ["stage": stage, "language": language, "stateBefore": before, "stateAfter": after,
             "captureStartedUptime": started, "pngFinishedUptime": pngFinished, "captureFinishedUptime": finished,
-            "png": png, "ax": ax, "geometry": bounds])
+            "png": png, "ax": ax, "geometry": bounds]
+        if identityFailureLatched { diagnosticObservations.append(observation) }
+        else { observations.append(observation) }
         return finished
     }
     private func pair(_ prefix: String, language: String) throws {
@@ -326,18 +345,23 @@ private enum P2FormStateDifference {
                 && (newProbes[probe]?["uptime"] as? Double ?? -1) > (oldProbes[probe]?["uptime"] as? Double ?? 0),
                 "App-process probe did not advance across transition: " + probe)
         }
-        transitions.append(["from": from, "to": language, "before": before, "after": after,
+        let transition: [String: Any] = ["from": from, "to": language, "before": before, "after": after,
             "pickerTap": pickerTap, "optionTap": optionTap, "pickerTapStartedUptime": pickerTapStarted,
             "pickerCandidates": pickerCandidates, "optionRole": optionRole,
             "buttonCandidates": buttonCandidates, "textCandidates": textCandidates,
             "optionContainment": optionContainment, "buttonTextDescendants": buttonTextDescendants,
             "tapStartedUptime": tapStarted, "tapFinishedUptime": tapFinished,
-            "readyUptime": ProcessInfo.processInfo.systemUptime])
+            "readyUptime": ProcessInfo.processInfo.systemUptime]
+        if identityFailureLatched { diagnosticTransitions.append(transition) }
+        else { transitions.append(transition) }
     }
     private func finish() {
         guard !reported else { return }; reported = true
         var result: [String: Any] = ["schema": "p2-form-direction-v1", "arm": arm, "method": method,
             "completed": completed, "failures": failures, "observations": observations,
+            "diagnosticOnly": identityFailureLatched, "identityFailures": identityFailures,
+            "diagnosticObservations": diagnosticObservations,
+            "diagnosticTransitions": diagnosticTransitions,
             "transitions": transitions, "finalState": lastValidState,
             "visualVerdict": "not-evaluated-requires-independent-raster-review",
             "scope": "standalone exact production Picker with shared synthetic Form content; not genuine host or complete preservation proof"]
@@ -377,8 +401,9 @@ private enum P2FormStateDifference {
         try pair("he-selected", language: "he")
         try select("en")
         try pair("en-return", language: "en")
-        try require(observations.count == 6 && transitions.count == 2, "Incomplete bounded round trip")
-        completed = true
+        try require(observations.count + diagnosticObservations.count == 6
+            && transitions.count + diagnosticTransitions.count == 2, "Incomplete bounded round trip")
+        completed = !identityFailureLatched && failures.isEmpty
     }
     func testControlRoundTrip() throws { try run("control", method: "testControlRoundTrip") }
     func testCandidateRoundTrip() throws { try run("candidate", method: "testCandidateRoundTrip") }

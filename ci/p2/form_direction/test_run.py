@@ -389,3 +389,29 @@ class ProbeIsolationContracts(unittest.TestCase):
         self.assertIn('"uptime": ProcessInfo.processInfo.systemUptime',record)
         self.assertIn('"revision": (previous?["revision"] as? Int ?? 0) + 1',record)
         self.assertIn('probeRevision += 1',record)
+
+class DiagnosticContinuationContracts(unittest.TestCase):
+    def source(self): return (HERE/'FormDirectionTests.swift.in').read_text()
+    def test_latch_has_no_reset_and_baseline_not_rebased(self):
+        s=self.source()
+        self.assertEqual(s.count('identityFailureLatched = false'),1)
+        self.assertEqual(s.count('initialState = try state()'),1)
+        self.assertIn('completed = !identityFailureLatched && failures.isEmpty',s)
+        self.assertIn('identityFailures.contains(where:',s)
+    def test_diagnostic_and_accepted_evidence_are_separate(self):
+        s=self.source()
+        self.assertIn('if identityFailureLatched { diagnosticObservations.append(observation) }',s)
+        self.assertIn('else { observations.append(observation) }',s)
+        self.assertIn('if identityFailureLatched { diagnosticTransitions.append(transition) }',s)
+        self.assertIn('else { transitions.append(transition) }',s)
+    def test_capture_equality_remains_mandatory_before_collection(self):
+        s=self.source().split('private func capture(',1)[1].split('private func pair(',1)[0]
+        self.assertIn('NSDictionary(dictionary: before).isEqual(to: after)',s)
+        self.assertLess(s.index('try require(equal,'),s.index('diagnosticObservations.append'))
+        self.assertIn('try checkState(after, language: language)',s)
+    def test_only_cross_transition_probe_identity_uses_nonthrowing_failure(self):
+        s=self.source().split('private func checkState(',1)[1].split('private func frame(',1)[0]
+        for required in ['Wrong actual environment','Missing process/session identity','Unexpected fixture text mutation','State identity/content changed','App process changed']:
+            self.assertIn(required,s)
+        self.assertIn('XCTFail(message)',s)
+        self.assertIn('failures.append(message)',s)
