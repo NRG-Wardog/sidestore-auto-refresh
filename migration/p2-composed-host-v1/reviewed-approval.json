@@ -1,0 +1,129 @@
+{
+  "files": {
+    "anisette-generated/maintained-source-manifest.json": "e3d2831a74edb3407bd261b4ccba0da1951e7926ff75233c70e1c8cfc5c05aa6",
+    "compatibility-registry.json": "542f353477293d1e46899db0f8704b19386d98be84c0c34ab101af2270942c9f",
+    "composition-parent-delta.json": "6677f3525a2af55d9873b570d39f3da473d1c3f3dc6fd87ef7d5941e4eacced8",
+    "historical-p0/SideSign-resolver.json": "0c4292e3983d1e0b19f119e3a6ba03ef850b609c23a7a0127e2ab1ccd0b6f6a5",
+    "historical-p0/SideStore-resolver.json": "0a4fb244a02272435f2b4405537cb38006feabab4c2e1cba8ad74235ed76e6fc",
+    "historical-p0/allocation-helper-run.json": "d41dd4b1220dc3b1e28cdd9a7b8d345dc94d8b7ac6a6fa57735f17a0450eb49c",
+    "historical-p0/allocation-helper.json": "723a4f98cd83ddd32aaf5023122dc4cc8b60e9e2ad60baa836bb2d3fa7a9b349",
+    "historical-p0/anisette-generated/maintained-source-manifest.json": "e3d2831a74edb3407bd261b4ccba0da1951e7926ff75233c70e1c8cfc5c05aa6",
+    "historical-p0/compatibility-registry.json": "2c71c875fa0aef9691654fe3f35e6f52efd73aa23d41d5a5869091e2d374bdd4",
+    "historical-p0/historical-bounds-approval.json": "f736d82fcdce1be06b92d1581f6509c1db2375a0a9620eeed52e0b3766f7d0bb",
+    "historical-p0/historical-bounds-pins.json": "1b0a40adb3ddebef6df334868eba0f6c16c72abd0c935f6162607e1b7034cbc0",
+    "historical-p0/historical-evidence.json": "457d0287048b45a21fd825421fe649908109042fc8bb685e28c0978b6400a36d",
+    "historical-p0/maintained-sources.json": "4a3b1e154e6a4cd1ce10cee4c0e7e068948ce3cce702e232c273461b3906a7b6",
+    "historical-p0/metadata-helper.json": "f9194eb7383d918a426067bc7760f7c937a7610812834112a1be0d8ae78d8542",
+    "historical-p0/native-receipt.json": "e362e243f25db321b2c0060b955a1d1bf458749431c8c58fe2d5e630b0ef7dbe",
+    "historical-p0/owners/AnisetteKit/runtime-contract.json": "326ee9df702af23727f6adccefa8852961a4acbf595be46f79bffdc87f333bc7",
+    "historical-p0/owners/LiveContainer/runtime-contract.json": "b93c61909366bb2dd150089ba4d6e6888313af9c6637a6ed8d5881a693270d6c",
+    "historical-p0/owners/SideSign/runtime-contract.json": "097a1bc54a5bb131adab203bc3ae0cb4d90669e2e427a8d246a38848de19f98e",
+    "historical-p0/owners/SideStore/runtime-contract.json": "52133494240cfb13dd7ae673f55b88f4ceb298ac43bdcc100255b0fe216a0db4",
+    "historical-p0/owners/idevice/runtime-contract.json": "c2950501845ad93280e273c58ce055de7df8808864d26b5b139d8e6aaeb11aa1",
+    "historical-p0/owners/jktcp/runtime-contract.json": "664fe4ff1ce734bd8fb37400d09a190fc4defae795b3e449a92e33ee97e344ec",
+    "historical-p0/owners/minimuxer/runtime-contract.json": "2eb4f6ef7906770c848b6f07403af16722d4a0cc5ddbe581df86cc0743650174",
+    "historical-p0/provenance/source-evidence.json": "84505271869acfaed2cafe23d7cd6bb02ff6d4c7ed3e284a0edd1734b8dbe132",
+    "historical-p0/resolver-locks/SideSign.Package.resolved.after": "560c36d844b162b942175385490bce7368015a75164c1f4ea6229cdf6339a961",
+    "historical-p0/resolver-locks/SideSign.Package.resolved.before": "5af998d3a0ffd5c8589a2237338e395aa61281a02d3803f25c2cc5a5125169bc",
+    "historical-p0/resolver-locks/SideStore.Package.resolved.after": "b3dc185eaf06254e079170681b0ea528b95d8355513e296e60aa0e469c341764",
+    "historical-p0/resolver-locks/SideStore.Package.resolved.before": "2b7800c701ffdd18218f288c0c789526e44ff836080772a2337436b509ed0b81",
+    "historical-p0/reviewed-ak-manifest.json": "f64479b0daa40210864e5f9c7f5290e42b1ce03eee4fde50858714db2cb335df",
+    "historical-p0/reviewed-approval.json": "d9612e716a535a12b5e2d9fcb0adeb3dfbc3b25f6d824efda4b50d426f5a3df4",
+    "historical-p0/source-inventory.json": "958491a65196945041f8175d660fa1e07d2ed35a49aaa4c07c41843edb79cec8",
+    "historical-p0/source-transition.json": "da605069f64d116d6f69596f863627a5852b275dba90308d681ee0eb4805953f",
+    "historical-p0/submodules.json": "ffd38f19b4107ee58f90ab40ffddaf72b565c227dcdae8506fa65ed1453628b5",
+    "historical-p0/validate_contracts.py": "0d5a5aa61dd37f566359312611826ae5dbbae00176c50b1e4c5e2143530bf520",
+    "native-capture.json": "94c20e606e9ef06b559df8fbf304e0e74a6b876597a352ea8b77387aa64b0f30",
+    "owners/AnisetteKit/runtime-contract.json": "326ee9df702af23727f6adccefa8852961a4acbf595be46f79bffdc87f333bc7",
+    "owners/LiveContainer/runtime-contract.json": "5ad6a3693632ea0115869e20914cee9f18daaddd4116d2413e734b06202af2e9",
+    "owners/SideSign/runtime-contract.json": "097a1bc54a5bb131adab203bc3ae0cb4d90669e2e427a8d246a38848de19f98e",
+    "owners/SideStore/runtime-contract.json": "52133494240cfb13dd7ae673f55b88f4ceb298ac43bdcc100255b0fe216a0db4",
+    "owners/idevice/runtime-contract.json": "c2950501845ad93280e273c58ce055de7df8808864d26b5b139d8e6aaeb11aa1",
+    "owners/jktcp/runtime-contract.json": "664fe4ff1ce734bd8fb37400d09a190fc4defae795b3e449a92e33ee97e344ec",
+    "owners/minimuxer/runtime-contract.json": "2eb4f6ef7906770c848b6f07403af16722d4a0cc5ddbe581df86cc0743650174",
+    "parent-ui-basis.json": "fb94bd9e845aa55ea05bc5a785998b58f43098af46d4999deda1679e683f57d2",
+    "provenance/source-evidence.json": "f5d099cbd0d5e0897397c712c326b01971fdf144413f77d8ceb648ba3dcbc2c6",
+    "reviewed-source-delta.json": "09d2269ff28447e29a4228af6ab289e06211b19bd14521650b5f7b78ae8084e0",
+    "source-inventory.json": "aa54bcabc9c16b5af5e77487668e70df3b4fad42f2e6f5ea58695f25adc4db7a",
+    "submodules.json": "ffd38f19b4107ee58f90ab40ffddaf72b565c227dcdae8506fa65ed1453628b5",
+    "validate_contracts.py": "0d5a5aa61dd37f566359312611826ae5dbbae00176c50b1e4c5e2143530bf520"
+  },
+  "inherited_p0_review_sha256": "d9612e716a535a12b5e2d9fcb0adeb3dfbc3b25f6d824efda4b50d426f5a3df4",
+  "integration_parent": "083b0f425549f987081005a97cacba814f456e11",
+  "native_validation": {
+    "fresh_composed_capture_sha256": "94c20e606e9ef06b559df8fbf304e0e74a6b876597a352ea8b77387aa64b0f30",
+    "inherited_p0_review_sha256": "d9612e716a535a12b5e2d9fcb0adeb3dfbc3b25f6d824efda4b50d426f5a3df4",
+    "parent_ui_basis_sha256": "fb94bd9e845aa55ea05bc5a785998b58f43098af46d4999deda1679e683f57d2",
+    "readiness_scope": "eligible_for_gated_full_build",
+    "review_sha256": null,
+    "scope": "Exact composed Release simulator compilation, compiled localization/plural/permission resources, and five native initializer consumer tests",
+    "source_basis": "p2-composed-host-v1",
+    "tested_owners": {
+      "AnisetteKit": {
+        "commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+        "tree": "0df50020ddd774a5b7ab941944501f1ecd591a4a"
+      },
+      "LiveContainer": {
+        "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+        "tree": "4b973e2bbf482953e298c41c7a7227cb60b30718"
+      },
+      "SideStore": {
+        "commit": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+        "tree": "c58017caf7e392e238f47a5e0fa9511fa6f74ca0"
+      }
+    }
+  },
+  "owners": {
+    "AnisetteKit": {
+      "commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+      "path": "work/AnisetteKit",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+      "tree": "0df50020ddd774a5b7ab941944501f1ecd591a4a"
+    },
+    "LiveContainer": {
+      "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+      "path": "work/LiveContainer",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
+      "tree": "4b973e2bbf482953e298c41c7a7227cb60b30718"
+    },
+    "SideSign": {
+      "commit": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
+      "path": "work/EmbeddedSideStore/Dependencies/SideSign",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0",
+      "tree": "c735f8d9bb4e1536c6c52de18534087c5d66ed23"
+    },
+    "SideStore": {
+      "commit": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+      "path": "work/EmbeddedSideStore",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71",
+      "tree": "c58017caf7e392e238f47a5e0fa9511fa6f74ca0"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "path": "idevice",
+      "repository": "https://github.com/NRG-Wardog/idevice.git",
+      "source_checkpoint": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "path": "jktcp",
+      "repository": "https://github.com/NRG-Wardog/jktcp.git",
+      "source_checkpoint": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "path": "work/EmbeddedSideStore/Dependencies/minimuxer",
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "source_checkpoint": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    }
+  },
+  "schema_version": 1,
+  "source_basis": "p2-composed-host-v1"
+}

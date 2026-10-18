@@ -20,6 +20,9 @@ class CxxPackageEvidenceTests(unittest.TestCase):
             return False
         self.pin_path=ROOT/'migration/maintained-sources.json'
         self.pins=gate.load_pins(self.pin_path)
+        if self.pins['source_basis']=='p2-composed-host-v1':
+            self.pin_path=ROOT/'migration/p2-composed-host-v1/historical-p0/maintained-sources.json'
+            self.pins=gate.load_pins(self.pin_path)
         self.assertEqual(self.pins['source_basis'],bounds.BASIS)
         configured=os.environ.get('P0_CXX_ANISETTE_TEST_SOURCE')
         self.assertTrue(configured,'explicit final C++ AK source required')

@@ -21,6 +21,7 @@ from p0_maintained_sources import BASIS as P0_BASIS
 from p0_constructor_diagnostics import BASIS as P0_CONSTRUCTOR_BASIS
 from p0_elf_metadata_bounds import BASIS as P0_BOUNDS_BASIS
 from p0_cxx_allocation import BASIS as P0_CXX_BASIS
+from p2_composed_host import BASIS as P2_COMPOSED_BASIS
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee"
@@ -80,6 +81,9 @@ def unique_pairs(pairs):
 def contract_basis(pins, integration_root=None):
     """Select a reviewed immutable basis explicitly; never infer it from a hash."""
     root = Path(integration_root) if integration_root is not None else ROOT
+    if pins.get("source_basis") == P2_COMPOSED_BASIS:
+        from p2_composed_host import contract_basis as p2_contract_basis
+        return p2_contract_basis(pins, root)
     if pins.get("source_basis") == P0_CXX_BASIS:
         from p0_cxx_allocation import contract_basis as cxx_contract_basis
         return cxx_contract_basis(pins, root)
@@ -290,6 +294,9 @@ def verify_source_transition(root, owner, spec, pins):
 
 
 def expected_anisette_evidence(pins=None):
+    if pins is not None and pins.get("source_basis") == P2_COMPOSED_BASIS:
+        from p2_composed_host import anisette_manifest as p2_anisette_manifest
+        return p2_anisette_manifest(pins, ROOT)
     if pins is not None and pins.get("source_basis") == P0_CXX_BASIS:
         from p0_cxx_allocation import anisette_manifest as cxx_anisette_manifest
         return cxx_anisette_manifest(pins, ROOT)
@@ -312,12 +319,15 @@ def expected_anisette_evidence(pins=None):
 
 
 def anisette_source_hashes(manifest):
-    key = "sha256" if manifest.get("source_basis") in {DIAGNOSTIC_BASIS, P0_BASIS, P0_CONSTRUCTOR_BASIS, P0_BOUNDS_BASIS, P0_CXX_BASIS} else "prepared_sha256"
+    key = "sha256" if manifest.get("source_basis") in {DIAGNOSTIC_BASIS, P0_BASIS, P0_CONSTRUCTOR_BASIS, P0_BOUNDS_BASIS, P0_CXX_BASIS, P2_COMPOSED_BASIS} else "prepared_sha256"
     return {entry["path"]: entry[key] for entry in manifest["files"]}
 
 
 def load_pins(path):
     document = json.loads(Path(path).read_bytes(), object_pairs_hook=unique_pairs)
+    if document.get("source_basis") == P2_COMPOSED_BASIS:
+        from p2_composed_host import load_pins as p2_load_pins
+        return p2_load_pins(document, ROOT, sys.modules[__name__])
     if document.get("source_basis") == P0_CXX_BASIS:
         from p0_cxx_allocation import load_pins as cxx_load_pins
         return cxx_load_pins(document, ROOT, sys.modules[__name__])
@@ -760,6 +770,9 @@ def verify_native_readiness(proofs, pins, verified_owners=None, roots=None):
 
 
 def verify_all(workspace, pins, anisette=None, after_build=False):
+    if pins.get("source_basis") == P2_COMPOSED_BASIS:
+        from p2_composed_host import verify_all as p2_verify_all
+        return p2_verify_all(workspace, pins, anisette, after_build, sys.modules[__name__])
     if pins.get("source_basis") == P0_CXX_BASIS:
         from p0_cxx_allocation import verify_all as cxx_verify_all
         return cxx_verify_all(workspace, pins, anisette, after_build, sys.modules[__name__])
@@ -811,6 +824,9 @@ def verify_all(workspace, pins, anisette=None, after_build=False):
 
 
 def acquire(workspace, pins):
+    if pins.get("source_basis") == P2_COMPOSED_BASIS:
+        from p2_composed_host import acquire as p2_acquire
+        return p2_acquire(workspace, pins, sys.modules[__name__])
     if pins.get("source_basis") == P0_CXX_BASIS:
         from p0_cxx_allocation import acquire as cxx_acquire
         return cxx_acquire(workspace, pins, sys.modules[__name__])

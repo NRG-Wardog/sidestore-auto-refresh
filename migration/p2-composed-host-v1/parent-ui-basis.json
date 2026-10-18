@@ -1,0 +1,21 @@
+{
+  "artifact_id": 12152372036,
+  "artifact_sha256": "e37521f34064bf1683779a99486f53a40c12f6b971b400ccc8fee5b936744903",
+  "composed_ui_reexecuted": false,
+  "evidence_index_sha256": "fd92f05e3d842da8e4d9a63083fc840574dcdcccdc2189c368c4fb77f095f672",
+  "final_composition_acceptance": false,
+  "full_app_acceptance": false,
+  "languages": [
+    "en",
+    "zh-Hans",
+    "zh-Hant",
+    "he"
+  ],
+  "run_attempt": 1,
+  "run_url": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/39169380159",
+  "scope": "Reviewed parent visible Settings picker and persisted preference in four languages; no composed UI rerun or all-app/error-string visual claim",
+  "service_failure_unresolved": true,
+  "source_commit": "f46a3e14c0752714144aa076355663c79a54f1a9",
+  "source_tree": "f18b17b69ef3bdd061328c4bf4d14e8b0cc5f330",
+  "status": "INDEPENDENTLY_REVIEWED_PARENT_UI"
+}

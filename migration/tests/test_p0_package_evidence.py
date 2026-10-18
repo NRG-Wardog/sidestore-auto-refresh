@@ -21,7 +21,7 @@ class P0PackageEvidenceTests(unittest.TestCase):
         # Missing pins, disabled admission, or an absent explicit source must fail.
         active = gate.load_pins(ROOT/'migration/maintained-sources.json')
         self.pin_path = ROOT/'migration/maintained-sources.json'
-        if active['source_basis'] in {'p0-constructor-diagnostics-v1', 'p0-elf-metadata-bounds-v1', 'p0-cxx-allocation-v1'}:
+        if active['source_basis'] in {'p0-constructor-diagnostics-v1', 'p0-elf-metadata-bounds-v1', 'p0-cxx-allocation-v1', 'p2-composed-host-v1'}:
             self.pin_path = ROOT/'migration/p0-constructor-diagnostics-v1/inherited/p0-pins.json'
         self.pins = gate.load_pins(self.pin_path)
         self.assertEqual(self.pins['source_basis'], p0.BASIS)

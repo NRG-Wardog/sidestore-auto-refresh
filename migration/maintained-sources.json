@@ -1,54 +1,26 @@
 {
-  "contract_registry_sha256": "2c71c875fa0aef9691654fe3f35e6f52efd73aa23d41d5a5869091e2d374bdd4",
+  "contract_registry_sha256": "542f353477293d1e46899db0f8704b19386d98be84c0c34ab101af2270942c9f",
   "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
   "native_validation": {
-    "approved_inputs_sha256": "122b6166e98ea2a76139a6b4f0d0a67e893116e0e92e32ae645b32059a84e3a1",
-    "artifact_id": 12150527636,
-    "artifact_sha256": "3a5a1e7c0f734f4c45d1c92de4b1a72859b26e66fd859e746d73e80eb63f57d2",
-    "evidence_index_sha256": "73e14ad494f0c8fd68f8fa80796f7ad94b8ca0e5d0798a140eb5022d6e879f0e",
-    "host_commit": "bbd14b3137f213004a2006f65a2c94ad6d52712c",
-    "host_tree": "cd2cd6db3c944018f3671744dabc8b1a216fc1db",
-    "inherited_bounds_review_sha256": "f736d82fcdce1be06b92d1581f6509c1db2375a0a9620eeed52e0b3766f7d0bb",
+    "fresh_composed_capture_sha256": "94c20e606e9ef06b559df8fbf304e0e74a6b876597a352ea8b77387aa64b0f30",
+    "inherited_p0_review_sha256": "d9612e716a535a12b5e2d9fcb0adeb3dfbc3b25f6d824efda4b50d426f5a3df4",
+    "parent_ui_basis_sha256": "fb94bd9e845aa55ea05bc5a785998b58f43098af46d4999deda1679e683f57d2",
     "readiness_scope": "eligible_for_gated_full_build",
-    "review_sha256": "d9612e716a535a12b5e2d9fcb0adeb3dfbc3b25f6d824efda4b50d426f5a3df4",
-    "run_attempt": 1,
-    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/39165451276",
-    "source_basis": "p0-cxx-allocation-v1",
-    "tested_children": {
-      "SideSign": {},
-      "SideStore": {
-        "Dependencies/SideSign": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
-        "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
-      }
-    },
+    "review_sha256": "ceb365632e7e7baa8a8926f2606ea44eaa5caccd058257d4b71d98e4f73729a0",
+    "scope": "Exact composed Release simulator compilation, compiled localization/plural/permission resources, and five native initializer consumer tests",
+    "source_basis": "p2-composed-host-v1",
     "tested_owners": {
       "AnisetteKit": {
         "commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
         "tree": "0df50020ddd774a5b7ab941944501f1ecd591a4a"
       },
       "LiveContainer": {
-        "commit": "1df50257f6255522e6ff48db226508fe74d6b17d",
-        "tree": "205350ead530a22f4d04eb762e8b47fa27063879"
-      },
-      "SideSign": {
-        "commit": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
-        "tree": "c735f8d9bb4e1536c6c52de18534087c5d66ed23"
+        "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+        "tree": "4b973e2bbf482953e298c41c7a7227cb60b30718"
       },
       "SideStore": {
-        "commit": "2e0d18bbd69deee19a37d48602550f1e0b4503be",
-        "tree": "d0d4e48ca8938253970ff5ae94554e5b91bbf01b"
-      },
-      "idevice": {
-        "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
-        "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
-      },
-      "jktcp": {
-        "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
-        "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
-      },
-      "minimuxer": {
-        "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
-        "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+        "commit": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+        "tree": "c58017caf7e392e238f47a5e0fa9511fa6f74ca0"
       }
     }
   },
@@ -60,7 +32,7 @@
       "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d"
     },
     "LiveContainer": {
-      "commit": "1df50257f6255522e6ff48db226508fe74d6b17d",
+      "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
       "path": "work/LiveContainer",
       "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
       "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69"
@@ -97,5 +69,5 @@
     }
   },
   "schema_version": 1,
-  "source_basis": "p0-cxx-allocation-v1"
+  "source_basis": "p2-composed-host-v1"
 }

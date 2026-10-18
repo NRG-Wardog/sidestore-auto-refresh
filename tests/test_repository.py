@@ -122,7 +122,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(
             {path.name for path in SCRIPTS.glob("*.py")},
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
-                    "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "p0_maintained_sources.py", "p0_constructor_diagnostics.py", "p0_elf_metadata_bounds.py", "p0_cxx_allocation.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py", "patch_transport_lockfiles.py"},
+                    "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "p0_maintained_sources.py", "p0_constructor_diagnostics.py", "p0_elf_metadata_bounds.py", "p0_cxx_allocation.py", "p2_composed_host.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py", "patch_transport_lockfiles.py"},
         )
 
     def test_patch_scripts_parse_and_contain_guard_markers(self):

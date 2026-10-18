@@ -1,0 +1,27 @@
+{
+  "approved_inputs_sha256": "9e85241e092fa405c406cd4ccaec2cb755942ed0fb073d4df5c1a223f25e0b51",
+  "artifact_id": 12149913459,
+  "artifact_sha256": "7b492b8c01e79fa7611b3e0db3a08b1808ed15c0e31f7d283069561bca33af3d",
+  "evidence_index_sha256": "a5237807acb4fd973d81af99e62b91c1a283fd7cb080d5626fab4749764fd610",
+  "host_commit": "252eb33dfcd59bb6d07f3034e58dd15584eda2dc",
+  "host_tree": "df65571fc3d1a50328e24b6fac1c59fd4557986c",
+  "platform": "linux",
+  "run_attempt": 1,
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/39164498291",
+  "source_commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+  "source_sha256": {
+    ".ci/native-tests/fixtures/cxx_allocation_hook_unit.cpp": "0614c634f0d8ca648bde35fde4d55ec07f657becb8b2a5cd1d78a92d7a0f1c62",
+    ".ci/native-tests/fixtures/cxx_allocation_unit.cpp": "cbbe243428144a0584593246a4d4b92d00ee9807cff457404d8d3a18d491680c",
+    ".ci/native-tests/test_cxx_allocation.py": "c0f2c97e40be67ac381792a9ebae60dbdb1363e0517741b1cbfa90f0d342d3d7",
+    "Native/Loader/adi_consumption_debug.h": "077b377c87b201893f83afbff5a4dd37e01354253f08045a3831adcb50022346",
+    "Native/Loader/android_tls_runtime.h": "51c6c123d78b2d53f70e1720c8bf8aa934cbdb149a66df0a6763b6614f4fda07",
+    "Native/Loader/cxx_allocation_runtime.h": "b76bdc4043c497700f93aff5ad82968f7660ebb6720bb2c71ea5615000380a62",
+    "Native/Loader/elf_loader_emulator.cpp": "44a8b61dcf1d4d8d309f624c442c008278d33a68ccf14ec4dc9f4757d9cdce2a",
+    "Native/Loader/elf_loader_emulator.h": "16eb67e76dc4ae94350e55968e9313c2f4163817182c08af76a5c85b2ec09327",
+    "Native/Loader/elf_metadata_bounds.h": "7acd9287cc351b55141f40a0baecda9c3d3202a420cf4b7f0f2515572d877253",
+    "Native/Loader/vm_initialization_diagnostics.h": "023b34540c9fb31fcb6059fea3236eb411fc52d0438025dbe9d72e88c9337e5c",
+    "Native/anisette_base.h": "6c47c3fef881d99082d1eb7e687fc78de6339568118259884d2b8a0d6c6e8664",
+    "Native/include/anisette_core.h": "ca1ea4005f77dcca17c68965ba2dd1f65596e282a57adb4277f1d90d8bd11f02"
+  },
+  "source_tree": "0df50020ddd774a5b7ab941944501f1ecd591a4a"
+}

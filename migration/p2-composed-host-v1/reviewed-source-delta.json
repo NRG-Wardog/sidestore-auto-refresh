@@ -1,0 +1,477 @@
+{
+  "baseline_commit": "1df50257f6255522e6ff48db226508fe74d6b17d",
+  "changes": {
+    "LiveContainer.xcodeproj/project.pbxproj": {
+      "after": {
+        "git_object": "882c15270b12d8766b067406c3d74dc86763ee3c",
+        "mode": "100644",
+        "sha256": "c378f1cbaea17b1b4c3cb33cf7f30783350adf48ea3924c5bf0d9b3fbec15002",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "eef67bb51a180bbd748bfbc86e625b0842f97a88",
+        "mode": "100644",
+        "sha256": "9c5d246ce0dd37bcf48c13c4bad780e4f7dfd597cba3a5c570ed578e7f73c16a",
+        "type": "blob"
+      }
+    },
+    "LiveContainer/LCBootstrap.m": {
+      "after": {
+        "git_object": "6133b2a796049cced4f2744259a050b7fb6724da",
+        "mode": "100644",
+        "sha256": "021f68d71a5062e8f2f48fc6f475f87e91819a2dec605faeb12f26c49b5b626f",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "1c97a14d25dfbc16fecd95b72b5299103d86d238",
+        "mode": "100644",
+        "sha256": "19f1a15fffa162e56eedf7059fc3c756fcc3a002a0d94143ce8f7d15ac37498d",
+        "type": "blob"
+      }
+    },
+    "LiveContainer/Localization.m": {
+      "after": {
+        "git_object": "54d8247eea3013ad1cd5dcd6f2781a99c659410c",
+        "mode": "100644",
+        "sha256": "93c69f83306893303948842edd4d659fb92b9f8a9a1592f8ffccb2c0819e3eeb",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "a0bb2726ca8069498ba90402cda4e978f8edf937",
+        "mode": "100644",
+        "sha256": "23b985710c6a6ecd3016e644d81c7de39953115638ad3883d2cfb72f1a685bdd",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/App/AppDelegate.swift": {
+      "after": {
+        "git_object": "3bf49fd0253a273838400cedfb9c9462c166d586",
+        "mode": "100644",
+        "sha256": "c6d50fee591f83397a9b53c2eefe7d2d5573c3ebab3f9bf4f2352856b7f3abaa",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "1bc61419dfddf4c3e4ccf47bdf71af72ec5897bb",
+        "mode": "100644",
+        "sha256": "61556da1e6abe23bcf8b63d9e8b3278efee9c198e8dcd39eedc4a774e7969a79",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift": {
+      "after": {
+        "git_object": "ac0215b6ab38dc84fb702127a41699eecddd66c8",
+        "mode": "100644",
+        "sha256": "4ce1336ebe4a68115589b2d116965b066fc756566fce5d1c496fb9689800feb3",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "1e768e695822d79e631b1c7c5048a27b8ff222be",
+        "mode": "100644",
+        "sha256": "e67daa3dfcf257cb0256bf4f3dd6f69407c9d72368ba699e672b158eda75f004",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Utilities/Shared.swift": {
+      "after": {
+        "git_object": "fe4517543687244fa71636d920bfd08b37f7040d",
+        "mode": "100644",
+        "sha256": "b01672e23c353e47cab75dec5511f80509562f91fbf31acd3ccdad968d2e0b05",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "2365f12b70a6d2d378566dd8dc47807de662b9f7",
+        "mode": "100644",
+        "sha256": "8c3d8f80f25a29ad794fdb3ce71e461ece359175449f559249d4fa118fb3e455",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift": {
+      "after": {
+        "git_object": "8d28668823353b1bbdf93b34c334a92c8672d92a",
+        "mode": "100644",
+        "sha256": "1d9c2792102a57e8b649d6d40932a0a20ef3ad093cb2f4f3bce96c5ec9e42392",
+        "type": "blob"
+      },
+      "before": null
+    },
+    "LiveContainerSwiftUI/Utilities/V3Localization.swift": {
+      "after": {
+        "git_object": "60a03132936a6e85b332040903a05db3c13f1933",
+        "mode": "100644",
+        "sha256": "42a1b385d22be1a59854551faff25855be01c73cf1e6cd85dab66b41e247aba8",
+        "type": "blob"
+      },
+      "before": null
+    },
+    "LiveContainerSwiftUI/Utilities/ViewExtensions.swift": {
+      "after": {
+        "git_object": "b9637b07dedd9d05bf705f9b7a681cc6a273bba1",
+        "mode": "100644",
+        "sha256": "0539b5aca67945a525ab32770aa291bc1386cd717561bbf5a66470edbf3ece97",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "92e65573f834450d046324e4e5597b415a88c886",
+        "mode": "100644",
+        "sha256": "0af6b884c38694a413c3d0d4c20cb38f0bcba0ffec479c0117ef5335fbd5e998",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/AppList/AppSettings/LCAppSettingsView.swift": {
+      "after": {
+        "git_object": "356856e3a066b78ab76bd6d44b281d5bc24095d0",
+        "mode": "100644",
+        "sha256": "dc1e342362c9678185647fdda5287bb407b32bd208b7282b3beb386d84cc05f6",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "46831a20da762bfe2d43511aa13d33a768b38b49",
+        "mode": "100644",
+        "sha256": "f7a9cf79a894e927f29e70ec6bf3395bdc65092f0a146dfa927832b9abab4c73",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/AppList/AppSettings/LCContainerView.swift": {
+      "after": {
+        "git_object": "ad9fefda448260ee4f8545d13512339d809d9a46",
+        "mode": "100644",
+        "sha256": "373ee8f76ba8cd5529cb9807d864edf9970b30a2d8424a4f4287f59457987070",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "0b6918568bae52e085034c5ca671dc5041d73846",
+        "mode": "100644",
+        "sha256": "802dd8653f485053bd2be2c1f1e74eaeb0c30cbc265f1e8d211b132756cd5164",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerView.swift": {
+      "after": {
+        "git_object": "b7d421adf84f0b560b293268682b41a0372e4e8d",
+        "mode": "100644",
+        "sha256": "cbe3223a38e6deeaf11afdfdd8264561816f9f6c4c6acc5468a3d30180b27cfe",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "788cfbc5a5be18be1b016003a8aafedfdf258866",
+        "mode": "100644",
+        "sha256": "c1b7de64bff406131ecf1c90e356d2b88e6a02a8d8c3fe4f755f219412870da8",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerViewController.swift": {
+      "after": {
+        "git_object": "8880b9e6e216ab5309f783e6ed8f0b0284b8fbf7",
+        "mode": "100644",
+        "sha256": "2d6a250dbe8b2702ee170afe396f263b787b011be15c84be1e3046ee1e1b49d4",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "424869cef584745bbc7aa0aca8b3be738c5584e2",
+        "mode": "100644",
+        "sha256": "03ea5b3cc3e93609fd98358cbb7d83a0a6dc383969b4c2b2a85c44269c0163b5",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift": {
+      "after": {
+        "git_object": "382b0462cce2148b9e7cebbd46f1723eeb23fbff",
+        "mode": "100644",
+        "sha256": "a9a74b816d8a333bd17aa8a190df18bb6b086ce444817fa313e408c2f6c08b0b",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "5a213e02531adedabe0f8b310266722e84d5cc55",
+        "mode": "100644",
+        "sha256": "091ab0e20b6b029127470d55b41e2748ab21d043eef1a2fcd8cd8d782de9533b",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/AppList/LCWebView.swift": {
+      "after": {
+        "git_object": "3152f2fcd2787d7b595a81793c5a4c03a88172b8",
+        "mode": "100644",
+        "sha256": "79cf17f6db4d18cb5de6601ba7d6bd40f669552808c6e3985b53f42d48dc718e",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "fa9d7a28dede72a3e98a1acf80a14170e4fd8f6c",
+        "mode": "100644",
+        "sha256": "26e070e8e46ca0b34f984a19f4a8f952f25b558ecd7f9396651da93fa009b84c",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/LCAltStoreSourcesView.swift": {
+      "after": {
+        "git_object": "b5a216db4fab16cfca70e253b624035a3bbb6eba",
+        "mode": "100644",
+        "sha256": "06e8bc901944c23930887d21b64c5db2f683ca707e87ec47956b6bb9a227d43f",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "deeb535ea8092144cff00e9d0af949071ebd64ca",
+        "mode": "100644",
+        "sha256": "84120a6dca9a1b9fe0932d9d7753b5368dd01684c911ec8d07e047f96e8d8a3a",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/LCTabView.swift": {
+      "after": {
+        "git_object": "08e2cb61857c512013962c70b26f9e49cb6566c7",
+        "mode": "100644",
+        "sha256": "0535d2cb72a848e588af72a396517081e5dba28899009b8e5fd8da93ae900ad5",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "f1ed0afc1da2cedde2c6c72b549f8f955e4c2243",
+        "mode": "100644",
+        "sha256": "6859c307caacbac6e9b9443c45b608062261d353dd8dfc6cb8b04176d49262e7",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/LCTweaksView.swift": {
+      "after": {
+        "git_object": "30752208bdf35eee15caefc4a5c2f16e32e51aab",
+        "mode": "100644",
+        "sha256": "9b612cf5537ff0dd927b7d78ff754f3360de5d1c78dc5a977863d3e9c651f976",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "9d28a1f908370b0f666a9aa55ffcb270f6cd7921",
+        "mode": "100644",
+        "sha256": "17103a2c36ac6c2c89797c8ad4be47f3d8c6719a9cb011527f5a1e09bf12f739",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/Settings/DataManagement/LCDataManagementView.swift": {
+      "after": {
+        "git_object": "f9ffa0d728a95196899f28c3d5066a3969ad0afa",
+        "mode": "100644",
+        "sha256": "69a8c58b18a226e544972dfd083c53201feb56812278f879e6ecc21dcfcf06f9",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "3b7f7d9415853b70ec63313bdbf0f3e952d3cd17",
+        "mode": "100644",
+        "sha256": "6c3ed8fbe8bb2652409402dde0a789248d91de628cbe57641897204a0840db0f",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/Settings/DataManagement/LCStorageManagementSections.swift": {
+      "after": {
+        "git_object": "5716bd94c1eb0679d326d28e6a31e60c3bcd7da7",
+        "mode": "100644",
+        "sha256": "f2a1efafd93730ff75dd948a6b4200511e0c9ae615f9e3fc144ee304ab17690e",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "ebe4b10643618e57a03c2e706b443f9e39bb38f1",
+        "mode": "100644",
+        "sha256": "6246ccefabcb3753a84174b7d032adab68b3f82aa4290953d077d0b4f34e2ea3",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift": {
+      "after": {
+        "git_object": "35988b0affd72a6b192da6336c86352269e06bec",
+        "mode": "100644",
+        "sha256": "696cc2100926a930b8a06974132bb018443eab9db7cd992b4dffe2f97c5bd365",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "f2bba0d648f7fe722e237d7bc1719de6e5310646",
+        "mode": "100644",
+        "sha256": "2739650a91d535d5d54189dfd84d19d244d4cafd583cbbe9aa24752f4df43f5c",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/Settings/LCJITLessDiagnoseView.swift": {
+      "after": {
+        "git_object": "fabae3dbc01d7a39916e13c7b6f2e7549f8c3024",
+        "mode": "100644",
+        "sha256": "fa4f902093e81c846e39140854a95b875f82940ff8ac2eb27c198ea95ad51353",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "9fc10f50c8f7187e6104e1ca734a90c78a6ac223",
+        "mode": "100644",
+        "sha256": "0dc2122c5a1ba0c7d324bc811963afc61d8af0f7cc0e029bc822d06d9fea2e2e",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift": {
+      "after": {
+        "git_object": "5dec74a72af0c8c32d9557382e1a790d56654b80",
+        "mode": "100644",
+        "sha256": "9ec1b8ec433803ee87acad8b67d98a0b2ae8ccd4359308a543007a96ff5247d9",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "d0fa2bcdd1b5a6b805ab747ef7a0b98b739c0b73",
+        "mode": "100644",
+        "sha256": "3ffc638e9b4a143c319efdd6c6d702692f440973f7aafae6db91d381eef1f6a8",
+        "type": "blob"
+      }
+    },
+    "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": {
+      "after": {
+        "git_object": "a1d730c60d43b383000da91982cd9ae7dd7bfc5d",
+        "mode": "100644",
+        "sha256": "f51818f28b16785972ec6993419444725c6e81b92f44c4e5fea5519c7f3e617d",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "850ede57ac5851e20524c4842a9a33e7313617d1",
+        "mode": "100644",
+        "sha256": "7ca460494f57d88655bc00ea70742c1781fbef01d1ebd2c6e60e1891f87e58fa",
+        "type": "blob"
+      }
+    },
+    "MultitaskSupport/AppSceneViewController.m": {
+      "after": {
+        "git_object": "a2a7f3170afce5926ffd2115e031a8d04b910c16",
+        "mode": "100644",
+        "sha256": "77e31a29cc72f1d1b04e38299d6d759db740377d5b364ab46caada6020205b41",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "d0904a4ada5fa46a750512819350fba736878216",
+        "mode": "100644",
+        "sha256": "0d0045dae1c1dbddcf0f327c6183a6b4f89ee71cc8ba879f88033140defedf4e",
+        "type": "blob"
+      }
+    },
+    "MultitaskSupport/DecoratedAppSceneViewController.m": {
+      "after": {
+        "git_object": "1e5c0364e88f2f29ce1805815e7ea24305c84207",
+        "mode": "100644",
+        "sha256": "812d1db61ec315bd2c9f2c4accb8348c3e01e7d667e0a7e660dc00368032bd7c",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "4d38a842ca7a02aae24947a4b2ccf1eb392945db",
+        "mode": "100644",
+        "sha256": "f48d44bed7cdd1421bd4b275e1fb0d6469d67c4a56894388f1a0188efcfb7c4e",
+        "type": "blob"
+      }
+    },
+    "MultitaskSupport/MultitaskAppWindow.swift": {
+      "after": {
+        "git_object": "056117637e590d36cc8b5629044a28851cadf2d3",
+        "mode": "100644",
+        "sha256": "783b8bf13ac7d35acace707b60f73461c5076b8397833e5b37b375f4724e92c0",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "c32d8b5ce4d4fab7369d823d273854f77a20fedf",
+        "mode": "100644",
+        "sha256": "339014d9da850cef429a5c053100149c7025307d9aef9c09015caa12fc4167b3",
+        "type": "blob"
+      }
+    },
+    "Resources/Localizable.xcstrings": {
+      "after": {
+        "git_object": "582d7a8e99fdf9435705b9667ed2ffc2bb917a50",
+        "mode": "100644",
+        "sha256": "a99d3776639f767c0b9a85432be6d129a5a95b437d0919304383ac9f4c39d9ba",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "1b13904e8103e92c19309b8e4cf3a3739fd07a81",
+        "mode": "100644",
+        "sha256": "ba1d08c47bc9137e4fe0ae263f556fb1d7ce017185755ae87949f80b4f948eb2",
+        "type": "blob"
+      }
+    },
+    "Resources/en.lproj/InfoPlist.strings": {
+      "after": {
+        "git_object": "49904bed374acf2705aaebd316040ecf934d3999",
+        "mode": "100644",
+        "sha256": "028125f08fd583ad736b0fc30c874ec80b4bad1d1a8cd112db88e0900b83b4ff",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "29e6f3187646c542e2dc061c80cce145f3f4712b",
+        "mode": "100644",
+        "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+        "type": "blob"
+      }
+    },
+    "Resources/he.lproj/InfoPlist.strings": {
+      "after": {
+        "git_object": "824d2de83d180ca014dc1e660a92e89489d586c7",
+        "mode": "100644",
+        "sha256": "f372772fb3831016f6d76a67cde31183577509d5706c691f9403257e8a70eb92",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "29e6f3187646c542e2dc061c80cce145f3f4712b",
+        "mode": "100644",
+        "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+        "type": "blob"
+      }
+    },
+    "Resources/zh-Hans.lproj/InfoPlist.strings": {
+      "after": {
+        "git_object": "9e8d00e1fa0529062c758bc90d9da4a58c389fde",
+        "mode": "100644",
+        "sha256": "3498fc9b40a419529c235e7df4fb82ff5a973214074edd6ccb082b7cea84ae0d",
+        "type": "blob"
+      },
+      "before": null
+    },
+    "Resources/zh-Hant.lproj/InfoPlist.strings": {
+      "after": {
+        "git_object": "ce0edf55b1f9808c8e90a59a8c9bf2d459049595",
+        "mode": "100644",
+        "sha256": "6784e23627d7ebb50dd96e3a7b81d076bf04226c7480268356bb7e8e493a9768",
+        "type": "blob"
+      },
+      "before": null
+    },
+    "Resources/zh_CN.lproj/InfoPlist.strings": {
+      "after": {
+        "git_object": "9e8d00e1fa0529062c758bc90d9da4a58c389fde",
+        "mode": "100644",
+        "sha256": "3498fc9b40a419529c235e7df4fb82ff5a973214074edd6ccb082b7cea84ae0d",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "29e6f3187646c542e2dc061c80cce145f3f4712b",
+        "mode": "100644",
+        "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+        "type": "blob"
+      }
+    },
+    "Resources/zh_HK.lproj/InfoPlist.strings": {
+      "after": {
+        "git_object": "ce0edf55b1f9808c8e90a59a8c9bf2d459049595",
+        "mode": "100644",
+        "sha256": "6784e23627d7ebb50dd96e3a7b81d076bf04226c7480268356bb7e8e493a9768",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "29e6f3187646c542e2dc061c80cce145f3f4712b",
+        "mode": "100644",
+        "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+        "type": "blob"
+      }
+    },
+    "Resources/zh_TW.lproj/InfoPlist.strings": {
+      "after": {
+        "git_object": "ce0edf55b1f9808c8e90a59a8c9bf2d459049595",
+        "mode": "100644",
+        "sha256": "6784e23627d7ebb50dd96e3a7b81d076bf04226c7480268356bb7e8e493a9768",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "29e6f3187646c542e2dc061c80cce145f3f4712b",
+        "mode": "100644",
+        "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+        "type": "blob"
+      }
+    }
+  },
+  "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+  "tree": "4b973e2bbf482953e298c41c7a7227cb60b30718"
+}

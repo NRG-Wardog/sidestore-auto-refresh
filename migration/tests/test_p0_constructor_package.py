@@ -32,7 +32,7 @@ class ConstructorPackageTests(unittest.TestCase):
     def test_actual_active_source_collection_or_pending_scaffold(self):
         pin_path=ROOT/'migration/maintained-sources.json'
         pins=gate.load_pins(pin_path)
-        if pins['source_basis'] in {'p0-elf-metadata-bounds-v1','p0-cxx-allocation-v1'}:
+        if pins['source_basis'] in {'p0-elf-metadata-bounds-v1','p0-cxx-allocation-v1','p2-composed-host-v1'}:
             pin_path=ROOT/'migration/p0-elf-metadata-bounds-v1/inherited/constructor-pins.json'
             pins=gate.load_pins(pin_path)
         if pins['source_basis']!=d.BASIS:
