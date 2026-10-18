@@ -486,30 +486,57 @@ final class HostSettingsProbeTests: XCTestCase {
         return value
     }
 
-    private func selected(_ element: XCUIElement, is nativeName: String) -> Bool {
-        if (element.value as? String) == nativeName { return true }
-        if element.staticTexts.matching(NSPredicate(format: "label == %@", nativeName)).count == 1 { return true }
-        let labelParts = element.label.components(separatedBy: ", ")
-        return labelParts.contains(nativeName)
+    private func pickerSnapshot() -> (any XCUIElementSnapshot)? {
+        let rows = app.descendants(matching: .any).matching(identifier: "settings.language")
+        guard rows.count == 1, let snapshot = try? rows.element(boundBy: 0).snapshot(),
+              snapshot.identifier == "settings.language" else { return nil }
+        return snapshot
+    }
+
+    private func childLabels(_ snapshot: any XCUIElementSnapshot) -> [String] {
+        var pending = snapshot.children
+        var labels: [String] = []
+        var visited = 0
+        while let child = pending.popLast() {
+            visited += 1
+            guard visited <= 128 else { return [] }
+            if child.elementType == .staticText { labels.append(child.label) }
+            pending.append(contentsOf: child.children)
+        }
+        return labels
+    }
+
+    private func selected(_ snapshot: any XCUIElementSnapshot, is nativeName: String) -> Bool {
+        if (snapshot.value as? String) == nativeName { return true }
+        if childLabels(snapshot).filter({ $0 == nativeName }).count == 1 { return true }
+        // Exact catalog-bound whole labels, including the Chinese AX separator.
+        let labels = ["English": __LANGUAGE_EN__ + ", English",
+                      "עברית": __LANGUAGE_HE__ + "\u{200F}, עברית",
+                      "简体中文": __LANGUAGE_HANS__ + "、简体中文",
+                      "繁體中文": __LANGUAGE_HANT__ + "、繁體中文"]
+        return labels[nativeName] == snapshot.label
     }
 
     private func record(_ name: String, language: String, nativeName: String, settingsTitle: String) {
         stage = name
         noUnexpectedAlerts()
-        let row = picker()
-        let selectedValue = selected(row, is: nativeName)
+        _ = picker()
+        guard let before = pickerSnapshot() else { XCTFail("Missing unique picker snapshot"); return }
+        XCTAssertTrue(selected(before, is: nativeName))
         let settings = app.tabBars.buttons[settingsTitle]
         let visibleTab = settings.exists && settings.isHittable
         capture(name)
+        guard let snapshot = pickerSnapshot() else { XCTFail("Missing post-capture picker snapshot"); return }
+        let selectedValue = selected(snapshot, is: nativeName)
         observations.append([
             "stage": name, "language": language, "selectedNativeName": nativeName,
             "selectedValueVisible": selectedValue, "settingsTabVisible": visibleTab,
             "applicationForeground": app.state == .runningForeground,
-            "pickerLabel": row.label, "pickerValue": row.value as? String ?? "",
-            "pickerChildLabels": row.staticTexts.allElementsBoundByIndex.map(\.label),
+            "pickerLabel": snapshot.label, "pickerValue": snapshot.value as? String ?? "",
+            "pickerChildLabels": childLabels(snapshot),
             "settingsTabLabel": settings.label,
-            "pickerFrame": ["x": row.frame.origin.x, "y": row.frame.origin.y,
-                            "width": row.frame.size.width, "height": row.frame.size.height]
+            "pickerFrame": ["x": snapshot.frame.origin.x, "y": snapshot.frame.origin.y,
+                            "width": snapshot.frame.size.width, "height": snapshot.frame.size.height]
         ])
         XCTAssertTrue(selectedValue, "Selected language is not observable in the real picker row")
         XCTAssertTrue(visibleTab, "Actual Settings tab did not reflect selected catalog language")
@@ -529,8 +556,8 @@ final class HostSettingsProbeTests: XCTestCase {
         choices.firstMatch.tap()
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { [weak self] _, _ in
             guard let self else { return false }
-            let rows = self.app.descendants(matching: .any).matching(identifier: "settings.language")
-            return rows.count == 1 && self.selected(rows.element(boundBy: 0), is: nativeName)
+            guard let snapshot = self.pickerSnapshot() else { return false }
+            return self.selected(snapshot, is: nativeName)
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed)
     }

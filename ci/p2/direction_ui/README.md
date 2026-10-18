@@ -27,3 +27,11 @@ completed startup fault and retaining separate pre/post receipts and pixels.
 Every unknown alert and any later recurrence still blocks the run. The service
 fault remains unresolved. Settings starts two settingsGet loads whose error
 paths can present issues; the exact triggering request was not identified.
+
+Run39167947835 completed real EN and HE observations and retained the edited
+preference. Hans was visibly selected but the runner's fragmented live queries
+and ASCII comma fallback failed. Selection now uses attributes/children from one
+fresh XCUIElementSnapshot and exact catalog-bound combined AX labels, including
+Chinese ideographic comma and observed Hebrew RLM. No substring acceptance or
+longer wait. Before/after capture selection is checked; this is not an atomic
+screenshot/state claim. Apple API: https://developer.apple.com/documentation/xcuiautomation/xcuielementsnapshotproviding/snapshot()

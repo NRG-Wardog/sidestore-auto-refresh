@@ -2,6 +2,7 @@
 import math,re
 from pathlib import Path
 STAGES=[('en-before','en','English','Settings','en-seeded'),('he-selected','he','עברית','הגדרות','he-retained'),('hans-selected','zh-Hans','简体中文','设置','hans-retained'),('hant-selected','zh-Hant','繁體中文','設定','hant-retained'),('en-returned','en','English','Settings','en-retained')]
+PICKER_LABELS={'en':'Language, English','he':'שפה\u200f, עברית','zh-Hans':'语言、简体中文','zh-Hant':'語言、繁體中文'}
 PREFERENCE_LABELS={'en':'Start Collapsed','he':'פתיחה במצב מכווץ','zh-Hans':'初始状态设为收起','zh-Hant':'初始狀態設為收起'}
 def require(value,message):
  if not value:raise ValueError(message)
@@ -16,7 +17,7 @@ def verify_rows(report,identity):
   require(all(row.get(k) is True for k in ['selectedValueVisible','settingsTabVisible','applicationForeground']),'Language observation failed')
   label,value,children=row.get('pickerLabel'),row.get('pickerValue'),row.get('pickerChildLabels')
   require(type(label)is str and type(value)is str and isinstance(children,list) and all(type(x)is str for x in children),'Malformed live picker evidence')
-  require(value==native or children.count(native)==1 or native in label.split(', '),'Selected native name absent')
+  require(value==native or children.count(native)==1 or label==PICKER_LABELS[code],'Selected native name absent')
   require(row.get('settingsTabLabel')==title,'Translated Settings tab differs')
   frame=row.get('pickerFrame')
   require(isinstance(frame,dict) and set(frame)=={'x','y','width','height'} and all(type(v)in(int,float) and math.isfinite(v)for v in frame.values()) and frame['width']>0 and frame['height']>0,'Invalid picker frame')

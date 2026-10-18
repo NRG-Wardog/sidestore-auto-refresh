@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 35
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
-      APPROVED_UI_INPUTS: 9ad4bd0ea9bde88d86cc33438a5d91a72439583e302d12543fa3fbca2286f1f3
+      APPROVED_UI_INPUTS: 11c6f51c6a8dc9f364cff544fcd69442fdc45cb0ef2f692bb27e003fd1d3c34f
       PYTHONDONTWRITEBYTECODE: '1'
       GIT_TERMINAL_PROMPT: '0'
       GIT_CONFIG_NOSYSTEM: '1'

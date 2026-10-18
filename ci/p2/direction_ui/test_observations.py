@@ -17,4 +17,22 @@ class ObservationTests(unittest.TestCase):
  def test_no_fake_native_value(self):
   r=self.fixture();r['observations'][1].update(pickerValue='',pickerLabel='Language',pickerChildLabels=[])
   with self.assertRaises(ValueError):verify_rows(r,r['identity'])
+class SnapshotLabelTests(unittest.TestCase):
+ def test_exact_combined_chinese_labels(self):
+  from observations import PICKER_LABELS
+  fixture=ObservationTests().fixture()
+  for row in fixture['observations']:
+   row.update(pickerValue='',pickerChildLabels=[],pickerLabel=PICKER_LABELS[row['language']])
+  verify_rows(fixture,fixture['identity'])
+  for badlabel in ['prefix语言、简体中文','语言、简体中文suffix','语言、繁體中文','语言, 简体中文']:
+   bad=copy.deepcopy(fixture);bad['observations'][2]['pickerLabel']=badlabel
+   with self.assertRaises(ValueError):verify_rows(bad,bad['identity'])
+ def test_snapshot_local_attributes(self):
+  from pathlib import Path
+  text=Path(__file__).with_name('HostSettingsProbeTests.swift.in').read_text()
+  self.assertIn('try? rows.element(boundBy: 0).snapshot()',text)
+  method=text.split('private func selected(')[1].split('private func record(')[0]
+  self.assertNotIn('element.staticTexts',method)
+  self.assertNotIn('components(separatedBy:',method)
+  self.assertIn('labels[nativeName] == snapshot.label',method)
 if __name__=='__main__':unittest.main()

@@ -78,7 +78,7 @@ def execute(args):
    catalog=json.loads((source/'Resources/Localizable.xcstrings').read_text())['strings']
    replacements={'__HOST_BUNDLE_ID__':self.identity['bundleIdentifier'],'__HOST_EXECUTABLE_SHA256__':self.identity['executableSHA256'],'__SOURCE_COMMIT__':SOURCE,'__SOURCE_TREE__':TREE,'__BUILDER_COMMIT__':self.report['probeBuilderCommit']}
    for code,name in [('en','EN'),('he','HE'),('zh-Hans','HANS'),('zh-Hant','HANT')]:
-    for token,key in [('SETTINGS','Settings'),('COLLAPSED','Start Collapsed')]:replacements['__'+token+'_'+name+'__']=catalog[key]['localizations'][code]['stringUnit']['value']
+    for token,key in [('SETTINGS','Settings'),('COLLAPSED','Start Collapsed'),('LANGUAGE','Language')]:replacements['__'+token+'_'+name+'__']=catalog[key]['localizations'][code]['stringUnit']['value']
    for name,key in [('TITLE',reuse.SC.NOTICE_TITLE),('BODY',reuse.SC.NOTICE_BODY),('LATER','Later'),('ALLOW','Allow Notifications')]:replacements['__NOTICE_'+name+'__']=key
    for token,value in replacements.items():template=template.replace(token,reuse.HP.swift_literal(value))
    literal='['+', '.join(reuse.HP.swift_literal(k)+': '+reuse.HP.swift_literal(v)for k,v in sorted(self.generated_environment.items()))+']'
