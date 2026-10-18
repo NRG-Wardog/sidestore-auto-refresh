@@ -1,0 +1,243 @@
+import Foundation
+import SwiftUI
+import UIKit
+
+// Fixture-owned composition. Production declarations are concatenated unchanged
+// by the generator. Neither arm is the complete LiveContainer application.
+@MainActor final class FormDirectionModel: ObservableObject {
+    static let processToken = UUID().uuidString
+    static let opaqueName = "Fixture % app • 日本語 • עברית"
+    static let rawError = "fixture diagnostic % @ : / • 日本語 • עברית\nopaque=001"
+    let sessionToken = UUID().uuidString
+    let arm: String
+    let bootstrapPriorLanguage: String
+    let existingMessage = V3DisplayMessage.localized("lc.webView.pageLaunch %@", FormDirectionModel.opaqueName)
+    @Published var text = ""
+    @Published var textPresented = false
+    @Published var confirmStarted = 0
+    @Published var confirmCompleted = 0
+    @Published var confirmOutcome = "none"
+    @Published var errorStarted = 0
+    @Published var textStarted = 0
+    @Published var textCompleted = 0
+    @Published var textOutcome = "none"
+    @Published var textResult = "nil"
+    @Published var witnessChoice = 0
+    @Published private(set) var probeRevision = 0
+    private(set) var probes: [String: [String: Any]] = [:]
+    init() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.filter({ $0 == "--form-arm" }).count == 1,
+              let index = arguments.firstIndex(of: "--form-arm"), index + 1 < arguments.count,
+              ["control", "candidate"].contains(arguments[index + 1]) else {
+            preconditionFailure("Exactly one fixed fixture arm is required")
+        }
+        arm = arguments[index + 1]
+        bootstrapPriorLanguage = V3Localization.hostDefaults.string(forKey: V3AppLanguage.storageKey) ?? "<missing>"
+        // Only this standalone fixture's domain, before any SwiftUI view exists.
+        // All measured language transitions use the unchanged production Picker.
+        V3AppLanguage.persist(.english)
+    }
+    func record(_ name: String, identity: String, locale: String, direction: String) {
+        let previous = probes[name]
+        guard previous?["identity"] as? String != identity || previous?["locale"] as? String != locale ||
+                previous?["direction"] as? String != direction else { return }
+        probes[name] = ["identity": identity, "locale": locale, "direction": direction,
+                        "uptime": ProcessInfo.processInfo.systemUptime,
+                        "revision": (previous?["revision"] as? Int ?? 0) + 1]
+        probeRevision += 1
+    }
+    func state(locale: Locale, direction: LayoutDirection) -> String {
+        let process = ProcessInfo.processInfo
+        let keys = ["AppleLanguages", "AppleLocale", "NSLanguages", "LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES"]
+        let environment = Dictionary(uniqueKeysWithValues: keys.compactMap { key in process.environment[key].map { (key, $0) } })
+        let value: [String: Any] = [
+            "schema": "p2-form-direction-state-v1", "arm": arm,
+            "processToken": Self.processToken, "sessionToken": sessionToken,
+            "processIdentifier": Int(process.processIdentifier), "processArguments": process.arguments,
+            "languageEnvironment": environment, "bootstrapPriorLanguage": bootstrapPriorLanguage,
+            "bootstrapLanguage": "en", "bootstrapScope": "fixture-domain-before-view-construction",
+            "language": V3AppLanguage.selected.rawValue,
+            "hostDefaultLanguage": V3Localization.hostDefaults.string(forKey: V3AppLanguage.storageKey) ?? "<missing>",
+            "locale": locale.identifier, "direction": direction == .rightToLeft ? "rtl" : "ltr",
+            "text": text, "originalMessage": existingMessage.original, "probes": probes,
+            "confirmStarted": confirmStarted, "confirmCompleted": confirmCompleted,
+            "errorStarted": errorStarted, "textStarted": textStarted, "textCompleted": textCompleted,
+            "witnessChoice": witnessChoice,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else { return "invalid fixture telemetry" }
+        return string
+    }
+}
+
+// Passive SwiftUI environment readings at actual instrumented boundaries.
+// Production section descendants are NOT introspected: header/picker probes
+// below belong to explicitly synthetic fixture controls.
+@MainActor private struct FormEnvironmentProbe: UIViewRepresentable {
+    let name: String
+    let model: FormDirectionModel
+    @Environment(\.locale) private var locale
+    @Environment(\.layoutDirection) private var direction
+    final class Coordinator { let identity = UUID().uuidString }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {
+        let identity = context.coordinator.identity
+        let locale = locale.identifier
+        let direction = direction == .rightToLeft ? "rtl" : "ltr"
+        DispatchQueue.main.async { [model, name] in
+            model.record(name, identity: identity, locale: locale, direction: direction)
+        }
+    }
+}
+
+@MainActor private struct FormDirectionTelemetry: View {
+    @ObservedObject var model: FormDirectionModel
+    @Environment(\.locale) private var locale
+    @Environment(\.layoutDirection) private var direction
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("Fixture observation").accessibilityIdentifier("p2-state")
+                .accessibilityValue(model.state(locale: locale, direction: direction))
+            HStack(spacing: 16) {
+                Text("C").accessibilityIdentifier("p2-outside-first")
+                Text("D").accessibilityIdentifier("p2-outside-last")
+            }
+        }
+        .font(.system(size: 9)).environment(\.sizeCategory, .large)
+        .frame(maxWidth: .infinity, minHeight: 44).background(Color(.systemBackground))
+    }
+}
+
+@MainActor private struct FormDirectionScreen: View {
+    @ObservedObject var model: FormDirectionModel
+    @EnvironmentObject private var sceneContext: SceneDelegate
+    @Environment(\.layoutDirection) private var selectedDisplayDirection
+    @FocusState private var inputFocused: Bool
+    private func probe(_ name: String) -> some View {
+        FormEnvironmentProbe(name: name, model: model).frame(width: 0, height: 0).accessibilityHidden(true)
+    }
+    // One shared declaration: identical row content and order in both arms.
+    // Original reproducing settings fixture rows retained. Two synthetic rows
+    // (a Picker and NavigationLink) provide native control/chrome witnesses.
+    @ViewBuilder private var formContent: some View {
+        V3LanguageSettingsSection()
+            .background(probe("productionSectionBoundary"))
+        Section {
+            V3LocalizedText(model.existingMessage).accessibilityIdentifier("p2-existing-message")
+            TextField("Fixture input", text: $model.text)
+                .textInputAutocapitalization(.never).autocorrectionDisabled(true)
+                .focused($inputFocused).accessibilityIdentifier("p2-synthetic-input")
+            HStack(spacing: 16) {
+                Text("A").accessibilityIdentifier("p2-direction-first")
+                Text("B").accessibilityIdentifier("p2-direction-last")
+            }
+            .accessibilityElement(children: .contain).background(probe("content"))
+            Picker("Witness option", selection: $model.witnessChoice) {
+                Text("One").tag(0)
+                Text("Two").tag(1)
+            }
+            .accessibilityIdentifier("p2-witness-picker").background(probe("picker"))
+            NavigationLink { Text("Witness destination") } label: { Text("Witness navigation") }
+                .accessibilityIdentifier("p2-witness-navigation")
+        } header: {
+            Text("Fixture state").accessibilityIdentifier("p2-witness-header").background(probe("header"))
+        }
+        Section("Fixture actions") {
+            Button("Open confirmation") {
+                model.confirmStarted += 1
+                Task { @MainActor in
+                    guard let presenter = sceneContext.window?.rootViewController else {
+                        model.confirmOutcome = "presenter-unavailable"; return
+                    }
+                    let result = await presenter.presentConfirmation(
+                        title: .localized("lc.common.error"), message: .localized("lc.webView.installAppDesc"),
+                        confirmTitle: .localized("lc.common.ok"), cancelTitle: .localized("lc.common.cancel"))
+                    model.confirmCompleted += 1
+                    model.confirmOutcome = result.map { $0 ? "true" : "false" } ?? "nil"
+                }
+            }.accessibilityIdentifier("p2-open-confirmation")
+            Button("Open error") {
+                model.errorStarted += 1
+                sceneContext.window?.rootViewController?.showError(.raw(FormDirectionModel.rawError))
+            }.accessibilityIdentifier("p2-open-error")
+            Button("Open text field") {
+                model.textStarted += 1; model.textPresented = true
+            }.accessibilityIdentifier("p2-open-textfield")
+        }
+    }
+    @ViewBuilder private var form: some View {
+        // Immutable process arm. No branch swaps during a live language change.
+        if model.arm == "candidate" {
+            Form {
+                Group { formContent }
+                    .environment(\.layoutDirection, selectedDisplayDirection)
+            }
+            .background(probe("container"))
+            .environment(\.layoutDirection, .leftToRight)
+        } else {
+            Form { formContent }.background(probe("container"))
+        }
+    }
+    var body: some View {
+        NavigationView {
+            form.navigationTitle("Settings component fixture")
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Button("Dismiss input") { inputFocused = false }.accessibilityIdentifier("p2-dismiss-input")
+                    }
+                }
+        }
+        .navigationViewStyle(.stack).background(probe("inherited"))
+        .safeAreaInset(edge: .bottom) { FormDirectionTelemetry(model: model) }
+        .textFieldAlert(isPresented: $model.textPresented, title: "lc.common.error", text: $model.text,
+            placeholder: "Fixture value", action: { value in
+                model.textCompleted += 1; model.textOutcome = "confirm"; model.textResult = value ?? "nil"
+            }, actionCancel: { value in
+                model.textCompleted += 1; model.textOutcome = "cancel"; model.textResult = value ?? "nil"
+            })
+    }
+}
+
+@MainActor private struct FormDirectionRoot: View {
+    @ObservedObject var model: FormDirectionModel
+    let sceneContext: SceneDelegate
+    @AppStorage(V3AppLanguage.storageKey, store: V3Localization.hostDefaults)
+    private var language = V3AppLanguage.english.rawValue
+    var body: some View {
+        FormDirectionScreen(model: model).environmentObject(sceneContext)
+            .environment(\.locale, Locale(identifier: V3AppLanguage.resolve(language).rawValue))
+            .environment(\.layoutDirection, V3AppLanguage.resolve(language).isRightToLeft ? .rightToLeft : .leftToRight)
+            .environment(\.sizeCategory, .large)
+    }
+}
+
+@main @MainActor final class FormDirectionAppDelegate: UIResponder, UIApplicationDelegate {
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: "P2FormDirectionScene", sessionRole: session.role)
+        configuration.delegateClass = FormDirectionWindowDelegate.self
+        return configuration
+    }
+}
+@MainActor final class FormDirectionWindowDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+    private var model: FormDirectionModel?
+    private var productionSceneContext: SceneDelegate?
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
+        guard let scene = scene as? UIWindowScene else { return }
+        let window = UIWindow(windowScene: scene)
+        let context = SceneDelegate()
+        context.window = window
+        let model = FormDirectionModel()
+        window.rootViewController = UIHostingController(rootView: FormDirectionRoot(model: model, sceneContext: context))
+        self.window = window; self.model = model; productionSceneContext = context
+        window.makeKeyAndVisible()
+    }
+}

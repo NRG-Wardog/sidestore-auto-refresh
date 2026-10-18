@@ -1,0 +1,283 @@
+import Foundation
+import XCTest
+import UIKit
+
+// ExpectedStrings comes independently from the pinned catalog. No production
+// localization implementation is linked into this runner.
+@MainActor final class FormDirectionTests: XCTestCase {
+    private let app = XCUIApplication()
+    private let probeNames = ["inherited", "container", "productionSectionBoundary", "header", "picker", "content"]
+    private var arm = "unstarted"
+    private var method = "unstarted"
+    private var observations: [[String: Any]] = []
+    private var transitions: [[String: Any]] = []
+    private var failures: [String] = []
+    private var initialState: [String: Any] = [:]
+    private var lastValidState: [String: Any] = [:]
+    private var completed = false
+    private var reported = false
+    private func require(_ value: Bool, _ message: String, file: StaticString = #filePath, line: UInt = #line) throws {
+        guard value else {
+            failures.append(message); XCTFail(message, file: file, line: line)
+            throw NSError(domain: "P2FormDirection", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+    }
+    private func until(_ message: String, timeout: TimeInterval = 12, _ condition: () -> Bool) throws {
+        let end = ProcessInfo.processInfo.systemUptime + timeout
+        repeat {
+            let satisfied = condition()
+            let now = ProcessInfo.processInfo.systemUptime
+            if satisfied && now <= end { return }
+            if now >= end { break }
+            Thread.sleep(forTimeInterval: 0.1)
+        } while ProcessInfo.processInfo.systemUptime < end
+        try require(false, message)
+    }
+    private func readState() -> [String: Any]? {
+        let element = app.staticTexts["p2-state"]
+        guard element.exists, let raw = element.value as? String, let bytes = raw.data(using: .utf8),
+              let result = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+              result["schema"] as? String == "p2-form-direction-state-v1" else { return nil }
+        return result
+    }
+    private func state() throws -> [String: Any] {
+        var retained: [String: Any]?
+        try until("Missing valid app-process state") {
+            guard let value = self.readState() else { return false }
+            retained = value; return true
+        }
+        guard let retained else {
+            try require(false, "Valid state disappeared after polling")
+            throw NSError(domain: "P2FormDirection", code: 2)
+        }
+        lastValidState = retained
+        return retained
+    }
+    private func locale(_ value: Any?) -> String { (value as? String ?? "<missing>").replacingOccurrences(of: "_", with: "-") }
+    private func ready(_ value: [String: Any], language: String) -> Bool {
+        let direction = language == "he" ? "rtl" : "ltr"
+        guard value["arm"] as? String == arm, value["language"] as? String == language,
+              value["hostDefaultLanguage"] as? String == language, locale(value["locale"]) == language,
+              value["direction"] as? String == direction,
+              let probes = value["probes"] as? [String: [String: Any]], Set(probes.keys) == Set(probeNames) else { return false }
+        return probeNames.allSatisfy { name in
+            let row = probes[name]!
+            return row["direction"] as? String == (name == "container" && arm == "candidate" ? "ltr" : direction)
+                && locale(row["locale"]) == language && UUID(uuidString: row["identity"] as? String ?? "") != nil
+                && (row["uptime"] as? Double ?? -1) > 0
+                && (row["revision"] as? Int ?? -1) > 0
+        }
+    }
+    private func checkState(_ value: [String: Any], language: String) throws {
+        try require(ready(value, language: language), "Wrong actual environment or incomplete probe set for " + language)
+        for key in ["processToken", "sessionToken"] {
+            try require(UUID(uuidString: value[key] as? String ?? "") != nil, "Missing process/session identity: " + key)
+        }
+        let pid = value["processIdentifier"] as? Int ?? -1
+        try require(pid > 0 && pid != Int(ProcessInfo.processInfo.processIdentifier), "Missing separate app process identity")
+        try require(value["bootstrapLanguage"] as? String == "en" && value["bootstrapScope"] as? String == "fixture-domain-before-view-construction", "Wrong fixture bootstrap")
+        try require(value["text"] as? String == "", "Unexpected fixture text mutation")
+        for key in ["confirmStarted", "confirmCompleted", "errorStarted", "textStarted", "textCompleted", "witnessChoice"] {
+            try require(value[key] as? Int == 0, "Unexpected synthetic action: " + key)
+        }
+        let args = value["processArguments"] as? [String] ?? []
+        try require(args.count >= 3 && args.filter { $0 == "--form-arm" }.count == 1, "Missing actual process arm arguments")
+        if let index = args.firstIndex(of: "--form-arm") {
+            try require(index + 1 < args.count && args[index + 1] == arm, "Wrong actual process arm")
+        }
+        let forbidden = "^-{1,2}(applelanguages|applelocale|nslanguages|language|locale)(=|$)"
+        try require(args.dropFirst().allSatisfy { $0.range(of: forbidden, options: [.regularExpression, .caseInsensitive]) == nil }, "Language launch override")
+        let env = value["languageEnvironment"] as? [String: String] ?? [:]
+        try require(["AppleLanguages", "AppleLocale", "NSLanguages"].allSatisfy { env[$0] == nil }, "Apple language environment override")
+        if !initialState.isEmpty {
+            for key in ["arm", "processToken", "sessionToken", "originalMessage", "text"] {
+                try require(value[key] as? String == initialState[key] as? String, "State identity/content changed: " + key)
+            }
+            try require(value["processIdentifier"] as? Int == initialState["processIdentifier"] as? Int, "App process changed")
+            let before = initialState["probes"] as? [String: [String: Any]] ?? [:]
+            let after = value["probes"] as? [String: [String: Any]] ?? [:]
+            for name in probeNames {
+                try require(before[name]?["identity"] as? String == after[name]?["identity"] as? String, "Probe identity changed: " + name)
+            }
+        }
+    }
+    private func frame(_ element: XCUIElement) -> [String: Double] {
+        let rect = element.frame
+        return ["x": Double(rect.minX), "y": Double(rect.minY), "width": Double(rect.width), "height": Double(rect.height)]
+    }
+    private func element(_ element: XCUIElement) -> [String: Any] {
+        ["identifier": element.identifier, "label": element.label, "value": element.value as? String ?? "",
+         "role": Int(element.elementType.rawValue), "exists": element.exists, "hittable": element.isHittable, "frame": frame(element)]
+    }
+    private func query(_ identifier: String) throws -> XCUIElement {
+        let matches = app.descendants(matching: .any).matching(identifier: identifier).allElementsBoundByIndex
+        try require(matches.count == 1, "Missing or ambiguous exact identifier: " + identifier)
+        return matches[0]
+    }
+    private func geometry(_ language: String) throws -> [String: Any] {
+        let ids = ["settings.language", "p2-witness-header", "p2-witness-picker", "p2-witness-navigation",
+                   "p2-direction-first", "p2-direction-last", "p2-outside-first", "p2-outside-last", "p2-existing-message"]
+        var result: [String: Any] = ["viewport": frame(app)]
+        var midpoints: [String: Double] = [:]
+        for id in ids {
+            let item = try query(id)
+            try require(item.exists, "Missing geometry target: " + id)
+            let rect = item.frame
+            try require(rect.minX.isFinite && rect.minY.isFinite && rect.width.isFinite && rect.height.isFinite && rect.width > 0 && rect.height > 0, "Invalid geometry: " + id)
+            try require(app.frame.intersects(rect), "Geometry target outside screenshot: " + id)
+            result[id] = element(item)
+            midpoints[id] = Double(rect.midX)
+        }
+        let expectedHeader = ExpectedStrings.text("Language", language: language)
+        let headers = app.staticTexts.matching(NSPredicate(format: "label == %@", expectedHeader)).allElementsBoundByIndex
+        try require(!headers.isEmpty, "Production Language header has no AX geometry")
+        result["productionHeaderMatches"] = headers.map { element($0) }
+        let link = try query("p2-witness-navigation")
+        let descendants = link.descendants(matching: .any).allElementsBoundByIndex
+        try require(descendants.count <= 50, "Unexpected disclosure witness AX size")
+        result["nativeDisclosureDescendants"] = descendants.map { element($0) }
+        result["disclosureObservation"] = "native row and every exposed AX descendant; chevron may not be separately exposed"
+        guard let insideA = midpoints["p2-direction-first"], let insideB = midpoints["p2-direction-last"],
+              let outsideC = midpoints["p2-outside-first"], let outsideD = midpoints["p2-outside-last"] else {
+            try require(false, "Missing captured witness midpoint")
+            throw NSError(domain: "P2FormDirection", code: 3)
+        }
+        result["contentOrderCorrect"] = language == "he" ? insideA > insideB : insideA < insideB
+        result["outsideOrderCorrect"] = language == "he" ? outsideC > outsideD : outsideC < outsideD
+        return result
+    }
+    @discardableResult private func capture(_ stage: String, language: String) throws -> Double {
+        let before = try state()
+        try checkState(before, language: language)
+        let bounds = try geometry(language)
+        let started = ProcessInfo.processInfo.systemUptime
+        let png = arm + "-" + stage + ".png"
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = png; screenshot.lifetime = .keepAlways; add(screenshot)
+        let pngFinished = ProcessInfo.processInfo.systemUptime
+        let ax = arm + "-" + stage + ".txt"
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = ax; tree.lifetime = .keepAlways; add(tree)
+        let finished = ProcessInfo.processInfo.systemUptime
+        let after = try state()
+        try checkState(after, language: language)
+        try require(NSDictionary(dictionary: before).isEqual(to: after), "App state changed during screenshot/AX capture")
+        observations.append(["stage": stage, "language": language, "stateBefore": before, "stateAfter": after,
+            "captureStartedUptime": started, "pngFinishedUptime": pngFinished, "captureFinishedUptime": finished,
+            "png": png, "ax": ax, "geometry": bounds])
+        return finished
+    }
+    private func pair(_ prefix: String, language: String) throws {
+        let immediateFinished = try capture(prefix + "-immediate", language: language)
+        while ProcessInfo.processInfo.systemUptime < immediateFinished + 0.8 { Thread.sleep(forTimeInterval: 0.05) }
+        try capture(prefix + "-later", language: language)
+    }
+    private func select(_ language: String) throws {
+        let before = try state()
+        let from = before["language"] as? String ?? "<missing>"
+        let picker = try query("settings.language")
+        try require(picker.exists && picker.isHittable, "Production Picker is unavailable")
+        try require(picker.label.contains(ExpectedStrings.text("Language", language: from)), "Production Picker label is not localized")
+        let pickerTap = element(picker)
+        let pickerCandidates = [pickerTap]
+        let pickerTapStarted = ProcessInfo.processInfo.systemUptime
+        picker.tap()
+        let name = language == "he" ? "עברית" : "English"
+        var buttons: [XCUIElement] = [], texts: [XCUIElement] = []
+        try until("Missing real production Picker option " + name) {
+            buttons = self.app.buttons.matching(NSPredicate(format: "label == %@", name)).allElementsBoundByIndex.filter { $0.exists && $0.isHittable }
+            texts = self.app.staticTexts.matching(NSPredicate(format: "label == %@", name)).allElementsBoundByIndex.filter { $0.exists && $0.isHittable }
+            return !buttons.isEmpty || !texts.isEmpty
+        }
+        try require(buttons.count <= 1 && texts.count <= 1, "Ambiguous actionable production Picker option")
+        var buttonTextDescendants: [[String: Any]] = []
+        let optionContainment: String
+        if buttons.count == 1 && texts.count == 1 {
+            let descendants = buttons[0].staticTexts.matching(NSPredicate(format: "label == %@", name))
+                .allElementsBoundByIndex.filter { $0.exists && $0.isHittable }
+            try require(descendants.count == 1, "Global option text is not the unique native button child")
+            buttonTextDescendants = descendants.map { element($0) }
+            optionContainment = "unique-button-contains-unique-text"
+        } else {
+            try require(buttons.count + texts.count == 1, "Production Picker option has no unique actionable target")
+            optionContainment = "single-actionable-target"
+        }
+        let optionRole = buttons.isEmpty ? "staticText" : "button"
+        let options = buttons.isEmpty ? texts : buttons
+        try require(options.count == 1, "Production Picker has no unique actionable option")
+        let buttonCandidates = buttons.map { element($0) }, textCandidates = texts.map { element($0) }
+        if optionContainment == "unique-button-contains-unique-text" {
+            try require(NSArray(array: buttonTextDescendants).isEqual(to: textCandidates),
+                        "Descendant receipt differs from unique global option text")
+        }
+        let option = options[0]
+        let optionTap = element(option)
+        let tapStarted = ProcessInfo.processInfo.systemUptime
+        option.tap()
+        let tapFinished = ProcessInfo.processInfo.systemUptime
+        try until("Selected language has not propagated to all actual probe environments") {
+            guard let value = self.readState() else { return false }
+            return self.ready(value, language: language)
+        }
+        let after = try state()
+        try checkState(after, language: language)
+        let oldProbes = before["probes"] as? [String: [String: Any]] ?? [:]
+        let newProbes = after["probes"] as? [String: [String: Any]] ?? [:]
+        for probe in probeNames {
+            try require((newProbes[probe]?["revision"] as? Int ?? -1) > (oldProbes[probe]?["revision"] as? Int ?? 0)
+                && (newProbes[probe]?["uptime"] as? Double ?? -1) > (oldProbes[probe]?["uptime"] as? Double ?? 0),
+                "App-process probe did not advance across transition: " + probe)
+        }
+        transitions.append(["from": from, "to": language, "before": before, "after": after,
+            "pickerTap": pickerTap, "optionTap": optionTap, "pickerTapStartedUptime": pickerTapStarted,
+            "pickerCandidates": pickerCandidates, "optionRole": optionRole,
+            "buttonCandidates": buttonCandidates, "textCandidates": textCandidates,
+            "optionContainment": optionContainment, "buttonTextDescendants": buttonTextDescendants,
+            "tapStartedUptime": tapStarted, "tapFinishedUptime": tapFinished,
+            "readyUptime": ProcessInfo.processInfo.systemUptime])
+    }
+    private func finish() {
+        guard !reported else { return }; reported = true
+        let result: [String: Any] = ["schema": "p2-form-direction-v1", "arm": arm, "method": method,
+            "completed": completed, "failures": failures, "observations": observations,
+            "transitions": transitions, "finalState": lastValidState,
+            "visualVerdict": "not-evaluated-requires-independent-raster-review",
+            "scope": "standalone exact production Picker with shared synthetic Form content; not genuine host or complete preservation proof"]
+        if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
+            let report = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+            report.name = arm + "-form-direction.json"; report.lifetime = .keepAlways; add(report)
+        } else { XCTFail("Could not serialize mandatory evidence") }
+        // Preserve primary structured partial evidence before secondary captures.
+        if !completed {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = arm + "-partial-failure.png"; screenshot.lifetime = .keepAlways; add(screenshot)
+            let tree = XCTAttachment(string: app.debugDescription)
+            tree.name = arm + "-partial-failure.txt"; tree.lifetime = .keepAlways; add(tree)
+        }
+        app.terminate()
+    }
+    private func run(_ selectedArm: String, method selectedMethod: String) throws {
+        continueAfterFailure = true
+        arm = selectedArm; method = selectedMethod
+        addTeardownBlock { @MainActor [self] in finish() }
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["--form-arm", arm]
+        try require(app.launchEnvironment["AppleLanguages"] == nil && app.launchEnvironment["AppleLocale"] == nil, "Forbidden launch environment")
+        app.launch()
+        try until("Initial fixture environment probes are incomplete") {
+            guard let value = self.readState() else { return false }
+            return self.ready(value, language: "en")
+        }
+        initialState = try state()
+        try checkState(initialState, language: "en")
+        try pair("en-initial", language: "en")
+        try select("he")
+        try pair("he-selected", language: "he")
+        try select("en")
+        try pair("en-return", language: "en")
+        try require(observations.count == 6 && transitions.count == 2, "Incomplete bounded round trip")
+        completed = true
+    }
+    func testControlRoundTrip() throws { try run("control", method: "testControlRoundTrip") }
+    func testCandidateRoundTrip() throws { try run("candidate", method: "testCandidateRoundTrip") }
+}

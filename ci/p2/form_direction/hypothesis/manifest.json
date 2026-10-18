@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "status": "EXPERIMENTAL_UNCOMPILED_NOT_A_VERIFIED_FIX",
+  "baseCommit": "eb10cedb772bc0496d67edd7a269679e24826b9f",
+  "baseTree": "d6960a99a2f022a333c364fa4d28e264568a28ca",
+  "scope": "One Settings-local environment boundary hypothesis only; no publication or native run",
+  "paths": {
+    "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift": {
+      "before": {
+        "bytes": 40129,
+        "sha256": "acfdde40a64ab24feee671b4b2467eee93cf5177203155b480c0b59a04a4a8d5",
+        "gitBlob": "8b967a99ea9a6d08140c0f25febafa4922fdba6e",
+        "mode": "100644"
+      },
+      "after": {
+        "bytes": 40376,
+        "sha256": "73d1247c4ed4d6290fa8beaed2757a37d037d31afcb0dea21276f1b700d4ea75",
+        "gitBlob": "becd6699f25fc84875bd2f2e9c9ad9ebb028fcbd",
+        "mode": "100644"
+      }
+    }
+  },
+  "patch": {
+    "bytes": 1471,
+    "sha256": "2e8d94a5ade17dd7e5cd277b67222057c19fe312c55a1a01b72a184ac35c2875",
+    "gitBlob": "4fb042b42b9523380f4119c1fabcacd8b19f848a",
+    "mode": "100644"
+  },
+  "productAcceptance": false,
+  "nativeExecuted": false
+}
