@@ -15,6 +15,7 @@ final class HostSettingsProbeTests: XCTestCase {
     private var observations: [[String: Any]] = []
     private var navigation: [[String: Any]] = []
     private var serviceFailure: [String: Any]?
+    private var settingsRecurrence: [[String: Any]] = []
     private var status = "blocked"
     private var preferenceReceipts: [[String: Any]] = []
     private var stage = "before-launch"
@@ -193,7 +194,7 @@ final class HostSettingsProbeTests: XCTestCase {
         // failure/timeout must not prevent this original report from being added.
         var report: [String: Any] = [
             "identity": identity, "status": status, "stage": stage,
-            "launchCount": launchCount, "navigation": navigation,
+            "launchCount": launchCount, "navigation": navigation, "settingsRecurrence": settingsRecurrence,
             "observations": observations, "launchPolicy": launchPolicy, "preferenceReceipts": preferenceReceipts
         ]
         if let serviceFailure { report["serviceFailure"] = serviceFailure }
@@ -371,6 +372,74 @@ final class HostSettingsProbeTests: XCTestCase {
         // serviceFailure deliberately remains unresolved in every later outcome.
     }
 
+    private func acknowledgeSettingsRecurrenceIfPresent() {
+        // One measured recurrence at Settings entry only. Never retry a service,
+        // hide a later language-stage alert, or weaken startup acknowledgement.
+        guard app.alerts.firstMatch.waitForExistence(timeout: 3) else { return }
+        stage = "settings-entry-service-recurrence"
+        XCTAssertTrue(settingsRecurrence.isEmpty)
+        XCTAssertTrue(observations.isEmpty && preferenceReceipts.isEmpty)
+        guard let original = serviceFailure,
+              let code = original["diagnosticCode"] as? String,
+              let title = original["title"] as? String,
+              let body = original["body"] as? String else {
+            XCTFail("Settings alert has no authenticated startup predecessor")
+            return
+        }
+        XCTAssertEqual(original["alertAbsentAfterAcknowledgement"] as? Bool, true)
+        XCTAssertEqual(app.alerts.count, 1)
+        XCTAssertEqual(XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.count, 0)
+        let matches = app.alerts.matching(NSPredicate(format: "label == %@", title))
+            .containing(.staticText, identifier: body)
+        XCTAssertEqual(matches.count, 1)
+        let alert = matches.element(boundBy: 0)
+        let expectedLabels = [title, body].sorted()
+        let expectedButtons = ["Copy Diagnostics", "OK"]
+        XCTAssertEqual(alert.staticTexts.allElementsBoundByIndex.map(\.label).sorted(), expectedLabels)
+        XCTAssertEqual(alert.buttons.allElementsBoundByIndex.map(\.label).sorted(), expectedButtons)
+        let ok = alert.buttons["OK"]
+        XCTAssertTrue(ok.isHittable)
+        capture("settings-recurrence-before")
+        var receipt: [String: Any] = ["phase": "identified", "stage": stage,
+            "diagnosticCode": code, "title": title, "body": body,
+            "actualStaticTextLabels": expectedLabels, "buttons": expectedButtons,
+            "presentationOnly": true, "resolved": false, "backendReadinessProven": false,
+            "preTapInventoryVerified": false, "tapAttempted": false,
+            "tapReturned": false, "allAlertsAbsentAfterTap": false]
+        func publish(_ value: [String: Any]) {
+            do {
+                let data = try JSONSerialization.data(withJSONObject: ["identity": identity, "receipt": value], options: [.sortedKeys])
+                let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+                attachment.name = "host-probe-settings-recurrence-" + (value["phase"] as! String) + ".json"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                settingsRecurrence.append(value)
+            } catch { XCTFail("Settings recurrence receipt could not be retained") }
+        }
+        publish(receipt)
+        // Recheck the whole exact inventory after screenshot and before tap.
+        XCTAssertEqual(app.alerts.count, 1)
+        XCTAssertEqual(matches.count, 1)
+        XCTAssertEqual(alert.label, title)
+        XCTAssertEqual(alert.staticTexts.allElementsBoundByIndex.map(\.label).sorted(), expectedLabels)
+        XCTAssertEqual(alert.buttons.allElementsBoundByIndex.map(\.label).sorted(), expectedButtons)
+        XCTAssertEqual(alert.buttons.matching(NSPredicate(format: "label == %@", "OK")).count, 1)
+        XCTAssertEqual(XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.count, 0)
+        XCTAssertTrue(ok.isHittable)
+        receipt["preTapInventoryVerified"] = true
+        receipt["tapAttempted"] = true
+        ok.tap()
+        receipt["tapReturned"] = true
+        let absent = XCTNSPredicateExpectation(predicate: NSPredicate { [weak self] _, _ in self?.app.alerts.count == 0 }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [absent], timeout: 5), .completed)
+        receipt["allAlertsAbsentAfterTap"] = app.alerts.count == 0
+        XCTAssertEqual(receipt["allAlertsAbsentAfterTap"] as? Bool, true)
+        receipt["phase"] = "acknowledged"
+        publish(receipt)
+        capture("settings-recurrence-after")
+        noUnexpectedAlerts()
+    }
+
     private func reveal(_ element: XCUIElement, upwards: Bool) {
         for _ in 0..<6 {
             if element.exists && element.isHittable { return }
@@ -528,6 +597,7 @@ final class HostSettingsProbeTests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 10), "Genuine Settings tab unreachable")
         XCTAssertTrue(settings.isHittable)
         settings.tap()
+        acknowledgeSettingsRecurrenceIfPresent()
         preference(__COLLAPSED_EN__, stage: "en-seeded", seed: true)
         record("en-before", language: "en", nativeName: "English", settingsTitle: __SETTINGS_EN__)
         choose("עברית")

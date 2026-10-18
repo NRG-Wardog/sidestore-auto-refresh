@@ -51,7 +51,7 @@ def attachment_map(directory):
             require(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(directory.resolve()), 'Attachment missing or escapes export')
             require(path.stat().st_size <= 16 * 1024 * 1024, 'Oversized probe attachment')
             rows[name] = path
-    require(len(rows) <= 32, 'Too many probe attachments')
+    require(len(rows) <= 38, 'Too many probe attachments')
     require(len({str(v) for v in rows.values()}) == len(rows), 'Aliased probe attachments')
     return rows
 
@@ -63,6 +63,7 @@ def verify_artifacts(directory,identity,builder,host,startup):
  expected={'sourceCommit':host.SOURCE,'sourceTree':host.TREE,'builderCommit':builder,'bundleIdentifier':host.BUNDLE_ID,'executableSHA256':identity['executableSHA256']}
  result=verify_rows(report,expected)
  names={'host-probe-observations.json','host-probe-launch.png','host-probe-launch.txt'}|startup.verify_navigation(report)
+ names|=verify_recurrence(report,rows)
  for stage,code,native,title,pstage in STAGES:
   for prefix in [stage,'preference-'+pstage]:
    names|={'host-probe-'+prefix+'.png','host-probe-'+prefix+'.txt'}
@@ -71,3 +72,21 @@ def verify_artifacts(directory,identity,builder,host,startup):
   if name.endswith('.png'):require(path.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'),'Invalid screenshot')
   elif name.endswith('.txt'):require(0<path.stat().st_size<=512*1024 and path.read_text().strip(),'Missing/oversized AX')
  return {'report':report,'scope':result,'attachments':{n:{'sha256':sha(p),'bytes':p.stat().st_size}for n,p in rows.items()}}
+
+def verify_recurrence(report,attachments):
+ events=report.get('settingsRecurrence')
+ require(isinstance(events,list) and len(events) in (0,2),'Incomplete or repeated Settings acknowledgement')
+ if not events:return set()
+ fault=report.get('serviceFailure')
+ require(isinstance(fault,dict) and fault.get('alertAbsentAfterAcknowledgement')is True,'Recurrence has no completed startup predecessor')
+ flags=['preTapInventoryVerified','tapAttempted','tapReturned','allAlertsAbsentAfterTap']
+ names=set()
+ for event,phase in zip(events,['identified','acknowledged']):
+  expected={'phase':phase,'stage':'settings-entry-service-recurrence','diagnosticCode':fault['diagnosticCode'],'title':fault['title'],'body':fault['body'],'actualStaticTextLabels':sorted([fault['title'],fault['body']]),'buttons':['Copy Diagnostics','OK'],'presentationOnly':True,'resolved':False,'backendReadinessProven':False,**{k:phase=='acknowledged'for k in flags}}
+  require(event==expected and all(type(event.get(k))is bool for k in flags+['presentationOnly','resolved','backendReadinessProven']),'Changed or incomplete Settings recurrence')
+  name='host-probe-settings-recurrence-'+phase+'.json';names.add(name)
+  require(name in attachments,'Missing durable recurrence receipt')
+  require(strict_json(attachments[name].read_text())=={'identity':report['identity'],'receipt':event},'Recurrence receipt differs from final report')
+ for phase in ['before','after']:
+  names|={'host-probe-settings-recurrence-'+phase+'.png','host-probe-settings-recurrence-'+phase+'.txt'}
+ return names

@@ -19,3 +19,11 @@ The separately passing extracted state-method tests cover load/write races.
 Completion requires native execution and independent pixel review. The remaining
 integration/relaunch/error presentation witnesses remain separate acceptance work.
 No physical-device authentication or distributable IPA follows from this test.
+
+Run39166185990 retained the same SS-LAUNCH-C11-L15 presentation after entering
+Settings and before any language/preference observation. The lane permits one
+optional exact recurrence acknowledgement at that boundary only, binding the
+completed startup fault and retaining separate pre/post receipts and pixels.
+Every unknown alert and any later recurrence still blocks the run. The service
+fault remains unresolved. Settings starts two settingsGet loads whose error
+paths can present issues; the exact triggering request was not identified.
