@@ -10,7 +10,13 @@ final class DataManager {
     static let shared = DataManager()
     let model = NSObject()
 }
+#if PRODUCTION_LOCALIZATION
+// Same accessor as production Shared.swift; retain its real lookup and fallback.
+extension String { var loc: String { V3Localization.string(self) } }
+#else
+// Historical pre-localization layout source has no V3 localization dependency.
 extension String { var loc: String { self } }
+#endif
 final class LCAppInfo {
     var isLocked = false
     var missingIcon = false

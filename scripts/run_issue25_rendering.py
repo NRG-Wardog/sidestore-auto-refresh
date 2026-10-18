@@ -107,6 +107,57 @@ def available_devices() -> list[tuple[str, str, str]]:
     return selected
 
 
+LOCALIZATION_SOURCES = (
+    "LiveContainerSwiftUI/Utilities/V3Localization.swift",
+    "LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift",
+)
+LOCALIZATION_CATALOG = "Resources/Localizable.xcstrings"
+LOCALIZATION_LANGUAGES = ("en", "he", "zh-Hans", "zh-Hant")
+LOCALIZATION_KEYS = (
+    "lc.appBanner.run", "lc.appBanner.noDataFolder", "Connected", "Reloading Status...",
+    "Reload Status", "Updated %@", "Status last updated %@", "SideStore status: %@, %@",
+    "Loading apps...", "No sideloaded apps",
+)
+
+
+def localization_sources(live: Path, consumers: list[Path]) -> list[Path]:
+    """Close genuine production dependencies; retain the older unlocalized fixture."""
+    sources = [live / relative for relative in LOCALIZATION_SOURCES]
+    required = any(re.search(r"\bV3(?:AppLanguage|Localization|LocalizedText|LocalizedLabel)\b",
+                             path.read_text()) for path in consumers)
+    if not required and not any(path.exists() for path in sources):
+        return []
+    for path in [*sources, live / LOCALIZATION_CATALOG]:
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError(f"Production localization dependency missing or linked: {path}")
+    return sources
+
+
+def compile_localization(bundle: Path, live: Path) -> dict[str, str]:
+    """Use Xcode's real catalog compiler, preserving plural/substitution semantics."""
+    catalog = live / LOCALIZATION_CATALOG
+    command("xcrun", "xcstringstool", "compile", "--output-directory", str(bundle), str(catalog))
+    resources = sorted(bundle.glob("*.lproj/Localizable.*"))
+    entries = json.loads(catalog.read_text())["strings"]
+    for language in LOCALIZATION_LANGUAGES:
+        for name in ("Localizable.strings", "Localizable.stringsdict"):
+            path = bundle / (language + ".lproj") / name
+            if path not in resources or path.is_symlink() or path.parent.is_symlink() or not path.is_file() or not path.stat().st_size:
+                raise RuntimeError(f"Compiled production localization resource missing: {path}")
+        strings = json.loads(command("plutil", "-convert", "json", "-o", "-",
+                                     str(bundle / (language + ".lproj") / "Localizable.strings")))
+        for key in LOCALIZATION_KEYS:
+            expected = entries[key]["localizations"][language]["stringUnit"]["value"]
+            if not isinstance(expected, str) or not expected or strings.get(key) != expected:
+                raise RuntimeError(f"Compiled localization label differs: {language}/{key}")
+    hashes = {LOCALIZATION_CATALOG: hashlib.sha256(catalog.read_bytes()).hexdigest()}
+    for path in resources:
+        if path.is_symlink() or path.parent.is_symlink() or not path.is_file():
+            raise RuntimeError(f"Compiled localization resource is not a regular file: {path}")
+        hashes["compiled-localization/" + str(path.relative_to(bundle))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashes
+
+
 def build_app(output: Path, live: Path, baseline: bool, fallback: bool = False) -> tuple[Path, str, dict]:
     name = "baseline" if baseline else ("fallback-contract" if fallback else "corrected")
     build = output / name
@@ -132,12 +183,17 @@ def build_app(output: Path, live: Path, baseline: bool, fallback: bool = False) 
         "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerView.swift",
     ]
     sources = [live / relative for relative in relative_sources]
+    localized = localization_sources(live, sources + [grid])
+    sources += localized
     sources += [grid, ROOT / "tests/fixtures/issue25_rendering_dependencies.swift", ROOT / "tests/fixtures/issue25_rendering_harness.swift"]
     hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     hashes["original-production-grid"] = original_grid_hash
     sdk = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
     flags = [] if baseline else ["-D", "CORRECTED_GRID", "-D", "CORRECTED_BANNER"]
+    if localized:
+        flags += ["-D", "PRODUCTION_LOCALIZATION"]
+        hashes.update(compile_localization(bundle, live))
     command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
             "-target", architecture + "-apple-ios15.0-simulator", "-g", "-Onone", *flags,
             *map(str, sources), "-o", str(bundle / "Issue25Rendering"))
@@ -210,12 +266,16 @@ def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, s
     generated_header.write_text("import SwiftUI\n" + severity_model + "\n" + tint_model + "\n" + header)
     sources = [live / "LiveContainerSwiftUI/Models/AppLayoutStyle.swift", generated, generated_header,
                ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift"]
+    localized = localization_sources(live, sources)
+    sources += localized
     hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     hashes["original-V3InstalledAppsSection"] = hashlib.sha256(section.encode()).hexdigest()
     hashes["original-V3HomeServiceHeader"] = hashlib.sha256(text[header_start:header_end].encode()).hexdigest()
     bundle = build / "Issue25Rendering.app"
     bundle.mkdir(exist_ok=True)
     bundle_id = "org.sidestore.layout.fixture.v3native"
+    if localized:
+        hashes.update(compile_localization(bundle, live))
     sdk = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
     command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
