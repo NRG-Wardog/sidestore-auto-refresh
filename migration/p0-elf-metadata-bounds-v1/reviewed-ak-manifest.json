@@ -1,0 +1,94 @@
+{
+  "repository": "NRG-Wardog/AnisetteKit",
+  "parent": "94659b4d54eed5729b34f4103b3f70579aa8d8e9",
+  "parent_tree": "78d7fdb9f77c461419b89df5a285dfd74fa642b5",
+  "expected_tree": "35f0d2669a20700cd2105f207897ee08d72ad5f7",
+  "paths": [
+    {
+      "path": ".ci/native-tests/README.md",
+      "bytes": 4997,
+      "sha256": "7380f730896817cd6913a59b8f411b815ea4bf06560237fd1bdeedc2cdba72aa",
+      "git_blob": "2682bbd0caf64c818a28379bc78d99be86498ebb",
+      "mode": "100644"
+    },
+    {
+      "path": ".ci/native-tests/fixtures/elf_metadata_bounds_unit.cpp",
+      "bytes": 13973,
+      "sha256": "bb4e7ec60202f6576f8013d0925c69c6ca4d8fca6061d93b233587efdb35487a",
+      "git_blob": "d0a38ca27cf61770010803ca86c44620051ae182",
+      "mode": "100644"
+    },
+    {
+      "path": ".ci/native-tests/run_tests.py",
+      "bytes": 23749,
+      "sha256": "e750b294770ee864e36b94d9a7fa936c5cb76b2a16633ce8d199f439829f6811",
+      "git_blob": "24ab5e38ab0952afe2182810de0e29197838022e",
+      "mode": "100644"
+    },
+    {
+      "path": ".ci/native-tests/test_android_tls_runtime.py",
+      "bytes": 3184,
+      "sha256": "6867ebfa2ef821692bc7c8091e1072996139c791cb61f942146bc6205e28f755",
+      "git_blob": "9163e7858c9469795b3aff1c0d450c0fa1004729",
+      "mode": "100644"
+    },
+    {
+      "path": ".ci/native-tests/test_constructor_diagnostics.py",
+      "bytes": 6509,
+      "sha256": "9d27c7b9206246d5e908555e7f2412162ccf5d3b0862270fb79913a4a8ec1ddc",
+      "git_blob": "b7fd809bc8a5d5d1e8b1a0c18db28b074294b0ff",
+      "mode": "100644"
+    },
+    {
+      "path": ".ci/native-tests/test_elf_metadata_bounds.py",
+      "bytes": 4478,
+      "sha256": "6a601417c24df2a267e3a782affcd1fefcd41b18301ed6073299be33e2b643ac",
+      "git_blob": "f74dd05d0605e59298e42338527b6866d1aacf41",
+      "mode": "100644"
+    },
+    {
+      "path": "Native/Loader/elf_loader_emulator.cpp",
+      "bytes": 57538,
+      "sha256": "2caeb8f2d5526c35e6128a288ec74229e25d23f1d2f84b22ca226ba3c89405d3",
+      "git_blob": "8cb45ed2bc6e4d7f03aff1b4b678044d038bc048",
+      "mode": "100644"
+    },
+    {
+      "path": "Native/Loader/elf_loader_emulator.h",
+      "bytes": 4307,
+      "sha256": "16eb67e76dc4ae94350e55968e9313c2f4163817182c08af76a5c85b2ec09327",
+      "git_blob": "aea3514b0ac438926d4edd354d1731b44549c7f9",
+      "mode": "100644"
+    },
+    {
+      "path": "Native/Loader/elf_metadata_bounds.h",
+      "bytes": 14829,
+      "sha256": "7acd9287cc351b55141f40a0baecda9c3d3202a420cf4b7f0f2515572d877253",
+      "git_blob": "4dbeeb6949fbc0fa87f050fcc8c571e6fef06b40",
+      "mode": "100644"
+    },
+    {
+      "path": "Native/anisette_core_uc.cpp",
+      "bytes": 47278,
+      "sha256": "d75cc5f9534f94d8871da89ca84c885148d3f813e93eee790aa698cec6ee855a",
+      "git_blob": "782ff3329c9dad86b2aa010526fb9ab65313c952",
+      "mode": "100644"
+    }
+  ],
+  "verification": {
+    "host_only_unit_checks": 713,
+    "variants": [
+      "normal",
+      "optimized",
+      "ASan+UBSan"
+    ],
+    "zero_skips": true,
+    "leak_sanitizer": "unavailable under executor ptrace; explicit disable disclosed",
+    "guest_execution": false,
+    "proprietary_input": false,
+    "device_validation": false,
+    "full_loader_and_wrapper_syntax": "pass; zero new warnings",
+    "unit_receipt": "verification/relocation-tag-review/result.json",
+    "unit_receipt_sha256": "f9194eb7383d918a426067bc7760f7c937a7610812834112a1be0d8ae78d8542"
+  }
+}

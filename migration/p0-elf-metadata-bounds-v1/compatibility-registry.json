@@ -1,0 +1,329 @@
+{
+  "contract_set": "runtime-p0-abi-tls-certificate-lifecycle.v1",
+  "contracts": {
+    "adi-consumption-debug": {
+      "description": "Temporary v2 bounded native ADI comparison, v1/v2 Swift decoding, wire and Copy Details contract, plus read-only per-key legacy comparison. Equality/coverage is observational and does not prove EOF, cryptographic binding, ADI acceptance or a fix.",
+      "providers": [
+        "AnisetteKit",
+        "SideStore"
+      ],
+      "version": "2.0.0"
+    },
+    "anisette-provider": {
+      "description": "Preserved public Anisette API and identity flow with reviewed native ABI, Bionic TLS, and constructor-completion containment changes. Source binding does not establish genuine Apple ADI or device acceptance.",
+      "providers": [
+        "AnisetteKit"
+      ],
+      "version": "1.0.0"
+    },
+    "app-group-identity": {
+      "description": "Shared App Group selection, fail-closed storage and cross-process handoff; duplicated runtime implementations remain frozen.",
+      "providers": [
+        "LiveContainer",
+        "SideStore"
+      ],
+      "version": "1.0.0"
+    },
+    "auth-service-messages": {
+      "description": "Versioned command envelope, auth sessions, prompt/secret handoff, cancellation and provisioning resume state.",
+      "providers": [
+        "LiveContainer",
+        "SideStore"
+      ],
+      "version": "1.0.0"
+    },
+    "constructor-diagnostics": {
+      "description": "Privacy-bounded v1 constructor failure kind/reason/engine/library/initializer observations; exact Swift parsing, service serialization and independent host rendering. Constructor execution remains fail closed, existing v2 ADI diagnostics remain unchanged, and no credentials are erased. Source compatibility does not prove native or device success.",
+      "providers": [
+        "AnisetteKit",
+        "SideStore"
+      ],
+      "version": "1.0.0"
+    },
+    "diagnostics": {
+      "description": "Finite diagnostic source interfaces, including reviewed P0 descriptor progression and certificate/UDID failure retention. Native execution evidence is separately required.",
+      "providers": [
+        "AnisetteKit",
+        "LiveContainer",
+        "SideSign",
+        "SideStore",
+        "idevice",
+        "jktcp",
+        "minimuxer"
+      ],
+      "version": "1.0.0"
+    },
+    "idevice-ffi": {
+      "description": "CoreDevice/AFC/tunnel C FFI exports, feature gates and lifecycle surface consumed by the Swift gateway.",
+      "providers": [
+        "idevice"
+      ],
+      "version": "1.0.0"
+    },
+    "jktcp-stream": {
+      "description": "Adapter/handle TCP lifecycle, bounded zero-window persistence and error propagation consumed by idevice.",
+      "providers": [
+        "jktcp"
+      ],
+      "version": "1.0.0"
+    },
+    "pending-certificate-lifecycle": {
+      "description": "Owner-bound pending certificate journaling, read-only reconciliation, explicit activation consent, preserved created result, and host recovery capability wire contract. No account/device secrets are embedded in metadata.",
+      "providers": [
+        "LiveContainer",
+        "SideSign",
+        "SideStore"
+      ],
+      "version": "1.0.0"
+    },
+    "refresh-results": {
+      "description": "Refresh run correlation, result verification, persistent evidence and host/service refresh completion.",
+      "providers": [
+        "LiveContainer",
+        "SideStore"
+      ],
+      "version": "1.0.0"
+    },
+    "sidesign-auth": {
+      "description": "DeveloperPortal authentication, verification callback, auth models, anisette conversion and preserved account/provisioning error semantics.",
+      "providers": [
+        "SideSign"
+      ],
+      "version": "1.0.0"
+    },
+    "transport-capabilities": {
+      "description": "Refresh transport selection, pairing/connection modes, backend capability and CoreDevice initialization/lease behavior.",
+      "providers": [
+        "minimuxer"
+      ],
+      "version": "1.0.0"
+    },
+    "xpc-service": {
+      "description": "RefreshServer/RefreshClient selectors, primitive NSData command transport, launch/readiness and embedded service dispatch.",
+      "providers": [
+        "LiveContainer",
+        "SideStore"
+      ],
+      "version": "1.0.0"
+    }
+  },
+  "edges": [
+    {
+      "consumer": "LiveContainer",
+      "contract": "adi-consumption-debug",
+      "provider": "SideStore",
+      "version": "2.0.0"
+    },
+    {
+      "consumer": "LiveContainer",
+      "contract": "app-group-identity",
+      "provider": "SideStore",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "LiveContainer",
+      "contract": "auth-service-messages",
+      "provider": "SideStore",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "LiveContainer",
+      "contract": "constructor-diagnostics",
+      "provider": "SideStore",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "LiveContainer",
+      "contract": "diagnostics",
+      "provider": "SideStore",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "LiveContainer",
+      "contract": "pending-certificate-lifecycle",
+      "provider": "SideStore",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "LiveContainer",
+      "contract": "refresh-results",
+      "provider": "SideStore",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "LiveContainer",
+      "contract": "xpc-service",
+      "provider": "SideStore",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideSign",
+      "contract": "anisette-provider",
+      "provider": "AnisetteKit",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideSign",
+      "contract": "diagnostics",
+      "provider": "AnisetteKit",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "adi-consumption-debug",
+      "provider": "AnisetteKit",
+      "version": "2.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "anisette-provider",
+      "provider": "AnisetteKit",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "constructor-diagnostics",
+      "provider": "AnisetteKit",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "diagnostics",
+      "provider": "AnisetteKit",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "app-group-identity",
+      "provider": "LiveContainer",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "auth-service-messages",
+      "provider": "LiveContainer",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "diagnostics",
+      "provider": "LiveContainer",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "pending-certificate-lifecycle",
+      "provider": "LiveContainer",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "refresh-results",
+      "provider": "LiveContainer",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "xpc-service",
+      "provider": "LiveContainer",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "diagnostics",
+      "provider": "SideSign",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "pending-certificate-lifecycle",
+      "provider": "SideSign",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "sidesign-auth",
+      "provider": "SideSign",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "diagnostics",
+      "provider": "minimuxer",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "SideStore",
+      "contract": "transport-capabilities",
+      "provider": "minimuxer",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "idevice",
+      "contract": "diagnostics",
+      "provider": "jktcp",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "idevice",
+      "contract": "jktcp-stream",
+      "provider": "jktcp",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "minimuxer",
+      "contract": "diagnostics",
+      "provider": "idevice",
+      "version": "1.0.0"
+    },
+    {
+      "consumer": "minimuxer",
+      "contract": "idevice-ffi",
+      "provider": "idevice",
+      "version": "1.0.0"
+    }
+  ],
+  "evidence": {
+    "path": "provenance/source-evidence.json",
+    "sha256": "82695829674ae0b40b294f76091121007fc4678a0f96f077e1b3551297920b7d"
+  },
+  "format_version": 1,
+  "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "owners": {
+    "AnisetteKit": {
+      "manifest_path": "owners/AnisetteKit/runtime-contract.json",
+      "manifest_sha256": "31567257b4e2145c837e1826d36a77be20d0d2e6cc05ac446ca8e38a7f174f5e",
+      "version": "1.3.1"
+    },
+    "LiveContainer": {
+      "manifest_path": "owners/LiveContainer/runtime-contract.json",
+      "manifest_sha256": "b93c61909366bb2dd150089ba4d6e6888313af9c6637a6ed8d5881a693270d6c",
+      "version": "1.3.1"
+    },
+    "SideSign": {
+      "manifest_path": "owners/SideSign/runtime-contract.json",
+      "manifest_sha256": "097a1bc54a5bb131adab203bc3ae0cb4d90669e2e427a8d246a38848de19f98e",
+      "version": "1.3.0"
+    },
+    "SideStore": {
+      "manifest_path": "owners/SideStore/runtime-contract.json",
+      "manifest_sha256": "52133494240cfb13dd7ae673f55b88f4ceb298ac43bdcc100255b0fe216a0db4",
+      "version": "1.3.1"
+    },
+    "idevice": {
+      "manifest_path": "owners/idevice/runtime-contract.json",
+      "manifest_sha256": "c2950501845ad93280e273c58ce055de7df8808864d26b5b139d8e6aaeb11aa1",
+      "version": "1.0.1"
+    },
+    "jktcp": {
+      "manifest_path": "owners/jktcp/runtime-contract.json",
+      "manifest_sha256": "664fe4ff1ce734bd8fb37400d09a190fc4defae795b3e449a92e33ee97e344ec",
+      "version": "1.0.1"
+    },
+    "minimuxer": {
+      "manifest_path": "owners/minimuxer/runtime-contract.json",
+      "manifest_sha256": "2eb4f6ef7906770c848b6f07403af16722d4a0cc5ddbe581df86cc0743650174",
+      "version": "1.0.0"
+    }
+  }
+}

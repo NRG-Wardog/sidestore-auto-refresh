@@ -224,6 +224,14 @@ jobs:
           git -c core.hooksPath=/dev/null clone --no-checkout https://github.com/NRG-Wardog/AnisetteKit.git work/LegacyP0AnisetteKit
           git -C work/LegacyP0AnisetteKit -c core.hooksPath=/dev/null checkout --detach 0dfcc89aa93411d84f7c50beb3c75599af89e852
           test "$(git -C work/LegacyP0AnisetteKit rev-parse HEAD)" = 0dfcc89aa93411d84f7c50beb3c75599af89e852
+          git -c core.hooksPath=/dev/null clone --no-checkout https://github.com/NRG-Wardog/AnisetteKit.git work/LegacyConstructorAnisetteKit
+          git -C work/LegacyConstructorAnisetteKit -c core.hooksPath=/dev/null checkout --detach 94659b4d54eed5729b34f4103b3f70579aa8d8e9
+          test "$(git -C work/LegacyConstructorAnisetteKit rev-parse HEAD)" = 94659b4d54eed5729b34f4103b3f70579aa8d8e9
+          test "$(git -C work/LegacyConstructorAnisetteKit rev-parse HEAD^{tree})" = 78d7fdb9f77c461419b89df5a285dfd74fa642b5
+          git -c core.hooksPath=/dev/null clone --no-checkout https://github.com/NRG-Wardog/AnisetteKit.git work/BoundsCandidateAnisetteKit
+          git -C work/BoundsCandidateAnisetteKit -c core.hooksPath=/dev/null checkout --detach 9c876820d102affe2f55ee4b7f735fff6abd990a
+          test "$(git -C work/BoundsCandidateAnisetteKit rev-parse HEAD)" = 9c876820d102affe2f55ee4b7f735fff6abd990a
+          test "$(git -C work/BoundsCandidateAnisetteKit rev-parse HEAD^{tree})" = 1c54f163acfb8e5d18605aaa301a3d5ebd576505
           git clone --filter=blob:none https://github.com/NRG-Wardog/LiveContainer.git work/LegacyLiveContainer
           git -C work/LegacyLiveContainer checkout --detach 12377cf3b91d51739a33f14a302e5f522b238593
           git -C work/LegacyLiveContainer -c submodule.litehook.url=https://github.com/LiveContainerMirror/litehook.git submodule update --init --recursive
@@ -290,7 +298,9 @@ jobs:
         env:
           ADI_DIAGNOSTIC_ANISETTE_SOURCE: ${{ github.workspace }}/work/LegacyDiagnosticAnisetteKit
           P0_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/LegacyP0AnisetteKit
-          P0_DIAGNOSTIC_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/AnisetteKit
+          P0_DIAGNOSTIC_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/LegacyConstructorAnisetteKit
+          P0_BOUNDS_MANIFEST_SOURCE: ${{ github.workspace }}/work/BoundsCandidateAnisetteKit
+          P0_BOUNDS_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/AnisetteKit
         shell: bash
         run: |
           set -euo pipefail

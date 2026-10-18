@@ -318,7 +318,7 @@ def main():
                     side_store_executable_data = data
                     assert b'UNIQUE_DEVICE_ID_QUERY_FAIL' in data, 'Issue 24 query diagnostics absent'
                     assert b'lc_stage=uniqueDeviceID' in data, 'Issue 24 structured category absent'
-            if maintained is not None and maintained.get('source_basis') == 'p0-constructor-diagnostics-v1':
+            if maintained is not None and maintained.get('source_basis') in {'p0-constructor-diagnostics-v1', 'p0-elf-metadata-bounds-v1'}:
                 verify_constructor_diagnostic_binaries(
                     archive.read('Payload/LiveContainer.app/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI'),
                     side_store_executable_data,

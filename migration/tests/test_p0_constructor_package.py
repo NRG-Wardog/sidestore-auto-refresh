@@ -30,7 +30,11 @@ class ConstructorPackageTests(unittest.TestCase):
             with self.assertRaises(ValueError):verifier.verify_constructor_diagnostic_binaries(*parts,{'source_basis':d.BASIS})
         verifier.verify_constructor_diagnostic_binaries(b'',b'',b'',{'source_basis':'p0-abi-tls-certificate-lifecycle-v1'})
     def test_actual_active_source_collection_or_pending_scaffold(self):
-        pins=gate.load_pins(ROOT/'migration/maintained-sources.json')
+        pin_path=ROOT/'migration/maintained-sources.json'
+        pins=gate.load_pins(pin_path)
+        if pins['source_basis']=='p0-elf-metadata-bounds-v1':
+            pin_path=ROOT/'migration/p0-elf-metadata-bounds-v1/inherited/constructor-pins.json'
+            pins=gate.load_pins(pin_path)
         if pins['source_basis']!=d.BASIS:
             self.assertIsNone(d.DIAGNOSTIC_REVIEW_SHA256)
             with self.assertRaises(ValueError):d.approval(ROOT)
@@ -40,6 +44,6 @@ class ConstructorPackageTests(unittest.TestCase):
         binary=b'\0'.join(row['value'].encode()for row in expected['required_compiled_evidence']['literals'])
         root,_=gate.contract_basis(pins)
         with tempfile.TemporaryDirectory()as tmp:
-            binding=collector.collect_isolated_anisette_evidence(Path(source),root/'anisette-generated/maintained-source-manifest.json',Path(tmp),binary,ROOT/'migration/maintained-sources.json')
+            binding=collector.collect_isolated_anisette_evidence(Path(source),root/'anisette-generated/maintained-source-manifest.json',Path(tmp),binary,pin_path)
             verifier.verify_isolated_anisette_evidence(Path(tmp),binding,binary,pins)
 if __name__=='__main__':unittest.main()

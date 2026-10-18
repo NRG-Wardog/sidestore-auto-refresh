@@ -1,0 +1,186 @@
+{
+  "anisettekit_revision": "94659b4d54eed5729b34f4103b3f70579aa8d8e9",
+  "anisettekit_tree": "78d7fdb9f77c461419b89df5a285dfd74fa642b5",
+  "compiled_literal": "Checked OTP staging failed",
+  "contract_set": "runtime-p0-abi-tls-certificate-lifecycle.v1",
+  "dormant_native_symbol": "get_anisette_headers_isolated_uc",
+  "dormant_swift_api": "IsolatedAnisetteOTPProvider.getExistingHeaders",
+  "files": [
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/CONSTRUCTOR_DIAGNOSTICS.md",
+      "sha256": "09621ed49485a11bed5f10645012afd03c1e88aacee677edb9c4859a05a5c76c"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/README.md",
+      "sha256": "47136a886873602382791feeb8090a1666139711479a0df50e739fe6c213e2c1"
+    },
+    {
+      "basis": "source-inventory.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/android_tls_constructor.cpp",
+      "sha256": "e914d11f518e065f4ddf1be75b9af5543006b222e118ef7a3d5b9c5b7fa7c331"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/constructor_diagnostics.cpp",
+      "sha256": "c9e1018a438679080a38d1c2c8feeefbc66e3f3f4bc84347f97059b5aeca40b1"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp",
+      "sha256": "d80a994d24446f9cba39b0c46936ac050c0a0f1d503294293f45ed8cdd9e3c12"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_loader_harness.cpp",
+      "sha256": "053efa1197760643af52976e868287ad83508195ddf75629add99b83ca7c0347"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_vm_double.h",
+      "sha256": "b749e0bfef24f37927d92d551ac6ab475aef2ac1769d0a20361d08b950f70641"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/run_tests.py",
+      "sha256": "3728a41f67529f1c73222739008cba2c2d4ad4e1a818184f8103cac602e80014"
+    },
+    {
+      "basis": "source-inventory.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/test_android_tls_runtime.py",
+      "sha256": "285e4accc6f90366f24be470c45a5376e2826d2bc05efe59da0851ec267c24ed"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/test_constructor_diagnostics.py",
+      "sha256": "62e9c5585d4846aa114975b33af1c06abc79fd1f86421824e1dfb329ab1a981b"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/test_constructor_diagnostics_driver.py",
+      "sha256": "1301567d4036731ff328898043601ff74f2acebb3f1c55847fc5ddfa2100c09c"
+    },
+    {
+      "basis": "historical_provenance.manifest_path@767234eb704745ce915c0750eee2c31061ac4f78:files:Native/Loader/adi_consumption_debug.h",
+      "mode": "100644",
+      "path": "Native/Loader/adi_consumption_debug.h",
+      "sha256": "077b377c87b201893f83afbff5a4dd37e01354253f08045a3831adcb50022346"
+    },
+    {
+      "basis": "source-inventory.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Native/Loader/android_tls_runtime.h",
+      "sha256": "51c6c123d78b2d53f70e1720c8bf8aa934cbdb149a66df0a6763b6614f4fda07"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.cpp",
+      "sha256": "661a28cab7bf0258e388be2ff8cba98c869f202791699d6697c0f8277971e2db"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.h",
+      "sha256": "67e4ebfa530d39451169bae486facc57926a8e78a6cd833a6425628c457d5267"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Native/Loader/vm_initialization_diagnostics.h",
+      "sha256": "023b34540c9fb31fcb6059fea3236eb411fc52d0438025dbe9d72e88c9337e5c"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Native/anisette_core_uc.cpp",
+      "sha256": "5251cf75e1944be12d7e8bc72de2a9ab6d9e3438671251e2a0918751d91b3a76"
+    },
+    {
+      "basis": "historical_provenance.manifest_path@767234eb704745ce915c0750eee2c31061ac4f78:files:Native/include/anisette_core.h",
+      "mode": "100644",
+      "path": "Native/include/anisette_core.h",
+      "sha256": "ca1ea4005f77dcca17c68965ba2dd1f65596e282a57adb4277f1d90d8bd11f02"
+    },
+    {
+      "basis": "historical_provenance.manifest_path@767234eb704745ce915c0750eee2c31061ac4f78:files:Sources/AnisetteDataProvider.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteDataProvider.swift",
+      "sha256": "356d5bb03a12c8e7bf366f364078099e2f3945103c2d0c43965ac2650590287f"
+    }
+  ],
+  "format_version": 1,
+  "historical_provenance": {
+    "delivered_p0": {
+      "manifest_path": "inherited/p0-native-basis-v1/anisette-generated/maintained-source-manifest.json",
+      "manifest_sha256": "abb3849a9be7262d988810f925c184797441f1269ad76e0a72a15b5a7238ea2e",
+      "source_inventory_path": "source-inventory.json",
+      "source_inventory_sha256": "ed6ff13008bac2f7e99d1f4927ee043f54170505352fd82fbe7d3d4d340869ed"
+    },
+    "historical_fields": {
+      "accepted_anisettekit_revision": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+      "accepted_manifest_sha256": "0813a3a636bac79caff934940ead90d6099a541d5862c866bca6a0e98be3fd7f",
+      "source_delta_sha256": "65a3689c1609cfbcfaa317e33401d500c5bde88a80cf054b240124f93b025165",
+      "source_inventory_sha256": "14041af14f64c354d5c4c367e88be261bc6e95a05c031dd4536e40dd72655ba6",
+      "upstream_anisettekit_revision": "1f5a7e36553cc865b873f222b87a6486c0bcc7bf"
+    },
+    "historical_file_basis": {
+      "Native/Loader/adi_consumption_debug.h": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/Loader/adi_consumption_debug.h",
+      "Native/Loader/elf_loader_emulator.cpp": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/Loader/elf_loader_emulator.cpp",
+      "Native/Loader/elf_loader_emulator.h": "anisette-source-parity.json:files:Native/Loader/elf_loader_emulator.h",
+      "Native/anisette_core_uc.cpp": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/anisette_core_uc.cpp",
+      "Native/include/anisette_core.h": "anisette-source-parity.json:files:Native/include/anisette_core.h",
+      "Sources/AnisetteDataProvider.swift": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Sources/AnisetteDataProvider.swift"
+    },
+    "integration_commit": "767234eb704745ce915c0750eee2c31061ac4f78",
+    "manifest_path": "migration/diagnostics/adi-consumption-v2/anisette-generated/maintained-source-manifest.json",
+    "manifest_sha256": "a89831967a7580a46e7d15da52a9e207ab2206e804c5497500bede6032323947"
+  },
+  "marker": "V3_CHECKED_ANISETTE_STAGING_V1",
+  "native_symbol": "get_anisette_headers_uc",
+  "required_compiled_evidence": {
+    "artifact_binding_requirement": "Require every listed literal in the actual packaged SideStore executable and bind its SHA-256 to this exact maintained source manifest and every retained source hash. Source metadata does not establish native, ADI or device acceptance.",
+    "encoding": "UTF-8",
+    "literals": [
+      {
+        "purpose": "retained active checked-staging provenance marker",
+        "value": "V3_CHECKED_ANISETTE_STAGING_V1"
+      },
+      {
+        "purpose": "active checked-staging implementation literal",
+        "value": "Checked OTP staging failed"
+      },
+      {
+        "purpose": "actual enabled native C++ v2 comparison/coverage prefix serializer; required in the executable to distinguish the new producer from the v1 producer and Swift decoders",
+        "value": "v2|%u|%u|%u"
+      },
+      {
+        "purpose": "enabled native C++ observer serializer; distinguishes compiled native collection from SDK decoder strings",
+        "value": "|%d,%d,%d,%d,%d,%u,%u,%d"
+      },
+      {
+        "purpose": "native producer metadata key; insufficient alone because SDK also contains this key",
+        "value": "v3_native_consumption"
+      },
+      {
+        "purpose": "bounded native constructor v1 diagnostic producer; supplements retained ADI v2 evidence",
+        "value": "Library constructor execution failed [v1;kind="
+      }
+    ]
+  },
+  "scope": "Immutable maintained source identities and compiled evidence requirements only. Actual binary verification and native-readiness outcomes belong in outer package provenance and native receipts.",
+  "source_basis": "p0-constructor-diagnostics-v1",
+  "swift_api": "UnicornAnisetteDataProvider.getAnisetteHeaders"
+}

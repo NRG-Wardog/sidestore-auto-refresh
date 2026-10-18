@@ -1,0 +1,30 @@
+{
+  "AnisetteKit": {
+    "commit": "0dfcc89aa93411d84f7c50beb3c75599af89e852",
+    "tree": "d1112813f8ea5fa93c076eb016442778b9eb29f9"
+  },
+  "SideSign": {
+    "commit": "081994b142c781f9a32bbddfa7277f305b20447b",
+    "tree": "83ab480b1195f1cfdb8bd4fe4b2e446bdd647545"
+  },
+  "SideStore": {
+    "commit": "0e6a626ae97401fb671ee12ae88e4f364fc2a31c",
+    "tree": "ecbabf9893d723276a623349a5952bec510a2c12"
+  },
+  "LiveContainer": {
+    "commit": "00546cec351adad1fa1cad5590da4f06e612db8f",
+    "tree": "c8b298d549ff5e72221533c5e4b946d67ec2cc97"
+  },
+  "minimuxer": {
+    "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+    "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+  },
+  "idevice": {
+    "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+    "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+  },
+  "jktcp": {
+    "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+    "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+  }
+}

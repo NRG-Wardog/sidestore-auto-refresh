@@ -1,0 +1,32 @@
+{
+  "LiveContainer/OpenSSL": {
+    "commit": "623c84da314e85363236507ca38a4bde65df21c3",
+    "declared_repository": "https://github.com/krzyzanowskim/OpenSSL",
+    "repository": "https://github.com/krzyzanowskim/OpenSSL",
+    "tree": "21bc09387e7f91a46eb8bd26587ce1d052277801"
+  },
+  "LiveContainer/litehook": {
+    "commit": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55",
+    "declared_repository": "https://github.com/LiveContainer/litehook",
+    "repository": "https://github.com/LiveContainerMirror/litehook.git",
+    "tree": "62bc06a17a1c12d805aec1ada25910bfa9f89781"
+  },
+  "SideStore/Dependencies/SideSign": {
+    "commit": "b829a21c3955b4084fc3a6f613bad9162a8d43ef",
+    "declared_repository": "https://github.com/NRG-Wardog/SideSign.git",
+    "repository": "https://github.com/NRG-Wardog/SideSign.git",
+    "tree": "47ba01d42aa6a6b0bd3a7a4f9f6ec48a18fd780c"
+  },
+  "SideStore/Dependencies/minimuxer": {
+    "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+    "declared_repository": "https://github.com/NRG-Wardog/minimuxer.git",
+    "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+    "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+  },
+  "idevice/cpp/plist_ffi": {
+    "commit": "66e6e6362b58bc361725c3e1b0a34af498aa2b3a",
+    "declared_repository": "https://github.com/jkcoxson/plist_ffi.git",
+    "repository": "https://github.com/jkcoxson/plist_ffi.git",
+    "tree": "1dc97bcad12d41a13417ae05fbcdc4408c6df553"
+  }
+}

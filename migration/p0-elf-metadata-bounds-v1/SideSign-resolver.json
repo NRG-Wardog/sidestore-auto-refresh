@@ -1,0 +1,23 @@
+{
+  "anisette_commit": "9c876820d102affe2f55ee4b7f735fff6abd990a",
+  "approved_inputs_sha256": "9b9b59dc01bfb531cfe060d4fd2151ca693a47da84b3e5f91be2d43ba9df4f98",
+  "artifact_id": 12134653192,
+  "artifact_sha256": "349aedc8bc323a2dc4876ea8fe206067d57dc9f012c2300b9bcd89d994e7254a",
+  "evidence_index_sha256": "f5e9552e780ee8b075c2c1a0d899a07335317068cd136ef5117f9acbf2541abb",
+  "host_commit": "13f5e0a32931f708cb7d2a6530dbaf61ba801be9",
+  "host_tree": "5846aebeca459cbc863c394c6eb3738fe63c2e1e",
+  "lock_before_sha256": "26c810668908416d018d54802e4145315a73e9da2f6f305bf6499446426063ee",
+  "lock_sha256": "5af998d3a0ffd5c8589a2237338e395aa61281a02d3803f25c2cc5a5125169bc",
+  "origin_hash": {
+    "present": true,
+    "value": "a833b0e77ad9e301af6039824bacbf03ee9ba94cefa5a0eb33278fcb013d2933"
+  },
+  "owner": "SideSign",
+  "purpose": "independently_reviewed_p0_elf_metadata_bounds_swiftpm_resolution",
+  "resolver_tested_commit": "bd728ce0dcb28feff1302507962c71d04bd4abab",
+  "resolver_tested_tree": "edf1bda717530132131e99ce700cd12e24eba14a",
+  "run_attempt": 1,
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/39123382040",
+  "source_basis": "p0-elf-metadata-bounds-v1",
+  "status": "CAPTURED_FOR_REVIEW"
+}

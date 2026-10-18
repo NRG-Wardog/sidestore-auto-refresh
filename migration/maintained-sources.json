@@ -1,42 +1,42 @@
 {
-  "contract_registry_sha256": "94fd38ce234622ac5429a2e2b454418f8c0a5251dd25812744e0fab4f511755b",
+  "contract_registry_sha256": "be82a231cb2405cc1ceb9c8b912f9499e7eb53f928a51459ea75332b9f649b11",
   "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
   "native_validation": {
-    "approved_inputs_sha256": "97e46c0324b78769c9bf7dc4fd4f6a99cd711435d981851b27eee99ae55ff6a5",
-    "artifact_id": 12095672731,
-    "artifact_sha256": "8b9c1ed753ce9093a1c484b304cfab2cdf33f2a9079f81046bc32446b7e0cbdc",
-    "evidence_index_sha256": "00d936c2f5ca5f5f3bab700b5c0d3ab81fb21041be1dedbd7c0efb4ecd2109f4",
-    "host_commit": "1d0a875bf4e7257c44022aac6e0b77c9f5a11925",
-    "host_tree": "fbaa0de996def434915a5a84da3212ccd7d91133",
-    "inherited_p0_review_sha256": "34d12b14364d4db4ed24ee80bf206332d383c27e958b497d6f5cd1c9d28cc6dc",
+    "approved_inputs_sha256": "6605eb57dbb0faef8e2e432d659fcc1b31150dc1303d95f0efa4ed58a5fa4d5d",
+    "artifact_id": 12136485950,
+    "artifact_sha256": "a0ca52f695bd7fe8de5a38422b40df9bef7b07bd94d0c2b7c9bf6d65e85d918d",
+    "evidence_index_sha256": "38c3ab9dfc3b4a9665856b99b050d7d4571ee9295385e9cf224b13ed7bd0cbf6",
+    "host_commit": "6edd04bdeca008faf0f5e3c56d0ff42ac097e7d8",
+    "host_tree": "5ae5173ac41648e974fd41e0fe4b8b04fa5e941c",
+    "inherited_constructor_review_sha256": "940879e3a378019d27a8ceaa014b9b31584229ed3220772b94cd1e44f73fa8ec",
     "readiness_scope": "eligible_for_gated_full_build",
-    "review_sha256": "940879e3a378019d27a8ceaa014b9b31584229ed3220772b94cd1e44f73fa8ec",
+    "review_sha256": "f736d82fcdce1be06b92d1581f6509c1db2375a0a9620eeed52e0b3766f7d0bb",
     "run_attempt": 1,
-    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/39017114598",
-    "source_basis": "p0-constructor-diagnostics-v1",
+    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/39124892210",
+    "source_basis": "p0-elf-metadata-bounds-v1",
     "tested_children": {
       "SideSign": {},
       "SideStore": {
-        "Dependencies/SideSign": "b829a21c3955b4084fc3a6f613bad9162a8d43ef",
+        "Dependencies/SideSign": "74a79cc4d1e6018696c39dfe975dfd13c449870b",
         "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
       }
     },
     "tested_owners": {
       "AnisetteKit": {
-        "commit": "94659b4d54eed5729b34f4103b3f70579aa8d8e9",
-        "tree": "78d7fdb9f77c461419b89df5a285dfd74fa642b5"
+        "commit": "9c876820d102affe2f55ee4b7f735fff6abd990a",
+        "tree": "1c54f163acfb8e5d18605aaa301a3d5ebd576505"
       },
       "LiveContainer": {
         "commit": "1df50257f6255522e6ff48db226508fe74d6b17d",
         "tree": "205350ead530a22f4d04eb762e8b47fa27063879"
       },
       "SideSign": {
-        "commit": "b829a21c3955b4084fc3a6f613bad9162a8d43ef",
-        "tree": "47ba01d42aa6a6b0bd3a7a4f9f6ec48a18fd780c"
+        "commit": "74a79cc4d1e6018696c39dfe975dfd13c449870b",
+        "tree": "d0066e7a2bae05b44089f4623dd7dfc269c91e95"
       },
       "SideStore": {
-        "commit": "b1013534f4b9be78e56b44c977dcaff2805d636b",
-        "tree": "e3f2195b7dc11fdeec98ff5e038aa005371cf64e"
+        "commit": "b497c96513d941154a0872d2d3c1c132c7293f6b",
+        "tree": "a6e9fafd15b467e587ba694db10dbd22629bbfea"
       },
       "idevice": {
         "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
@@ -54,7 +54,7 @@
   },
   "owners": {
     "AnisetteKit": {
-      "commit": "94659b4d54eed5729b34f4103b3f70579aa8d8e9",
+      "commit": "9c876820d102affe2f55ee4b7f735fff6abd990a",
       "path": "work/AnisetteKit",
       "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
       "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d"
@@ -66,13 +66,13 @@
       "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69"
     },
     "SideSign": {
-      "commit": "b829a21c3955b4084fc3a6f613bad9162a8d43ef",
+      "commit": "74a79cc4d1e6018696c39dfe975dfd13c449870b",
       "path": "work/EmbeddedSideStore/Dependencies/SideSign",
       "repository": "https://github.com/NRG-Wardog/SideSign.git",
       "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0"
     },
     "SideStore": {
-      "commit": "aebf23d8129f831c1c706619a71c936ab73fb6e5",
+      "commit": "6e9f367d441dd48c3519f3b39d93acdeffd43c1e",
       "path": "work/EmbeddedSideStore",
       "repository": "https://github.com/NRG-Wardog/SideStore.git",
       "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71"
@@ -97,5 +97,5 @@
     }
   },
   "schema_version": 1,
-  "source_basis": "p0-constructor-diagnostics-v1"
+  "source_basis": "p0-elf-metadata-bounds-v1"
 }
