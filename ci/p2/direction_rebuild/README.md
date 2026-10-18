@@ -21,3 +21,9 @@ SS-LAUNCH-C11-L15 is separate and unresolved. No release or IPA is produced.
 Process ownership and evidence publication reuse the existing reviewed bounded
 implementation. No changed time limits or permissive cleanup. A failed run retains
 only evidence that the existing quiescence policy permits. No blind retry policy.
+
+The state receipt is read from the visible footer label, and live text-field and
+switch values are asserted independently at each capture boundary. A failed
+initial assertion reports its actual values; it does not implicate Form rebuilding.
+Completed native-state results are copied from validated, settled command output
+into the parent-owned failure receipt even if later UI evidence cannot be retained.

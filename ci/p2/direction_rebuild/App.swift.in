@@ -31,8 +31,8 @@
             .environment(\.locale, Locale(identifier: V3AppLanguage.resolve(language).rawValue))
             .environment(\.layoutDirection, V3AppLanguage.resolve(language).isRightToLeft ? .rightToLeft : .leftToRight)
             .safeAreaInset(edge: .bottom) {
-                Text("State").accessibilityIdentifier("direction-state")
-                    .accessibilityValue(language + "|" + owner.text + "|" + (owner.enabled ? "true" : "false"))
+                Text(verbatim: language + "|" + owner.text + "|" + (owner.enabled ? "true" : "false"))
+                    .accessibilityIdentifier("direction-state")
             }
     }
 }

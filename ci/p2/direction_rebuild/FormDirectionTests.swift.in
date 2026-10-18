@@ -3,17 +3,22 @@ import XCTest
     private let app = XCUIApplication()
     private func state(_ language: String) throws {
         let element = app.staticTexts["direction-state"]
-        let predicate = NSPredicate(format: "value == %@", language + "|Preserved user text 42|true")
+        let predicate = NSPredicate(format: "label == %@", language + "|Preserved user text 42|true")
         guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: 8) == .completed else {
-            throw NSError(domain:"P2Direction",code:1,userInfo:[NSLocalizedDescriptionKey:"Language or retained data mismatch"])
+            let details = "State mismatch: label=\(element.label), value=\(String(describing:element.value)), input=\(String(describing:app.textFields["retained-input"].value)), toggle=\(String(describing:app.switches["retained-toggle"].value))"
+            let boundedDetails = String(details.prefix(1000))
+            print(boundedDetails)
+            throw NSError(domain:"P2Direction",code:1,userInfo:[NSLocalizedDescriptionKey:boundedDetails])
         }
+        XCTAssertEqual(app.textFields["retained-input"].value as? String, "Preserved user text 42")
+        XCTAssertEqual(app.switches["retained-toggle"].value as? String, "1")
     }
     private func capture(_ name: String, language: String) throws {
         try state(language)
         let image = XCTAttachment(screenshot: app.screenshot())
         image.name = name + ".png"; image.lifetime = .keepAlways; add(image)
         try state(language) // Boundary check, not a claim of continuous/ABA-free stability.
-        let receipt: [String:Any] = ["stage":name,"language":language,"state":app.staticTexts["direction-state"].value as? String ?? "", "scope":"candidate-component-only"]
+        let receipt: [String:Any] = ["stage":name,"language":language,"state":app.staticTexts["direction-state"].label, "scope":"candidate-component-only"]
         let data = try JSONSerialization.data(withJSONObject: receipt, options:.sortedKeys)
         let attachment=XCTAttachment(data:data,uniformTypeIdentifier:"public.json")
         attachment.name=name + ".json"; attachment.lifetime = .keepAlways; add(attachment)

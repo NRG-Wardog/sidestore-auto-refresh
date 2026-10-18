@@ -7,7 +7,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 SOURCE = 'eb10cedb772bc0496d67edd7a269679e24826b9f'
 TREE = 'd6960a99a2f022a333c364fa4d28e264568a28ca'
-APPROVED_INPUTS = '783cf4aa512237b2dce7ca415c1145c1c806bdc4cd1ddd725494b0e9006d51d2'
+APPROVED_INPUTS = 'f87acd032e3577cdde0ce882480a0c575dbff7e2c77f1c6ea0a3f6b4e378b89e'
 RUNTIME = 'com.apple.CoreSimulator.SimRuntime.iOS-26-5'
 DEVICE_TYPE = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro'
 METHODS = {'candidate': 'testCandidateRoundTrip'}
@@ -302,7 +302,8 @@ class Probe:
             cmd(['xcrun','swiftc','-parse-as-library','-swift-version','5',harness,'-o',self.work/'state-check'],60)
             state_output=cmd([self.work/'state-check'],30)
             require(state_output.startswith('PASS: retained load/write ownership,'),'Native state harness did not pass')
-            write(self.evidence/'native-state.json',{'status':'passed','output':state_output,'sourceSHA256':sha(harness),'scope':'extracted production methods with fake service, not SwiftUI product typecheck'})
+            self.report['nativeState']={'status':'passed','output':state_output,'sourceSHA256':sha(harness),'scope':'extracted production methods with fake service, not SwiftUI product typecheck'}
+            write(self.evidence/'native-state.json',self.report['nativeState'])
             shutil.copyfile(harness,self.evidence/'native-state.swift')
             project=prepare(self.host,self.evidence/'fixture',builder)
             self.generated_expected=json.loads((self.evidence/'fixture/source-identity.json').read_text())['generatedFiles']
@@ -374,7 +375,7 @@ class Probe:
                     except Exception as error:self.report['errors'].append('Retain '+name+': '+str(error))
             if self.report['errors']:self.report['status']='failed'
             write(self.evidence/'result.json',self.report)
-            context={'status':self.report['status'],'errors':[str(x)[:1000] for x in self.report['errors'][:6]],
+            context={'status':self.report['status'],'nativeState':self.report.get('nativeState',{'status':'not-completed'}),'errors':[str(x)[:1000] for x in self.report['errors'][:6]],
                      'failedCommands':getattr(self.commands,'failed_receipts',[]),
                      'arms':{arm:{'status':row['status'],'errors':[str(x)[:1000] for x in row['errors'][:4]],
                                   'primaryError':row.get('command',{}).get('primaryError'),

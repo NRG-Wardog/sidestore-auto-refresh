@@ -15,6 +15,16 @@ class CandidateTests(unittest.TestCase):
             self.assertNotIn('FormEnvironmentProbe',app)
             self.assertNotIn('environment(\\.layoutDirection, .leftToRight)',app)
             self.assertEqual(run.METHODS,{'candidate':'testCandidateRoundTrip'})
+    def test_state_witness_uses_visible_label_and_actual_controls(self):
+        app=(HERE/'App.swift.in').read_text(); tests=(HERE/'FormDirectionTests.swift.in').read_text()
+        self.assertIn('Text(verbatim: language +',app)
+        self.assertNotIn('.accessibilityValue(',app)
+        self.assertIn('label == %@',tests)
+        self.assertIn('XCTAssertEqual(app.textFields["retained-input"].value',tests)
+        self.assertIn('XCTAssertEqual(app.switches["retained-toggle"].value',tests)
+        self.assertIn('State mismatch: label=',tests)
+        source=(HERE/'run.py').read_text()
+        self.assertIn("'nativeState':self.report.get('nativeState'",source)
     def make_evidence(self,directory):
         rows=[]
         for stage,lang in [('candidate-en-initial','en'),('candidate-he','he'),('candidate-en-return','en')]:
