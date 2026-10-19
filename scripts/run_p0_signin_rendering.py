@@ -17,6 +17,7 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import sys
 import struct
 import tempfile
 import uuid
@@ -24,6 +25,14 @@ import zlib
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import rendering_localization as localization
+
+SIGNIN_LOCALIZATION_KEYS = (
+    "Apple ID", "Password", "Submit", "Cancel", "Copy Details", "Technical details",
+    "Apple ID Sign In", "Enter the Apple ID and password used for signing.",
+    "Sign-in failed before completion. Copy Details to help identify the cause.",
+)
 DECLARATIONS = (
     "struct V3PromptSection", "enum V3MultiSelectPromptAnswerPolicy",
     "enum V3AuthRepairURLPolicy", "enum V3TwoFactorStep",
@@ -231,7 +240,43 @@ def extract_sources(source: Path, templates: Path) -> tuple[dict[str, str], dict
         combined = templates / "combined_failure.swift"
         extracted["CombinedFailure.swift"] = combined.read_text()
         hashes["production-template/combined_failure.swift"] = digest(combined)
+    if maintained:
+        for path in localization.localization_sources(source.parents[2], [source]):
+            raw = path.read_bytes()
+            extracted[path.name] = raw.decode("utf-8")
+            hashes["maintained-source/" + str(path.relative_to(source.parents[2]))] = digest(path)
+    elif re.search(r"\bV3(?:AppLanguage|Localization|LocalizedText|LocalizedLabel)\b", "\n".join(extracted.values())):
+        raise ValueError("Localized sign-in declarations require their actual maintained source tree")
     return extracted, hashes
+
+
+def configure_localized_project(project: Path, live: Path) -> None:
+    """Add only genuine localization sources and the complete native catalog."""
+    path = project / "project.pbxproj"
+    text = path.read_text()
+    objects = """000000000000000000000100 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V3Localization.swift; sourceTree = "<group>";};
+000000000000000000000101 = {isa = PBXBuildFile; fileRef = 000000000000000000000100;};
+000000000000000000000102 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V3LanguageSettings.swift; sourceTree = "<group>";};
+000000000000000000000103 = {isa = PBXBuildFile; fileRef = 000000000000000000000102;};
+000000000000000000000104 = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = P0SignIn.xcodeproj/Localizable.xcstrings; sourceTree = SOURCE_ROOT;};
+000000000000000000000105 = {isa = PBXBuildFile; fileRef = 000000000000000000000104;};
+000000000000000000000106 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000105,); runOnlyForDeploymentPostprocessing = 0;};
+"""
+    replacements = {
+        "objectVersion = 56; objects = {\n": "objectVersion = 56; objects = {\n" + objects,
+        "000000000000000000000083 = {isa = PBXGroup; children = (": "000000000000000000000083 = {isa = PBXGroup; children = (000000000000000000000100,000000000000000000000102,000000000000000000000104,",
+        "00000000000000000000008F = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (": "00000000000000000000008F = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000101,000000000000000000000103,",
+        "buildPhases = (00000000000000000000008F,);": "buildPhases = (00000000000000000000008F,000000000000000000000106,);",
+        "knownRegions = (en,Base);": "knownRegions = (en,he,\"zh-Hans\",\"zh-Hant\",Base);",
+    }
+    if any(identifier in text for identifier in re.findall(r"^([0-9A-F]{24}) =", objects, re.M)):
+        raise ValueError("Localized fixture project identifiers already present")
+    for before, after in replacements.items():
+        if text.count(before) != 1:
+            raise ValueError("Localized fixture project anchor drift: " + before)
+        text = text.replace(before, after)
+    path.write_text(text)
+    shutil.copyfile(live / localization.LOCALIZATION_CATALOG, project / "Localizable.xcstrings")
 
 
 def prepare(output: Path, source: Path, command) -> dict:
@@ -250,6 +295,9 @@ def prepare(output: Path, source: Path, command) -> dict:
         hashes[filename] = digest(path)
     project = build / "P0SignIn.xcodeproj"
     shutil.copytree(ROOT / "tests/fixtures/p0_signin_project", project)
+    localized = "V3Localization.swift" in extracted
+    if localized:
+        configure_localized_project(project, source.parents[2])
     # The diagnostic build tag is the actual builder checkout, not a user value.
     builder_commit = command("git", "-C", str(ROOT), "rev-parse", "HEAD")
     if not re.fullmatch(r"[0-9a-f]{40}", builder_commit):
@@ -278,6 +326,33 @@ def prepare(output: Path, source: Path, command) -> dict:
     candidates = list((build / "DerivedData/Build/Products").glob("*.xctestrun"))
     if len(candidates) != 1:
         raise RuntimeError(f"Expected exactly one P0 sign-in UI test run, found {len(candidates)}")
+    if localized:
+        for relative in localization.LOCALIZATION_SOURCES:
+            filename = Path(relative).name
+            if digest(sources / filename) != hashes[filename]:
+                raise RuntimeError("Sign-in localization source changed during build")
+        if digest(project / "Localizable.xcstrings") != hashes["project/Localizable.xcstrings"]:
+            raise RuntimeError("Sign-in localization catalog changed during build")
+        # Resource verification happens before any XCTest UI execution. Retain
+        # compiled resource bytes as data under the already-published project scope.
+        app = build / "DerivedData/Build/Products/Debug-iphonesimulator/P0SignIn.app"
+        resource_hashes = localization.verify_localization(app, source.parents[2], command,
+                                                           keys=SIGNIN_LOCALIZATION_KEYS)
+        for name, expected in resource_hashes.items():
+            if not name.startswith("compiled-localization/"):
+                continue
+            relative = name.removeprefix("compiled-localization/")
+            target = evidence / "project/compiled-localization" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(app / relative, target)
+            if digest(target) != expected:
+                raise RuntimeError("Compiled sign-in localization changed during retention")
+            hashes["project/compiled-localization/" + relative] = expected
+        identity["localization"] = {"catalogSHA256": digest(project / "Localizable.xcstrings"),
+            "resourceSHA256": resource_hashes, "languages": list(localization.LOCALIZATION_LANGUAGES),
+            "requiredLabels": list(SIGNIN_LOCALIZATION_KEYS), "compiledResourcesVerified": True,
+            "localeSwitchingVerified": False}
+        (evidence / "source-identity.json").write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n")
     return {"xctestrun": str(candidates[0]), "sourceSHA256": hashes}
 
 

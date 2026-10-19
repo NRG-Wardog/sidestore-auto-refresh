@@ -42,7 +42,7 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_local_idevice_package.py",
     "patch_combined_service_startup.py",
     "combined_build_evidence.py",
-    "run_issue25_rendering.py",
+    "run_issue25_rendering.py", "rendering_localization.py",
     "run_p0_signin_rendering.py",
     "run_p0_signin_preflight.py",
     "select_livecontainer_lane.py",

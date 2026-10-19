@@ -126,6 +126,8 @@ final class P0FixtureFocusObserver: ObservableObject {
                 }
         }
         .navigationViewStyle(.stack)
+        // This fixture's retained label/clipboard assertions are English-only.
+        .environment(\.locale, Locale(identifier: "en"))
         .environment(\.sizeCategory, largest ? .accessibilityExtraExtraExtraLarge : .large)
         .frame(width: width)
         .accessibilityElement(children: .contain)

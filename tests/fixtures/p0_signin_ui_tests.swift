@@ -360,7 +360,10 @@ final class P0SignInUITests: XCTestCase {
         safeDiagnosticOnly = false; oneCredentialsPanel = false
         submissionInvoked = false; priorFailureCleared = false
         XCUIDevice.shared.orientation = .portrait
-        app.launchArguments = largest ? ["--largest"] : []
+        // This retained acceptance matrix asserts English labels. Use real
+        // catalog lookup in an explicit fixture-only launch locale/preference.
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-V3AppLanguage", "en"]
+            + (largest ? ["--largest"] : [])
         // XCTest invokes teardown after assertion failure/exception; Swift
         // defer is not reliable when continueAfterFailure=false aborts a test.
         addTeardownBlock { @MainActor [self] in
