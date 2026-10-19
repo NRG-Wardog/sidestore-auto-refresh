@@ -218,11 +218,30 @@ class FinalizerSafetyTests(unittest.TestCase):
         files = {'a.json': b'{}'}; review = {'files': {'a.json': login.sha(b'{}')}}
         summary = {'candidate_review_sha256': login.sha(login.dump(review)), 'activated': False}
         with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary)/'candidate'; finalizer.write_candidate(output, files, review, summary)
+            # macOS may expose its temporary root through /var -> /private/var.
+            # Canonicalize our owned fixture; the finalizer must reject aliases.
+            root = Path(temporary).resolve()
+            output = root/'candidate'; finalizer.write_candidate(output, files, review, summary)
             with self.assertRaises(ValueError): finalizer.write_candidate(output, files, review, summary)
             files = {'../escape': b'{}'}; review = {'files': {'../escape': login.sha(b'{}')}}; summary['candidate_review_sha256'] = login.sha(login.dump(review))
-            with self.assertRaises(ValueError): finalizer.write_candidate(Path(temporary)/'other', files, review, summary)
-            self.assertFalse((Path(temporary)/'escape').exists())
+            with self.assertRaises(ValueError): finalizer.write_candidate(root/'other', files, review, summary)
+            self.assertFalse((root/'escape').exists())
+
+    def test_symlink_parent_rejected_and_canonical_owned_fixture_passes(self):
+        files = {'a.json': b'{}'}; review = {'files': {'a.json': login.sha(b'{}')}}
+        summary = {'candidate_review_sha256': login.sha(login.dump(review)), 'activated': False}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            target = root/'ordinary'; target.mkdir()
+            alias = root/'alias'; alias.symlink_to(target, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'fresh ordinary output directory required'):
+                finalizer.write_candidate(alias/'candidate', files, review, summary)
+            self.assertEqual(list(target.iterdir()), [])
+            output = alias.resolve()/'candidate'
+            finalizer.write_candidate(output, files, review, summary)
+            self.assertEqual((output/'metadata/a.json').read_bytes(), b'{}')
+            self.assertEqual((output/'candidate-review.json').read_bytes(), login.dump(review))
+            self.assertEqual((output/'candidate-summary.json').read_bytes(), login.dump(summary))
 
 
 if __name__ == '__main__': unittest.main()
