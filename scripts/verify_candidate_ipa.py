@@ -603,7 +603,7 @@ REQUIRED_GENERATED_EMBEDDED_SOURCES = {
 
 def verify_constructor_diagnostic_binaries(host: bytes, embedded: bytes, support: bytes, maintained: dict | None) -> None:
     """Require constructor protocol evidence in each actual diagnostic product."""
-    if maintained is None or maintained.get("source_basis") not in {"p0-constructor-diagnostics-v1", "p0-elf-metadata-bounds-v1", "p0-cxx-allocation-v1", "p2-composed-host-v1"}:
+    if maintained is None or maintained.get("source_basis") not in {"p0-constructor-diagnostics-v1", "p0-elf-metadata-bounds-v1", "p0-cxx-allocation-v1", "p2-composed-host-v1", "p0-full-login-diagnostics-v1"}:
         return
     keys = (b"native_init_kind", b"native_init_reason", b"native_init_engine", b"native_init_library", b"native_init_initializer")
     for name, code in (("host", host), ("embedded", embedded), ("support", support)):
@@ -622,7 +622,7 @@ def verify_isolated_anisette_binary(executable: bytes, manifest: dict | None = N
     if (ANISETTE_COMPILED_MARKER not in executable or
             ANISETTE_COMPILED_LITERAL not in executable):
         raise ValueError("embedded SideStore is missing the compiled checked Anisette staging path")
-    if manifest is not None and manifest.get("source_basis") in {"maintained-adi-consumption-v1", "maintained-adi-consumption-v2", "p0-abi-tls-certificate-lifecycle-v1", "p0-constructor-diagnostics-v1", "p0-elf-metadata-bounds-v1", "p0-cxx-allocation-v1", "p2-composed-host-v1"}:
+    if manifest is not None and manifest.get("source_basis") in {"maintained-adi-consumption-v1", "maintained-adi-consumption-v2", "p0-abi-tls-certificate-lifecycle-v1", "p0-constructor-diagnostics-v1", "p0-elf-metadata-bounds-v1", "p0-cxx-allocation-v1", "p2-composed-host-v1", "p0-full-login-diagnostics-v1"}:
         for item in manifest["required_compiled_evidence"]["literals"]:
             if item["value"].encode("utf-8") not in executable:
                 raise ValueError("embedded SideStore is missing reviewed ADI consumer evidence")

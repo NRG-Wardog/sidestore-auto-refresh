@@ -1,0 +1,227 @@
+{
+  "scope": "P0 login diagnostics candidate only; not built, published, admitted, or device-validated",
+  "repositories": {
+    "AnisetteKit": {
+      "base": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+      "changes": [
+        {
+          "path": ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp",
+          "sha256": "ae1036676aee82cbe470984002361e699ce44d1df5f6da63a1839cfeb3f3b490",
+          "size": 39849,
+          "new": false
+        },
+        {
+          "path": ".ci/native-tests/run_tests.py",
+          "sha256": "cfbe2a36e87dbdd1b7aa011cb2e71571ab367c7dc862c9f124bb603fd659a1ce",
+          "size": 24314,
+          "new": false
+        },
+        {
+          "path": "Native/anisette_core_uc.cpp",
+          "sha256": "4f256e33ae230e863f7126a7876799c8bf66b94ea653a2c9928628e110807183",
+          "size": 51972,
+          "new": false
+        },
+        {
+          "path": "Sources/AnisetteClient.swift",
+          "sha256": "208dcbf61dffd101ea9e0c04fe18a1500b1b176b1407fe93b2b010a8d36806a7",
+          "size": 18897,
+          "new": false
+        },
+        {
+          "path": "Sources/AnisetteDataProvider.swift",
+          "sha256": "9c55c035d640cae8c2b6ac173db9f118a4e49cce789c0dba24f4cffca58476de",
+          "size": 14544,
+          "new": false
+        },
+        {
+          "path": "Sources/LoginDiagnosticTrace.swift",
+          "sha256": "bd86c77eb520cf0721cfbbdb1e9100261bd53324ef0f912713873357fc76ae2e",
+          "size": 10556,
+          "new": true
+        },
+        {
+          "path": "Tests/AnisetteKitTests/LoginDiagnosticTraceTests.swift",
+          "sha256": "0a04f3657123356af34ad0c51a50291b1d494dd50376478684aa066996790bbf",
+          "size": 4715,
+          "new": true
+        }
+      ],
+      "patch_sha256": "49815c6ab790045ed51335a974b3ef9f487fb89cb3d45b71d930e706a319744c"
+    },
+    "SideStore": {
+      "base": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+      "changes": [
+        {
+          "path": "AltStore/AppDelegate.swift",
+          "sha256": "73fb0db0bca4188b346be0429bcdac19df7fdb963c21f649e3bff73d523ace21",
+          "size": 883491,
+          "new": false
+        },
+        {
+          "path": "AltStore/Authentication/AuthenticationViewController.swift",
+          "sha256": "feb0df7a230cfdc6ae4cc4ab9f5e11cb4cdaf74019b19486e0d7721497bc9af5",
+          "size": 10409,
+          "new": false
+        },
+        {
+          "path": "AltStore/Settings/SettingsViewController.swift",
+          "sha256": "6e2907ec01b8ee072372dee7314471008ae4cba9ed188284a2a1084a7e9a0d08",
+          "size": 56438,
+          "new": false
+        },
+        {
+          "path": "SideStore/Core/Anisette/AnisetteConfigManager.swift",
+          "sha256": "ddd011bee67451004d48ea2526a719861990a3ee01e576a6ac6e1c7db5f38085",
+          "size": 13358,
+          "new": false
+        },
+        {
+          "path": "SideStore/Core/Anisette/AnisetteProvider.swift",
+          "sha256": "a8e751162634c11ca8e17fb5c6ec2849a1a2b98ea7cbc381e1d8ac9e8fcb85f0",
+          "size": 3400,
+          "new": false
+        },
+        {
+          "path": "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+          "sha256": "376b4f306fafc0a2ab26564abde0237e0daec253dd0bc35ef7c2ee9fc92d48b9",
+          "size": 18787,
+          "new": false
+        },
+        {
+          "path": "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+          "sha256": "44a6744a62f2602d1511a13e49b79f4a402916aec13c74aa22c47584d3dddd7f",
+          "size": 47921,
+          "new": false
+        },
+        {
+          "path": "docs/debug-adi-consumption/contract-v2.json",
+          "sha256": "a4ac915cedf8c67179a184e8ea926968a439ae6c5e7bec6e18f58a5bd162b5ed",
+          "size": 2086,
+          "new": false
+        },
+        {
+          "path": "tests/login_trace/README.md",
+          "sha256": "d1dabfb89f126827972ae0581c0effb30abee68b379088a66ac81ad03690ca7e",
+          "size": 2682,
+          "new": true
+        },
+        {
+          "path": "tests/login_trace/host_harness.swift",
+          "sha256": "5dd5ea6613dd6aaf0e489a235e9ffb54a4631fadaa9cc1cbc0c86b04a3a2d263",
+          "size": 5799,
+          "new": true
+        },
+        {
+          "path": "tests/login_trace/test_contract.py",
+          "sha256": "6c2fa4889943c60cf304f9e969d4a40d403b983e779515d93220070d98a8035f",
+          "size": 11949,
+          "new": true
+        },
+        {
+          "path": "tests/login_trace/timeout_host_harness.swift",
+          "sha256": "d66fbc1f00b9ddc1a796533a5ef4971184ef4f4f26151666c6e1fc5f5c4b9eb3",
+          "size": 4279,
+          "new": true
+        }
+      ],
+      "patch_sha256": "f5a9f85e97d2f24598996cd8bd9eff0da1a5c629cb24a119921064afb1daf272"
+    },
+    "SideSign": {
+      "base": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
+      "changes": [
+        {
+          "path": ".ci/test_login_trace_source.py",
+          "sha256": "3b9134aabc689fee620cfc6cf51d0a70611fca7f34e5a9f688435c6e2d8bb70f",
+          "size": 12167,
+          "new": true
+        },
+        {
+          "path": "Sources/Anisette/AnisetteDataManager.swift",
+          "sha256": "bdcb3b55ae889313116081af79a8d21d731010ebd0e27e9b4f16890c0535d2ae",
+          "size": 30138,
+          "new": false
+        },
+        {
+          "path": "Sources/DeveloperPortal/Authentication.swift",
+          "sha256": "6423fbe3611aa72ef24b93481f2c6da696b02a90ae282b802e575bedaa3db7f7",
+          "size": 44035,
+          "new": false
+        },
+        {
+          "path": "Sources/DeveloperPortal/Certificates.swift",
+          "sha256": "8341ae741a35cf9a4480853a149d68c01af2c7cee137f681d3bdfba4994db528",
+          "size": 5989,
+          "new": false
+        },
+        {
+          "path": "Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+          "sha256": "79c33dc138eeaf71e84ec662d320995058f69eaca097c12221b9c2537a760f08",
+          "size": 25315,
+          "new": false
+        },
+        {
+          "path": "Sources/DeveloperPortal/Devices.swift",
+          "sha256": "d411e800ef9cf158fc1780c00b5c1417fad3941748b26690d72992624f1c96b2",
+          "size": 4384,
+          "new": false
+        },
+        {
+          "path": "Sources/DeveloperPortal/Teams.swift",
+          "sha256": "109e8e9badb48b0c0b2f132bbb9efaafc71757dbdb3296752e4269d88cb71b3b",
+          "size": 795,
+          "new": false
+        }
+      ],
+      "patch_sha256": "3e84e567c80e6b00a0d9a27d0777f48f5493d296b353f5036a2e8464a22d3b3f"
+    },
+    "LiveContainer": {
+      "base": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+      "changes": [
+        {
+          "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+          "sha256": "406d1d7b5502dccfa2cd37afa75e4903611c1d42ffd5235190c08804d64dd56e",
+          "size": 891191,
+          "new": false
+        },
+        {
+          "path": "SideStoreSupport/SideStore.swift",
+          "sha256": "b097483d27d3ab395fc82a68c9392b51bdceb4df23ebcda981bc2d9e68198aae",
+          "size": 595994,
+          "new": false
+        },
+        {
+          "path": "docs/debug-adi-consumption/contract-v2.json",
+          "sha256": "a4ac915cedf8c67179a184e8ea926968a439ae6c5e7bec6e18f58a5bd162b5ed",
+          "size": 2086,
+          "new": false
+        },
+        {
+          "path": "tests/login_trace/README.md",
+          "sha256": "d1dabfb89f126827972ae0581c0effb30abee68b379088a66ac81ad03690ca7e",
+          "size": 2682,
+          "new": true
+        },
+        {
+          "path": "tests/login_trace/host_harness.swift",
+          "sha256": "5dd5ea6613dd6aaf0e489a235e9ffb54a4631fadaa9cc1cbc0c86b04a3a2d263",
+          "size": 5799,
+          "new": true
+        },
+        {
+          "path": "tests/login_trace/test_contract.py",
+          "sha256": "6c2fa4889943c60cf304f9e969d4a40d403b983e779515d93220070d98a8035f",
+          "size": 11949,
+          "new": true
+        },
+        {
+          "path": "tests/login_trace/timeout_host_harness.swift",
+          "sha256": "d66fbc1f00b9ddc1a796533a5ef4971184ef4f4f26151666c6e1fc5f5c4b9eb3",
+          "size": 4279,
+          "new": true
+        }
+      ],
+      "patch_sha256": "1b23c06a980e6fddc61ead83719c65790c23cfac2617f503fa36e2dd15fdeb72"
+    }
+  }
+}

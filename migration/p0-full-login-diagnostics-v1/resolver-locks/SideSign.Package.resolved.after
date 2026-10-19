@@ -1,0 +1,59 @@
+{
+  "originHash" : "258f5ae3aac78c32662211c8f6f594f0740d378c522802b4a7ca33cccee168f5",
+  "pins" : [
+    {
+      "identity" : "anisettekit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "state" : {
+        "revision" : "e6e9d4aac698de2a5219aaef02c9a417da45f4e9"
+      }
+    },
+    {
+      "identity" : "codesignkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mahee96/CodeSignKit.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "d0c67710fda9a2646b9e829cb2cf443892728371"
+      }
+    },
+    {
+      "identity" : "gsacryptokit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mahee96/GSACryptoKit.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "eae2590eaf17fe98ce9c76b3ec2bd42b780eb123"
+      }
+    },
+    {
+      "identity" : "libdeflate",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/SideStore/libdeflate",
+      "state" : {
+        "branch" : "master",
+        "revision" : "da6c7dae03b78dc71af973664575e4209786fbfe"
+      }
+    },
+    {
+      "identity" : "swift-asn1",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-asn1.git",
+      "state" : {
+        "revision" : "9f542610331815e29cc3821d3b6f488db8715517",
+        "version" : "1.6.0"
+      }
+    },
+    {
+      "identity" : "swift-crypto",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-crypto.git",
+      "state" : {
+        "revision" : "bb4ba815dab96d4edc1e0b86d7b9acf9ff973a84",
+        "version" : "4.3.1"
+      }
+    }
+  ],
+  "version" : 3
+}

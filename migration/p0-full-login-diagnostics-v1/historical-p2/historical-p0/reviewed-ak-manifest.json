@@ -1,0 +1,98 @@
+{
+  "base": "9c876820d102affe2f55ee4b7f735fff6abd990a",
+  "changes": {
+    ".ci/native-tests/CXX_ALLOCATION_REVIEW.md": {
+      "after": {
+        "git_object": "1693871e506266e37c6cd96b2c4696a6bb38448f",
+        "mode": "100644",
+        "sha256": "9fe95fc1f891f57127834eef438dc398ad23d347a8a14ff5fbc0cc5522fa414d",
+        "type": "blob"
+      },
+      "before": null
+    },
+    ".ci/native-tests/fixtures/cxx_allocation_hook_unit.cpp": {
+      "after": {
+        "git_object": "de9fd090f53a8316d1e5b706d168cb4465d6646d",
+        "mode": "100644",
+        "sha256": "0614c634f0d8ca648bde35fde4d55ec07f657becb8b2a5cd1d78a92d7a0f1c62",
+        "type": "blob"
+      },
+      "before": null
+    },
+    ".ci/native-tests/fixtures/cxx_allocation_unit.cpp": {
+      "after": {
+        "git_object": "dc474fda8eb3f37e893799a0fdcf8ffc753fd754",
+        "mode": "100644",
+        "sha256": "cbbe243428144a0584593246a4d4b92d00ee9807cff457404d8d3a18d491680c",
+        "type": "blob"
+      },
+      "before": null
+    },
+    ".ci/native-tests/test_android_tls_runtime.py": {
+      "after": {
+        "git_object": "45a73c23abbfcbf7cb17db83829ede5d15812408",
+        "mode": "100644",
+        "sha256": "8703b29d5dfd0d2f8af0a4ae7ec48454dcf973b1d257a16b6bafe65b0e905c5f",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "9163e7858c9469795b3aff1c0d450c0fa1004729",
+        "mode": "100644",
+        "sha256": "6867ebfa2ef821692bc7c8091e1072996139c791cb61f942146bc6205e28f755",
+        "type": "blob"
+      }
+    },
+    ".ci/native-tests/test_constructor_diagnostics.py": {
+      "after": {
+        "git_object": "ca01a070414623a27e7cb40c0c8bde3672176acf",
+        "mode": "100644",
+        "sha256": "2d33180d03e77e45befb8cca18c08adf7f37698ced54164fc3a0583acd16100e",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "b7fd809bc8a5d5d1e8b1a0c18db28b074294b0ff",
+        "mode": "100644",
+        "sha256": "9d27c7b9206246d5e908555e7f2412162ccf5d3b0862270fb79913a4a8ec1ddc",
+        "type": "blob"
+      }
+    },
+    ".ci/native-tests/test_cxx_allocation.py": {
+      "after": {
+        "git_object": "856e1f3d7ce0155f94b7ae5e0d6d9e93baf185ff",
+        "mode": "100644",
+        "sha256": "c0f2c97e40be67ac381792a9ebae60dbdb1363e0517741b1cbfa90f0d342d3d7",
+        "type": "blob"
+      },
+      "before": null
+    },
+    "Native/Loader/cxx_allocation_runtime.h": {
+      "after": {
+        "git_object": "4e8475f3c192a36cb2507679d39dcf571b4d58b4",
+        "mode": "100644",
+        "sha256": "b76bdc4043c497700f93aff5ad82968f7660ebb6720bb2c71ea5615000380a62",
+        "type": "blob"
+      },
+      "before": null
+    },
+    "Native/Loader/elf_loader_emulator.cpp": {
+      "after": {
+        "git_object": "26093ce7bbe5bc8245b58e49bc66c8b6737dd50e",
+        "mode": "100644",
+        "sha256": "44a8b61dcf1d4d8d309f624c442c008278d33a68ccf14ec4dc9f4757d9cdce2a",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "8cb45ed2bc6e4d7f03aff1b4b678044d038bc048",
+        "mode": "100644",
+        "sha256": "2caeb8f2d5526c35e6128a288ec74229e25d23f1d2f84b22ca226ba3c89405d3",
+        "type": "blob"
+      }
+    }
+  },
+  "commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+  "device_validation": false,
+  "guest_execution": false,
+  "schema": 1,
+  "scope": "independently reviewed host-only source; ordinary platform evidence pending",
+  "tree": "0df50020ddd774a5b7ab941944501f1ecd591a4a"
+}

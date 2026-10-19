@@ -1,0 +1,50 @@
+{
+  "app_lock_bytes": 2815,
+  "app_lock_git_blob": "3867aab14eaa661b8c9c526be9c473cb645a609c",
+  "app_lock_sha256": "e97604f913903659539663f09176a20ee9ca5fe06188a41ff38f54257d076d08",
+  "artifact_execution_performed": false,
+  "artifact_id": 12178055541,
+  "artifact_sha256": "b2c931dccffaa7232e8818e674267013e083af2ecb8ff47d256414b6bbc77c93",
+  "authenticated_native_commit_tree_only": [
+    "idevice",
+    "jktcp"
+  ],
+  "authenticated_receipt_sha256": {
+    "independent-artifact-api.json": "7f06a28744571eb4a65cedbfe5695a21d706e5c9d2a229ee1e83b7b69736f6c6",
+    "independent-commit-api.json": "3497afb3f4cfd2220df5c8e22d85a04ee65d279170547e3ef5c305f584def5c5",
+    "independent-idevice-commit-api.json": "92c7e57d32da20eac7a49c4649c380349097c826c824394d5f1d877c7a76fdad",
+    "independent-idevice-tree-api.json": "0aa8d0cf13e5772051e61129b93b2721e017de88716a2839e193f03dc106d112",
+    "independent-jktcp-commit-api.json": "ecb5c52d4c337f4af7d51d0c5005cc56bcb47d7d489506dfecab8c300f2e921d",
+    "independent-jktcp-tree-api.json": "6367bcf924c6f62b4455f56e726cceea98bbe0fc792b72cae6661aee5d62b5eb",
+    "independent-keychainaccess-commit-api.json": "24ee9aa34e1d284c4cb5eb89123e635defa73a2ebccebd38a01570e1425e430b",
+    "independent-run-api.json": "ec49256d5238ad0c4ffa0cb5bfe4e5fbe9f7f9b4eab48e85e47642642545592f",
+    "independent-semanticversion-commit-api.json": "05312c6ef5505747fc5bd9525bd98893debb22efa01a7933c9e036914c7a36b2",
+    "independent-zipfoundation-commit-api.json": "042774e3e32e3743597e942c96234f12a761882d6f76d7e1e51c0fa745193653"
+  },
+  "device_login_proven": false,
+  "evidence_index_sha256": "fe9208a39c72864e8dfe213e8fafa005420dcc9fafa10d8e6d46c7bb973a0af3",
+  "full_native_checkout_verification_scope": "performed in authenticated reviewed CI; raw native source blobs not retained in artifact",
+  "host_commit": "dd8fff072238af26bcee00ae17881f9f15d3ec2c",
+  "host_tree": "5b7e6b28c14cd6c2aac54c32ed2ccc5ae6fff5cd",
+  "indexed_files": 406,
+  "input_sha256": "70a315ebe5aa6ed0505346794a17ecf96e0ab93cc31ada2a348c539aa96403ba",
+  "local_git_object_replays": [
+    "AnisetteKit",
+    "LiveContainer",
+    "SideSign",
+    "SideStore",
+    "minimuxer"
+  ],
+  "nested_prior_gets": 4,
+  "ordered_commands": 70,
+  "production_ready": false,
+  "resolved_app_before_after_identical": true,
+  "run_attempt": 1,
+  "run_id": 39229204851,
+  "schema": 1,
+  "self_contained_tests": 191,
+  "source_before_after_identical": true,
+  "source_children": 5,
+  "source_owners": 7,
+  "status": "INDEPENDENT_COMMAND_SOURCE_PRIOR_REVIEW_PASSED"
+}

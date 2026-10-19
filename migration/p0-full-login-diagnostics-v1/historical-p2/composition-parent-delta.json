@@ -1,0 +1,80 @@
+{
+  "baseline_commit": "f46a3e14c0752714144aa076355663c79a54f1a9",
+  "changes": {
+    "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": {
+      "after": {
+        "git_object": "a1d730c60d43b383000da91982cd9ae7dd7bfc5d",
+        "mode": "100644",
+        "sha256": "f51818f28b16785972ec6993419444725c6e81b92f44c4e5fea5519c7f3e617d",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "07ecd94f1e1d63cf681345b6ac26a20eaedf10f9",
+        "mode": "100644",
+        "sha256": "7978cf932179c48beb788dd1916e3e6ea87c589e785ccf369bf737e3aa8f5b00",
+        "type": "blob"
+      }
+    },
+    "SideStoreSupport/SideStore.swift": {
+      "after": {
+        "git_object": "8aa1b1bf765550093ecb2d6768ac4b3bf23a2dc1",
+        "mode": "100644",
+        "sha256": "95a719cdd87c207794a0c78d52411a0388ea344023a8f6edc209db4734aba1bb",
+        "type": "blob"
+      },
+      "before": {
+        "git_object": "9dd8a3d197ae15c7f0f81010ec1be1c1fc75fc46",
+        "mode": "100644",
+        "sha256": "0140bf162538bb3f6d009a94aff7f5fad20cd284a730bb2328933eae7171120a",
+        "type": "blob"
+      }
+    },
+    "tests/init_diagnostics/README.md": {
+      "after": {
+        "git_object": "dc0edf9bb3dbb75dc1d8d6b26f79e6ea0880aed4",
+        "mode": "100644",
+        "sha256": "ac387746654346f54e4625f032c7f13c6d5ee6e86e01f6874b2fba3955458f01",
+        "type": "blob"
+      },
+      "before": null
+    },
+    "tests/init_diagnostics/host_harness.swift": {
+      "after": {
+        "git_object": "cdeb169dbf66753f18f2540ca54dbe8ae2dd579a",
+        "mode": "100644",
+        "sha256": "0fb86b7bf3dfe4677292971c41d7d226c4cb6c1395035612b101948f5e8004a9",
+        "type": "blob"
+      },
+      "before": null
+    },
+    "tests/init_diagnostics/native_fixture.cpp": {
+      "after": {
+        "git_object": "5bba234e9469a99510eb97ffe44ff98f86aa8337",
+        "mode": "100644",
+        "sha256": "b1dfcd27822ee7e4ec9c203b956b25d8fdd8ed6afe961ad12547ffe4244187a0",
+        "type": "blob"
+      },
+      "before": null
+    },
+    "tests/init_diagnostics/pipeline_harness.swift": {
+      "after": {
+        "git_object": "ce8a71f3558747c563312d97ad1b1e100fa66b6c",
+        "mode": "100644",
+        "sha256": "b1a46066f24a9cda5654e74aaa789b1f5d775da7cc6fbbf6f30c7febfa5039ae",
+        "type": "blob"
+      },
+      "before": null
+    },
+    "tests/init_diagnostics/test_contract.py": {
+      "after": {
+        "git_object": "02e996517eecaeba2fa8b48cebec13a52f212b8b",
+        "mode": "100644",
+        "sha256": "0cd8d339e7629ef07a2b743193ff193eb64722432ad50d70d5cb359597f50196",
+        "type": "blob"
+      },
+      "before": null
+    }
+  },
+  "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+  "tree": "4b973e2bbf482953e298c41c7a7227cb60b30718"
+}

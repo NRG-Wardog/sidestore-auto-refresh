@@ -1,0 +1,164 @@
+{
+  "children": {
+    "LiveContainer/OpenSSL": {
+      "commit": "623c84da314e85363236507ca38a4bde65df21c3",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/krzyzanowskim/OpenSSL"
+      },
+      "submodules": [],
+      "tracked_entries": 4403,
+      "tree": "21bc09387e7f91a46eb8bd26587ce1d052277801"
+    },
+    "LiveContainer/litehook": {
+      "commit": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/LiveContainerMirror/litehook.git"
+      },
+      "submodules": [],
+      "tracked_entries": 12,
+      "tree": "62bc06a17a1c12d805aec1ada25910bfa9f89781"
+    },
+    "SideStore/Dependencies/SideSign": {
+      "commit": "c733332b0d64022cd603ab9ac5de054413729aab",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/SideSign.git"
+      },
+      "submodules": [],
+      "tracked_entries": 72,
+      "tree": "6559fa8c226ea7496e1fb1aa813c058bfee3e342"
+    },
+    "SideStore/Dependencies/minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/minimuxer.git"
+      },
+      "submodules": [],
+      "tracked_entries": 39,
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    },
+    "idevice/cpp/plist_ffi": {
+      "commit": "66e6e6362b58bc361725c3e1b0a34af498aa2b3a",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/jkcoxson/plist_ffi.git"
+      },
+      "submodules": [],
+      "tracked_entries": 145,
+      "tree": "1dc97bcad12d41a13417ae05fbcdc4408c6df553"
+    }
+  },
+  "owners": {
+    "AnisetteKit": {
+      "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/AnisetteKit.git"
+      },
+      "submodules": [],
+      "tracked_entries": 52,
+      "tree": "734664d759b9e99caa09089905e6a240b149548d"
+    },
+    "LiveContainer": {
+      "commit": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/LiveContainer.git"
+      },
+      "submodules": [
+        {
+          "commit": "623c84da314e85363236507ca38a4bde65df21c3",
+          "path": "OpenSSL",
+          "submodules": [],
+          "tracked_entries": 4403,
+          "tree": "21bc09387e7f91a46eb8bd26587ce1d052277801"
+        },
+        {
+          "commit": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55",
+          "path": "litehook",
+          "submodules": [],
+          "tracked_entries": 12,
+          "tree": "62bc06a17a1c12d805aec1ada25910bfa9f89781"
+        }
+      ],
+      "tracked_entries": 311,
+      "tree": "e8014dd771c25c4a05dc76ab0aa304a233642a83"
+    },
+    "SideSign": {
+      "commit": "c733332b0d64022cd603ab9ac5de054413729aab",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/SideSign.git"
+      },
+      "submodules": [],
+      "tracked_entries": 72,
+      "tree": "6559fa8c226ea7496e1fb1aa813c058bfee3e342"
+    },
+    "SideStore": {
+      "commit": "dc29ce0d79a299f32a340c460e1d61e8190e320c",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/SideStore.git"
+      },
+      "submodules": [
+        {
+          "commit": "c733332b0d64022cd603ab9ac5de054413729aab",
+          "path": "Dependencies/SideSign",
+          "submodules": [],
+          "tracked_entries": 72,
+          "tree": "6559fa8c226ea7496e1fb1aa813c058bfee3e342"
+        },
+        {
+          "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+          "path": "Dependencies/minimuxer",
+          "submodules": [],
+          "tracked_entries": 39,
+          "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+        }
+      ],
+      "tracked_entries": 658,
+      "tree": "cb40141a5a16e55a682758713541fb7b3445f209"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/idevice.git"
+      },
+      "submodules": [
+        {
+          "commit": "66e6e6362b58bc361725c3e1b0a34af498aa2b3a",
+          "path": "cpp/plist_ffi",
+          "submodules": [],
+          "tracked_entries": 145,
+          "tree": "1dc97bcad12d41a13417ae05fbcdc4408c6df553"
+        }
+      ],
+      "tracked_entries": 456,
+      "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/jktcp.git"
+      },
+      "submodules": [],
+      "tracked_entries": 12,
+      "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/minimuxer.git"
+      },
+      "submodules": [],
+      "tracked_entries": 39,
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    }
+  }
+}

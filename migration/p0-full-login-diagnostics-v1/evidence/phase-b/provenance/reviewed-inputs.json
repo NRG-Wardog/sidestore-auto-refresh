@@ -1,0 +1,431 @@
+{
+  "adapter_files": {
+    "ci/p0loginb/README.md": "c55df6e01406280419a6a626861dff1809baea2367f3e025e1a2ddbb5e784f52",
+    "ci/p0loginb/allowed-paths.json": "14568d4f455d11e130bad179e4840927eeedf0352225d6e12a65af05a3e8dcb5",
+    "ci/p0loginb/cargo_contract.py": "b39d0ff61304e99c519ef53b4c5b9c8f3366f374681154985a7f1158214ee545",
+    "ci/p0loginb/graph_contract.py": "58ea978f7fd889f4bd8b127299c3cea634f0c914ff1c27cc5b5d8221fcb28ce2",
+    "ci/p0loginb/inventory.py": "a2b1046726b9d59c0e6e0689ddf7cbe23ce73484727ec2b59a5c9e3e33e1ffa9",
+    "ci/p0loginb/lifecycle.py": "07292da4d2f799e75ea7be0e056579dce14441bb355ec4c5a6b9bfaba0f88bb1",
+    "ci/p0loginb/macho_contract.py": "1dd56952ebf275ecc95c38741e03fd551cffce77ec931f3439f901c24c29221b",
+    "ci/p0loginb/native_build.py": "425b257543ba43faa0b5db1b540e181e7663802c758145e503cc0c3b08d6c77f",
+    "ci/p0loginb/native_gate.py": "35aef86fa4806d0afe25be28d8623eb1819a48e6e59fba61165d883018c6169a",
+    "ci/p0loginb/openssl_artifact_contract.py": "bd9202ffa2f7515c38b9d021010d9105c4283e5740a23c68e90e7fee6e47222c",
+    "ci/p0loginb/prepare_inputs.py": "cdf25e52ac9f66f18e88d410e1cb1755bbdfe56d99b0cceb33257e1310943bd6",
+    "ci/p0loginb/prior_adapter/.github/workflows/build.yml": "392e0d48f3b4462eae854250917e54c73432e319097638ccf1863829943e0b28",
+    "ci/p0loginb/prior_adapter/.github/workflows/p0-login-trace-phase-a.yml": "ec94ca999e297a1eb4ae48fe7eec757e61b216dda9f413dc9327af3d5aa18872",
+    "ci/p0loginb/prior_adapter/ci/p0login/README.md": "09cb3fc62cc53322af57d6d8d9fdc18b966584e9cd5b94bfa8dc1d4616100f36",
+    "ci/p0loginb/prior_adapter/ci/p0login/TEST_DISCOVERY_AUDIT.md": "7ef29916c07d15b62db2a25eab9736aa30d5e283428f16aa0d423ae17ebf5dab",
+    "ci/p0loginb/prior_adapter/ci/p0login/allowed-paths.json": "14568d4f455d11e130bad179e4840927eeedf0352225d6e12a65af05a3e8dcb5",
+    "ci/p0loginb/prior_adapter/ci/p0login/inputs-phase-a.json": "4b765084e34ee1a88d35af4553327f131983d7002c0c6b6ae54acf976a171cfa",
+    "ci/p0loginb/prior_adapter/ci/p0login/inventory.py": "abd53616e6688a7bbe216a1d38f303c7b3762b404a2b397e5c202ec56cc59cf5",
+    "ci/p0loginb/prior_adapter/ci/p0login/lifecycle.py": "f40dee619ffad65bb102071774a1d677dda7a8343f284713701d1adc9d258b8f",
+    "ci/p0loginb/prior_adapter/ci/p0login/native_gate.py": "32c87053ceda137f0ae25de9be75c0f7d10c020aeb3604266111e5564b22a684",
+    "ci/p0loginb/prior_adapter/ci/p0login/observe_subprocess.py": "70e8134019b394084d429562be231384db4ba9401998252f0a0681aac0d66175",
+    "ci/p0loginb/prior_adapter/ci/p0login/prepare_inputs.py": "c2cdca38accf3d0c07516f1165e81b9652e362408feb94bd593cdfad3d71e3fa",
+    "ci/p0loginb/prior_adapter/ci/p0login/primitives-provenance.json": "b225716e1b4cb3f3259aaf22fdf49b2bab552c13fb2399794242dee2b9e6309d",
+    "ci/p0loginb/prior_adapter/ci/p0login/publication-trees.json": "9c0da8c5be4eb6ebac50a006225e371ed9a1a3008e5e79dd4e30d71a906eba5a",
+    "ci/p0loginb/prior_adapter/ci/p0login/run_observed_script.py": "c1c876ce95da9f928ae69576916cd6f04662bb43930895f3d1870202d781b72f",
+    "ci/p0loginb/prior_adapter/ci/p0login/run_unittest_suite.py": "cd4af63fe965b17fc1fabe21e03afaf9559ed38ae3156b0b70d78f9c34780c77",
+    "ci/p0loginb/prior_adapter/ci/p0login/source-seal.json": "0caa11b1135abbf9c3905c601d100475b91f8d011237033ab47d1f96fad116e8",
+    "ci/p0loginb/prior_adapter/ci/p0login/source_primitives.py": "78f20236c15632044c0acc6375e97d5085a668d6fbad08f1bdb300c4dd5d39b2",
+    "ci/p0loginb/prior_adapter/ci/p0login/tests/fixtures/interleaved-xctest.provenance.json": "fbd957ccd33057b4868c56cccd1126317c515abb40b8197af57f9c7ee452c9a0",
+    "ci/p0loginb/prior_adapter/ci/p0login/tests/fixtures/interleaved-xctest.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ci/p0loginb/prior_adapter/ci/p0login/tests/fixtures/interleaved-xctest.stdout.txt": "7a26d61f19c730e3a4560475bda866fc41a7c26eff06934db6f476fd2698938e",
+    "ci/p0loginb/prior_adapter/ci/p0login/tests/test_gate.py": "562c74cb8f7bdc5b5e441a0e763e438063f1a9e7afd641a07fb369598524a83a",
+    "ci/p0loginb/prior_adapter/independent-descendant-clearance.json": "b99b1f60ad549bf0ebe9d7a48e16e25e83e5d09f95fc76ec5b4d4b8debe62444",
+    "ci/p0loginb/prior_adapter/independent-review.json": "0ad45e272a4e0f74551c7869a4db3d24b28964ed10c16cc01c23d2508ac72e57",
+    "ci/p0loginb/prior_adapter/phase-a-overlay-manifest.json": "8e02dca274fdd0d0d3ce8457bcf25160252021423154ed4f486bc1e622c5685d",
+    "ci/p0loginb/prior_adapter/upload-identity.json": "af53a67acb52c1fd4cbe7f5300b1f3829e29dbbee5dd915a14296adc3e79f9e8",
+    "ci/p0loginb/prior_adapter/verify_phase_a_artifact.py": "c554e5ea9ecb297f004ab5b03d5c60662269cf8c3ba200d15e08e6ff1cac21b4",
+    "ci/p0loginb/prior_phase_a.py": "9aa72f4fd546fd69dd7cdd2dba8f1e898d0768212984bf7cfbf0c0749e5f9876",
+    "ci/p0loginb/provenance.json": "d2673bbc264746159cec59965cd4fee69a34889289c87e739bab00f7657b81c6",
+    "ci/p0loginb/publication-trees.json": "9c0da8c5be4eb6ebac50a006225e371ed9a1a3008e5e79dd4e30d71a906eba5a",
+    "ci/p0loginb/retrieve_prior.py": "66f1664e5b2baf9b113ce500ca13024b8149cde3b0f304097f628e5768705d45",
+    "ci/p0loginb/run_tests.py": "40b8b1e5478c2b77ec54afbef679c85a7a7dd8865e599192171c58fe88f8725f",
+    "ci/p0loginb/source-seal.json": "0caa11b1135abbf9c3905c601d100475b91f8d011237033ab47d1f96fad116e8",
+    "ci/p0loginb/source_primitives.py": "78f20236c15632044c0acc6375e97d5085a668d6fbad08f1bdb300c4dd5d39b2",
+    "ci/p0loginb/tests/fixtures/RemotePairingKit.Package.swift": "4ab6b23b6ef59fda4c5ae6001574362b697d4882d396de4bdd93231e9eeb2dab",
+    "ci/p0loginb/tests/fixtures/historical-39167906885.workspace-state.identity.json": "e6c063b17b475327c93a5fd3985227f8f362e9ac38ab871ca59e18f41c26b6f3",
+    "ci/p0loginb/tests/fixtures/historical-39167906885.workspace-state.json": "8689c8fccf3f9a1381be2462096af1e85f793678d0c296e12a6ac88b6b5a4275",
+    "ci/p0loginb/tests/fixtures/known-source-draft-graph.json": "5b8f9d3c76c020bd649cc8bda48306aec613275327f08815b7acbd286ba34711",
+    "ci/p0loginb/tests/fixtures/plist-generated-header/capture-identity.json": "c5f544fe6b94b7a270ad0ecf957fef4fefca18aee0b5419f86c34dabbcf6acfb",
+    "ci/p0loginb/tests/fixtures/plist-generated-header/cargo-registry-mismatch-after.json": "f34c9ca92fc41580163f3427d7af9c24b5644409b7b7e4c3fc02e6b3800ed786",
+    "ci/p0loginb/tests/fixtures/plist-generated-header/plist_ffi-0.1.6.crate": "35ed070b06d9f2fdd7e816ef784fb07b09672f2acf37527f810dbedf450b7769",
+    "ci/p0loginb/tests/fixtures/registry-readme-alias/nskeyedarchiver_converter-0.1.3.crate": "36c53158d1bf37bbbdd165f5220fda8bb5757c89eb700107992152c64c6cad7e",
+    "ci/p0loginb/tests/fixtures/rustup-multicall-failure/native-bootstrap-tools.json": "14a8f0f83a1930ba98b1810ea1f3afefe7a65faee2391bd8fd04f3f9a1e84463",
+    "ci/p0loginb/tests/fixtures/rustup-multicall-failure/provenance.json": "1dbcc357a0b202f5e5c7235659d438349a35624cb23c803fca2f4296009fcf85",
+    "ci/p0loginb/tests/fixtures/rustup-multicall-failure/rust-toolchain-install.command.json": "2f5f53f0d52c318f27bb4428f6a1aad2122d8cce563cfb234e7b7e5f7a97097c",
+    "ci/p0loginb/tests/fixtures/rustup-multicall-failure/rust-toolchain-install.settlement.json": "106a2b427a3b04600d6541cd96ca5a5a6fdfeca9724c29282cf48f1b19f2f451",
+    "ci/p0loginb/tests/fixtures/rustup-multicall-failure/rust-toolchain-install.stderr.log": "d207de2d55ff9ac42ec9513c162dbe23189d22ddfaef7b63851d37e14556ebb4",
+    "ci/p0loginb/tests/fixtures/sidestore-openssl-3.6.2000.inventory.json": "914acae691d22d94af6de528097ddce74e06920f9dfd66f4b0e375bfaafbc5e8",
+    "ci/p0loginb/tests/test_cargo_contract.py": "30515b55bfe8034d518fdf1d74c8e94d2b3abf41a36fec1cfdd3804d19934681",
+    "ci/p0loginb/tests/test_draft_gate.py": "548ed75a116fd5ac18bb8b41acb34cb8fa5e4ccf6cdf3dfa8af78f1319471204",
+    "ci/p0loginb/tests/test_graph_contract.py": "cd7cfddf4aa382c1030e45aa501c6a9f070ef90a6422ce720480d882c4359f7a",
+    "ci/p0loginb/tests/test_macho_contract.py": "0c347f11a9bef8dff67701827b783f96b014423ce07f8c89e7f859c3ef88812b",
+    "ci/p0loginb/tests/test_native_tool_identity.py": "ceac58b7f97a3349f31e54cdf033a961eb45012f367e7cd0138097916066d675",
+    "ci/p0loginb/tests/test_openssl_artifact_contract.py": "ef6e9ea8050eae4f94d38580dd32026b3133428e01916513d1fc3c6a35415c25",
+    "ci/p0loginb/tests/test_plist_generated_output.py": "aa70eeef6b72c4ea2a56fa2843e5ddae1eb2db25ae78878eafaacc4b0fae16d3",
+    "ci/p0loginb/tests/test_prior_phase_a.py": "7b0fe2d56e2c917fd769f1f454cd80ed34fd578177c71068e389764e1ce160d3",
+    "ci/p0loginb/tests/test_product_capture_integration.py": "39517574f2df515f484205219f49315ac83198e055f2e325c181e9632c8d9fce",
+    "ci/p0loginb/tests/test_product_signature_boundary.py": "9cb4751245d3fea9c811f0851693087e21d226d09b58a6f3f3de9fffa7d093b2",
+    "ci/p0loginb/tests/test_registry_diagnostics.py": "b9322451dbd9685ec44fa50b551fdff96233e6887a6b4b8e98586c6978d7f69f",
+    "ci/p0loginb/tests/test_registry_readme_alias.py": "e7778b4ebb6f9712cd41fece0d0a386cc1da27b35229e0085f4f61b54acb0a68",
+    "ci/p0loginb/tests/test_retrieve_prior.py": "b613c2bbd844cdbea28c32f3365130a88d42bc945f44bbb41c47c0ecffc9f5c6"
+  },
+  "execution_review": null,
+  "graph": {
+    "children": {
+      "LiveContainer/OpenSSL": {
+        "commit": "623c84da314e85363236507ca38a4bde65df21c3",
+        "declared_repository": "https://github.com/krzyzanowskim/OpenSSL",
+        "repository": "https://github.com/krzyzanowskim/OpenSSL",
+        "tree": "21bc09387e7f91a46eb8bd26587ce1d052277801"
+      },
+      "LiveContainer/litehook": {
+        "commit": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55",
+        "declared_repository": "https://github.com/LiveContainer/litehook",
+        "repository": "https://github.com/LiveContainerMirror/litehook.git",
+        "tree": "62bc06a17a1c12d805aec1ada25910bfa9f89781"
+      },
+      "SideStore/Dependencies/SideSign": {
+        "commit": "c733332b0d64022cd603ab9ac5de054413729aab",
+        "declared_repository": "https://github.com/NRG-Wardog/SideSign.git",
+        "repository": "https://github.com/NRG-Wardog/SideSign.git",
+        "tree": "6559fa8c226ea7496e1fb1aa813c058bfee3e342"
+      },
+      "SideStore/Dependencies/minimuxer": {
+        "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+        "declared_repository": "https://github.com/NRG-Wardog/minimuxer.git",
+        "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+        "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+      },
+      "idevice/cpp/plist_ffi": {
+        "commit": "66e6e6362b58bc361725c3e1b0a34af498aa2b3a",
+        "declared_repository": "https://github.com/jkcoxson/plist_ffi.git",
+        "repository": "https://github.com/jkcoxson/plist_ffi.git",
+        "tree": "1dc97bcad12d41a13417ae05fbcdc4408c6df553"
+      }
+    },
+    "final_sidesign": {
+      "commit": "c733332b0d64022cd603ab9ac5de054413729aab",
+      "lock_sha256": "cdfe27d752edde2e836cd0c25166139223e233ba1c18aa6df69ba893d0a07c35",
+      "tree": "6559fa8c226ea7496e1fb1aa813c058bfee3e342"
+    },
+    "final_sidestore": {
+      "commit": "dc29ce0d79a299f32a340c460e1d61e8190e320c",
+      "tree": "cb40141a5a16e55a682758713541fb7b3445f209"
+    },
+    "kind": "phase-b-graph-execution",
+    "owners": {
+      "AnisetteKit": {
+        "base": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+        "changes": {
+          ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp": {
+            "after": {
+              "git_object": "524b593ea254861f711d82f087d5b8e5c1692e7d",
+              "mode": "100644",
+              "sha256": "ae1036676aee82cbe470984002361e699ce44d1df5f6da63a1839cfeb3f3b490",
+              "type": "blob"
+            },
+            "before": {
+              "git_object": "6b956e18605c94f443bee29a415293625ea7d91e",
+              "mode": "100644",
+              "sha256": "d80a994d24446f9cba39b0c46936ac050c0a0f1d503294293f45ed8cdd9e3c12",
+              "type": "blob"
+            }
+          },
+          ".ci/native-tests/run_tests.py": {
+            "after": {
+              "git_object": "e2a97fc90f708dd4f9d982574f0b61a44147f10b",
+              "mode": "100644",
+              "sha256": "cfbe2a36e87dbdd1b7aa011cb2e71571ab367c7dc862c9f124bb603fd659a1ce",
+              "type": "blob"
+            },
+            "before": {
+              "git_object": "24ab5e38ab0952afe2182810de0e29197838022e",
+              "mode": "100644",
+              "sha256": "e750b294770ee864e36b94d9a7fa936c5cb76b2a16633ce8d199f439829f6811",
+              "type": "blob"
+            }
+          },
+          "Native/anisette_core_uc.cpp": {
+            "after": {
+              "git_object": "3048b6e4c5c366f2ad428989823f1013d6c281f2",
+              "mode": "100644",
+              "sha256": "4f256e33ae230e863f7126a7876799c8bf66b94ea653a2c9928628e110807183",
+              "type": "blob"
+            },
+            "before": {
+              "git_object": "782ff3329c9dad86b2aa010526fb9ab65313c952",
+              "mode": "100644",
+              "sha256": "d75cc5f9534f94d8871da89ca84c885148d3f813e93eee790aa698cec6ee855a",
+              "type": "blob"
+            }
+          },
+          "Sources/AnisetteClient.swift": {
+            "after": {
+              "git_object": "9787607fad16e5d92a7613ca23553b3cc8eb6e23",
+              "mode": "100644",
+              "sha256": "208dcbf61dffd101ea9e0c04fe18a1500b1b176b1407fe93b2b010a8d36806a7",
+              "type": "blob"
+            },
+            "before": {
+              "git_object": "900cc1b4e296089e1df03c1847145ca39da6c126",
+              "mode": "100644",
+              "sha256": "f8c551295db79d7acb082a98953b0581fe812da41c766d1c3bf2cb5bdc9e1b79",
+              "type": "blob"
+            }
+          },
+          "Sources/AnisetteDataProvider.swift": {
+            "after": {
+              "git_object": "ccdece372e0ea79c678ef9af7505c461e5be5cff",
+              "mode": "100644",
+              "sha256": "9c55c035d640cae8c2b6ac173db9f118a4e49cce789c0dba24f4cffca58476de",
+              "type": "blob"
+            },
+            "before": {
+              "git_object": "d672719ddb6191ed9e38ebc80f8b2869add22376",
+              "mode": "100644",
+              "sha256": "356d5bb03a12c8e7bf366f364078099e2f3945103c2d0c43965ac2650590287f",
+              "type": "blob"
+            }
+          },
+          "Sources/LoginDiagnosticTrace.swift": {
+            "after": {
+              "git_object": "39fbc98346f60b3ad29356042b083fee34820814",
+              "mode": "100644",
+              "sha256": "bd86c77eb520cf0721cfbbdb1e9100261bd53324ef0f912713873357fc76ae2e",
+              "type": "blob"
+            },
+            "before": null
+          },
+          "Tests/AnisetteKitTests/LoginDiagnosticTraceTests.swift": {
+            "after": {
+              "git_object": "48509b85ccf8849d566aefa30797c150321db3b1",
+              "mode": "100644",
+              "sha256": "0a04f3657123356af34ad0c51a50291b1d494dd50376478684aa066996790bbf",
+              "type": "blob"
+            },
+            "before": null
+          }
+        },
+        "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+        "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+        "tree": "734664d759b9e99caa09089905e6a240b149548d"
+      },
+      "LiveContainer": {
+        "base": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+        "changes": {
+          "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": {
+            "after": {
+              "git_object": "9465971ff05f20ad7261377d170f7b5794a055cd",
+              "mode": "100644",
+              "sha256": "406d1d7b5502dccfa2cd37afa75e4903611c1d42ffd5235190c08804d64dd56e",
+              "type": "blob"
+            },
+            "before": {
+              "git_object": "a1d730c60d43b383000da91982cd9ae7dd7bfc5d",
+              "mode": "100644",
+              "sha256": "f51818f28b16785972ec6993419444725c6e81b92f44c4e5fea5519c7f3e617d",
+              "type": "blob"
+            }
+          },
+          "SideStoreSupport/SideStore.swift": {
+            "after": {
+              "git_object": "07e84e40972097d1a7748c876cfcfde82b0d14da",
+              "mode": "100644",
+              "sha256": "b097483d27d3ab395fc82a68c9392b51bdceb4df23ebcda981bc2d9e68198aae",
+              "type": "blob"
+            },
+            "before": {
+              "git_object": "8aa1b1bf765550093ecb2d6768ac4b3bf23a2dc1",
+              "mode": "100644",
+              "sha256": "95a719cdd87c207794a0c78d52411a0388ea344023a8f6edc209db4734aba1bb",
+              "type": "blob"
+            }
+          },
+          "docs/debug-adi-consumption/contract-v2.json": {
+            "after": {
+              "git_object": "e2353c6d42dfb3b01cedd5a69e403bdcf6917cf2",
+              "mode": "100644",
+              "sha256": "a4ac915cedf8c67179a184e8ea926968a439ae6c5e7bec6e18f58a5bd162b5ed",
+              "type": "blob"
+            },
+            "before": {
+              "git_object": "83077055c0cf27a1e9d972d27f7e4dcf4c3f7a62",
+              "mode": "100644",
+              "sha256": "2c78bd8218cf8e1262e6452272a69e4245562c7eef4c4350a57b5fb802e99b72",
+              "type": "blob"
+            }
+          },
+          "tests/login_trace/README.md": {
+            "after": {
+              "git_object": "54a5ec9e421aa9a77b319cb5851559101e6e5adb",
+              "mode": "100644",
+              "sha256": "d1dabfb89f126827972ae0581c0effb30abee68b379088a66ac81ad03690ca7e",
+              "type": "blob"
+            },
+            "before": null
+          },
+          "tests/login_trace/host_harness.swift": {
+            "after": {
+              "git_object": "f65e6478989cb342b9b195bc6a1fecace7aa051e",
+              "mode": "100644",
+              "sha256": "5dd5ea6613dd6aaf0e489a235e9ffb54a4631fadaa9cc1cbc0c86b04a3a2d263",
+              "type": "blob"
+            },
+            "before": null
+          },
+          "tests/login_trace/test_contract.py": {
+            "after": {
+              "git_object": "8f1df18bb828f8a8a7dd0044f1d09e9584d42929",
+              "mode": "100644",
+              "sha256": "6c2fa4889943c60cf304f9e969d4a40d403b983e779515d93220070d98a8035f",
+              "type": "blob"
+            },
+            "before": null
+          },
+          "tests/login_trace/timeout_host_harness.swift": {
+            "after": {
+              "git_object": "81c0bb1302d832ba5834f3da64deb6de3590de42",
+              "mode": "100644",
+              "sha256": "d66fbc1f00b9ddc1a796533a5ef4971184ef4f4f26151666c6e1fc5f5c4b9eb3",
+              "type": "blob"
+            },
+            "before": null
+          }
+        },
+        "commit": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
+        "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+        "tree": "e8014dd771c25c4a05dc76ab0aa304a233642a83"
+      },
+      "SideSign": {
+        "base": "770b991b1dbc269ad19dd18b8b2e8252b665af9b",
+        "changes": {
+          "Package.resolved": {
+            "after": {
+              "git_object": "1c28e107f09e4ca08121a9a9145a32b82c22dc7b",
+              "mode": "100644",
+              "sha256": "cdfe27d752edde2e836cd0c25166139223e233ba1c18aa6df69ba893d0a07c35",
+              "type": "blob"
+            },
+            "before": {
+              "git_object": "3258a448c358484d9c536b4835cb501cafaf91f6",
+              "mode": "100644",
+              "sha256": "560c36d844b162b942175385490bce7368015a75164c1f4ea6229cdf6339a961",
+              "type": "blob"
+            }
+          }
+        },
+        "commit": "c733332b0d64022cd603ab9ac5de054413729aab",
+        "repository": "https://github.com/NRG-Wardog/SideSign.git",
+        "tree": "6559fa8c226ea7496e1fb1aa813c058bfee3e342"
+      },
+      "SideStore": {
+        "base": "85bf45f65a9c2835c18d2c8e2e9c618177c95b54",
+        "changes": {
+          "Dependencies/SideSign": {
+            "after": {
+              "git_object": "c733332b0d64022cd603ab9ac5de054413729aab",
+              "mode": "160000",
+              "type": "commit"
+            },
+            "before": {
+              "git_object": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
+              "mode": "160000",
+              "type": "commit"
+            }
+          }
+        },
+        "commit": "dc29ce0d79a299f32a340c460e1d61e8190e320c",
+        "repository": "https://github.com/NRG-Wardog/SideStore.git",
+        "tree": "cb40141a5a16e55a682758713541fb7b3445f209"
+      },
+      "idevice": {
+        "base": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+        "changes": {},
+        "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+        "repository": "https://github.com/NRG-Wardog/idevice.git",
+        "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+      },
+      "jktcp": {
+        "base": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+        "changes": {},
+        "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+        "repository": "https://github.com/NRG-Wardog/jktcp.git",
+        "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+      },
+      "minimuxer": {
+        "base": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+        "changes": {},
+        "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+        "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+        "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+      }
+    },
+    "prior_artifact": {
+      "artifact_id": 12167887288,
+      "artifact_sha256": "1ba62e133de91b9cb3794338157126cbaf39fd60a7b23fb30753825234338c80",
+      "artifact_size": 557731,
+      "evidence_index_sha256": "7d8c95b751b27341a116638d2012ced11a6414781f81c591aa7e1a45bedbc8df",
+      "host_commit": "3ec28a81d8ff8f0f736e775c676d733bc5b61be8",
+      "host_tree": "f1bb7314c08bd0ff3cd707258244255ddc8197dd",
+      "lock_sha256": "cdfe27d752edde2e836cd0c25166139223e233ba1c18aa6df69ba893d0a07c35",
+      "repository": "NRG-Wardog/LiveContainer",
+      "run_attempt": 1,
+      "run_id": 39210961502
+    },
+    "publication_sha256": "9c0da8c5be4eb6ebac50a006225e371ed9a1a3008e5e79dd4e30d71a906eba5a",
+    "schema_version": 1,
+    "source_basis": "p0-login-trace-phase-b-v1",
+    "source_seal_sha256": "0caa11b1135abbf9c3905c601d100475b91f8d011237033ab47d1f96fad116e8"
+  },
+  "ordinary_build_guard": {
+    "after_sha256": "646fa525a4cb2da9ae3b6f26ecb91120dd3545942e5dba20a10209b81d11c993",
+    "before_sha256": "794d75f941bb6e7ca430a7c0ca05d6899f05ec65786cd81142a459974c62acb4",
+    "excluded_ref": "refs/heads/validation/p0-login-trace-phase-b",
+    "job": "build",
+    "path": ".github/workflows/build.yml"
+  },
+  "phase": "phase-b",
+  "prior_phase_a": {
+    "approved_inputs_sha256": "4b765084e34ee1a88d35af4553327f131983d7002c0c6b6ae54acf976a171cfa",
+    "approved_overlay_sha256": "8e02dca274fdd0d0d3ce8457bcf25160252021423154ed4f486bc1e622c5685d",
+    "approved_verifier_sha256": "c554e5ea9ecb297f004ab5b03d5c60662269cf8c3ba200d15e08e6ff1cac21b4",
+    "expected": {
+      "artifact_id": 12167887288,
+      "artifact_sha256": "1ba62e133de91b9cb3794338157126cbaf39fd60a7b23fb30753825234338c80",
+      "artifact_size": 557731,
+      "evidence_index_sha256": "7d8c95b751b27341a116638d2012ced11a6414781f81c591aa7e1a45bedbc8df",
+      "host_commit": "3ec28a81d8ff8f0f736e775c676d733bc5b61be8",
+      "host_tree": "f1bb7314c08bd0ff3cd707258244255ddc8197dd",
+      "lock_sha256": "cdfe27d752edde2e836cd0c25166139223e233ba1c18aa6df69ba893d0a07c35",
+      "repository": "NRG-Wardog/LiveContainer",
+      "run_attempt": 1,
+      "run_id": 39210961502
+    },
+    "independent_review": {
+      "receipt_sha256": "0ad45e272a4e0f74551c7869a4db3d24b28964ed10c16cc01c23d2508ac72e57",
+      "reviewer": "/root/diagnose_new_p0_initializer_failure/review_cxx_builder_admission"
+    },
+    "phase": "phase-a",
+    "schema_version": 1,
+    "source_basis": "p0-login-trace-phase-a-v1",
+    "upload_identity_sha256": "af53a67acb52c1fd4cbe7f5300b1f3829e29dbbee5dd915a14296adc3e79f9e8"
+  },
+  "publication_sha256": "9c0da8c5be4eb6ebac50a006225e371ed9a1a3008e5e79dd4e30d71a906eba5a",
+  "schema_version": 1,
+  "source_basis": "p0-login-trace-phase-b-v1",
+  "source_seal_sha256": "0caa11b1135abbf9c3905c601d100475b91f8d011237033ab47d1f96fad116e8",
+  "status": "BOUND_CAPTURE_PROPOSAL",
+  "toolchain": {
+    "architecture": "arm64",
+    "bindgen": "bindgen 0.72.1",
+    "clang": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "developer_dir": "/Applications/Xcode_26.4.1.app/Contents/Developer",
+    "swift_stderr": "swift-driver version: 1.148.6 ",
+    "swift_stdout": "Apple Swift version 6.3.1 (swiftlang-6.3.1.1.2 clang-2100.0.123.102)\nTarget: arm64-apple-macosx26.0\n",
+    "xcode": "Xcode 26.4.1\nBuild version 17E202"
+  },
+  "workflow_template_sha256": "338e579d6bd67faef37d66591692c2af62771a6edbbf96a4815c41e10ebe21fa"
+}

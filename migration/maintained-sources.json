@@ -1,50 +1,36 @@
 {
-  "contract_registry_sha256": "542f353477293d1e46899db0f8704b19386d98be84c0c34ab101af2270942c9f",
+  "contract_registry_sha256": "8a6d40e5ac909a43504f87227f8c2b8082c4d66c743bd62df82367cac857e6cb",
   "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
   "native_validation": {
-    "fresh_composed_capture_sha256": "94c20e606e9ef06b559df8fbf304e0e74a6b876597a352ea8b77387aa64b0f30",
-    "inherited_p0_review_sha256": "d9612e716a535a12b5e2d9fcb0adeb3dfbc3b25f6d824efda4b50d426f5a3df4",
-    "parent_ui_basis_sha256": "fb94bd9e845aa55ea05bc5a785998b58f43098af46d4999deda1679e683f57d2",
+    "capture_summary_sha256": "cc94d8d6e989d6e76fbf869bc606c95d9be09b9859b301db077c3e1d675c2939",
+    "inherited_p2_review_sha256": "ceb365632e7e7baa8a8926f2606ea44eaa5caccd058257d4b71d98e4f73729a0",
+    "native_receipt_sha256": "d8b7a70f1fce34a031679db97980285a2b5a62f1c15a6be13505282c7506569a",
     "readiness_scope": "eligible_for_gated_full_build",
-    "review_sha256": "ceb365632e7e7baa8a8926f2606ea44eaa5caccd058257d4b71d98e4f73729a0",
-    "scope": "Exact composed Release simulator compilation, compiled localization/plural/permission resources, and five native initializer consumer tests",
-    "source_basis": "p2-composed-host-v1",
-    "tested_owners": {
-      "AnisetteKit": {
-        "commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
-        "tree": "0df50020ddd774a5b7ab941944501f1ecd591a4a"
-      },
-      "LiveContainer": {
-        "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
-        "tree": "4b973e2bbf482953e298c41c7a7227cb60b30718"
-      },
-      "SideStore": {
-        "commit": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
-        "tree": "c58017caf7e392e238f47a5e0fa9511fa6f74ca0"
-      }
-    }
+    "review_sha256": "e42ff8620df373c539e9b118fa1ee338fc044b9287ba4ead5dcf9cec050ff960",
+    "scope": "Reviewed full-login diagnostic source graph, genuine native compile captures, and exact final SideStore app-lock equivalence; normal gated build eligibility only",
+    "source_basis": "p0-full-login-diagnostics-v1"
   },
   "owners": {
     "AnisetteKit": {
-      "commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+      "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
       "path": "work/AnisetteKit",
       "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
       "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d"
     },
     "LiveContainer": {
-      "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+      "commit": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
       "path": "work/LiveContainer",
       "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
       "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69"
     },
     "SideSign": {
-      "commit": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
+      "commit": "c733332b0d64022cd603ab9ac5de054413729aab",
       "path": "work/EmbeddedSideStore/Dependencies/SideSign",
       "repository": "https://github.com/NRG-Wardog/SideSign.git",
       "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0"
     },
     "SideStore": {
-      "commit": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+      "commit": "d507f9e417f12c262b4d7e717c84d4a244c8e625",
       "path": "work/EmbeddedSideStore",
       "repository": "https://github.com/NRG-Wardog/SideStore.git",
       "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71"
@@ -69,5 +55,5 @@
     }
   },
   "schema_version": 1,
-  "source_basis": "p2-composed-host-v1"
+  "source_basis": "p0-full-login-diagnostics-v1"
 }

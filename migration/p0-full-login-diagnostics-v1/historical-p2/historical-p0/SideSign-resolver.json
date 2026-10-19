@@ -1,0 +1,23 @@
+{
+  "anisette_commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+  "approved_inputs_sha256": "0d95b043bfc929e25d2df2ac0c7d04e2e63e8ad1cd97259cffe74b762fc2b945",
+  "artifact_id": 12149694713,
+  "artifact_sha256": "5390400fd8399effba847a5ba88c8f0bbb0a1d614c1824e17250ff2b239e7c09",
+  "evidence_index_sha256": "08f8a547dca533d7eab889b3812c341830ef8d706adeeb066918af60c8dcb772",
+  "host_commit": "252eb33dfcd59bb6d07f3034e58dd15584eda2dc",
+  "host_tree": "df65571fc3d1a50328e24b6fac1c59fd4557986c",
+  "lock_before_sha256": "5af998d3a0ffd5c8589a2237338e395aa61281a02d3803f25c2cc5a5125169bc",
+  "lock_sha256": "560c36d844b162b942175385490bce7368015a75164c1f4ea6229cdf6339a961",
+  "origin_hash": {
+    "present": true,
+    "value": "9bae0776c9d3744775f7f251a21e1ccc20c03b1b00199f575516d39da810164e"
+  },
+  "owner": "SideSign",
+  "purpose": "independently_reviewed_p0_cxx_allocation_swiftpm_resolution",
+  "resolver_tested_commit": "3cb03aaae12fcab0a0bc6e0075536a23fc30bdff",
+  "resolver_tested_tree": "99fa963f0314a05108b6ff493d26d3a748757b1e",
+  "run_attempt": 1,
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/39164502516",
+  "source_basis": "p0-cxx-allocation-v1",
+  "status": "CAPTURED_FOR_REVIEW"
+}

@@ -20,7 +20,7 @@ class CxxPackageEvidenceTests(unittest.TestCase):
             return False
         self.pin_path=ROOT/'migration/maintained-sources.json'
         self.pins=gate.load_pins(self.pin_path)
-        if self.pins['source_basis']=='p2-composed-host-v1':
+        if self.pins['source_basis'] in {'p2-composed-host-v1','p0-full-login-diagnostics-v1'}:
             self.pin_path=ROOT/'migration/p2-composed-host-v1/historical-p0/maintained-sources.json'
             self.pins=gate.load_pins(self.pin_path)
         self.assertEqual(self.pins['source_basis'],bounds.BASIS)

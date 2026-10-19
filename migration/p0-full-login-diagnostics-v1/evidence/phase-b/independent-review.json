@@ -1,0 +1,92 @@
+{
+  "app_builds_succeeded": [
+    "SideStore",
+    "LiveContainer"
+  ],
+  "app_resolved_sources_before_after_equal": true,
+  "artifact_bytes": 47313261,
+  "artifact_execution_performed": false,
+  "artifact_id": 12178055541,
+  "artifact_sha256": "b2c931dccffaa7232e8818e674267013e083af2ecb8ff47d256414b6bbc77c93",
+  "audit_source_sha256": {
+    "independent_capture_audit.py": "4e2a2a38744422b81cca82f4c1a935a15e38e2f953fa4586361103e6479adb87"
+  },
+  "authenticated_receipt_sha256": {
+    "independent-artifact-api.json": "7f06a28744571eb4a65cedbfe5695a21d706e5c9d2a229ee1e83b7b69736f6c6",
+    "independent-commit-api.json": "3497afb3f4cfd2220df5c8e22d85a04ee65d279170547e3ef5c305f584def5c5",
+    "independent-idevice-commit-api.json": "92c7e57d32da20eac7a49c4649c380349097c826c824394d5f1d877c7a76fdad",
+    "independent-idevice-tree-api.json": "0aa8d0cf13e5772051e61129b93b2721e017de88716a2839e193f03dc106d112",
+    "independent-jktcp-commit-api.json": "ecb5c52d4c337f4af7d51d0c5005cc56bcb47d7d489506dfecab8c300f2e921d",
+    "independent-jktcp-tree-api.json": "6367bcf924c6f62b4455f56e726cceea98bbe0fc792b72cae6661aee5d62b5eb",
+    "independent-keychainaccess-commit-api.json": "24ee9aa34e1d284c4cb5eb89123e635defa73a2ebccebd38a01570e1425e430b",
+    "independent-run-api.json": "ec49256d5238ad0c4ffa0cb5bfe4e5fbe9f7f9b4eab48e85e47642642545592f",
+    "independent-semanticversion-commit-api.json": "05312c6ef5505747fc5bd9525bd98893debb22efa01a7933c9e036914c7a36b2",
+    "independent-zipfoundation-commit-api.json": "042774e3e32e3743597e942c96234f12a761882d6f76d7e1e51c0fa745193653"
+  },
+  "compiled_final_child": false,
+  "component_review_sha256": {
+    "independent-cargo.json": "a50194418bfe937771c494b6f77452510749adff316347272fc1f4e9e1c3c734",
+    "independent-command-source-review.json": "62b857a452b0a96ef0c44a2d27ca3f5ff8e74d3d806db1ae8bbfd215eae7060c",
+    "independent-products.json": "13f1139d3fc1327de2bd307bdfb52e5f29ba71a7358a007bf0c745b503e782f5"
+  },
+  "current_run_owned_prior_gets": 4,
+  "device_login_proven": false,
+  "evidence_index_sha256": "fe9208a39c72864e8dfe213e8fafa005420dcc9fafa10d8e6d46c7bb973a0af3",
+  "exact_ordered_top_level_commands": 70,
+  "generated_header": {
+    "bytes": 15535,
+    "complete_stage_transition_replayed": true,
+    "sha256": "869710f970cde3b6dcb9f68d8c78b42d6717ade0a051e634fb6e12c8365d42f5"
+  },
+  "genuine_sidestore_lock": {
+    "after_matches_terminal": true,
+    "before_matches_captured_parent": true,
+    "bytes": 2815,
+    "git_blob": "3867aab14eaa661b8c9c526be9c473cb645a609c",
+    "only_semantic_delta": "approved AnisetteKit revision plus genuine originHash",
+    "sha256": "e97604f913903659539663f09176a20ee9ca5fe06188a41ff38f54257d076d08"
+  },
+  "guest_execution": false,
+  "host_commit": "dd8fff072238af26bcee00ae17881f9f15d3ec2c",
+  "host_tree": "5b7e6b28c14cd6c2aac54c32ed2ccc5ae6fff5cd",
+  "indexed_files": 406,
+  "input_sha256": "70a315ebe5aa6ed0505346794a17ecf96e0ab93cc31ada2a348c539aa96403ba",
+  "macho_report_counts": {
+    "LiveContainer": 12,
+    "SideBackup": 1,
+    "SideStore": 3,
+    "exact_pinned_preexisting_exceptions": 3,
+    "new_unsigned": 13
+  },
+  "overlay_manifest_sha256": "9023d8182856c4316996ae86e6a290aed507d39e94416d1b15ef05cf1f91fbc4",
+  "prior_phase_a": {
+    "artifact_sha256": "1ba62e133de91b9cb3794338157126cbaf39fd60a7b23fb30753825234338c80",
+    "independent_review_sha256": "0ad45e272a4e0f74551c7869a4db3d24b28964ed10c16cc01c23d2508ac72e57",
+    "run_id": 39210961502
+  },
+  "production_ready": false,
+  "publication_sha256": "9c0da8c5be4eb6ebac50a006225e371ed9a1a3008e5e79dd4e30d71a906eba5a",
+  "release_eligible": false,
+  "reviewed_ci_static_product_checks_passed": true,
+  "run_attempt": 1,
+  "run_id": 39229204851,
+  "schema_version": 1,
+  "scope_notes": [
+    "This review binds only this exact authenticated capture and reviewed host/input tuple; it is not a generic evidence validator.",
+    "Five owner source object graphs were replayed locally. idevice and jktcp complete recursive tree metadata were independently authenticated and reconstructed; their actual checkout-byte verification ran in the authenticated reviewed CI adapter.",
+    "All dependency source, registry, tool, transport and new product bytes were checked by the reviewed CI code, but most raw bytes are not retained. Local replay verifies retained records and complete cross-bindings, not a second build or independent re-hash of absent bytes.",
+    "Retained official SideStore OpenSSL ZIP and generated plist_ffi header received independent raw-byte checks. Preexisting signatures are identified, not cryptographically authenticated.",
+    "The precise SideStore app-lock-only child may be published after separate full-tree equivalence review and authenticated commit readback. The future child was not directly compiled.",
+    "Fresh builder admission and normal release eligibility remain separate. This does not prove actual-device initializer or login success."
+  ],
+  "self_contained_tests": 191,
+  "settled_zero_exit_commands": 70,
+  "source_basis": "p0-login-trace-phase-b-v1",
+  "source_before_after_equal": true,
+  "source_children": 5,
+  "source_owners": 7,
+  "source_seal_sha256": "0caa11b1135abbf9c3905c601d100475b91f8d011237033ab47d1f96fad116e8",
+  "status": "INDEPENDENT_PHASE_B_EVIDENCE_REVIEW_PASSED",
+  "test_failures_errors_skips": 0,
+  "transport_build_succeeded": true
+}

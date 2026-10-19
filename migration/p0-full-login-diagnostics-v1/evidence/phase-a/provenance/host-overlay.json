@@ -1,0 +1,14 @@
+{
+  "commit": "3ec28a81d8ff8f0f736e775c676d733bc5b61be8",
+  "gitlinks_unpopulated": {
+    "OpenSSL": "623c84da314e85363236507ca38a4bde65df21c3",
+    "litehook": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55"
+  },
+  "origin": {
+    "kind": "direct",
+    "repository": "https://github.com/NRG-Wardog/LiveContainer.git"
+  },
+  "status": "",
+  "tracked_entries": 331,
+  "tree": "f1bb7314c08bd0ff3cd707258244255ddc8197dd"
+}

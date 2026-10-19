@@ -232,6 +232,10 @@ jobs:
           git -C work/BoundsCandidateAnisetteKit -c core.hooksPath=/dev/null checkout --detach 9c876820d102affe2f55ee4b7f735fff6abd990a
           test "$(git -C work/BoundsCandidateAnisetteKit rev-parse HEAD)" = 9c876820d102affe2f55ee4b7f735fff6abd990a
           test "$(git -C work/BoundsCandidateAnisetteKit rev-parse HEAD^{tree})" = 1c54f163acfb8e5d18605aaa301a3d5ebd576505
+          git -c core.hooksPath=/dev/null clone --no-checkout https://github.com/NRG-Wardog/AnisetteKit.git work/LegacyCxxAnisetteKit
+          git -C work/LegacyCxxAnisetteKit -c core.hooksPath=/dev/null checkout --detach 161435bcc0344e1a9853669455c1ca8d9dda2bf1
+          test "$(git -C work/LegacyCxxAnisetteKit rev-parse HEAD)" = 161435bcc0344e1a9853669455c1ca8d9dda2bf1
+          test "$(git -C work/LegacyCxxAnisetteKit rev-parse HEAD^{tree})" = 0df50020ddd774a5b7ab941944501f1ecd591a4a
           git clone --filter=blob:none https://github.com/NRG-Wardog/LiveContainer.git work/LegacyLiveContainer
           git -C work/LegacyLiveContainer checkout --detach 12377cf3b91d51739a33f14a302e5f522b238593
           git -C work/LegacyLiveContainer -c submodule.litehook.url=https://github.com/LiveContainerMirror/litehook.git submodule update --init --recursive
@@ -301,7 +305,8 @@ jobs:
           P0_DIAGNOSTIC_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/LegacyConstructorAnisetteKit
           P0_BOUNDS_MANIFEST_SOURCE: ${{ github.workspace }}/work/BoundsCandidateAnisetteKit
           P0_BOUNDS_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/BoundsCandidateAnisetteKit
-          P0_CXX_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/AnisetteKit
+          P0_CXX_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/LegacyCxxAnisetteKit
+          P0_LOGIN_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/AnisetteKit
         shell: bash
         run: |
           set -euo pipefail

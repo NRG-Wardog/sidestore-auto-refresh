@@ -1,0 +1,28 @@
+{
+  "SideSign": {
+    "authenticated_readback": true,
+    "blob": "1c28e107f09e4ca08121a9a9145a32b82c22dc7b",
+    "matches_captured_after_and_final_bytes": true,
+    "only_path": "Package.resolved",
+    "parent": "770b991b1dbc269ad19dd18b8b2e8252b665af9b",
+    "published_commit": "c733332b0d64022cd603ab9ac5de054413729aab",
+    "sha256": "cdfe27d752edde2e836cd0c25166139223e233ba1c18aa6df69ba893d0a07c35",
+    "tree": "6559fa8c226ea7496e1fb1aa813c058bfee3e342"
+  },
+  "SideStore": {
+    "after": "c733332b0d64022cd603ab9ac5de054413729aab",
+    "authenticated_readback": true,
+    "before": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
+    "mode": "160000",
+    "only_path": "Dependencies/SideSign",
+    "parent": "85bf45f65a9c2835c18d2c8e2e9c618177c95b54",
+    "publication_status": "EXACT_TREE_PARENT_READBACK_VERIFIED",
+    "published_commit": "dc29ce0d79a299f32a340c460e1d61e8190e320c",
+    "tree": "cb40141a5a16e55a682758713541fb7b3445f209"
+  },
+  "device_login_proven": false,
+  "phase_a_review_sha256": "0ad45e272a4e0f74551c7869a4db3d24b28964ed10c16cc01c23d2508ac72e57",
+  "phase_b_execution_approved": false,
+  "schema": 1,
+  "scope": "SOURCE_ONLY_DESCENDANT_EQUIVALENCE"
+}

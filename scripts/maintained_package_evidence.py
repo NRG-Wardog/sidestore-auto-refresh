@@ -30,6 +30,10 @@ def read_regular(root, name):
 
 def contract_files(pins, root=None):
     """Derive the complete metadata inventory from the independently approved hash."""
+    from p0_full_login_diagnostics import BASIS as LOGIN_BASIS
+    if pins.get('source_basis') == LOGIN_BASIS:
+        from p0_full_login_diagnostics import contract_files as login_contract_files
+        return login_contract_files(pins, ROOT, root)
     from p2_composed_host import BASIS as P2_BASIS
     if pins.get('source_basis') == P2_BASIS:
         from p2_composed_host import contract_files as p2_contract_files

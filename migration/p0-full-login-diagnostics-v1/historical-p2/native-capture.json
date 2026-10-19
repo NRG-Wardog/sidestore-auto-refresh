@@ -1,0 +1,68 @@
+{
+  "claims": {
+    "ADI_executed": false,
+    "device_validation": false,
+    "fresh_ui_execution": false,
+    "guest_execution": false,
+    "ipa_acceptance": false
+  },
+  "consumer_tests": {
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0,
+    "test_ids": [
+      "test_contract.InitializerDiagnosticContract.test_actual_swift_parser_service_wire_and_host_copy",
+      "test_contract.InitializerDiagnosticContract.test_bounded_primary_only_contract_and_no_recovery_mutation",
+      "test_contract.InitializerDiagnosticContract.test_real_native_producer_fixture",
+      "test_contract.InitializerDiagnosticContract.test_shared_capture_validation_and_copy_contracts_match",
+      "test_contract.InitializerDiagnosticContract.test_trace_disabled_preserves_constructor_evidence"
+    ],
+    "tests": 5
+  },
+  "evidence_files": {
+    "compiled-resources.json": "19c8ef2ce553ec0794d59af2a08cdea1e71e43d7784ee4d1c7b5ec734f03e222",
+    "consumer-sources-after.json": "f16987e4b7b60fbf415749617919f13cecd27864a59e86422a518af52cab46c8",
+    "consumer-sources-before.json": "f16987e4b7b60fbf415749617919f13cecd27864a59e86422a518af52cab46c8",
+    "consumer-tests.json": "171c7315132fbc7a2445a4dd0e4f20b74c2a470398be8c252cba749034649939",
+    "inputs.json": "5d1f466bae1fa20c707a8e164b05e33a1e8a92e99be91e73db592ad032d308a8",
+    "product-identity.json": "adcf3693bcc9d6c7095b8c7ef469b6382c7ea46751f392006a5ee061f3230339",
+    "result.json": "49808afbfdde0f6e3478210302146f2db107d09c87c4e7b55098eb1bc916cb2b",
+    "source-after.json": "b30eb32041757b3db38dfae38614e7a903343ee29af0f030d14274a4410be56e",
+    "source-before.json": "b30eb32041757b3db38dfae38614e7a903343ee29af0f030d14274a4410be56e"
+  },
+  "identity": {
+    "approved_inputs_sha256": "5d1f466bae1fa20c707a8e164b05e33a1e8a92e99be91e73db592ad032d308a8",
+    "artifact_id": 12153216433,
+    "artifact_sha256": "de1c4e93250ba5b021f50c9a9067b453a23d53b6770cdbd7dfc9145cbf46a0ea",
+    "evidence_index_sha256": "9866a76eb10981c278f5b9410ba11c8aef723a76edf6588c9089458256103dca",
+    "host_commit": "1d09456b441912c12227052eb21a26389ac0a203",
+    "host_tree": "8e12c5938e30b761d1234506e2a6fdb6c4f66e1c",
+    "run_attempt": 1,
+    "run_url": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/39172103613"
+  },
+  "product": {
+    "compile": "passed",
+    "configuration": "Release",
+    "exact_plural_values": "passed",
+    "localization": "passed",
+    "permissions": "passed",
+    "sdk": "iphonesimulator"
+  },
+  "schema_version": 1,
+  "scope": "Exact composed Release simulator compilation, compiled localization/plural/permission resources, and five native initializer consumer tests",
+  "status": "INDEPENDENTLY_REVIEWED_COMPOSED_HOST_PASS",
+  "tested_owners": {
+    "AnisetteKit": {
+      "commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+      "tree": "0df50020ddd774a5b7ab941944501f1ecd591a4a"
+    },
+    "LiveContainer": {
+      "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+      "tree": "4b973e2bbf482953e298c41c7a7227cb60b30718"
+    },
+    "SideStore": {
+      "commit": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+      "tree": "c58017caf7e392e238f47a5e0fa9511fa6f74ca0"
+    }
+  }
+}

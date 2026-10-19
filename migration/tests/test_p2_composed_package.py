@@ -20,6 +20,9 @@ class ComposedPackageEvidenceTests(unittest.TestCase):
    with self.assertRaisesRegex(ValueError,'pending'):p2.approval(ROOT)
    return False
   self.pin_path=ROOT/'migration/maintained-sources.json';self.pins=gate.load_pins(self.pin_path)
+  if self.pins['source_basis']=='p0-full-login-diagnostics-v1':
+   self.pin_path=ROOT/'migration/p0-full-login-diagnostics-v1/historical-p2/maintained-sources.json'
+   self.pins=gate.load_pins(self.pin_path)
   self.assertEqual(self.pins['source_basis'],p2.BASIS)
   configured=os.environ.get('P0_CXX_ANISETTE_TEST_SOURCE');self.assertTrue(configured,'explicit unchanged C++ AK source required')
   self.source=Path(configured)

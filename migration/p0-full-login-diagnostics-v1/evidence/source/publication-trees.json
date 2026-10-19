@@ -1,0 +1,116 @@
+{
+  "candidate_seal_sha256": "0caa11b1135abbf9c3905c601d100475b91f8d011237033ab47d1f96fad116e8",
+  "status": "PUBLISHED_SOURCE_INPUTS_ONLY_NOT_PLATFORM_VALIDATED",
+  "commit_time": "2026-10-18T23:15:09Z",
+  "owners": {
+    "AnisetteKit": {
+      "base": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+      "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+      "tree": "734664d759b9e99caa09089905e6a240b149548d",
+      "changed_paths": [
+        ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp",
+        ".ci/native-tests/run_tests.py",
+        "Native/anisette_core_uc.cpp",
+        "Sources/AnisetteClient.swift",
+        "Sources/AnisetteDataProvider.swift",
+        "Sources/LoginDiagnosticTrace.swift",
+        "Tests/AnisetteKitTests/LoginDiagnosticTraceTests.swift"
+      ],
+      "purpose": "phase_a_exact_source",
+      "files": {
+        ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp": "ae1036676aee82cbe470984002361e699ce44d1df5f6da63a1839cfeb3f3b490",
+        ".ci/native-tests/run_tests.py": "cfbe2a36e87dbdd1b7aa011cb2e71571ab367c7dc862c9f124bb603fd659a1ce",
+        "Native/anisette_core_uc.cpp": "4f256e33ae230e863f7126a7876799c8bf66b94ea653a2c9928628e110807183",
+        "Sources/AnisetteClient.swift": "208dcbf61dffd101ea9e0c04fe18a1500b1b176b1407fe93b2b010a8d36806a7",
+        "Sources/AnisetteDataProvider.swift": "9c55c035d640cae8c2b6ac173db9f118a4e49cce789c0dba24f4cffca58476de",
+        "Sources/LoginDiagnosticTrace.swift": "bd86c77eb520cf0721cfbbdb1e9100261bd53324ef0f912713873357fc76ae2e",
+        "Tests/AnisetteKitTests/LoginDiagnosticTraceTests.swift": "0a04f3657123356af34ad0c51a50291b1d494dd50376478684aa066996790bbf"
+      }
+    },
+    "SideSign": {
+      "base": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
+      "commit": "770b991b1dbc269ad19dd18b8b2e8252b665af9b",
+      "tree": "2931630bc76fdbccd54a8829d078d54422e3483c",
+      "changed_paths": [
+        ".ci/test_login_trace_source.py",
+        "Package.swift",
+        "Sources/Anisette/AnisetteDataManager.swift",
+        "Sources/DeveloperPortal/Authentication.swift",
+        "Sources/DeveloperPortal/Certificates.swift",
+        "Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+        "Sources/DeveloperPortal/Devices.swift",
+        "Sources/DeveloperPortal/Teams.swift"
+      ],
+      "purpose": "phase_a_manifest_only_normal_lock_unresolved",
+      "files": {
+        ".ci/test_login_trace_source.py": "3b9134aabc689fee620cfc6cf51d0a70611fca7f34e5a9f688435c6e2d8bb70f",
+        "Package.swift": "258f5ae3aac78c32662211c8f6f594f0740d378c522802b4a7ca33cccee168f5",
+        "Sources/Anisette/AnisetteDataManager.swift": "bdcb3b55ae889313116081af79a8d21d731010ebd0e27e9b4f16890c0535d2ae",
+        "Sources/DeveloperPortal/Authentication.swift": "6423fbe3611aa72ef24b93481f2c6da696b02a90ae282b802e575bedaa3db7f7",
+        "Sources/DeveloperPortal/Certificates.swift": "8341ae741a35cf9a4480853a149d68c01af2c7cee137f681d3bdfba4994db528",
+        "Sources/DeveloperPortal/DeveloperPortalAPI.swift": "79c33dc138eeaf71e84ec662d320995058f69eaca097c12221b9c2537a760f08",
+        "Sources/DeveloperPortal/Devices.swift": "d411e800ef9cf158fc1780c00b5c1417fad3941748b26690d72992624f1c96b2",
+        "Sources/DeveloperPortal/Teams.swift": "109e8e9badb48b0c0b2f132bbb9efaafc71757dbdb3296752e4269d88cb71b3b"
+      }
+    },
+    "SideStore": {
+      "base": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+      "commit": "85bf45f65a9c2835c18d2c8e2e9c618177c95b54",
+      "tree": "79d9ce079df8ca08f8d50d05afff50653f5493e6",
+      "changed_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Authentication/AuthenticationViewController.swift",
+        "AltStore/Settings/SettingsViewController.swift",
+        "SideStore/Core/Anisette/AnisetteConfigManager.swift",
+        "SideStore/Core/Anisette/AnisetteProvider.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+        "docs/debug-adi-consumption/contract-v2.json",
+        "tests/login_trace/README.md",
+        "tests/login_trace/host_harness.swift",
+        "tests/login_trace/test_contract.py",
+        "tests/login_trace/timeout_host_harness.swift"
+      ],
+      "purpose": "source_only_pending_resolved_dependency_graph",
+      "files": {
+        "AltStore/AppDelegate.swift": "73fb0db0bca4188b346be0429bcdac19df7fdb963c21f649e3bff73d523ace21",
+        "AltStore/Authentication/AuthenticationViewController.swift": "feb0df7a230cfdc6ae4cc4ab9f5e11cb4cdaf74019b19486e0d7721497bc9af5",
+        "AltStore/Settings/SettingsViewController.swift": "6e2907ec01b8ee072372dee7314471008ae4cba9ed188284a2a1084a7e9a0d08",
+        "SideStore/Core/Anisette/AnisetteConfigManager.swift": "ddd011bee67451004d48ea2526a719861990a3ee01e576a6ac6e1c7db5f38085",
+        "SideStore/Core/Anisette/AnisetteProvider.swift": "a8e751162634c11ca8e17fb5c6ec2849a1a2b98ea7cbc381e1d8ac9e8fcb85f0",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift": "376b4f306fafc0a2ab26564abde0237e0daec253dd0bc35ef7c2ee9fc92d48b9",
+        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": "44a6744a62f2602d1511a13e49b79f4a402916aec13c74aa22c47584d3dddd7f",
+        "docs/debug-adi-consumption/contract-v2.json": "a4ac915cedf8c67179a184e8ea926968a439ae6c5e7bec6e18f58a5bd162b5ed",
+        "tests/login_trace/README.md": "d1dabfb89f126827972ae0581c0effb30abee68b379088a66ac81ad03690ca7e",
+        "tests/login_trace/host_harness.swift": "5dd5ea6613dd6aaf0e489a235e9ffb54a4631fadaa9cc1cbc0c86b04a3a2d263",
+        "tests/login_trace/test_contract.py": "6c2fa4889943c60cf304f9e969d4a40d403b983e779515d93220070d98a8035f",
+        "tests/login_trace/timeout_host_harness.swift": "d66fbc1f00b9ddc1a796533a5ef4971184ef4f4f26151666c6e1fc5f5c4b9eb3"
+      }
+    },
+    "LiveContainer": {
+      "base": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+      "commit": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
+      "tree": "e8014dd771c25c4a05dc76ab0aa304a233642a83",
+      "changed_paths": [
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+        "SideStoreSupport/SideStore.swift",
+        "docs/debug-adi-consumption/contract-v2.json",
+        "tests/login_trace/README.md",
+        "tests/login_trace/host_harness.swift",
+        "tests/login_trace/test_contract.py",
+        "tests/login_trace/timeout_host_harness.swift"
+      ],
+      "purpose": "exact_composed_host_source",
+      "files": {
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "406d1d7b5502dccfa2cd37afa75e4903611c1d42ffd5235190c08804d64dd56e",
+        "SideStoreSupport/SideStore.swift": "b097483d27d3ab395fc82a68c9392b51bdceb4df23ebcda981bc2d9e68198aae",
+        "docs/debug-adi-consumption/contract-v2.json": "a4ac915cedf8c67179a184e8ea926968a439ae6c5e7bec6e18f58a5bd162b5ed",
+        "tests/login_trace/README.md": "d1dabfb89f126827972ae0581c0effb30abee68b379088a66ac81ad03690ca7e",
+        "tests/login_trace/host_harness.swift": "5dd5ea6613dd6aaf0e489a235e9ffb54a4631fadaa9cc1cbc0c86b04a3a2d263",
+        "tests/login_trace/test_contract.py": "6c2fa4889943c60cf304f9e969d4a40d403b983e779515d93220070d98a8035f",
+        "tests/login_trace/timeout_host_harness.swift": "d66fbc1f00b9ddc1a796533a5ef4971184ef4f4f26151666c6e1fc5f5c4b9eb3"
+      }
+    }
+  },
+  "final_app_graph": "PENDING_GENUINE_MACOS_RESOLVER_LOCKS"
+}

@@ -174,8 +174,9 @@ def extract_sources(source: Path, templates: Path) -> tuple[dict[str, str], dict
     maintained = source.parent.parts[-2:] == ("LiveContainerSwiftUI", "Views")
     support = source.parents[2] / "SideStoreSupport/SideStore.swift" if maintained else None
     support_text = support.read_text() if support else None
-    if "V3TemporaryADIConsumption" in source_text and support_text is None:
-        raise ValueError("Maintained ADI policy requires its actual SideStore.swift support source")
+    if support_text is None and any(name in source_text for name in (
+            "V3TemporaryADIConsumption", "V3LoginDiagnosticSnapshot")):
+        raise ValueError("Maintained diagnostic policy requires its actual SideStore.swift support source")
     hashes = {"generated-shell": digest(source)}
     extracted = {}
     def retain(name, value):
@@ -233,6 +234,15 @@ def extract_sources(source: Path, templates: Path) -> tuple[dict[str, str], dict
         trace = declaration(support_text, "public struct V3TemporaryAnisetteTrace")
         if trace not in combined_text:
             raise ValueError("Maintained Anisette trace lies outside the diagnostic support region")
+        # CombinedFailure validates the login trace and the shell renders it.
+        # Keep the genuine parser/bounds/encoding implementation in the same
+        # compiled support unit. A missing, duplicate, or relocated declaration
+        # must fail here, never fall back to a historical diagnostic stub.
+        if "V3LoginDiagnosticSnapshot" in source_text + combined_text:
+            snapshot = declaration(support_text, "public struct V3LoginDiagnosticSnapshot")
+            if snapshot not in combined_text:
+                raise ValueError("Maintained login snapshot lies outside the diagnostic support region")
+            retain("V3LoginDiagnosticSnapshot", snapshot)
         hashes["maintained-source/SideStoreSupport/SideStore.swift"] = digest(support)
         extracted["CombinedFailure.swift"] = "import Foundation\nimport CoreFoundation\n\n" + retain(
             "maintained-combined-failure", combined_text)

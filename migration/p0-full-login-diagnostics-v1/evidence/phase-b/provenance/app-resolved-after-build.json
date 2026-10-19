@@ -1,0 +1,148 @@
+{
+  "anisettekit": {
+    "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+    "origin": {
+      "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+      "kind": "swiftpm-local-mirror",
+      "mirror": "/Users/runner/work/_temp/p0login-phase-b-work/sidestore-packages/repositories/AnisetteKit-9867c197",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "tree": "734664d759b9e99caa09089905e6a240b149548d"
+    },
+    "submodules": [],
+    "tracked_entries": 52,
+    "tree": "734664d759b9e99caa09089905e6a240b149548d"
+  },
+  "codesignkit": {
+    "commit": "d0c67710fda9a2646b9e829cb2cf443892728371",
+    "origin": {
+      "commit": "d0c67710fda9a2646b9e829cb2cf443892728371",
+      "kind": "swiftpm-local-mirror",
+      "mirror": "/Users/runner/work/_temp/p0login-phase-b-work/sidestore-packages/repositories/CodeSignKit-562c9e22",
+      "repository": "https://github.com/mahee96/CodeSignKit.git",
+      "tree": "19550a3d88ce6d3211f52586f80297a16b4d42bc"
+    },
+    "submodules": [],
+    "tracked_entries": 34,
+    "tree": "19550a3d88ce6d3211f52586f80297a16b4d42bc"
+  },
+  "common": {
+    "kind": "fileSystem",
+    "path": "/Users/runner/work/_temp/p0login-phase-b-work/sources/SideStore/Dependencies/minimuxer/Common"
+  },
+  "devicegateway": {
+    "kind": "fileSystem",
+    "path": "/Users/runner/work/_temp/p0login-phase-b-work/sources/SideStore/Dependencies/minimuxer/DeviceGateway"
+  },
+  "gsacryptokit": {
+    "commit": "eae2590eaf17fe98ce9c76b3ec2bd42b780eb123",
+    "origin": {
+      "commit": "eae2590eaf17fe98ce9c76b3ec2bd42b780eb123",
+      "kind": "swiftpm-local-mirror",
+      "mirror": "/Users/runner/work/_temp/p0login-phase-b-work/sidestore-packages/repositories/GSACryptoKit-18f7e559",
+      "repository": "https://github.com/mahee96/GSACryptoKit.git",
+      "tree": "4cdfb3d027e35bf66a7172c6579f2faeed19f6d3"
+    },
+    "submodules": [],
+    "tracked_entries": 10,
+    "tree": "4cdfb3d027e35bf66a7172c6579f2faeed19f6d3"
+  },
+  "keychainaccess": {
+    "commit": "e0c7eebc5a4465a3c4680764f26b7a61f567cdaf",
+    "origin": {
+      "commit": "e0c7eebc5a4465a3c4680764f26b7a61f567cdaf",
+      "kind": "swiftpm-local-mirror",
+      "mirror": "/Users/runner/work/_temp/p0login-phase-b-work/sidestore-packages/repositories/KeychainAccess-bf77584f",
+      "repository": "https://github.com/kishikawakatsumi/KeychainAccess",
+      "tree": "c2fcb079678593b02d1a05d8519c755155ec97c1"
+    },
+    "submodules": [],
+    "tracked_entries": 58,
+    "tree": "c2fcb079678593b02d1a05d8519c755155ec97c1"
+  },
+  "libdeflate": {
+    "commit": "da6c7dae03b78dc71af973664575e4209786fbfe",
+    "origin": {
+      "commit": "da6c7dae03b78dc71af973664575e4209786fbfe",
+      "kind": "swiftpm-local-mirror",
+      "mirror": "/Users/runner/work/_temp/p0login-phase-b-work/sidestore-packages/repositories/libdeflate-b5fc4876",
+      "repository": "https://github.com/SideStore/libdeflate",
+      "tree": "9438c53d7b136719786d4cf62c19c7e39fb9e0d7"
+    },
+    "submodules": [],
+    "tracked_entries": 96,
+    "tree": "9438c53d7b136719786d4cf62c19c7e39fb9e0d7"
+  },
+  "minimuxer": {
+    "kind": "fileSystem",
+    "path": "/Users/runner/work/_temp/p0login-phase-b-work/sources/SideStore/Dependencies/minimuxer"
+  },
+  "remotepairingkit": {
+    "commit": "e3f70d16c0c551540a533a39d540e78e5b0a60a8",
+    "origin": {
+      "commit": "e3f70d16c0c551540a533a39d540e78e5b0a60a8",
+      "kind": "swiftpm-local-mirror",
+      "mirror": "/Users/runner/work/_temp/p0login-phase-b-work/sidestore-packages/repositories/RemotePairingKit-456dd657",
+      "repository": "https://github.com/mahee96/RemotePairingKit.git",
+      "tree": "007ba009bb6dbb4f2149da8e918a0dcd02b1a4e2"
+    },
+    "submodules": [],
+    "tracked_entries": 32,
+    "tree": "007ba009bb6dbb4f2149da8e918a0dcd02b1a4e2"
+  },
+  "semanticversion": {
+    "commit": "ea8eea9d89842a29af1b8e6c7677f1c86e72fa42",
+    "origin": {
+      "commit": "ea8eea9d89842a29af1b8e6c7677f1c86e72fa42",
+      "kind": "swiftpm-local-mirror",
+      "mirror": "/Users/runner/work/_temp/p0login-phase-b-work/sidestore-packages/repositories/SemanticVersion-4d68bae3",
+      "repository": "https://github.com/SwiftPackageIndex/SemanticVersion",
+      "tree": "e1bfa5abc4793bfc6fb3271267d8c75891bcf851"
+    },
+    "submodules": [],
+    "tracked_entries": 14,
+    "tree": "e1bfa5abc4793bfc6fb3271267d8c75891bcf851"
+  },
+  "sidesign": {
+    "kind": "fileSystem",
+    "path": "/Users/runner/work/_temp/p0login-phase-b-work/sources/SideStore/Dependencies/SideSign"
+  },
+  "swift-asn1": {
+    "commit": "9f542610331815e29cc3821d3b6f488db8715517",
+    "origin": {
+      "commit": "9f542610331815e29cc3821d3b6f488db8715517",
+      "kind": "swiftpm-local-mirror",
+      "mirror": "/Users/runner/work/_temp/p0login-phase-b-work/sidestore-packages/repositories/swift-asn1-7065ad2c",
+      "repository": "https://github.com/apple/swift-asn1.git",
+      "tree": "ce9d3ca4655ffd383a121a9adf498a4d73b1f16a"
+    },
+    "submodules": [],
+    "tracked_entries": 216,
+    "tree": "ce9d3ca4655ffd383a121a9adf498a4d73b1f16a"
+  },
+  "swift-crypto": {
+    "commit": "bb4ba815dab96d4edc1e0b86d7b9acf9ff973a84",
+    "origin": {
+      "commit": "bb4ba815dab96d4edc1e0b86d7b9acf9ff973a84",
+      "kind": "swiftpm-local-mirror",
+      "mirror": "/Users/runner/work/_temp/p0login-phase-b-work/sidestore-packages/repositories/swift-crypto-7e0614ea",
+      "repository": "https://github.com/apple/swift-crypto.git",
+      "tree": "cd3b424006a67590d0f8fe90ba865015196c0c42"
+    },
+    "submodules": [],
+    "tracked_entries": 1036,
+    "tree": "cd3b424006a67590d0f8fe90ba865015196c0c42"
+  },
+  "zipfoundation": {
+    "commit": "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+    "origin": {
+      "commit": "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+      "kind": "swiftpm-local-mirror",
+      "mirror": "/Users/runner/work/_temp/p0login-phase-b-work/sidestore-packages/repositories/ZIPFoundation-789121e4",
+      "repository": "https://github.com/weichsel/ZIPFoundation.git",
+      "tree": "a0d183ff207d67bec63856c91e4788d03df9a8c2"
+    },
+    "submodules": [],
+    "tracked_entries": 142,
+    "tree": "a0d183ff207d67bec63856c91e4788d03df9a8c2"
+  }
+}
