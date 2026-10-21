@@ -3,12 +3,11 @@
 # LiveContainer + SideStore 自動續簽
 
 <!-- README language selector -->
-<details open>
-<summary><strong>🌐 README 語言 · English 為預設語言</strong></summary>
-
-[English](README.md) · [简体中文](README.zh-CN.md) · [**繁體中文**](README.zh-TW.md) · [Русский](README.ru.md) · [עברית](README.he.md)
-
-</details>
+[![English (default)](https://img.shields.io/badge/lang-en-red.svg)](README.md)
+[![简体中文](https://img.shields.io/badge/lang-zh--CN-orange.svg)](README.zh-CN.md)
+[![繁體中文](https://img.shields.io/badge/lang-zh--TW-yellow.svg)](README.zh-TW.md)
+[![Русский](https://img.shields.io/badge/lang-ru-blue.svg)](README.ru.md)
+[![עברית](https://img.shields.io/badge/lang-he-purple.svg)](README.he.md)
 <!-- /README language selector -->
 
 ![LiveContainer 和 SideStore 應用程式圖示由續簽循環連接，旁邊是專案名稱 Auto-Refresh](docs/assets/project-banner.webp)
