@@ -17,6 +17,8 @@ These are isolated research tools for [the Phase 2 cellular-refresh plan](../../
 
 The Python tools use the standard library and an `openssl` executable. They were tested with Python 3.12 and OpenSSL 3.0.13. A platform's bundled LibreSSL or another OpenSSL version may not support every flag; a tool failure is **indeterminate**, not an iOS profile rejection. No network access is performed by these Python scripts.
 
+They are **offline setup or post-run analysis tools**, not runtime dependencies of a compliant refresh. During an accepted complete phone-only run, profile acquisition, required compatibility decisions and installation must happen on the phone; a computer must not participate between those stages. Export evidence for Python analysis afterward. Using a computer to prepare/check inputs before an isolated installation experiment is a legitimate diagnostic control, but does not prove the complete account-to-renewal workflow. The on-device compatibility implementation remains explicit roadmap work in the plan.
+
 ## 1. Run the offline tests
 
 From the repository root:
