@@ -1,0 +1,262 @@
+{
+  "repository_full_name": "NRG-Wardog/sidestore-auto-refresh",
+  "actual_default_branch": "main",
+  "audited_default_sha": "aa6223a0e922d8e8455400549bb6947f7deffb79",
+  "reviewed_inventory_sha256": "450891d9f2649e5244368f536489fc66df5d56316bed930bcfdb275e80da57b7",
+  "ancestry_report_sha256": "eafeec489d94886e3ac8a9c02809e9a77611ba831594950334683deaa9fd9eab",
+  "ancestry_run_id": 40138459790,
+  "ancestry_workflow_sha": "aa6223a0e922d8e8455400549bb6947f7deffb79",
+  "source_review_complete": true,
+  "source_review_scope": "Targeted review of current repository-owned workflow acquisitions, .gitmodules, package/build manifests and dependency-rewriting scripts for the exact proposed branch names. This is not an exhaustive application-source or dynamic-ref certification. Fresh runtime exclusions remain required.",
+  "source_review_evidence": {
+    "functional_review_sha256": "0f8b918a3ad6c21d0d929e781f91d1f0db5772469634821f2bd31f0f6a876b67",
+    "reviewed_public_sources": [
+      {
+        "url": "https://github.com/NRG-Wardog/LiveContainer/blob/8f0ad98068ab75298be40b404f1d1a25d8ecbbbf/.gitmodules",
+        "sha256": "2990fa4dabfb0182aa69679ffab5e6444a45476070894efb20928ebb473c1d0a"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/SideStore/blob/c2beadd2c94df6854f83cb53d5b59c3540ec9783/.gitmodules",
+        "sha256": "eeb38935b866879950a482324b4fe03b7791df636cd6da89b5d6c112b7f0ecf5"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/SideSign/blob/483c626d6e5004b45298518352307eb492fe1ccd/Package.swift",
+        "sha256": "dcd3b5c041712503180bda8e2d94bc873b9a38d4ca03e441118a9806070a3c17"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/idevice/blob/774f02a6d29777c85400f4ba7fa69c12b4227fb3/Cargo.toml",
+        "sha256": "c390ce8ae9f2cee08b07d7bf726e928cf6fbcf2fbb9d9d02d9e9c266adcb41bf"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/jktcp/blob/a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9/Cargo.toml",
+        "sha256": "e20113e6b83e9621f103916a2e39766801cc7f01947ad53192d3a1a9332bdbd8"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/minimuxer/blob/4ca3af5270de8aa48e8bc100eadf1b3550260ea2/Package.swift",
+        "sha256": "b4849af42725b7176206a3d76b2a9bd60dc6399217deb811963c41e316951aa5"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/AnisetteKit/blob/3e670c2e1b72ff328d3a64353d8de2418df87e73/Package.swift",
+        "sha256": "a8ea2defa17b0f943ef824578146381bda02665a24a61fe00dd28254cf5b4b85"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/idevice/blob/774f02a6d29777c85400f4ba7fa69c12b4227fb3/idevice/Cargo.toml",
+        "sha256": "68417b615ed59fe9b6e22d2c43ee64cc085a19368c668477972e89d3caa1d427"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/idevice/blob/774f02a6d29777c85400f4ba7fa69c12b4227fb3/.gitmodules",
+        "sha256": "af90802a99b765d0ce69bdcaa9fec8b24f7d51989e4ebf92d383db17dd44166b"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/SideStore/blob/c2beadd2c94df6854f83cb53d5b59c3540ec9783/Makefile",
+        "sha256": "39c5ca7ccca829bcf98da32230b14088c702261fdf9352cd6c234c27489c1b5d"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/LiveContainer/blob/8f0ad98068ab75298be40b404f1d1a25d8ecbbbf/.github/build_github.sh",
+        "sha256": "532d833b2c16eb920e29b5ad3d93d65e01c99b5d4ca1d75ffce010de47d48b87"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/minimuxer/blob/4ca3af5270de8aa48e8bc100eadf1b3550260ea2/DeviceGateway/Package.swift",
+        "sha256": "ecb4a9cbd63f68b1b4dd321c300c28148e996c91b149857d558f2d2a02b0e0ed"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/minimuxer/blob/4ca3af5270de8aa48e8bc100eadf1b3550260ea2/Common/Package.swift",
+        "sha256": "09667199d39647e9dbbb787bae442a1c8e8132636f91a26400abdb4acf2ce575"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/SideStore/blob/c2beadd2c94df6854f83cb53d5b59c3540ec9783/AltStore.xcodeproj/project.pbxproj",
+        "sha256": "0690f418830c32b4475f447972c209744f49a44d17fc41251ec33d422375e9c5"
+      },
+      {
+        "url": "https://github.com/NRG-Wardog/SideStore/blob/c2beadd2c94df6854f83cb53d5b59c3540ec9783/AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "sha256": "e97604f913903659539663f09176a20ee9ca5fe06188a41ff38f54257d076d08"
+      }
+    ],
+    "sar_commit": "aa6223a0e922d8e8455400549bb6947f7deffb79",
+    "sar_current_files": {
+      "build-current.yml": "a703477bc210c30f87011ff6035af6ca80f65927bc20356ab6c74dc676956ad4",
+      "livecontainer-build.yml": "29b31aee8478c1d209b2be0565045b6b1a33681e9ce4d5e4416ffecc99c54d9a",
+      "livecontainer-source-audit.yml": "f44c25cd2f1a09be0448b39323b92da719c41d631a14a55cf95a8469a3bbac6e",
+      "release-dispatch.yml": "6546d7bbba040b1fb2fd8860ba285f645515adac2bdc278e35b1eabda77d45a3",
+      "patch_local_idevice_package.py": "2162242554c544b426bf0d8451830f2873dc69f5577121e2023794525f53f3f9",
+      "patch_coredevice_idevice.py": "f5fb70f227f1a1b094051ea61cddcd05a1f63ae97ebd1ae6f755e2c9815a7b07",
+      "patch_jktcp_reliability.py": "795547f9e817193d9c2a395710a3bcea69b269ae026d5ddc516eecc1a396cef4"
+    },
+    "SideSign_gitmodules": "Absent (404) at 483c626d6e5004b45298518352307eb492fe1ccd.",
+    "remaining_named_ref_findings": "No additional candidate branch references found. The external SideStore/jktcp master literal is outside cleanup scope and replaced by a local path."
+  },
+  "required_runtime_checks": [
+    "actual_default",
+    "branch_heads",
+    "retained_ancestry",
+    "protected_branches",
+    "open_pull_requests",
+    "active_workflow_runs",
+    "release_targets"
+  ],
+  "preserved_branch_names": [
+    "fix/v3.0.3-auth-errors",
+    "fix/v3.1.0-audit",
+    "fix/v3.1.0-p1-integration",
+    "main",
+    "research/cellular-refresh-feasibility-20261022",
+    "validation/p0-cxx-allocation-release",
+    "validation/p0-login-trace-release",
+    "validation/p2-alert-lifecycle",
+    "validation/p2-composed-release",
+    "validation/p2-localization-preflight"
+  ],
+  "dependency_snapshots": [
+    {
+      "repository_full_name": "NRG-Wardog/sidestore-auto-refresh",
+      "ref": "refs/heads/main",
+      "expected_sha": "aa6223a0e922d8e8455400549bb6947f7deffb79",
+      "kind": "actual_default"
+    },
+    {
+      "repository_full_name": "NRG-Wardog/LiveContainer",
+      "ref": "refs/heads/main",
+      "expected_sha": "8f0ad98068ab75298be40b404f1d1a25d8ecbbbf",
+      "kind": "actual_default"
+    },
+    {
+      "repository_full_name": "NRG-Wardog/SideStore",
+      "ref": "refs/heads/LiveContainerSupport",
+      "expected_sha": "c2beadd2c94df6854f83cb53d5b59c3540ec9783",
+      "kind": "actual_default"
+    },
+    {
+      "repository_full_name": "NRG-Wardog/SideSign",
+      "ref": "refs/heads/main",
+      "expected_sha": "483c626d6e5004b45298518352307eb492fe1ccd",
+      "kind": "actual_default"
+    },
+    {
+      "repository_full_name": "NRG-Wardog/AnisetteKit",
+      "ref": "refs/heads/main",
+      "expected_sha": "3e670c2e1b72ff328d3a64353d8de2418df87e73",
+      "kind": "actual_default"
+    },
+    {
+      "repository_full_name": "NRG-Wardog/minimuxer",
+      "ref": "refs/heads/develop",
+      "expected_sha": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
+      "kind": "actual_default"
+    },
+    {
+      "repository_full_name": "NRG-Wardog/idevice",
+      "ref": "refs/heads/master",
+      "expected_sha": "774f02a6d29777c85400f4ba7fa69c12b4227fb3",
+      "kind": "actual_default"
+    },
+    {
+      "repository_full_name": "NRG-Wardog/jktcp",
+      "ref": "refs/heads/master",
+      "expected_sha": "a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9",
+      "kind": "actual_default"
+    }
+  ],
+  "pr_repositories": [
+    "LiveContainer/LiveContainer",
+    "LiveContainer/SideStore",
+    "NRG-Wardog/AnisetteKit",
+    "NRG-Wardog/LiveContainer",
+    "NRG-Wardog/SideSign",
+    "NRG-Wardog/SideStore",
+    "NRG-Wardog/idevice",
+    "NRG-Wardog/jktcp",
+    "NRG-Wardog/minimuxer",
+    "NRG-Wardog/sidestore-auto-refresh",
+    "SideStore/SideSign",
+    "SideStore/idevice",
+    "SideStore/jktcp",
+    "SideStore/minimuxer",
+    "altstoreio/AltStore",
+    "jkcoxson/idevice",
+    "jkcoxson/jktcp",
+    "jkcoxson/minimuxer",
+    "mahee96/AnisetteKit"
+  ],
+  "candidates": [
+    {
+      "repository_full_name": "NRG-Wardog/sidestore-auto-refresh",
+      "branch_name": "codex/v3r61-integration",
+      "expected_branch_sha": "a878b9a10ea9269d980bd78462e5157ad112ace1",
+      "protected": false,
+      "retained_anchor_ref": "refs/tags/v3.1.0",
+      "retained_anchor_sha": "651587433eb7142089509e558dcfba9eb69d0470",
+      "retained_anchor_object_sha": "f153f61c44603ffbaa44d4e587134a9cceaeb689",
+      "ancestry": {
+        "base_sha": "a878b9a10ea9269d980bd78462e5157ad112ace1",
+        "head_sha": "651587433eb7142089509e558dcfba9eb69d0470",
+        "status": "ahead",
+        "ahead_by": 91,
+        "behind_by": 0,
+        "merge_base_sha": "a878b9a10ea9269d980bd78462e5157ad112ace1"
+      },
+      "actual_default_branch": "main",
+      "disposition": "eligible",
+      "functional_dependency_checks_complete": true
+    },
+    {
+      "repository_full_name": "NRG-Wardog/sidestore-auto-refresh",
+      "branch_name": "codex/v3r62-recovery",
+      "expected_branch_sha": "8d3a96b7f8ce4433c1495c6d1b63df03616a2f77",
+      "protected": false,
+      "retained_anchor_ref": "refs/tags/v3.1.0",
+      "retained_anchor_sha": "651587433eb7142089509e558dcfba9eb69d0470",
+      "retained_anchor_object_sha": "f153f61c44603ffbaa44d4e587134a9cceaeb689",
+      "ancestry": {
+        "base_sha": "8d3a96b7f8ce4433c1495c6d1b63df03616a2f77",
+        "head_sha": "651587433eb7142089509e558dcfba9eb69d0470",
+        "status": "ahead",
+        "ahead_by": 87,
+        "behind_by": 0,
+        "merge_base_sha": "8d3a96b7f8ce4433c1495c6d1b63df03616a2f77"
+      },
+      "actual_default_branch": "main",
+      "disposition": "eligible",
+      "functional_dependency_checks_complete": true
+    },
+    {
+      "repository_full_name": "NRG-Wardog/sidestore-auto-refresh",
+      "branch_name": "fix/add-recommend-right-v",
+      "expected_branch_sha": "432a36fc4cffeb7d7a4d098ea5225d9d110ad9ea",
+      "protected": false,
+      "retained_anchor_ref": "refs/heads/main",
+      "retained_anchor_sha": "4f17f5a4600b172bf4133506e18c28988aa81941",
+      "retained_anchor_object_sha": "4f17f5a4600b172bf4133506e18c28988aa81941",
+      "ancestry": {
+        "base_sha": "432a36fc4cffeb7d7a4d098ea5225d9d110ad9ea",
+        "head_sha": "4f17f5a4600b172bf4133506e18c28988aa81941",
+        "status": "ahead",
+        "ahead_by": 8,
+        "behind_by": 0,
+        "merge_base_sha": "432a36fc4cffeb7d7a4d098ea5225d9d110ad9ea"
+      },
+      "actual_default_branch": "main",
+      "disposition": "eligible",
+      "functional_dependency_checks_complete": true
+    },
+    {
+      "repository_full_name": "NRG-Wardog/sidestore-auto-refresh",
+      "branch_name": "validation/publication-v6.0.0",
+      "expected_branch_sha": "288e45bcddbaf9aa9639786193c0c61026dfc90c",
+      "protected": false,
+      "retained_anchor_ref": "refs/heads/main",
+      "retained_anchor_sha": "4f17f5a4600b172bf4133506e18c28988aa81941",
+      "retained_anchor_object_sha": "4f17f5a4600b172bf4133506e18c28988aa81941",
+      "ancestry": {
+        "base_sha": "288e45bcddbaf9aa9639786193c0c61026dfc90c",
+        "head_sha": "4f17f5a4600b172bf4133506e18c28988aa81941",
+        "status": "ahead",
+        "ahead_by": 2,
+        "behind_by": 0,
+        "merge_base_sha": "288e45bcddbaf9aa9639786193c0c61026dfc90c"
+      },
+      "actual_default_branch": "main",
+      "disposition": "eligible",
+      "functional_dependency_checks_complete": true
+    }
+  ]
+}

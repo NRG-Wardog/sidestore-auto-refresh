@@ -1,0 +1,58 @@
+name: Apply exact reviewed recoverable branch cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.ci/branch-cleanup/allowlist.json'
+
+permissions: {}
+concurrency:
+  group: reviewed-branch-cleanup
+  cancel-in-progress: false
+env:
+  REVIEWED_MANIFEST_SHA256: 4d7ea115a0e58b4d4b484103d2f4da15650c69737fb3f485665708620df5ed65
+
+jobs:
+  verify:
+    if: github.event_name == 'push' && github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    steps:
+      - name: Checkout exact immutable reviewed workflow commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Test cleanup safety gates without network
+        run: python3 -m unittest discover -s .ci/branch-cleanup -p 'test_cleanup.py' -v
+      - name: Verify exact reviewed refs, retained ancestry, and exclusions without mutation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .ci/branch-cleanup/cleanup.py verify
+
+  apply:
+    needs: verify
+    if: github.event_name == 'push' && github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: read
+    steps:
+      - name: Checkout same exact commit that passed read-only verification
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Revalidate, dry-run leased deletion, apply once, and read back exact refs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .ci/branch-cleanup/cleanup.py apply
