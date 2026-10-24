@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "release": "6.0",
+  "artifact": {
+    "sha256": "86db9a6bf4accf7e886d88563f1474063c85865682131a5ba0b13ed55a33f321",
+    "size_bytes": 30416579,
+    "unchanged_from_tested_candidate": true
+  },
+  "provenance": {
+    "package_repository": "NRG-Wardog/LiveContainer",
+    "package_commit": "0403c859f943ffe4f17a048ac1309dd009f1f17b",
+    "package_run": 40104361491,
+    "native_commit": "177ac31e90499231191b25f761014c17d9f2ba7b",
+    "native_run": 40102842840,
+    "source_graph": {
+      "AnisetteKit": [
+        "NRG-Wardog/AnisetteKit",
+        "3e670c2e1b72ff328d3a64353d8de2418df87e73"
+      ],
+      "LiveContainer": [
+        "NRG-Wardog/LiveContainer",
+        "8808211d340c6e9e2a6274c0eaa863d7ab09474f"
+      ],
+      "LiveContainer/OpenSSL": [
+        "krzyzanowskim/OpenSSL",
+        "623c84da314e85363236507ca38a4bde65df21c3"
+      ],
+      "LiveContainer/litehook": [
+        "LiveContainerMirror/litehook",
+        "a7e9f599d7f0b3d77008ad62bf10cb10dab6eca9"
+      ],
+      "SideStore": [
+        "NRG-Wardog/SideStore",
+        "5afdedc3e50be60082ac1d405a456274920b8eab"
+      ],
+      "SideStore/Dependencies/SideSign": [
+        "NRG-Wardog/SideSign",
+        "483c626d6e5004b45298518352307eb492fe1ccd"
+      ],
+      "SideStore/Dependencies/minimuxer": [
+        "NRG-Wardog/minimuxer",
+        "4ca3af5270de8aa48e8bc100eadf1b3550260ea2"
+      ],
+      "idevice": [
+        "NRG-Wardog/idevice",
+        "774f02a6d29777c85400f4ba7fa69c12b4227fb3"
+      ],
+      "idevice/cpp/plist_ffi": [
+        "jkcoxson/plist_ffi",
+        "66e6e6362b58bc361725c3e1b0a34af498aa2b3a"
+      ],
+      "jktcp": [
+        "NRG-Wardog/jktcp",
+        "a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9"
+      ]
+    },
+    "ipa_outer_artifact_sha256": "3624e39754dc3fb9110658f6031e17e2fb5f8c4b78ea5cf4fcaad7d35a311c78",
+    "package_evidence_artifact_sha256": "564b6610e20bd517501a25757a0fa9958d3fac0958d1888fd4dfedf7ec93420c"
+  },
+  "packaging_label": {
+    "product_version": "6.0",
+    "channel": "experimental",
+    "label": "6.0 pairing and deferred setup experimental"
+  },
+  "bundle_metadata": {
+    "host_bundle_id": "com.kdt.livecontainer",
+    "host_version": "3.8.11",
+    "host_build": "3.8.11",
+    "sidestore_bundle_id": "com.SideStore.SideStore",
+    "sidestore_version": "0.7.0",
+    "sidestore_build": "0700",
+    "native_builder_stamps_verified": 6,
+    "extension_bundle_ids": [
+      "com.kdt.livecontainer.LaunchAppExtension",
+      "com.kdt.livecontainer.LiveProcess",
+      "com.kdt.livecontainer.LiveWidget",
+      "com.kdt.livecontainer.ShareExtension"
+    ],
+    "nested_backup_bundle_id": "com.SideStore.SideStore.SideBackup"
+  },
+  "static_public_safety_review": {
+    "status": "no unexplained findings in scoped checks",
+    "ipa_archives": 2,
+    "ipa_files": 209,
+    "ipa_uncompressed_bytes": 89118003,
+    "unexplained_finding_count": 0,
+    "explained_findings": [
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore.conf",
+        "kind": "wireguard_private_key_assignment",
+        "sha256": "3a6d33c9a03c9b0ec0b16b99086a61d0580cc5953cd40ad9da9c2a06ed6ff1a5",
+        "source_url": "https://raw.githubusercontent.com/NRG-Wardog/SideStore/5afdedc3e50be60082ac1d405a456274920b8eab/SideStore.conf",
+        "explanation": "Byte-identical bundled source template for SideStore loopback networking, not a personal user key or account credential."
+      }
+    ],
+    "checks": [
+      "Exact IPA SHA-256 and size match.",
+      "Outer CI artifact SHA-256 and size match their retrieved GitHub metadata.",
+      "Package label, native CI run, native receipt source graph, synthetic report hashes and embedded builder commit agree.",
+      "ZIP paths, file types, decompression and CRC inspected, including nested archive.",
+      "IPA file names and bytes screened for personal provisioning/pairing files, raw logs, multiline private keys, WireGuard key assignments and selected recognizable token formats.",
+      "Actual Info.plist bundle identifiers and device/pairing placeholders inspected."
+    ]
+  },
+  "inherited_vendor_binary": {
+    "component": "CydiaSubstrate.framework/CydiaSubstrate",
+    "sha256": "bca859c9413cb85ca0d3ecfca494c61d67e4acd5846660e618526a152963965b",
+    "note": "Exact retained vendor binary; previously reported page-0 signature hash discrepancy is not repaired or hidden by this release."
+  },
+  "evidence_limits": [
+    "Static inspection only; no app, executable, retained helper, converter or signing tool was run.",
+    "This scoped filename/pattern inspection is not proof of absence of all possible secrets.",
+    "Public release 6.0 promotes the exact tested bytes; the CI experimental build label and retained upstream app bundle versions are intentionally unchanged. Product label 6.0 is not the host CFBundleShortVersionString.",
+    "This check does not repeat device testing or validate Apple trust, provisioning, CMS certificate chains or runtime behavior.",
+    "Raw CI logs and full package evidence are not part of this sanitized verification manifest."
+  ]
+}

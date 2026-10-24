@@ -1,0 +1,38 @@
+{
+  "approved_public_files": [
+    "SHA256SUMS",
+    "RELEASE_NOTES_v6.0.0.md",
+    "release-provenance.json"
+  ],
+  "artifact": {
+    "digest": "sha256:3624e39754dc3fb9110658f6031e17e2fb5f8c4b78ea5cf4fcaad7d35a311c78",
+    "id": 12563269354,
+    "name": "diagnostic-ipa-40104361491",
+    "size_in_bytes": 30476677
+  },
+  "ipa_sha256": "86db9a6bf4accf7e886d88563f1474063c85865682131a5ba0b13ed55a33f321",
+  "ipa_size": 30416579,
+  "native": {
+    "head_branch": "validation/native-vpn-interface-recovery-20261024",
+    "head_sha": "177ac31e90499231191b25f761014c17d9f2ba7b",
+    "id": 40102842840,
+    "path": ".github/workflows/native-app-compile.yml",
+    "run_attempt": 1,
+    "tree_id": "09b0e813b9177538ebb899a53077496ca14667ec",
+    "workflow_id": 390741603
+  },
+  "package": {
+    "head_branch": "validation/package-vpn-interface-recovery-20261024",
+    "head_sha": "0403c859f943ffe4f17a048ac1309dd009f1f17b",
+    "id": 40104361491,
+    "path": ".github/workflows/package-diagnostic.yml",
+    "run_attempt": 1,
+    "tree_id": "98dd2cb5d6bfb792cce0b40c87f425fed35fafe3",
+    "workflow_id": 390901138
+  },
+  "public_file_sha256": {
+    "RELEASE_NOTES_v6.0.0.md": "6800c82893f41fa6d54c727a351f551490f27d601d64e50be4c9247164091f69",
+    "SHA256SUMS": "10f9dada8ac061262796b91c552e76896974075987513ab940fee12735e1a5bb",
+    "release-provenance.json": "0a3a7b99449baeba95fd40adfc0a3f70b782f651114d4a593d406816b01139aa"
+  }
+}

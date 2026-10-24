@@ -1,0 +1,77 @@
+name: Promote verified LiveContainer and SideStore 6.0
+
+on:
+  push:
+    branches: [validation/publication-v6.0.0]
+    paths:
+      - '.github/workflows/publish-v6.0.0.yml'
+      - '.ci/release-v6.0.0/**'
+
+permissions: {}
+
+concurrency:
+  group: public-release-v6.0.0
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/publication-v6.0.0' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      inventory_sha256: ${{ steps.prepare.outputs.inventory_sha256 }}
+    steps:
+      - name: Checkout exact promotion commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Test promotion safety gates
+        run: python3 -m unittest discover -s .ci/release-v6.0.0 -p 'test_*.py' -v
+      - name: Verify passed CI and reviewed unchanged artifact
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .ci/release-v6.0.0/promote.py prepare release-bundle
+      - name: Transfer only the verified release allowlist
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-release-v6.0.0-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-bundle/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: verify
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/publication-v6.0.0' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout exact promotion commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Download this run's verified publication bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 3
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "public-release-v6.0.0-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --dir release-bundle
+      - name: Publish only exact reviewed bytes and make 6.0 latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFIED_INVENTORY_SHA256: ${{ needs.verify.outputs.inventory_sha256 }}
+        run: python3 .ci/release-v6.0.0/promote.py publish release-bundle --inventory-sha256 "$VERIFIED_INVENTORY_SHA256"
