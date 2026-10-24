@@ -1,0 +1,14 @@
+{
+  "asset_changes": false,
+  "new_body_bytes": 12353,
+  "new_body_sha256": "d1ce7cc6780c0e3168848ebd4e30b1adf53fdc7f8d9ea91427876709cfcd1e88",
+  "old_body_bytes": 5995,
+  "old_body_sha256": "6800c82893f41fa6d54c727a351f551490f27d601d64e50be4c9247164091f69",
+  "operation": "update-release-body-only",
+  "original_promotion_notes_unchanged": true,
+  "release_id": 423006285,
+  "repository": "NRG-Wardog/sidestore-auto-refresh",
+  "status": "prepared-for-reviewed-amendment",
+  "tag": "v6.0.0",
+  "target_commit": "c25dd39e6e06c41523a36d2e4aa34fe747d82db7"
+}

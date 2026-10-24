@@ -1,0 +1,36 @@
+name: Amend published 6.0 notes only
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.ci/release-notes-v6.0.0-20261024/RELEASE_NOTES_v6.0.0-amended.md'
+
+permissions: {}
+
+concurrency:
+  group: public-release-v6.0.0
+  cancel-in-progress: false
+
+jobs:
+  amend-notes:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout exact reviewed amendment commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Test body-only mutation and failure gates
+        run: python3 -m unittest discover -s .ci/release-notes-v6.0.0-20261024 -p 'test_*.py' -v
+      - name: Amend only the reviewed published release body
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .ci/release-notes-v6.0.0-20261024/amend.py
+      - name: Record verified amendment result
+        run: cat amendment-result.json >> "$GITHUB_STEP_SUMMARY"
