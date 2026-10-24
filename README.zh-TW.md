@@ -12,7 +12,7 @@
 
 ![LiveContainer 和 SideStore 應用程式圖示由續簽循環連接，旁邊是專案名稱 Auto-Refresh](docs/assets/project-banner.webp)
 
-[![組合版建置](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/livecontainer-build.yml/badge.svg)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/livecontainer-build.yml)
+[![組合版建置](https://github.com/NRG-Wardog/LiveContainer/actions/workflows/native-app-compile.yml/badge.svg)](https://github.com/NRG-Wardog/LiveContainer/actions/workflows/native-app-compile.yml)
 [![獨立版建置](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml/badge.svg)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml)
 [![發佈版本](https://img.shields.io/github/v/release/NRG-Wardog/sidestore-auto-refresh)](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest)
 [![許可證：MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -21,20 +21,20 @@
 
 <a id="current-status-v310-is-not-recommended"></a>
 
-## 當前狀態：不推薦使用 v3.1.0
+<a id="current-status-v60"></a>
 
-> [!WARNING]
-> **請勿將 v3.1.0 視為推薦的穩定版本。** Apple 帳號登入和預配失敗的問題正在 [Issue #42](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/42) 中調查。測試和修復仍在進行。CI 執行成功並不能證明登入或續簽能在實體裝置上正常工作。
+## 當前狀態：v6.0 取代 v3
 
-- **公開發佈版：** [v3.1.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0) 仍可下載以供參考，但存在已知問題。它與正在測試的診斷建置不是同一個產物。
-- **開發建置：** 來自 `fix/v3.1.0-audit` 的候選建置用於診斷和驗證。它們不是新的公開發佈版本，也不是已確認有效的修復。
-- **暫停發佈：** 在維護者使用自己的裝置完成完整的登入及關鍵流程測試之前，不發佈新版本。問題須在驗收檢查得到確認後才能關閉；僅憑 CI 不能關閉問題。
-- **舊版本：** v3.0.2、組合版 v2 和獨立版 v1 仍作為歷史選項保留。本 README 不保證任何舊版本可作為安全的替代方案，也不建議降級。
+**v6.0 取代 v3，成為當前統一產品線。** 公開版 [v6.0.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0) 直接發佈經過測試的同一 IPA，不重新建置或簽署。驗證僅限下述已確認流程，不涵蓋所有裝置、帳號或背景情境。
+
+- **v6.0 DEVICE VERIFIED（實體裝置已驗證）：** 維護者裝置上已確認 Apple 帳號登入、IPA 安裝及應用程式執行、延伸功能選擇、新增 Sources 和 LiveContainer 客體應用程式、取消 Add Source、JITless 使用及客體應用程式背景行為。
+- **驗證範圍：** 回報的測試中，手動續簽和續簽後開啟客體應用程式看起來正常。這不是長期執行或無人值守排程續簽的證明。來源更新（[#30](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/30)）狀態仍未知；偏好持久化（[#34](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/34)）和 Keep/Reuse（[#44](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/44)）尚未經實體裝置驗證。
+- **歷史版本：** v3.1.0 及更早的 v3、組合版 v2 和獨立版 v1 保留原有發佈記錄。v3.1.0 的登入警告屬於歷史情況，不代表當前 v6.0 的登入結果；不推薦將舊版本視為已驗證的回退方案。
 - **已有安裝：** 請保留當前設定並備份重要的客體應用程式資料。不要以猜測性的恢復措施刪除應用程式、重置帳號資料或替換配對記錄。
 
 本獨立專案將 LiveContainer 和 SideStore 整合在同一介面中。首次安裝和配對需要電腦。設定完成後，預期的續簽路徑使用 **Wi-Fi + App Store 官方 LocalDevVPN**，無需保持電腦連接。僅使用行動網路進行續簽仍屬於實驗功能。
 
-[發佈狀態](#current-status-v310-is-not-recommended) · [安裝參考](#installation) · [已知問題](#troubleshooting) · [驗證](#verification-status) · [從原始碼建置](#build-it-yourself)
+[發佈狀態](#current-status-v60) · [安裝參考](#installation) · [已知問題](#troubleshooting) · [驗證](#verification-status) · [從原始碼建置](#build-it-yourself)
 
 > [!NOTE]
 > 這不是 SideStore 或 LiveContainer 的官方發佈版。如需原版行為和上游支援，請使用官方 [SideStore](https://github.com/SideStore/SideStore) 和 [LiveContainer](https://github.com/LiveContainer/LiveContainer) 專案。
@@ -52,7 +52,7 @@
 official LocalDevVPN -> Lockdown -> CoreDeviceProxy TLS -> CDTunnel -> RSD -> AFC / InstallationProxy
 ```
 
-該路徑正常工作後，專案逐步發展為更完整的 LiveContainer + SideStore 體驗：明確的續簽排程、歷史記錄與驗證、按階段劃分的診斷、版面配置選項、客體應用程式返回控制項，以及統一的 v3 介面。
+該路徑正常工作後，專案逐步發展為更完整的 LiveContainer + SideStore 體驗：明確的續簽排程、歷史記錄與驗證、按階段劃分的診斷、版面配置選項、客體應用程式返回控制項，以及統一的 v6.0 介面。
 
 <a id="what-this-project-improves"></a>
 
@@ -61,7 +61,7 @@ official LocalDevVPN -> Lockdown -> CoreDeviceProxy TLS -> CDTunnel -> RSD -> AF
 | 方面 | 本專案提供的功能 |
 | --- | --- |
 | **可靠的本機傳輸** | 用本專案採用的 **LocalDevVPN -> CoreDevice -> RSD** 路徑替代在我的設定上失敗的 Lockdown 服務路徑 |
-| **真正統一的 LiveContainer + SideStore 體驗** | v3 保留 LiveContainer 作為宿主，通過邊界明確的服務介面提供 SideStore 功能，使日常操作留在 **Home / Apps / Sources / Refresh / Settings** 中，而不是跳轉到單獨的內嵌 SideStore 流程 |
+| **真正統一的 LiveContainer + SideStore 體驗** | v6.0 保留 LiveContainer 作為宿主，通過邊界明確的服務介面提供 SideStore 功能，使日常操作留在 **Home / Apps / Sources / Refresh / Settings** 中，而不是跳轉到單獨的內嵌 SideStore 流程 |
 | **明確的自動續簽** | 由使用者控制的**每六小時、每天和每週**排程、偏好時間、通知、到期提醒及持久儲存的歷史記錄 |
 | **經過驗證的續簽結果** | 將每次執行與其實際結果關聯，因此僅任務啟動、發生交接或發出請求本身不會被報告為續簽成功 |
 | **有用的診斷** | 區分 VPN、CoreDevice、心跳、RSD、Lockdown、簽署和安裝失敗，不會將無關故障合併為一條籠統訊息 |
@@ -79,7 +79,7 @@ official LocalDevVPN -> Lockdown -> CoreDeviceProxy TLS -> CDTunnel -> RSD -> AF
 | Lockdown 服務路徑 | Lockdown 服務呼叫使用直接 TCP 提供器 | **CoreDeviceProxy TLS -> CDTunnel -> userspace IPv6 -> RSD** |
 | iOS 26.4+ 上本地 VPN 的就緒條件 | Lockdown 的本地 VPN 就緒檢查要求存在 IKEv2/IPsec 介面 | CoreDevice 路徑使用官方 LocalDevVPN 的 `utun` 路徑，無需第二條 IKEv2/IPsec 隧道 |
 | 複合配對檔案 | 在 Lockdown 金鑰之前檢查 RemotePairing 金鑰 | 優先使用有效的 **Lockdown** 資料，從而選擇 CoreDevice 路徑 |
-| 組合版 LC + SS 導覽 | 當前 LiveContainer 程式碼通過 `openSideStore` / `builtinSideStore` 開啟/選擇內建 SideStore 流程 | v3 通過統一的宿主 UI 和服務橋接執行日常 SideStore 操作，而不把使用者切換到內嵌的 SideStore UI |
+| 組合版 LC + SS 導覽 | 當前 LiveContainer 程式碼通過 `openSideStore` / `builtinSideStore` 開啟/選擇內建 SideStore 流程 | v6.0 通過統一的宿主 UI 和服務橋接執行日常 SideStore 操作，而不把使用者切換到內嵌的 SideStore UI |
 
 SideStore 自己的 README 已經介紹了定期背景續簽。這裡的改進並不是聲稱以前不存在背景續簽，而是將改變後的傳輸路徑與明確的排程、可觀測性、歷史記錄、驗證和故障處理結合起來。
 
@@ -90,7 +90,7 @@ _比較依據：上游 SideStore `develop` 的 `797e0d46c46491c7fba1192c789c016d
 ---
 
 <h2 align="center"><a href="#installation">安裝參考</a></h2>
-<p align="center"><strong>請先閱讀發佈警告。以下設定指南保留用於參考和受控測試。</strong></p>
+<p align="center"><strong>安裝前請閱讀 v6.0 的驗證範圍和發佈狀態。保留現有資料，並使用確切匹配的安裝套件。</strong></p>
 <p align="center"><a href="#what-this-project-improves">瞭解本專案的改進</a> · <a href="#installation">開始安裝</a></p>
 
 ---
@@ -103,9 +103,9 @@ _比較依據：上游 SideStore `develop` 的 `797e0d46c46491c7fba1192c789c016d
 
 ### 開始之前
 
-**以下說明描述已發佈 v3 版本的設定方式；在登入問題尚未解決時，這並不表示推薦安裝 v3.1.0。** 決定是否測試之前，請閱讀[當前狀態](#current-status-v310-is-not-recommended)和[發佈說明](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0)。
+**本指南適用於 v6.0 統一產品線。** 安裝前請閱讀[當前狀態](#current-status-v60)、[v6.0.0 發佈說明](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0)及確切安裝套件的校驗碼。
 
-對公開發佈版進行受控測試時，安裝檔案為 `LiveContainer-SideStore-v3.1.0.ipa`。GitHub 的原始碼封存檔案不是可安裝的 IPA。私有診斷候選建置必須通過其確切的建置器修訂版本及校驗碼識別，不能只看顯示的版本號。
+安裝檔案為 `LiveContainer-SideStore-v6.0.0.ipa`。GitHub 原始碼壓縮檔不是可安裝的 IPA。請核對發佈附件、建置器修訂版本和校驗碼；僅憑顯示的版本號無法確認建置身分。
 
 安裝前請檢查以下項目：
 
@@ -128,9 +128,9 @@ _比較依據：上游 SideStore `develop` 的 `797e0d46c46491c7fba1192c789c016d
 
 ### 第 1 步：下載正確的 IPA
 
-僅供參考或受控測試，已發佈的 v3.1.0 產物為：
+從 v6.0.0 發佈頁下載當前統一版 v6.0 安裝套件：
 
-**[LiveContainer-SideStore-v3.1.0.ipa](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.1.0/LiveContainer-SideStore-v3.1.0.ipa)**
+**[LiveContainer-SideStore-v6.0.0.ipa](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v6.0.0/LiveContainer-SideStore-v6.0.0.ipa)** · [發佈說明與驗證](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0)
 
 如果你需要本專案的修改版建置，請不要使用 iLoader 內建的原版 SideStore 或原版 LiveContainer + SideStore 安裝器。請使用 **Import IPA**，選擇從本儲存庫下載的 IPA。
 
@@ -150,7 +150,7 @@ _比較依據：上游 SideStore `develop` 的 `797e0d46c46491c7fba1192c789c016d
 4. 在 iLoader 中選擇已連接的裝置。
 5. 登入你希望用於簽署的 Apple 帳號。
 6. 開啟 **Installers -> Import IPA**。
-7. 選擇 `LiveContainer-SideStore-v3.1.0.ipa`。
+7. 選擇 `LiveContainer-SideStore-v6.0.0.ipa`。
 8. 保留所需的應用程式延伸功能，包括 **LiveProcess**。不要移除所有擴展。
 9. 讓 iLoader 簽署並安裝 IPA。安裝完成之前，請保持裝置連接並解鎖。
 
@@ -266,11 +266,11 @@ Device IP: 192.168.1.241/32
 
 <a id="step-9-open-v3-and-complete-account--signing"></a>
 
-### 第 9 步：開啟 v3 並完成帳號與簽署設定
+### 第 9 步：開啟 v6.0 並完成帳號與簽署設定
 
-**已知阻礙：** v3.1.0 可能出現登入或預配失敗。請查看 [Issue #42](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/42)。不要假設以下流程一定能完成，也不要為強行完成它而清除資料。
+**v6.0 DEVICE VERIFIED：** 維護者已在實體裝置上完成帳號登入。如您的登入流程失敗，請記錄確切建置及脫敏錯誤；不要以猜測性的恢復措施刪除應用程式、帳號或配對資料。
 
-開啟已安裝的應用程式。v3 的日常操作位於 **Home / Apps / Sources / Refresh / Settings** 中。
+開啟已安裝的應用程式。v6.0 的日常操作位於 **Home / Apps / Sources / Refresh / Settings** 中。
 
 前往：
 
@@ -327,7 +327,7 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 ### 在不丟失設定的情況下更新
 
-對於 v3/v2 組合版建置，使用相同的 Apple 帳號 / Personal Team 和匹配的識別碼，將匹配的新 IPA **覆蓋安裝到現有 LiveContainer 安裝上**。
+對於 v6.0/v3/v2 組合版建置，使用相同的 Apple 帳號 / Personal Team 和匹配的識別碼，將匹配的新 IPA **覆蓋安裝到現有 LiveContainer 安裝上**。
 
 **不要**將先刪除應用程式作為常規更新步驟。更新前請備份重要的客體應用程式資料。
 
@@ -356,7 +356,7 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 ## 這是什麼？
 
-**v3 將 Home、Apps、Sources、Refresh 和 Settings 整合為一體化的應用程式體驗。** 日常操作不再需要在 LiveContainer 和舊的內嵌 SideStore 介面之間切換。LocalDevVPN 仍是續簽傳輸所使用的獨立應用程式。
+**v6.0 將 Home、Apps、Sources、Refresh 和 Settings 整合為一體化的應用程式體驗。** 日常操作不再需要在 LiveContainer 和舊的內嵌 SideStore 介面之間切換。LocalDevVPN 仍是續簽傳輸所使用的獨立應用程式。
 
 
 本專案是經過修改的 SideStore / LiveContainer 建置，使本機續簽更易操作，也更易驗證。
@@ -380,7 +380,7 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 ## 預覽
 
-以下截圖是歷史 v2 和獨立版預覽，並非新的統一版 v3 介面截圖。保留版本標注是為了避免混淆。
+以下截圖是歷史 v2 和獨立版預覽，並非新的統一版 v6.0 介面截圖。保留版本標注是為了避免混淆。
 
 <a id="combined-v210"></a>
 
@@ -431,19 +431,31 @@ v2.1.0 的 Guest Controls 頁麵包括 **Show Return Button**、**Start Collapse
 
 | 你的需求 | 使用版本 | 下載 |
 | --- | --- | --- |
-| 統一的 LiveContainer + SideStore 介面 | **v3.1.0：不推薦；登入問題仍在調查中** | [發佈說明和已知問題](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0) |
+| 統一 LiveContainer + SideStore 介面 | **v6.0（公開版 v6.0.0）** | [下載 IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v6.0.0/LiveContainer-SideStore-v6.0.0.ipa) · [發佈說明](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0) |
 | 舊組合版介面 | **組合版 v2.1.1（舊版本）** | [舊 v2 發佈版](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1) |
 | 只使用 SideStore，側載應用程式按常規方式單獨安裝 | **獨立版 v1.0.4** | **[下載獨立版 IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.4/SideStore.ipa)** |
 
-統一版建置已包含 SideStore，因此不需要另行安裝 SideStore。這些鏈接用於標識已發佈的產品線，不代表穩定性排名。舊產品線的介面和驗證歷史各不相同；這裡沒有將其中任何版本推薦為已驗證能繞過當前登入問題的方案。
+統一建置包含 SideStore，無需另行安裝 SideStore。v6.0 取代 v3 成為當前統一產品線。舊產品線具有不同的介面和驗證歷史，不作為已驗證的替代解決方案推薦。
 
-**已發佈的統一版建置（不推薦）：** [v3.1.0 發佈版](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0)
+**當前統一產品線：** [v6.0.0 發佈版](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0)。
 
 **之前的統一版建置：** [v3.0.2 發佈版](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.0.2)（仍可下載）
 
 **舊組合版產品線：** [v2.1.1 發佈版](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1)
 
 **獨立版：** [v1.0.4 發佈版](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.4)
+
+<a id="whats-confirmed-for-v60"></a>
+
+## v6.0 已確認哪些內容？
+
+**已測試建置來源：** 建置器 [`177ac31e90499231191b25f761014c17d9f2ba7b`](https://github.com/NRG-Wardog/LiveContainer/commit/177ac31e90499231191b25f761014c17d9f2ba7b)、原生建置 [40102842840](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40102842840)、打包執行 [40104361491](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40104361491)。本次文件及版本號更新不在此測試來源之外增加功能變更。版本名稱或 CI 成功本身並不等於實體裝置驗收。
+
+**發佈不變的產物，而非重新建置：** v6.0.0 保留已通過裝置測試的 IPA 原始位元組，不重新建置或簽署。CI 的 `build-label.json` 仍記錄產品版本 `6.0`、管道 `experimental` 和標籤 `6.0 pairing and deferred setup experimental`。這並未重寫應用程式 bundle 版本：LiveContainer 仍為 `3.8.11`，SideStore 仍為 `0.7.0`。內部標籤不代表另一個 IPA。請使用建置器修訂版本和校驗碼識別公開發佈套件。
+
+- IPA SHA-256: `86db9a6bf4accf7e886d88563f1474063c85865682131a5ba0b13ed55a33f321`
+
+**繼承的簽署問題：** 仍揭露 CydiaSubstrate 第 0 頁簽署不匹配。尚未證明這是 v6.0 引入的新損壞，重新簽署也不是保證有效的修復。解讀簽署警告時請保留這一區別。
 
 <a id="whats-new-in-v310"></a>
 
@@ -537,7 +549,7 @@ IPA 建置、自動化檢查和已發佈下載檔案的驗證均已通過。該�
 
 ## 本專案與原始項目有何不同
 
-SideStore 和 LiveContainer 是上游基礎；本儲存庫針對這一使用場景，將它們變為不同的端到端體驗。主要優勢是 **CoreDevice/RSD 續簽路徑**、**統一的 v3 LiveContainer + SideStore 工作流程**、明確的排程與歷史記錄、執行級驗證、結構化診斷，以及上文介紹的額外應用程式/客體 UI 控制項。
+SideStore 和 LiveContainer 是上游基礎；本儲存庫針對這一使用場景，將它們變為不同的端到端體驗。主要優勢是 **CoreDevice/RSD 續簽路徑**、**統一的 v6.0 LiveContainer + SideStore 工作流程**、明確的排程與歷史記錄、執行級驗證、結構化診斷，以及上文介紹的額外應用程式/客體 UI 控制項。
 
 如需瞭解確切的原始碼級差異，請展開本 README 頂部附近的**與上游的技術比較**。
 
@@ -558,7 +570,7 @@ SideStore 和 LiveContainer 是上游基礎；本儲存庫針對這一使用場�
 
 ## 舊產品線
 
-主要的[安裝](#installation)指南描述已發佈 v3.1.0 的設定方式，並附有當前登入警告。以下舊產品線保留用於參考，不作為推薦替代品。
+主要[安裝](#installation)指南適用於 v6.0。以下舊產品線保留用於參考，不作為推薦替代品。
 
 <a id="combined-v211"></a>
 
@@ -594,7 +606,7 @@ SideStore 和 LiveContainer 是上游基礎；本儲存庫針對這一使用場�
 
 <a id="unified-v3-and-combined-v2"></a>
 
-### 統一版 v3 和組合版 v2
+### 統一版 v6.0 和組合版 v2
 
 使用相同的 Apple 帳號 / Personal Team 和匹配的識別碼，將新的組合版 IPA **覆蓋安裝到現有 LiveContainer 安裝上**。
 
@@ -621,8 +633,8 @@ SideStore 和 LiveContainer 是上游基礎；本儲存庫針對這一使用場�
 | 應用程式顯示不受信任的開發者 | `Settings -> General -> VPN & Device Management -> Developer App -> Trust` |
 | 應用程式無法開啟 | 確認已在 `Settings -> Privacy & Security` 中啟用開發者模式 |
 | 已確認配對資料缺失/無效 | 重新連接 USB，開啟 **Manage Pairing File**，使用 **Rescan Installed Apps**，然後再次對當前這台裝置執行 **Place** |
-| v3.1.0 登入或預配失敗 | 關注 [Issue #42](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/42)。記錄確切建置和脫敏後的錯誤；不要以猜測性的修復措施刪除應用程式或重置帳號/配對資料 |
-| v3 服務啟動或傳輸錯誤 | 閱讀診斷中的階段和錯誤碼。不要僅因服務或網路連接失敗就重置帳號或配對資料 |
+| 帳號登入或預配失敗 | 記錄確切的 v6.0 建置器版本和脫敏錯誤。v3.1.0 歷史記錄見 [Issue #42](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/42)；不要以猜測性修復措施刪除應用程式或重置帳號/配對資料 |
+| v6.0 服務啟動或傳輸錯誤 | 閱讀診斷中的階段和錯誤碼。不要僅因服務或網路連接失敗就重置帳號或配對資料 |
 | LocalDevVPN 無法連接 | 重新檢查 Network Configuration、兩個 `/32` 端點和 **Allow Intermediate Addresses** |
 | LocalDevVPN 已連接但續簽失敗 | 確認位址位於 iPhone 當前 Wi-Fi 子網路內，且未被佔用 |
 | 更換 Wi-Fi 後續簽停止 | 為新子網路重新設定 Tunnel IP 和 Device IP |
@@ -705,6 +717,8 @@ v2.1.0 在 **LiveContainer Settings > Guest Controls** 中增加以下選項：
 
 ## 技術架構
 
+當前 v6.0 的原始碼依賴圖和建置邊界見[固定版本建置說明](#build-it-yourself)。以下 v3 文件僅是歷史架構參考，並非 v6.0 的確切原始碼快照。
+
 確切的 v3 實現和職責邊界，請閱讀 [v3.0.2 標籤中的架構說明](https://github.com/NRG-Wardog/sidestore-auto-refresh/blob/v3.0.2/docs/V3_UNIFIED_ARCHITECTURE.md)。以下共享續簽傳輸仍與統一 UI 和服務生命週期分離。
 
 ```text
@@ -783,7 +797,9 @@ Interface settings
 
 ## 驗證狀態
 
-**當前驗收尚未完成。** v3.1.0 登入/預配問題仍未關閉。以下自動化和歷史結果只對各自的確切建置提供證據，不代表公開發佈版或後續診斷候選建置已通過完整裝置測試。
+**v6.0 通過了限定範圍的實體裝置驗證，並非全面驗收。** 已確認流程和剩餘限制見[上文](#current-status-v60)。以下歷史自動化和裝置結果僅適用於各自的確切建置，不代表未測試的 v6.0 流程已通過。
+
+**已測試建置來源：** 建置器 [`177ac31e90499231191b25f761014c17d9f2ba7b`](https://github.com/NRG-Wardog/LiveContainer/commit/177ac31e90499231191b25f761014c17d9f2ba7b)、原生建置 [40102842840](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40102842840)、打包執行 [40104361491](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40104361491)。本次文件及版本號更新不在此測試來源之外增加功能變更。版本名稱或 CI 成功本身並不等於實體裝置驗收。
 
 | 範圍 | 當前證據 |
 | --- | --- |
@@ -883,15 +899,16 @@ v3.0.1 記錄在此保留，用於復現和歷史驗證。之後是此前發佈�
 
 ## 自行建置
 
-本儲存庫包含建置時補丁，而不是永久納入的 LiveContainer 和 SideStore 原始碼複本。工作流會獲取固定的上游修訂版本。
+當前 v6.0 的建置定義位於 **NRG-Wardog/LiveContainer**，並非本儲存庫 `main` 分支上的舊組合建置工作流程。
 
-1. Fork 本儲存庫並啟用 GitHub Actions。
-2. 組合版 IPA 執行 **LiveContainer embedded SideStore build**；獨立版執行 **Build Current SideStore**。
-3. 要復現已發佈的套件，請簽出其確切的發佈標籤，並查看所記錄的建置器修訂版本。對於 v3.1.0，請使用 [`v3.1.0` 標籤](https://github.com/NRG-Wardog/sidestore-auto-refresh/tree/v3.1.0)和其[發佈說明](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0)中的來源記錄。`main` 上的文檔並不意味著相應 v3 原始碼已經合併到該分支。`fix/v3.1.0-audit` 分支包含正在進行的診斷工作，並非公開穩定版。
-4. 下載成功執行的產物。
-5. 安裝之前，使用你自己的 Apple 帳號 / Personal Team 簽署產生的 IPA。
+1. 查看 `177ac31e90499231191b25f761014c17d9f2ba7b` 上的確切[原生編譯工作流程](https://github.com/NRG-Wardog/LiveContainer/blob/177ac31e90499231191b25f761014c17d9f2ba7b/.github/workflows/native-app-compile.yml)及其固定原始碼依賴圖。原生建置 [40102842840](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40102842840) 使用 macOS 26、Xcode 26.4.1 和 Rust 1.98.1。
+2. 查看 `0403c859f943ffe4f17a048ac1309dd009f1f17b` 上的確切[打包工作流程](https://github.com/NRG-Wardog/LiveContainer/blob/0403c859f943ffe4f17a048ac1309dd009f1f17b/.github/workflows/package-diagnostic.yml)及打包執行 [40104361491](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40104361491)。打包使用保留的原生建置產物及經過獨立審核的驗證憑據和輸入雜湊，不重新建置應用程式。
+3. 保留不可變原始碼修訂、工作流程限制、工具鏈和產物繫結。這些驗證工作流程限定特定儲存庫和分支身分，因此直接 fork 並原樣觸發不是通用的 v6.0 建置方法。新建置需要自己的已審核產物及證據，不會自動與已測試發佈套件逐位元組相同。
+4. 安裝時，請使用自己的 Apple 帳號 / Personal Team 為 IPA 簽署。請根據記錄的建置器、確切發佈附件及校驗碼識別公開安裝套件，而不是根據保留的上游 bundle 版本。
 
-[組合版工作流](.github/workflows/livecontainer-build.yml) | [獨立版工作流](.github/workflows/build-current.yml)
+以下舊 SAR 工作流程仍可用於各自的獨立版或歷史目標；它們**不能**重現 v6.0 安裝套件：
+
+[歷史組合工作流程](.github/workflows/livecontainer-build.yml) | [獨立版工作流程](.github/workflows/build-current.yml)
 
 <a id="development-checks"></a>
 
@@ -908,6 +925,8 @@ git diff --check
 
 ## 安全、隱私、許可和支援
 
+**v6.0 的遠端 anisette 依賴：** 已測試建置使用外部 Mac anisette 提供者 `mac-ani.jkcoxson.com`，並透過 Keychain 重複使用其身分。這涉及第三方網路及隱私信任邊界，並非完全本機的認證路徑。登入前請評估此依賴；不要公開提供者身分資料、帳號憑證、配對記錄或私密日誌。
+
 切勿公開配對檔案、Apple 憑據、私鑰、個人簽署 IPA、不必要的裝置識別碼或完整的私密裝置日誌。
 
 組合版建置可以按照 LiveContainer 架構存取 LiveContainer 及其客體應用程式所使用的資料。如果你重視信任模型，請審查原始碼並自行建置 IPA。
@@ -918,4 +937,4 @@ git diff --check
 
 [貢獻](CONTRIBUTING.md) | [安全](SECURITY.md) | [許可證](LICENSE) | [第三方聲明](THIRD_PARTY_NOTICES.md)
 
-報告相容性結果時，請提供確切的發佈標籤和建置器修訂版本、裝置型號、iOS 版本、產品線（v1、v2 或 v3）、下載來源、Wi-Fi 網路類別、LocalDevVPN 狀態，以及不含敏感資訊的續簽結果。不要附加秘密資訊或完整的私密日誌。相容性報告請提交至 [Issue #1](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/1)。
+報告相容性結果時，請提供確切的發佈標籤和建置器修訂版本、裝置型號、iOS 版本、產品線（v6.0 或歷史 v1/v2/v3）、下載來源、Wi-Fi 網路類別、LocalDevVPN 狀態，以及不含敏感資訊的續簽結果。不要附加秘密資訊或完整的私密日誌。相容性報告請提交至 [Issue #1](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/1)。

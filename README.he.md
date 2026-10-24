@@ -14,7 +14,7 @@
 
 ![סמלי LiveContainer ו־SideStore מחוברים בלולאת רענון לצד שם הפרויקט, Auto-Refresh](docs/assets/project-banner.webp)
 
-[![בנייה משולבת](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/livecontainer-build.yml/badge.svg)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/livecontainer-build.yml)
+[![בנייה משולבת](https://github.com/NRG-Wardog/LiveContainer/actions/workflows/native-app-compile.yml/badge.svg)](https://github.com/NRG-Wardog/LiveContainer/actions/workflows/native-app-compile.yml)
 [![בנייה עצמאית](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml/badge.svg)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml)
 [![גרסה](https://img.shields.io/github/v/release/NRG-Wardog/sidestore-auto-refresh)](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest)
 [![רישיון: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -23,20 +23,20 @@
 
 <a id="current-status-v310-is-not-recommended"></a>
 
-## מצב נוכחי: v3.1.0 אינה מומלצת
+<a id="current-status-v60"></a>
 
-> [!WARNING]
-> **אין להתייחס ל־v3.1.0 כאל הגרסה היציבה המומלצת.** כשלים בהתחברות לחשבון Apple ובהקצאת פרופילי חתימה נחקרים ב־[Issue #42](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/42). הבדיקות והתיקונים נמשכים. הצלחה ב־CI אינה מוכיחה שההתחברות או הרענון פועלים במכשיר פיזי.
+## מצב נוכחי: v6.0 מחליפה את v3
 
-- **גרסה ציבורית:** [v3.1.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0) עדיין זמינה לעיון, עם בעיות ידועות. זה אינו אותו תוצר כמו בניות האבחון הנבדקות כעת.
-- **בניות פיתוח:** המועמדות מהענף `fix/v3.1.0-audit` מיועדות לאבחון ולאימות. הן אינן גרסה ציבורית חדשה או תיקון מאומת.
-- **הקפאת שחרור:** לא תשוחרר גרסה חדשה עד שמתחזק הפרויקט ישלים בדיקות התחברות מלאות ותהליכים חיוניים במכשיר שלו. דיווחי בעיות יישארו פתוחים עד לאימות בדיקות הקבלה שלהם; CI לבדו אינו סוגר אותם.
-- **גרסאות קודמות:** v3.0.2, הגרסה המשולבת v2 והעצמאית v1 נשארות אפשרויות היסטוריות. מסמך זה אינו מאשר שגרסה ישנה היא תחליף בטוח ואינו ממליץ לשנמך.
+**v6.0 היא קו המוצר המאוחד הנוכחי, במקום v3.** [הגרסה הציבורית v6.0.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0) מקדמת את ה־IPA המדויק שנבדק, ללא בנייה או חתימה מחדש. האימות מוגבל לתהליכים שאושרו להלן, ולא לכל מכשיר, חשבון או תרחיש רקע.
+
+- **DEVICE VERIFIED בגרסה 6.0:** התחברות לחשבון Apple, התקנת IPA ופעולת היישום, בחירת הרחבות, הוספת Sources ויישומים אורחים ל־LiveContainer, ביטול Add Source, שימוש ב־JITless והתנהגות אורח ברקע אומתו במכשיר של המתחזק.
+- **גבולות האימות:** הרענון הידני ופתיחת אורח אחרי הרענון נראו תקינים בבדיקה שדווחה. זו אינה הוכחה לרענון מתמשך או מתוזמן ללא השגחה. מצב עדכוני המקורות ([#30](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/30)) אינו ידוע; שמירת העדפות ([#34](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/34)) ו־Keep/Reuse ([#44](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/44)) לא אומתו במכשיר.
+- **גרסאות היסטוריות:** v3.1.0 וגרסאות v3 קודמות, v2 המשולבת ו־v1 העצמאית שומרות על תיעוד הגרסה המקורי שלהן. אזהרת ההתחברות של v3.1.0 היא היסטורית ואינה תוצאת ההתחברות הנוכחית של v6.0; אין המלצה על גרסה ישנה כחלופה מאומתת.
 - **התקנות קיימות:** שמרו על ההגדרות וגבו נתונים חשובים של יישומים אורחים. אל תמחקו את היישום, תאפסו נתוני חשבון או תחליפו רשומות צימוד כניסיון תיקון ספקולטיבי.
 
 הפרויקט העצמאי הזה משלב את LiveContainer ואת SideStore בממשק אחד. מחשב נדרש להתקנה ולצימוד הראשוניים. לאחר ההגדרה, מסלול הרענון המתוכנן משתמש ב־**Wi-Fi וב־LocalDevVPN הרשמי מה־App Store**, ללא צורך להשאיר את המחשב מחובר. רענון על גבי רשת סלולרית בלבד עדיין ניסיוני.
 
-[מצב הגרסה](#current-status-v310-is-not-recommended) · [הוראות התקנה לעיון](#installation) · [בעיות ידועות](#troubleshooting) · [אימות](#verification-status) · [בנייה מהמקור](#build-it-yourself)
+[מצב הגרסה](#current-status-v60) · [הוראות התקנה לעיון](#installation) · [בעיות ידועות](#troubleshooting) · [אימות](#verification-status) · [בנייה מהמקור](#build-it-yourself)
 
 > [!NOTE]
 > זו אינה גרסה רשמית של SideStore או LiveContainer. להתנהגות המקורית ולתמיכה של פרויקטי המקור, השתמשו בפרויקטים הרשמיים [SideStore](https://github.com/SideStore/SideStore) ו־[LiveContainer](https://github.com/LiveContainer/LiveContainer).
@@ -57,7 +57,7 @@ official LocalDevVPN -> Lockdown -> CoreDeviceProxy TLS -> CDTunnel -> RSD -> AF
 
 </div>
 
-לאחר שהמסלול הזה פעל, הפרויקט התרחב לחוויית LiveContainer + SideStore שלמה יותר: תזמון רענון מפורש, היסטוריה ואימות, אבחון לפי שלב, אפשרויות פריסה, פקדי חזרה מיישומים אורחים וממשק v3 המאוחד.
+לאחר שהמסלול הזה פעל, הפרויקט התרחב לחוויית LiveContainer + SideStore שלמה יותר: תזמון רענון מפורש, היסטוריה ואימות, אבחון לפי שלב, אפשרויות פריסה, פקדי חזרה מיישומים אורחים וממשק v6.0 המאוחד.
 
 <a id="what-this-project-improves"></a>
 
@@ -66,7 +66,7 @@ official LocalDevVPN -> Lockdown -> CoreDeviceProxy TLS -> CDTunnel -> RSD -> AF
 | תחום | מה הפרויקט מספק |
 | --- | --- |
 | **תעבורה אמינה על אותו מכשיר** | מחליף את מסלול שירותי Lockdown שנכשל בהגדרות שלי במסלול **LocalDevVPN -> CoreDevice -> RSD** שבו משתמש הפרויקט |
-| **חוויית LiveContainer + SideStore מאוחדת באמת** | v3 משאיר את LiveContainer כמארח וחושף את SideStore דרך ממשק שירות מוגדר ומוגבל, כך שהשימוש הרגיל נשאר בתוך **Home / Apps / Sources / Refresh / Settings** במקום לעבור לתהליך נפרד של SideStore המוטמע |
+| **חוויית LiveContainer + SideStore מאוחדת באמת** | v6.0 משאיר את LiveContainer כמארח וחושף את SideStore דרך ממשק שירות מוגדר ומוגבל, כך שהשימוש הרגיל נשאר בתוך **Home / Apps / Sources / Refresh / Settings** במקום לעבור לתהליך נפרד של SideStore המוטמע |
 | **אוטומציית רענון מפורשת** | תזמון בשליטת המשתמש **כל שש שעות, מדי יום ומדי שבוע**, שעה מועדפת, התראות, התחשבות במועד תפוגה והיסטוריה הנשמרת לאורך זמן |
 | **תוצאות רענון מאומתות** | מקשר כל הרצה לתוצאתה בפועל, כך שהתחלת משימה, העברת שליטה או שליחת בקשה אינן מדווחות לבדן כהצלחת רענון |
 | **אבחון שימושי** | מבחין בין כשלים ב־VPN, ב־CoreDevice, בפעימות חיים, ב־RSD, ב־Lockdown, בחתימה ובהתקנה, במקום לאחד כשלים שונים להודעה כללית אחת |
@@ -84,7 +84,7 @@ official LocalDevVPN -> Lockdown -> CoreDeviceProxy TLS -> CDTunnel -> RSD -> AF
 | מסלול שירותי Lockdown | ספק TCP ישיר לקריאות שירותי Lockdown | **CoreDeviceProxy TLS -> CDTunnel -> userspace IPv6 -> RSD** |
 | מוכנות VPN מקומי ב־iOS 26.4 ומעלה | בדיקות מוכנות של Lockdown לממשק IKEv2/IPsec | מסלול CoreDevice משתמש ב־`utun` של LocalDevVPN הרשמי ללא צורך במנהרת IKEv2/IPsec נוספת |
 | קובץ צימוד משולב | מפתחות RemotePairing נבדקים לפני מפתחות Lockdown | ניתנת עדיפות לנתוני **Lockdown** תקינים כדי לבחור במסלול CoreDevice |
-| ניווט משולב LC + SS | הקוד הנוכחי של LiveContainer פותח/בוחר תהליך SideStore מובנה דרך `openSideStore` / `builtinSideStore` | v3 מנתב פעולות SideStore רגילות דרך ממשק המארח המאוחד וגשר השירות, במקום להעביר את המשתמש לממשק SideStore המוטמע |
+| ניווט משולב LC + SS | הקוד הנוכחי של LiveContainer פותח/בוחר תהליך SideStore מובנה דרך `openSideStore` / `builtinSideStore` | v6.0 מנתב פעולות SideStore רגילות דרך ממשק המארח המאוחד וגשר השירות, במקום להעביר את המשתמש לממשק SideStore המוטמע |
 
 ה־README של SideStore עצמו מתאר רענון תקופתי ברקע. השיפור כאן אינו טענה שרענון ברקע לא היה קיים; זהו השילוב של מסלול התעבורה ששונה עם תזמון מפורש, יכולת מעקב, היסטוריה, אימות וטיפול בכשלים.
 
@@ -95,7 +95,7 @@ _בסיס ההשוואה: ענף `develop` של SideStore המקורי ב־`797e
 ---
 
 <h2 align="center"><a href="#installation">הוראות התקנה לעיון</a></h2>
-<p align="center"><strong>קראו תחילה את אזהרת הגרסה. מדריך ההגדרה להלן נשמר לעיון ולבדיקות מבוקרות.</strong></p>
+<p align="center"><strong>לפני ההתקנה קראו את היקף האימות ומצב השחרור של v6.0. שמרו על הנתונים הקיימים והשתמשו בחבילה המדויקת והמתאימה.</strong></p>
 <p align="center"><a href="#what-this-project-improves">מה הפרויקט משפר</a> · <a href="#installation">תחילת ההתקנה</a></p>
 
 ---
@@ -108,9 +108,9 @@ _בסיס ההשוואה: ענף `develop` של SideStore המקורי ב־`797e
 
 ### לפני שמתחילים
 
-**ההוראות להלן מתארות את הגדרת v3 שפורסמה; הן אינן המלצה להתקין v3.1.0 כל עוד בעיית ההתחברות לא נפתרה.** קראו את [המצב הנוכחי](#current-status-v310-is-not-recommended) ואת [הערות הגרסה](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0) לפני שתחליטו לבדוק אותה.
+**ההוראות מתייחסות לקו המאוחד v6.0.** לפני ההתקנה קראו את [המצב הנוכחי](#current-status-v60), [הערות הגרסה v6.0.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0) וסכום הביקורת של החבילה המדויקת.
 
-לבדיקה מבוקרת של הגרסה הציבורית, קובץ ההתקנה הוא `LiveContainer-SideStore-v3.1.0.ipa`. ארכיוני קוד המקור של GitHub אינם קובצי IPA שניתן להתקין. יש לזהות מועמדות אבחון פרטיות לפי גרסת הבונה המדויקת וסכום הביקורת, ולא רק לפי הגרסה המוצגת.
+קובץ ההתקנה הוא `LiveContainer-SideStore-v6.0.0.ipa`. ארכיוני קוד המקור של GitHub אינם קובצי IPA להתקנה. התאימו את תוצר הגרסה, גרסת הבונה וסכום הביקורת; מספר הגרסה המוצג לבדו אינו מזהה את הבנייה.
 
 בדקו את הפריטים הבאים לפני ההתקנה:
 
@@ -133,9 +133,9 @@ _בסיס ההשוואה: ענף `develop` של SideStore המקורי ב־`797e
 
 ### שלב 1: הורדת ה־IPA הנכון
 
-לעיון או לבדיקה מבוקרת בלבד, התוצר שפורסם ב־v3.1.0 הוא:
+הורידו את חבילת v6.0 המאוחדת הנוכחית מהגרסה v6.0.0:
 
-**[LiveContainer-SideStore-v3.1.0.ipa](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.1.0/LiveContainer-SideStore-v3.1.0.ipa)**
+**[LiveContainer-SideStore-v6.0.0.ipa](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v6.0.0/LiveContainer-SideStore-v6.0.0.ipa)** · [הערות גרסה ואימות](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0)
 
 אם אתם רוצים את הבנייה ששונתה בפרויקט הזה, אל תשתמשו במתקין המובנה של iLoader עבור SideStore המקורי או LiveContainer + SideStore המקוריים. השתמשו ב־**Import IPA** ובחרו ב־IPA שהורדתם מהמאגר הזה.
 
@@ -155,7 +155,7 @@ _בסיס ההשוואה: ענף `develop` של SideStore המקורי ב־`797e
 4. ב־iLoader, בחרו את המכשיר המחובר.
 5. התחברו לחשבון Apple שבו תרצו להשתמש לחתימה.
 6. פתחו **Installers -> Import IPA**.
-7. בחרו `LiveContainer-SideStore-v3.1.0.ipa`.
+7. בחרו `LiveContainer-SideStore-v6.0.0.ipa`.
 8. שמרו את הרחבות היישום הנדרשות, כולל **LiveProcess**. אל תסירו את כל ההרחבות.
 9. אפשרו ל־iLoader לחתום על ה־IPA ולהתקין אותו. השאירו את המכשיר מחובר ולא נעול עד שההתקנה תסתיים.
 
@@ -280,11 +280,11 @@ Device IP: 192.168.1.241/32
 
 <a id="step-9-open-v3-and-complete-account--signing"></a>
 
-### שלב 9: פתיחת v3 והשלמת Account & Signing
+### שלב 9: פתיחת v6.0 והשלמת Account & Signing
 
-**חסימה ידועה:** התחברות או הקצאת פרופילי חתימה עלולות להיכשל ב־v3.1.0. ראו [Issue #42](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/42). אל תניחו שהתהליך הבא יושלם, ואל תמחקו נתונים כדי לאלץ אותו.
+**DEVICE VERIFIED בגרסה 6.0:** ההתחברות לחשבון הושלמה במכשיר של המתחזק. אם ההתחברות נכשלת אצלכם, תעדו את הבנייה המדויקת ושגיאה ללא פרטים רגישים; אל תמחקו נתוני יישום, חשבון או צימוד כניסיון תיקון ספקולטיבי.
 
-פתחו את היישום המותקן. השימוש הרגיל ב־v3 נשאר בתוך **Home / Apps / Sources / Refresh / Settings**.
+פתחו את היישום המותקן. השימוש הרגיל ב־v6.0 נשאר בתוך **Home / Apps / Sources / Refresh / Settings**.
 
 עברו אל:
 
@@ -345,7 +345,7 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 ### עדכון בלי לאבד את ההגדרות
 
-בבניות המשולבות v3/v2, התקינו את ה־IPA החדש והמתאים **מעל התקנת LiveContainer הקיימת**, עם אותו חשבון Apple / Personal Team ומזהים תואמים.
+בבניות המשולבות v6.0/v3/v2, התקינו את ה־IPA החדש והמתאים **מעל התקנת LiveContainer הקיימת**, עם אותו חשבון Apple / Personal Team ומזהים תואמים.
 
 **אל** תמחקו את היישום קודם כצעד עדכון שגרתי. גבו נתונים חשובים של יישומים אורחים לפני העדכון.
 
@@ -374,7 +374,7 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 ## מה זה?
 
-**v3 מאחד את Home, Apps, Sources, Refresh ו־Settings לחוויית יישום אחת.** אין עוד צורך לעבור בין LiveContainer לממשק SideStore המוטמע הישן לצורך פעולות רגילות. LocalDevVPN נשאר יישום נפרד המשמש לתעבורת הרענון.
+**v6.0 מאחד את Home, Apps, Sources, Refresh ו־Settings לחוויית יישום אחת.** אין עוד צורך לעבור בין LiveContainer לממשק SideStore המוטמע הישן לצורך פעולות רגילות. LocalDevVPN נשאר יישום נפרד המשמש לתעבורת הרענון.
 
 הפרויקט הזה הוא בנייה ששונתה של SideStore / LiveContainer, המקלה על הפעלת רענון באותו מכשיר ועל אימות תוצאותיו.
 
@@ -397,7 +397,7 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 ## תצוגה מקדימה
 
-צילומי המסך להלן הם תצוגות היסטוריות של v2 ושל הגרסה העצמאית, ולא צילומים של ממשק v3 המאוחד החדש. תוויות הגרסה נשמרו כדי למנוע בלבול.
+צילומי המסך להלן הם תצוגות היסטוריות של v2 ושל הגרסה העצמאית, ולא צילומים של ממשק v6.0 המאוחד החדש. תוויות הגרסה נשמרו כדי למנוע בלבול.
 
 <a id="combined-v210"></a>
 
@@ -448,19 +448,31 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 | מה אתם רוצים | במה להשתמש | הורדה |
 | --- | --- | --- |
-| ממשק מאוחד של LiveContainer + SideStore | **v3.1.0: אינה מומלצת; חקירת בעיית ההתחברות נמשכת** | [הערות גרסה ובעיות ידועות](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0) |
+| ממשק מאוחד של LiveContainer + SideStore | **v6.0 (הגרסה הציבורית v6.0.0)** | [הורדת IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v6.0.0/LiveContainer-SideStore-v6.0.0.ipa) · [הערות גרסה](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0) |
 | הממשק המשולב הקודם | **הגרסה המשולבת v2.1.1 (גרסה קודמת)** | [גרסת v2 הקודמת](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1) |
 | SideStore בלבד, עם יישומים מותקנים בנפרד בטעינה צדדית רגילה | **הגרסה העצמאית v1.0.4** | **[הורדת IPA עצמאי](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.4/SideStore.ipa)** |
 
-הבנייה המאוחדת כוללת SideStore, כך שאין צורך להתקין אותו בנפרד. הקישורים האלה מזהים קווי מוצר שפורסמו, ולא דירוג יציבות. לקווים הישנים יש ממשקים והיסטוריות אימות שונים; אף אחד מהם אינו מוצג כאן כפתרון מאומת לבעיית ההתחברות הנוכחית.
+הבנייה המאוחדת כוללת את SideStore, ולכן אין צורך בהתקנה נפרדת שלו. v6.0 מחליפה את v3 כקו המאוחד הנוכחי. לקווים הישנים ממשקים והיסטוריות אימות שונים; הם אינם מוצגים כפתרונות חלופיים מאומתים.
 
-**בנייה מאוחדת שפורסמה (אינה מומלצת):** [גרסת v3.1.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0)
+**הקו המאוחד הנוכחי:** [גרסת v6.0.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0).
 
 **הבנייה המאוחדת הקודמת:** [גרסת v3.0.2](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.0.2) (עדיין זמינה)
 
 **הקו המשולב הקודם:** [גרסת v2.1.1](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1)
 
 **הגרסה העצמאית:** [גרסת v1.0.4](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.4)
+
+<a id="whats-confirmed-for-v60"></a>
+
+## מה אושר בגרסה 6.0?
+
+**רצף הבנייה שנבדק:** הבונה [`177ac31e90499231191b25f761014c17d9f2ba7b`](https://github.com/NRG-Wardog/LiveContainer/commit/177ac31e90499231191b25f761014c17d9f2ba7b), בנייה נייטיבית [40102842840](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40102842840) והרצת האריזה [40104361491](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40104361491). עדכון התיעוד ומספר הגרסה אינו מוסיף שינויי תפקוד מעבר לרצף שנבדק. שם גרסה או CI ירוק לבדם אינם בדיקת קבלה במכשיר פיזי.
+
+**קידום תוצר ללא שינוי, לא בנייה מחדש:** v6.0.0 שומרת על בתי ה־IPA שנבדק במכשיר, ללא בנייה או חתימה מחדש. המטא־נתונים בקובץ `build-label.json` של CI נשארים: גרסת מוצר `6.0`, ערוץ `experimental` ותווית `6.0 pairing and deferred setup experimental`. זו אינה החלפה של גרסת חבילת היישום: LiveContainer נשארת `3.8.11` ו־SideStore נשארת `0.7.0`. התוויות הפנימיות אינן מציינות IPA אחר. יש לזהות את הגרסה הציבורית לפי גרסת הבונה וסכום הביקורת.
+
+- IPA SHA-256: `86db9a6bf4accf7e886d88563f1474063c85865682131a5ba0b13ed55a33f321`
+
+**ממצא חתימה שהתקבל בירושה:** אי־התאמה בחתימת עמוד 0 של CydiaSubstrate עדיין מתועדת. לא הוכח שזהו נזק חדש שנוצר ב־v6.0, וחתימה מחדש אינה תיקון מובטח. יש לשמור על ההבחנה הזו בפירוש אזהרות חתימה.
 
 <a id="whats-new-in-v310"></a>
 
@@ -555,7 +567,7 @@ Issue 17 מוסיף אפשרויות פריסת יישומים הנשמרות ת
 
 ## במה הפרויקט שונה מהפרויקטים המקוריים
 
-SideStore ו־LiveContainer הם יסודות המקור; המאגר הזה הופך אותם לחוויה שונה מקצה לקצה עבור השימוש הזה. היתרונות העיקריים הם **מסלול הרענון CoreDevice/RSD**, **תהליך LiveContainer + SideStore המאוחד של v3**, תזמון והיסטוריה מפורשים, אימות ברמת הרצה, אבחון מובנה ופקדי ממשק נוספים ליישומים ולאורחים שתוארו לעיל.
+SideStore ו־LiveContainer הם יסודות המקור; המאגר הזה הופך אותם לחוויה שונה מקצה לקצה עבור השימוש הזה. היתרונות העיקריים הם **מסלול הרענון CoreDevice/RSD**, **תהליך LiveContainer + SideStore המאוחד של v6.0**, תזמון והיסטוריה מפורשים, אימות ברמת הרצה, אבחון מובנה ופקדי ממשק נוספים ליישומים ולאורחים שתוארו לעיל.
 
 להבדלים המדויקים ברמת קוד המקור, הרחיבו את **ההשוואה הטכנית לפרויקטי המקור** ליד תחילת המסמך.
 
@@ -576,7 +588,7 @@ SideStore ו־LiveContainer הם יסודות המקור; המאגר הזה הו
 
 ## קווי מוצר קודמים
 
-מדריך [ההתקנה](#installation) הראשי מתאר את הגדרת v3.1.0 שפורסמה, עם אזהרת ההתחברות הנוכחית. קווי המוצר הקודמים נשמרים להלן לעיון, ולא כתחליפים מומלצים.
+מדריך [ההתקנה](#installation) הראשי מתייחס ל־v6.0. קווי המוצר הקודמים נשמרים להלן לעיון, ולא כתחליפים מומלצים.
 
 <a id="combined-v211"></a>
 
@@ -612,7 +624,7 @@ SideStore ו־LiveContainer הם יסודות המקור; המאגר הזה הו
 
 <a id="unified-v3-and-combined-v2"></a>
 
-### v3 המאוחד ו־v2 המשולב
+### v6.0 המאוחד ו־v2 המשולב
 
 התקינו את ה־IPA המשולב החדש **מעל התקנת LiveContainer הקיימת**, עם אותו חשבון Apple / Personal Team ומזהים תואמים.
 
@@ -639,8 +651,8 @@ SideStore ו־LiveContainer הם יסודות המקור; המאגר הזה הו
 | היישום מציג Untrusted Developer | `Settings -> General -> VPN & Device Management -> Developer App -> Trust` |
 | היישום אינו נפתח | ודאו שמצב מפתחים פעיל ב־`Settings -> Privacy & Security` |
 | אושר שהצימוד חסר/לא תקין | חברו שוב USB, פתחו **Manage Pairing File**, השתמשו ב־**Rescan Installed Apps** ואז שוב ב־**Place** עבור המכשיר המדויק |
-| התחברות או הקצאת פרופילים ב־v3.1.0 נכשלות | עקבו אחר [Issue #42](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/42). תעדו את הבנייה המדויקת ושגיאה שהושחרו ממנה פרטים רגישים; אל תמחקו את היישום ואל תאפסו נתוני חשבון/צימוד כתיקון ספקולטיבי |
-| שגיאת הפעלת שירות או תעבורה ב־v3 | קראו את השלב וקוד השגיאה באבחון. אל תאפסו נתוני חשבון או צימוד רק משום ששירות או חיבור רשת נכשלו |
+| התחברות לחשבון או הקצאת פרופילים נכשלות | תעדו את הבונה המדויק של v6.0 ושגיאה ללא פרטים רגישים. ההיסטוריה של v3.1.0 מופיעה ב־[Issue #42](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/42); אל תמחקו את היישום ואל תאפסו נתוני חשבון או צימוד כתיקון ספקולטיבי |
+| שגיאת הפעלת שירות או תעבורה ב־v6.0 | קראו את השלב וקוד השגיאה באבחון. אל תאפסו נתוני חשבון או צימוד רק משום ששירות או חיבור רשת נכשלו |
 | LocalDevVPN אינו מתחבר | בדקו שוב את Network Configuration, את שתי נקודות הקצה עם `/32` ואת **Allow Intermediate Addresses** |
 | LocalDevVPN מתחבר אך הרענון נכשל | ודאו שהכתובות ברשת המשנה הנוכחית של ה־Wi-Fi ב־iPhone ושאינן בשימוש |
 | הרענון נעצר לאחר החלפת Wi-Fi | הגדירו מחדש Tunnel IP ו־Device IP לרשת המשנה החדשה |
@@ -722,6 +734,8 @@ v2.1.0 מוסיפה את האפשרויות הבאות תחת **LiveContainer Se
 <a id="technical-architecture"></a>
 
 ## ארכיטקטורה טכנית
+
+לגרף המקורות ולגבולות הבנייה הנוכחיים של v6.0, השתמשו ב־[הוראות הבנייה המקובעות](#build-it-yourself). מסמך v3 שלהלן הוא הפניה לארכיטקטורה היסטורית, ולא תמונת מקור מדויקת של v6.0.
 
 למימוש v3 המדויק ולגבולות האחריות, קראו את [הארכיטקטורה בתג v3.0.2](https://github.com/NRG-Wardog/sidestore-auto-refresh/blob/v3.0.2/docs/V3_UNIFIED_ARCHITECTURE.md). תעבורת הרענון המשותפת שלהלן נשארת נפרדת מהממשק המאוחד וממחזור חיי השירות.
 
@@ -809,7 +823,9 @@ Interface settings
 
 ## מצב האימות
 
-**בדיקות הקבלה הנוכחיות אינן שלמות.** בעיית ההתחברות/הקצאת הפרופילים של v3.1.0 נשארת פתוחה. התוצאות האוטומטיות וההיסטוריות שלהלן הן ראיות לבניות המדויקות שלהן בלבד, ולא אישור שהגרסה הציבורית או מועמדת אבחון מאוחרת עוברות בדיקות מכשיר מלאות.
+**ל־v6.0 יש אימות מכשיר בהיקף מוגדר, לא אישור גורף.** התהליכים שאושרו והמגבלות שנותרו מפורטים [למעלה](#current-status-v60). התוצאות האוטומטיות ובדיקות המכשיר ההיסטוריות להלן חלות רק על הבניות המדויקות שלהן, ואינן ראיה לתהליכי v6.0 שלא נבדקו.
+
+**רצף הבנייה שנבדק:** הבונה [`177ac31e90499231191b25f761014c17d9f2ba7b`](https://github.com/NRG-Wardog/LiveContainer/commit/177ac31e90499231191b25f761014c17d9f2ba7b), בנייה נייטיבית [40102842840](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40102842840) והרצת האריזה [40104361491](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40104361491). עדכון התיעוד ומספר הגרסה אינו מוסיף שינויי תפקוד מעבר לרצף שנבדק. שם גרסה או CI ירוק לבדם אינם בדיקת קבלה במכשיר פיזי.
 
 | תחום | ראיות נוכחיות |
 | --- | --- |
@@ -909,15 +925,16 @@ v3.0.1 נשמרת להלן לצורך שחזור ואימות היסטורי. א
 
 ## בנייה עצמית
 
-המאגר הזה מכיל תיקונים בזמן הבנייה במקום עותקים קבועים ומוטמעים של LiveContainer ו־SideStore. תהליכי העבודה מורידים גרסאות מקור מוצמדות.
+הבנייה הנוכחית של v6.0 מוגדרת ב־**NRG-Wardog/LiveContainer**, ולא בתהליך הבנייה המשולבת הישן שבענף `main` של המאגר הזה.
 
-1. צרו fork של המאגר והפעילו GitHub Actions.
-2. הפעילו **LiveContainer embedded SideStore build** עבור IPA משולב, או **Build Current SideStore** עבור הגרסה העצמאית.
-3. כדי לשחזר חבילה שפורסמה, עברו לתג הגרסה המדויק שלה ועיינו בגרסת הבונה המתועדת. עבור v3.1.0, השתמשו ב־[תג `v3.1.0`](https://github.com/NRG-Wardog/sidestore-auto-refresh/tree/v3.1.0) ובפרטי המקור ב־[הערות הגרסה](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0). תיעוד ב־`main` אינו מעיד שקוד v3 המתאים מוזג אליו. הענף `fix/v3.1.0-audit` מכיל עבודת אבחון נמשכת, לא גרסה ציבורית יציבה.
-4. הורידו את התוצר של ההרצה שהצליחה.
-5. חתמו על ה־IPA שהתקבל באמצעות חשבון Apple / Personal Team שלכם לפני ההתקנה.
+1. עיינו ב־[תהליך הקומפילציה המדויק](https://github.com/NRG-Wardog/LiveContainer/blob/177ac31e90499231191b25f761014c17d9f2ba7b/.github/workflows/native-app-compile.yml) בגרסה `177ac31e90499231191b25f761014c17d9f2ba7b` ובגרף המקורות המקובע שלו. הבנייה [40102842840](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40102842840) משתמשת ב־macOS 26, ב־Xcode 26.4.1 וב־Rust 1.98.1.
+2. עיינו ב־[תהליך האריזה המדויק](https://github.com/NRG-Wardog/LiveContainer/blob/0403c859f943ffe4f17a048ac1309dd009f1f17b/.github/workflows/package-diagnostic.yml) בגרסה `0403c859f943ffe4f17a048ac1309dd009f1f17b` ובהרצת האריזה [40104361491](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40104361491). האריזה משתמשת בתוצרי הבנייה השמורים ובסכומי ביקורת של הקלט והאימות שנבדקו בנפרד; היא אינה בונה מחדש את היישומים.
+3. שמרו על גרסאות המקור המקובעות, הגנות התהליכים, כלי הבנייה והקישור לתוצרים. תהליכי האימות מוגבלים לזהויות מאגר וענף מסוימות, ולכן יצירת fork והרצה ללא שינוי אינן מתכון כללי לבניית v6.0. בנייה חדשה דורשת תוצרים וראיות משלה שנבדקו; היא אינה זהה אוטומטית ברמת הבתים לחבילת הגרסה שנבדקה.
+4. לצורך התקנה, חתמו על ה־IPA עם חשבון Apple / Personal Team שלכם. זהו חבילה ציבורית לפי הבונה המתועד, תוצר הגרסה המדויק וסכום הביקורת, ולא לפי גרסת החבילה המקורית שנשמרה.
 
-[תהליך עבודה משולב](.github/workflows/livecontainer-build.yml) | [תהליך עבודה עצמאי](.github/workflows/build-current.yml)
+תהליכי SAR הישנים שלהלן זמינים עבור הגרסאות העצמאיות או הישנות שלהם; הם **אינם** משחזרים את חבילת v6.0:
+
+[תהליך משולב היסטורי](.github/workflows/livecontainer-build.yml) | [תהליך הגרסה העצמאית](.github/workflows/build-current.yml)
 
 <a id="development-checks"></a>
 
@@ -938,6 +955,8 @@ git diff --check
 
 ## אבטחה, פרטיות, רישוי ותמיכה
 
+**תלות של v6.0 ב־anisette מרוחק:** הרצף שנבדק משתמש בספק Mac anisette החיצוני `mac-ani.jkcoxson.com`, ועושה שימוש חוזר בזהות דרך Keychain. זו תלות בצד שלישי מבחינת רשת ופרטיות, ולא מסלול אימות מקומי לחלוטין. בחנו תלות זו לפני ההתחברות; אל תפרסמו חומרי זהות של הספק, פרטי כניסה לחשבון, רשומות צימוד או יומנים פרטיים.
+
 לעולם אל תפרסמו קובצי צימוד, פרטי התחברות ל־Apple, מפתחות פרטיים, קובצי IPA חתומים אישית, מזהי מכשיר שאינם נחוצים או יומני מכשיר פרטיים מלאים.
 
 הבנייה המשולבת יכולה לגשת לנתונים המשמשים את LiveContainer ואת אורחיו בהתאם לארכיטקטורת LiveContainer. אם מודל האמון חשוב לכם, סקרו את המקור ובנו את ה־IPA בעצמכם.
@@ -948,6 +967,6 @@ git diff --check
 
 [תרומה לפרויקט](CONTRIBUTING.md) | [אבטחה](SECURITY.md) | [רישיון](LICENSE) | [הודעות צד שלישי](THIRD_PARTY_NOTICES.md)
 
-בדיווח תוצאת תאימות, כללו את תג הגרסה וגרסת הבונה המדויקים, דגם המכשיר, גרסת iOS, קו המוצר (v1, v2 או v3), מקור ההורדה, משפחת רשת ה־Wi-Fi, מצב LocalDevVPN ותוצאת רענון שאינה רגישה. אל תצרפו סודות או יומנים פרטיים מלאים. השתמשו ב־[Issue #1](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/1) לדיווחי תאימות.
+בדיווח תוצאת תאימות, כללו את תג הגרסה וגרסת הבונה המדויקים, דגם המכשיר, גרסת iOS, קו המוצר (v6.0 או הקווים ההיסטוריים v1/v2/v3), מקור ההורדה, משפחת רשת ה־Wi-Fi, מצב LocalDevVPN ותוצאת רענון שאינה רגישה. אל תצרפו סודות או יומנים פרטיים מלאים. השתמשו ב־[Issue #1](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/1) לדיווחי תאימות.
 
 </div>
