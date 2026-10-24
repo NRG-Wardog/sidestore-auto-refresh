@@ -240,6 +240,38 @@ class SafetyTests(unittest.TestCase):
             req = opener.return_value.open.call_args.args[0]
             self.assertEqual(req.get_method(), "GET")
 
+    def test_real_get_adapter_accepts_compare_and_exact_read_routes(self):
+        paths = [f"repos/{REPO}/compare/{A}...{B}", f"repos/{REPO}/git/trees/{A}?recursive=1",
+                 f"repos/{REPO}/git/ref/heads/validation/old", f"repos/{REPO}/git/tags/{A}",
+                 f"repos/{REPO}/branches?per_page=100&page=1", f"repos/{REPO}/releases?per_page=100&page=1",
+                 f"repos/{REPO}/pulls?state=open&per_page=100&page=1",
+                 f"repos/{REPO}/actions/runs?status=waiting&per_page=100&page=1"]
+        with patch.object(c.time, "sleep"), patch.object(c, "build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = b'{}'
+            for path in paths:
+                with self.subTest(path=path):
+                    self.assertEqual(c.GitHub("ephemeral-test-placeholder").get(path), {})
+                    request = opener.return_value.open.call_args.args[0]
+                    self.assertEqual(request.full_url, "https://api.github.com/" + path)
+                    self.assertEqual(request.get_method(), "GET")
+
+    def test_real_get_adapter_rejects_traversal_encoding_and_unlisted_routes(self):
+        paths = [f"repos/{REPO}/../branches", f"repos/{REPO}/git/ref/heads/../../main",
+                 f"repos/{REPO}/git/ref/heads/%2e%2e/main", f"repos/{REPO}/git/ref/heads/%252e%252e/main",
+                 f"repos/{REPO}/git/ref/heads/a%2fb", f"repos/{REPO}/git/ref/heads/a%5cb",
+                 f"repos/{REPO}/git/ref/heads/%00", f"repos/{REPO}/git/ref/heads/%zz",
+                 f"repos/{REPO}/compare/{A}...{B}/../branches", f"repos/{REPO}/compare/main...master",
+                 f"repos/{REPO}/branches?per_page=100&page=1&page=2", f"repos/{REPO}/branches?per_page=100&page=%31",
+                 f"repos/{REPO}/issues", f"repos/{REPO}/git/refs", f"repos/{REPO}#fragment",
+                 f"https://evil.example/repos/{REPO}", f"//evil.example/repos/{REPO}",
+                 f"\nrepos/{REPO}", f"repos/{REPO}/git/ref/heads/a\\b"]
+        with patch.object(c.time, "sleep") as sleep, patch.object(c, "build_opener") as opener:
+            for path in paths:
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    c.GitHub("ephemeral-test-placeholder").get(path)
+            opener.assert_not_called()
+            sleep.assert_not_called()
+
 
 class LocalGitLeaseTests(unittest.TestCase):
     """Real Git against a local temporary bare repository; no network or credentials."""

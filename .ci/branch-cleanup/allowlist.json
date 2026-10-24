@@ -2,6 +2,8 @@
   "repository_full_name": "NRG-Wardog/sidestore-auto-refresh",
   "actual_default_branch": "main",
   "audited_default_sha": "aa6223a0e922d8e8455400549bb6947f7deffb79",
+  "execution_revision": 2,
+  "execution_revision_reason": "Corrected the GET-only API route validator to permit exact SHA comparisons while rejecting traversal. Prior SAR verification failed before apply; no deletion occurred.",
   "reviewed_inventory_sha256": "450891d9f2649e5244368f536489fc66df5d56316bed930bcfdb275e80da57b7",
   "ancestry_report_sha256": "eafeec489d94886e3ac8a9c02809e9a77611ba831594950334683deaa9fd9eab",
   "ancestry_run_id": 40138459790,

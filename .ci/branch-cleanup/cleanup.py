@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import time
 from urllib.error import HTTPError
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, unquote, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 ROOT = Path(__file__).resolve().parent
@@ -92,6 +92,45 @@ class NoRedirect(HTTPRedirectHandler):
         raise ValueError("Unexpected API redirect; refusing to forward credentials")
 
 
+def validate_route(path):
+    require(isinstance(path, str) and all(ord(char) >= 32 and ord(char) != 127 for char in path), "Invalid API route")
+    parsed = urlsplit(path)
+    require(not parsed.scheme and not parsed.netloc and not parsed.fragment and "\\" not in path,
+            "Invalid API route")
+    raw = parsed.path.split("/")
+    require(all(part and not re.search(r"%(?![0-9A-Fa-f]{2})", part) for part in raw), "Invalid API route")
+    parts = [unquote(part, errors="strict") for part in raw]
+    require(all(part not in (".", "..") and not any(char in part for char in ("/", "\\", "%")) for part in parts),
+            "Invalid API route")
+    require(len(parts) >= 3 and parts[0] == "repos" and
+            raw[:3] == parts[:3] and all(re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts[1:3]), "Invalid API route")
+    tail = parts[3:]
+    required_query = {}
+    if not tail:
+        pass
+    elif len(tail) == 2 and tail[0] == "compare":
+        require(re.fullmatch(r"[0-9a-f]{40}\.\.\.[0-9a-f]{40}", tail[1]), "Invalid API comparison")
+    elif len(tail) == 3 and tail[:2] in (["git", "trees"], ["git", "tags"]):
+        sha(tail[2])
+        if tail[1] == "trees": required_query = {"recursive": "1"}
+    elif len(tail) >= 4 and tail[:2] == ["git", "ref"] and tail[2] in ("heads", "tags"):
+        require(subprocess.run(["git", "check-ref-format", "refs/" + "/".join(tail[2:])], capture_output=True).returncode == 0,
+                "Invalid API ref")
+    elif tail in (["branches"], ["releases"], ["pulls"], ["actions", "runs"]):
+        required_query = {"per_page": "100", "page": None}
+        if tail == ["pulls"]: required_query["state"] = "open"
+        if tail == ["actions", "runs"]: required_query["status"] = None
+    else:
+        raise ValueError("Invalid API route")
+    pairs = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+    query = dict(pairs)
+    require("%" not in parsed.query and len(pairs) == len(query) and set(query) == set(required_query), "Invalid API query")
+    for key, value in required_query.items():
+        if value is not None: require(query[key] == value, "Invalid API query")
+    if "page" in query: require(re.fullmatch(r"[1-9][0-9]*", query["page"]) and int(query["page"]) <= 100, "Invalid API page")
+    if "status" in query: require(query["status"] in ("queued", "in_progress", "waiting", "pending", "requested"), "Invalid API run status")
+
+
 class GitHub:
     """GET-only API client; the only mutation is the separately leased Git push."""
     def __init__(self, token):
@@ -99,7 +138,7 @@ class GitHub:
         self.token = token
 
     def get(self, path, absent=False):
-        require(path.startswith("repos/") and ".." not in path, "Invalid API route")
+        validate_route(path)
         time.sleep(3.1)
         req = Request("https://api.github.com/" + path, headers={
             "Authorization": "Bearer " + self.token, "Accept": "application/vnd.github+json",
