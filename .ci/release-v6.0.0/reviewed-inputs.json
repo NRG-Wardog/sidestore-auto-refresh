@@ -30,6 +30,8 @@
     "tree_id": "98dd2cb5d6bfb792cce0b40c87f425fed35fafe3",
     "workflow_id": 390901138
   },
+  "publication_target": "c25dd39e6e06c41523a36d2e4aa34fe747d82db7",
+  "reviewed_draft_id": 423006285,
   "public_file_sha256": {
     "RELEASE_NOTES_v6.0.0.md": "6800c82893f41fa6d54c727a351f551490f27d601d64e50be4c9247164091f69",
     "SHA256SUMS": "10f9dada8ac061262796b91c552e76896974075987513ab940fee12735e1a5bb",

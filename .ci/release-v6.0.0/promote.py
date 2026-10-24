@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Promote reviewed bytes only. Never rebuild, repackage, sign, or execute an IPA."""
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -41,6 +42,8 @@ def json_bytes(value):
 
 def settings():
     value = json.loads((ROOT / "reviewed-inputs.json").read_text())
+    require(value.get("publication_target") == "c25dd39e6e06c41523a36d2e4aa34fe747d82db7", "Wrong reviewed publication target")
+    require(value.get("reviewed_draft_id") == 423006285, "Wrong reviewed draft identity")
     require(value["approved_public_files"] == ["SHA256SUMS", NOTES, "release-provenance.json"], "Wrong reviewed public-file allowlist")
     for name in value["approved_public_files"]:
         require(re.fullmatch(r"[A-Za-z0-9_.-]+", name), "Unsafe public filename")
@@ -73,6 +76,41 @@ def github_json(endpoint, optional=False):
         return None
     require(result.returncode == 0, "GitHub read failed: " + endpoint + "; " + result.stderr.strip())
     return json.loads(result.stdout)
+
+
+def verify_publication_target(config, commit):
+    target = config["publication_target"]
+    comparison = github_json(f"repos/{DESTINATION}/compare/{target}...{commit}")
+    require(comparison.get("status") in ("ahead", "identical") and
+            comparison.get("base_commit", {}).get("sha") == target and
+            comparison.get("merge_base_commit", {}).get("sha") == target,
+            "Reviewed release target is not an ancestor of this retry")
+    path = ".ci/release-v6.0.0/reviewed-inputs.json"
+    original = github_json(f"repos/{DESTINATION}/contents/{path}?ref={target}")
+    require(original.get("type") == "file" and original.get("path") == path and original.get("encoding") == "base64",
+            "Original reviewed inputs are unavailable")
+    bound = json.loads(base64.b64decode(original["content"], validate=False))
+    for key in ("native", "package", "artifact", "ipa_size", "ipa_sha256", "approved_public_files", "public_file_sha256"):
+        require(bound.get(key) == config[key], "Retry changed original reviewed publication inputs: " + key)
+
+
+def lookup_reviewed_draft(config):
+    # The tag endpoint does not expose this draft. Search authenticated releases,
+    # require one exact match, then read the pinned ID. Never create a replacement.
+    matches = []
+    for page in range(1, 11):
+        releases = github_json(f"repos/{DESTINATION}/releases?per_page=100&page={page}")
+        require(isinstance(releases, list), "Invalid authenticated releases collection")
+        matches.extend(item for item in releases if item.get("tag_name") == TAG)
+        if len(releases) < 100:
+            break
+    else:
+        raise ValueError("Release lookup exceeded its bounded collection scan")
+    require(len(matches) == 1, "Expected exactly one existing reviewed release; refusing to create another")
+    require(matches[0].get("id") == config["reviewed_draft_id"], "Release collection matched an unreviewed ID")
+    release = github_json(f"repos/{DESTINATION}/releases/{config['reviewed_draft_id']}")
+    require(release.get("id") == config["reviewed_draft_id"] and release.get("tag_name") == TAG, "Reviewed release ID changed")
+    return release
 
 
 def verify_run(value, expected):
@@ -134,6 +172,7 @@ def make_bundle(archive, output, config, commit):
     checksum = (output / "SHA256SUMS").read_text().split()
     require(checksum == [config["ipa_sha256"], IPA], "Public checksum does not name the unchanged IPA")
     inventory = {"repository": DESTINATION, "tag": TAG, "publication_commit": commit,
+                 "release_target": config["publication_target"],
                  "files": {name: {"sha256": digest((output / name).read_bytes()), "size": (output / name).stat().st_size}
                            for name in (*PUBLIC_ASSETS, NOTES)}}
     (output / INVENTORY).write_bytes(json_bytes(inventory))
@@ -147,8 +186,9 @@ def verify_bundle(folder, expected_digest, config, commit):
         require(path.is_file() and not path.is_symlink(), "Non-regular publication file")
     require(digest((folder / INVENTORY).read_bytes()) == expected_digest, "Publication inventory digest mismatch")
     inventory = json.loads((folder / INVENTORY).read_text())
-    require(set(inventory) == {"repository", "tag", "publication_commit", "files"}, "Unexpected inventory metadata")
+    require(set(inventory) == {"repository", "tag", "publication_commit", "release_target", "files"}, "Unexpected inventory metadata")
     require(inventory["repository"] == DESTINATION and inventory["tag"] == TAG and inventory["publication_commit"] == commit, "Wrong publication binding")
+    require(inventory["release_target"] == config["publication_target"], "Wrong reviewed release target")
     require(set(inventory["files"]) == set((*PUBLIC_ASSETS, NOTES)), "Wrong public file allowlist")
     for name, expected in inventory["files"].items():
         raw = (folder / name).read_bytes()
@@ -191,6 +231,7 @@ def validate_release(release, inventory, notes, commit, draft, complete):
 
 def prepare(output):
     commit, config = context(), settings()
+    verify_publication_target(config, commit)
     for key in ("native", "package"):
         verify_run(github_json(f"repos/{SOURCE}/actions/runs/{config[key]['id']}"), config[key])
     verify_artifact(github_json(f"repos/{SOURCE}/actions/artifacts/{config['artifact']['id']}"), config)
@@ -210,27 +251,23 @@ def publish(folder, expected_digest):
     commit, config = context(), settings()
     inventory = verify_bundle(folder, expected_digest, config, commit)
     notes = (Path(folder) / NOTES).read_text()
-    endpoint = f"repos/{DESTINATION}/releases/tags/{TAG}"
-    release = github_json(endpoint, optional=True)
+    target = config["publication_target"]
+    endpoint = f"repos/{DESTINATION}/releases/{config['reviewed_draft_id']}"
+    release = lookup_reviewed_draft(config)
     existing_tag = tag_commit()
-    if release is None:
-        require(existing_tag is None, "Existing tag without an exactly matching draft; refusing to overwrite")
-        # A draft is deliberately created before any asset is uploaded or exposed publicly.
-        gh("release", "create", TAG, "--repo", DESTINATION, "--target", commit,
-           "--title", "Unified LiveContainer + SideStore 6.0", "--notes-file", str(Path(folder) / NOTES),
-           "--draft", "--latest=false")
-        release = github_json(endpoint)
-    else:
-        require(existing_tag in (None, commit), "Existing draft tag points elsewhere")
-    present = validate_release(release, inventory, notes, commit, draft=True, complete=False)
+    require(existing_tag in (None, target), "Existing draft tag points elsewhere")
+    present = validate_release(release, inventory, notes, target, draft=True, complete=False)
     for name in PUBLIC_ASSETS:
         if name not in present:
-            gh("release", "upload", TAG, str(Path(folder) / name), "--repo", DESTINATION)
-    validate_release(github_json(endpoint), inventory, notes, commit, draft=True, complete=True)
-    gh("release", "edit", TAG, "--repo", DESTINATION, "--draft=false", "--prerelease=false", "--latest")
+            content_type = "application/json" if name.endswith(".json") else "application/octet-stream"
+            gh("api", "--method", "POST",
+               f"https://uploads.github.com/repos/{DESTINATION}/releases/{config['reviewed_draft_id']}/assets?name={name}",
+               "--header", "Content-Type: " + content_type, "--input", str(Path(folder) / name))
+    validate_release(github_json(endpoint), inventory, notes, target, draft=True, complete=True)
+    gh("api", "--method", "PATCH", endpoint, "-F", "draft=false", "-F", "prerelease=false", "-f", "make_latest=true")
     published = github_json(endpoint)
-    validate_release(published, inventory, notes, commit, draft=False, complete=True)
-    require(tag_commit() == commit, "Published tag target mismatch")
+    validate_release(published, inventory, notes, target, draft=False, complete=True)
+    require(tag_commit() == target, "Published tag target mismatch")
     require(github_json(f"repos/{DESTINATION}/releases/latest")["id"] == published["id"], "6.0 is not the latest release")
     print(published["html_url"])
 

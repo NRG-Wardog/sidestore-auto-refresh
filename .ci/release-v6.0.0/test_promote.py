@@ -1,4 +1,5 @@
 import copy
+import base64
 import importlib.util
 import json
 from pathlib import Path
@@ -146,6 +147,67 @@ class PromotionTests(unittest.TestCase):
         release["assets"][0]["digest"] = "sha256:" + "0" * 64
         with self.assertRaisesRegex(ValueError, "uploaded asset"):
             P.validate_release(release, inventory, "notes", self.commit, draft=True, complete=False)
+
+    def test_draft_lookup_uses_authenticated_collection_and_pinned_id(self):
+        draft = {"id": self.config["reviewed_draft_id"], "tag_name": P.TAG, "draft": True}
+        with patch.object(P, "github_json", side_effect=[[draft], draft]) as api:
+            self.assertEqual(P.lookup_reviewed_draft(self.config), draft)
+        self.assertEqual(api.call_args_list[0].args[0], f"repos/{P.DESTINATION}/releases?per_page=100&page=1")
+        self.assertEqual(api.call_args_list[1].args[0], f"repos/{P.DESTINATION}/releases/{draft['id']}")
+        self.assertFalse(any("/releases/tags/" in call.args[0] for call in api.call_args_list))
+
+    def test_missing_duplicate_or_different_draft_never_creates_release(self):
+        draft = {"id": self.config["reviewed_draft_id"], "tag_name": P.TAG}
+        for collection in ([], [draft, draft], [dict(draft, id=123)]):
+            with self.subTest(collection=collection), patch.object(P, "github_json", return_value=collection), self.assertRaises(ValueError):
+                P.lookup_reviewed_draft(self.config)
+
+    def test_draft_target_notes_or_unexpected_assets_rejected(self):
+        folder, digest = self.local_bundle()
+        inventory = P.verify_bundle(folder, digest, self.config, self.commit)
+        target = self.config["publication_target"]
+        draft = {"tag_name": P.TAG, "target_commitish": target, "name": "Unified LiveContainer + SideStore 6.0",
+                 "body": "notes", "draft": True, "prerelease": False, "assets": []}
+        for change in ({"target_commitish": "b" * 40}, {"body": "other notes"}, {"assets": [{"name": "personal.json"}]}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                P.validate_release(dict(draft, **change), inventory, "notes", target, draft=True, complete=False)
+
+    def test_exact_empty_draft_resumes_by_id_without_create_or_delete(self):
+        folder, digest = self.local_bundle()
+        inventory = P.verify_bundle(folder, digest, self.config, self.commit)
+        target, release_id = self.config["publication_target"], self.config["reviewed_draft_id"]
+        draft = {"id": release_id, "tag_name": P.TAG, "target_commitish": target,
+                 "name": "Unified LiveContainer + SideStore 6.0", "body": (folder / P.NOTES).read_text(),
+                 "draft": True, "prerelease": False, "assets": [], "html_url": "https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0"}
+        complete = copy.deepcopy(draft)
+        complete["assets"] = [{"name": name, "state": "uploaded", "size": inventory["files"][name]["size"],
+                               "digest": "sha256:" + inventory["files"][name]["sha256"]} for name in P.PUBLIC_ASSETS]
+        published = dict(complete, draft=False)
+        with patch.object(P, "context", return_value=self.commit), patch.object(P, "settings", return_value=self.config), \
+             patch.object(P, "lookup_reviewed_draft", return_value=draft), patch.object(P, "tag_commit", side_effect=[None, target]), \
+             patch.object(P, "github_json", side_effect=[complete, published, published]), patch.object(P, "gh") as command:
+            P.publish(folder, digest)
+        self.assertEqual(len(command.call_args_list), 4)
+        for call in command.call_args_list[:3]:
+            self.assertEqual(call.args[:3], ("api", "--method", "POST"))
+            self.assertIn(f"/releases/{release_id}/assets?name=", call.args[3])
+        self.assertEqual(command.call_args_list[3].args[:4], ("api", "--method", "PATCH", f"repos/{P.DESTINATION}/releases/{release_id}"))
+        self.assertNotEqual(inventory["publication_commit"], inventory["release_target"])
+
+    def test_retry_target_ancestry_and_original_public_hashes_are_required(self):
+        target = self.config["publication_target"]
+        compare = {"status": "ahead", "base_commit": {"sha": target}, "merge_base_commit": {"sha": target}}
+        original = {"type": "file", "path": ".ci/release-v6.0.0/reviewed-inputs.json", "encoding": "base64",
+                    "content": base64.b64encode(P.json_bytes(self.config)).decode()}
+        with patch.object(P, "github_json", side_effect=[compare, original]):
+            P.verify_publication_target(self.config, self.commit)
+        with patch.object(P, "github_json", return_value=dict(compare, status="diverged")), self.assertRaisesRegex(ValueError, "ancestor"):
+            P.verify_publication_target(self.config, self.commit)
+        changed = copy.deepcopy(self.config)
+        changed["public_file_sha256"][P.NOTES] = "0" * 64
+        original["content"] = base64.b64encode(P.json_bytes(changed)).decode()
+        with patch.object(P, "github_json", side_effect=[compare, original]), self.assertRaisesRegex(ValueError, "original reviewed publication inputs"):
+            P.verify_publication_target(self.config, self.commit)
 
 
 if __name__ == "__main__":
