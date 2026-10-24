@@ -1,0 +1,2152 @@
+{
+  "workflow_repository_full_name": "NRG-Wardog/sidestore-auto-refresh",
+  "workflow_actual_default_branch": "main",
+  "workflow_audited_default_sha": "4f17f5a4600b172bf4133506e18c28988aa81941",
+  "source_inventory_sha256": "10ad4a6431aa2ea779a2b940029bcd0ef9fe5eb33d2e407b2cb580ff426a779d",
+  "known_successor": {
+    "repository": "NRG-Wardog/sidestore-auto-refresh",
+    "observed_head": "16383afb1f66b9782bd0a8b3d4951f8b59818b93",
+    "reviewed_successor_head": "4f17f5a4600b172bf4133506e18c28988aa81941",
+    "reason": "Coordinator-confirmed notes-only default successor before classifier publication."
+  },
+  "repositories": [
+    {
+      "repository_full_name": "NRG-Wardog/sidestore-auto-refresh",
+      "actual_default_branch": "main",
+      "audited_default_sha": "4f17f5a4600b172bf4133506e18c28988aa81941",
+      "branches": [
+        {
+          "name": "codex/v3r61-integration",
+          "sha": "a878b9a10ea9269d980bd78462e5157ad112ace1",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "codex/v3r62-recovery",
+          "sha": "8d3a96b7f8ce4433c1495c6d1b63df03616a2f77",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/add-recommend-right-v",
+          "sha": "432a36fc4cffeb7d7a4d098ea5225d9d110ad9ea",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/v3.0.3-auth-errors",
+          "sha": "54eb199044311193dc5a70d39f4c646218804336",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/v3.1.0-audit",
+          "sha": "c477b44ad47f5e87e6a05b16dfb165c0065adc73",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/v3.1.0-p1-integration",
+          "sha": "e555dc1244f8be556c2906754ea7efe881798fe0",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "main",
+          "sha": "4f17f5a4600b172bf4133506e18c28988aa81941",
+          "protected": true,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "actual_default_branch",
+            "protected_branch",
+            "open_pull_request_source_or_base"
+          ]
+        },
+        {
+          "name": "research/cellular-refresh-feasibility-20261022",
+          "sha": "ff0e44e622da8ab6e364d8f9d8393db20d4710b5",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "open_pull_request_source_or_base"
+          ]
+        },
+        {
+          "name": "validation/p0-cxx-allocation-release",
+          "sha": "083b0f425549f987081005a97cacba814f456e11",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/p0-login-trace-release",
+          "sha": "3edd9fa523a223bcd2898d5c960c5da7ff335be8",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/p2-alert-lifecycle",
+          "sha": "1d09456b441912c12227052eb21a26389ac0a203",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p2-composed-release",
+          "sha": "828c4818b93e747125c979537bec29afda678ad5",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/p2-localization-preflight",
+          "sha": "0cc9078ef6cb57d8b3512306fd48f376e601040d",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/publication-v6.0.0",
+          "sha": "288e45bcddbaf9aa9639786193c0c61026dfc90c",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "known_workflow_dependency",
+            "conservative_release_build_or_package_provenance"
+          ]
+        }
+      ],
+      "retained_anchors": [
+        {
+          "ref": "refs/heads/main",
+          "object_sha": "4f17f5a4600b172bf4133506e18c28988aa81941",
+          "sha": "4f17f5a4600b172bf4133506e18c28988aa81941"
+        },
+        {
+          "ref": "refs/tags/v1.0.0",
+          "object_sha": "2a346e804b2987060f7c9443726e0badc6baf656",
+          "sha": "2a346e804b2987060f7c9443726e0badc6baf656"
+        },
+        {
+          "ref": "refs/tags/v1.0.1",
+          "object_sha": "75bd490ff0e42ab76dd140576834d5ffcf41b934",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v1.0.2",
+          "object_sha": "61c37f2105b48149b93f1cb1e833f6f35d93a757",
+          "sha": "61c37f2105b48149b93f1cb1e833f6f35d93a757"
+        },
+        {
+          "ref": "refs/tags/v1.0.3",
+          "object_sha": "07d52be7a49f6795b82f081ded2ec94eb44d50df",
+          "sha": "07d52be7a49f6795b82f081ded2ec94eb44d50df"
+        },
+        {
+          "ref": "refs/tags/v1.0.4",
+          "object_sha": "3d4a7c49f9c202159397c25106149a3bad2b2902",
+          "sha": "3d4a7c49f9c202159397c25106149a3bad2b2902"
+        },
+        {
+          "ref": "refs/tags/v1.0.5",
+          "object_sha": "fdb6375128d2bff2112c320999a1f52ee94a8321",
+          "sha": "fdb6375128d2bff2112c320999a1f52ee94a8321"
+        },
+        {
+          "ref": "refs/tags/v2.0.0",
+          "object_sha": "cc1f048c116b74c6a96d4f446c6a6d7fda47bb4e",
+          "sha": "cc1f048c116b74c6a96d4f446c6a6d7fda47bb4e"
+        },
+        {
+          "ref": "refs/tags/v2.0.1",
+          "object_sha": "348af2d3f4e411f7c02cc225aac20ac4fcc8983a",
+          "sha": "348af2d3f4e411f7c02cc225aac20ac4fcc8983a"
+        },
+        {
+          "ref": "refs/tags/v2.1.0",
+          "object_sha": "2372c3e96132cb06394dafdd9ff74aeca416dd1c",
+          "sha": "2372c3e96132cb06394dafdd9ff74aeca416dd1c"
+        },
+        {
+          "ref": "refs/tags/v2.1.1",
+          "object_sha": "3d4a7c49f9c202159397c25106149a3bad2b2902",
+          "sha": "3d4a7c49f9c202159397c25106149a3bad2b2902"
+        },
+        {
+          "ref": "refs/tags/v3.0.0",
+          "object_sha": "6bbddd55531ac2497707fce184e5370f76d7991f",
+          "sha": "6bbddd55531ac2497707fce184e5370f76d7991f"
+        },
+        {
+          "ref": "refs/tags/v3.0.0-preview.1",
+          "object_sha": "af50c2dbe55005ee57e56d2f53975f91413e989f",
+          "sha": "af50c2dbe55005ee57e56d2f53975f91413e989f"
+        },
+        {
+          "ref": "refs/tags/v3.0.1",
+          "object_sha": "6580491d19ccaa4d9d3fc401878b0a5154e1150f",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v3.0.2",
+          "object_sha": "e9c772995cddfcf0b6ae10bd5aa7239e106e817c",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v3.1.0",
+          "object_sha": "f153f61c44603ffbaa44d4e587134a9cceaeb689",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v6.0.0",
+          "object_sha": "c25dd39e6e06c41523a36d2e4aa34fe747d82db7",
+          "sha": "c25dd39e6e06c41523a36d2e4aa34fe747d82db7"
+        }
+      ]
+    },
+    {
+      "repository_full_name": "NRG-Wardog/LiveContainer",
+      "actual_default_branch": "main",
+      "audited_default_sha": "8f0ad98068ab75298be40b404f1d1a25d8ecbbbf",
+      "branches": [
+        {
+          "name": "debug/adi-consumption-decoder",
+          "sha": "2a1d297ed94840b134a6ea5111065d228a51cf2b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "debug/adi-otp-execution",
+          "sha": "1ff6b466f7a252223468c61820c598cccf4c5ae2",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "debug/adi-staging-order",
+          "sha": "6b128686477b569a936915abaa4bd2ec51b40c14",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p0-constructor-diagnostics",
+          "sha": "1df50257f6255522e6ff48db226508fe74d6b17d",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p1-guest-geometry",
+          "sha": "0dcc2a20d9490a797ead972507a28fe02eef56fc",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/v3.1.0-p0",
+          "sha": "00546cec351adad1fa1cad5590da4f06e612db8f",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/v3.1.0-p1",
+          "sha": "bd5d9d87af76bfce0553d358bb3c6d45cbbc806a",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/v3.1.0-p2",
+          "sha": "f46a3e14c0752714144aa076355663c79a54f1a9",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "main",
+          "sha": "8f0ad98068ab75298be40b404f1d1a25d8ecbbbf",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "actual_default_branch"
+          ]
+        },
+        {
+          "name": "migration/runtime-source-141776ba",
+          "sha": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "validation/acquisition-diagnostics-20261021",
+          "sha": "952135fbde2eeac9fd8f1e55e57e1a5915374d4f",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/adi-consumption-native",
+          "sha": "f1ad99a767f4fc619b271d42fe8c44f3e9a040b0",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/adi-production-dependencies",
+          "sha": "761eb1387b6264d27ad606920e1e44a87f6bbb65",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/auth-copy-renderer-20261021",
+          "sha": "0ea58d80f9e0db7e4f56486ba118ae3b85652513",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/auth-response-diagnostics-20261021",
+          "sha": "66e4b40a8b21ca5077aa09f5fef7233020c5e636",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/cache-root-alias-investigation-20261024",
+          "sha": "8928d99bae45f051af2e708a953b5021e0ba0796",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/cold-vpn-activation-20261024",
+          "sha": "2975919c7d57b24830274ae0d5524e48ff8d5ff5",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/cold-vpn-recovery-test-20261024",
+          "sha": "5ee0e9adebef6981ae3ac1c2163f80b0c893a79f",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/comprehensive-diagnostics-20261021",
+          "sha": "186ca80d2e4dcaa416fef295eb08d5ef7c495381",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/consumer-contract-20261020",
+          "sha": "88c7110c868c12f70f8686b8cf887ff3f13a7c78",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/diagnostic-ipa-20261020",
+          "sha": "73da2284ff16aa8910761a706318f650e4bbd8de",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/evidence-transfer-20261020",
+          "sha": "1d9dcd5c16ccfe79b25e7fa22a74eda8a638487b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/iloader-onboarding-20261022",
+          "sha": "7bab0b869a896fa0308d12cbd751916af66bbff2",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/iloader-remote-auth-20261022",
+          "sha": "d0f19528ed2784b85dccb50647ee9e46c98aacc9",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/install-chain-fixture-20261024",
+          "sha": "796a946ae44279cfe1e9c53b26fa32a0d68ecf32",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/native-app-compile-20261020",
+          "sha": "19247a63fdc912d1cf8dac690cdb37769ad9e38a",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-cache-compatibility-20261024",
+          "sha": "a395469f43ef3c80bae48839336d9f7bc87fcb53",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-cold-vpn-activation-20261024",
+          "sha": "107bb6fbe112d9d9769f6e2915c72464f5712151",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-comprehensive-diagnostics-20261021",
+          "sha": "cb3fc0d66e2a85cd8961488be7635af4b5b420a9",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-host-bundle-repair-20261023",
+          "sha": "da061bda6ac5315722a16859401b7dbb3c7eb953",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-iloader-auth-20261022",
+          "sha": "c8700f4b4d4706510df5ce106137a5c0f79a0b6c",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-iloader-onboarding-20261022",
+          "sha": "8e310c1c2bb5e7455aaf08781a9604885aadee54",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-pairing-deferred-setup-20261022",
+          "sha": "c975bef8987ca9ce24ed2cbf6af9903bd9a2c792",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-pairing-finalization-recovery-20261022",
+          "sha": "e375ffda1afb160da332833baae404845ec60476",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-refresh-failure-preservation-20261022",
+          "sha": "785d4623982094eae836f1b857bf7e8cfe093a87",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-refresh-failure-preservation-recovery-20261022",
+          "sha": "deba71bcac44b1adc1da95c7b2db2f60a2300211",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-registration-diagnostics-20261022",
+          "sha": "ab2e392fed7eddb7ebe7cae556dcb9d3fd7c616f",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-setup-state-recovery1-20261022",
+          "sha": "0eb987f2c3a59193b68a0221fb7d4d2517ec5e61",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-setup-state-recovery2-20261022",
+          "sha": "2f7ae8533b943432fd6e981acf946bd83f66d415",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-setup-state-recovery3-20261022",
+          "sha": "98457f22991926c900f14c3a9792f9f25fbd5ab4",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-setup-state-recovery4-20261022",
+          "sha": "7e4ae0246933377bd4be5a78520f6155c4be3341",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-setup-state-recovery5-20261022",
+          "sha": "835b8d736c2d370b5b2565e19f6115bcd3cb6362",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-setup-state-recovery6-20261022",
+          "sha": "d1564b00ea85bd611cabf1cd401b4db7592eb82f",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-setup-state-recovery7-20261022",
+          "sha": "93aa13df1be96b14715cc1e156043f931ed293da",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-setup-state-recovery-20261022",
+          "sha": "2ef9cd5626aa223b8c285d278788719334d29a8b",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-status-profile-diagnostics-20261023",
+          "sha": "f16526ce4e3fbd2a7c4278d8afee8f57ee6347c7",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/native-vpn-interface-recovery-20261024",
+          "sha": "177ac31e90499231191b25f761014c17d9f2ba7b",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/p0-constructor-diagnostics",
+          "sha": "1d0a875bf4e7257c44022aac6e0b77c9f5a11925",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-cxx-allocation",
+          "sha": "bbd14b3137f213004a2006f65a2c94ad6d52712c",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-cxx-allocation-linux",
+          "sha": "252eb33dfcd59bb6d07f3034e58dd15584eda2dc",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-ab-artifact-transport",
+          "sha": "afd4944ece3ac15140fa97e226b76baab24bd078",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-ab-linux",
+          "sha": "7cc24df4fabb8960cbed3b6241f144a5da6dbbff",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-ab-phase-a",
+          "sha": "7ef4fc881c6b1583455f4cdffa1c16585de2eb2a",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-ab-phase-a-toolchain",
+          "sha": "d057b2bd1cedc2ac234f8b7397052ed9554b6c0d",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-artifact-transport",
+          "sha": "95396d081776bc82cc8660b83a8371ea8f514887",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-corrected-transport",
+          "sha": "a3187b79e840c7adfc805d26764edade885115b2",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-phase-a",
+          "sha": "1f1230372551c4aa0a4f39d93f58be76a8ee163d",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-phase-a-swift-split",
+          "sha": "4df0baa4f92274983a0d750cc5c3a3553600296b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-phase-b",
+          "sha": "2437b2abb7bb950efcec254441b4b917ac3982ce",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-phase-b-transport",
+          "sha": "4b6358de06b9313073c155f4eed59f1ca9b41f72",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-elf-metadata-bounds",
+          "sha": "6edd04bdeca008faf0f5e3c56d0ff42ac097e7d8",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-fault-aggregate-phase-a",
+          "sha": "8f8002412248d2168c6e52858ff928800a2a01bb",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-fault-aggregate-phase-a-transport",
+          "sha": "80b59ec2daaaf1fd50b1c98d8d4512518e986a9d",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-fault-consumer-20261019",
+          "sha": "47abe34894eb332a654d32f8e9322ce5eeac757a",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-login-trace-20261018",
+          "sha": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-login-trace-phase-a",
+          "sha": "3ec28a81d8ff8f0f736e775c676d733bc5b61be8",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-login-trace-phase-b",
+          "sha": "dd8fff072238af26bcee00ae17881f9f15d3ec2c",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-native-basis",
+          "sha": "5a255a7b52bfa0351d1a5a2a934be90df985d138",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p1-export-replay",
+          "sha": "61521cfc621ae018aa1336d1b9bf9ba1efc4c8a1",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p1-native-basis",
+          "sha": "09d75d765a6c63b27fccae3529c8b224100278b3",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p1-sample-capability",
+          "sha": "e07d8a45bf8ac71fdf426903238bc8389dc20c83",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p2-composed-release",
+          "sha": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/p2-direction-rebuild",
+          "sha": "f46a3e14c0752714144aa076355663c79a54f1a9",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/package-cache-compatibility-20261024",
+          "sha": "bbbdef8cdb098d7d46b280d66f39d35064c44569",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-cold-vpn-activation-20261024",
+          "sha": "5ed17a034b3cefbf1ef0497179a8e42d075d40a7",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-comprehensive-diagnostics-20261022",
+          "sha": "461a6b378e77797083ddc3bf4ff8b7ba4c76cc2b",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-host-bundle-repair-20261023",
+          "sha": "430a77aa6cffeb2b172653ebeefd95fb809c1d7f",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-iloader-auth-20261022",
+          "sha": "f696381b55a6ede1ee82439fd53c3014f3674eb0",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-iloader-onboarding-20261022",
+          "sha": "662f971025d653141001ee192259f0d0a141ac0c",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-pairing-deferred-setup-20261022",
+          "sha": "ab68e947255cec975e1a1705253abe748b9a4dd6",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-pairing-finalization-recovery-20261022",
+          "sha": "8ac03c8453416a3fb13bee609588f789bd507e0a",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-refresh-failure-preservation-recovery-20261022",
+          "sha": "a946db241bf881ad7659b892d3522b608859e8ad",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-registration-diagnostics-20261022",
+          "sha": "a6bd8202050dcd8a692341c0b1e1381bafdb02af",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-setup-state-recovery-20261022",
+          "sha": "ecb0056ca5f2d3ef565975d7574ca122e70a650a",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-status-profile-diagnostics-20261023",
+          "sha": "90f23970e7dc1556b85d77fa70a599c08a0acc11",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/package-vpn-interface-recovery-20261024",
+          "sha": "0403c859f943ffe4f17a048ac1309dd009f1f17b",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/pairing-finalization-recovery-20261022",
+          "sha": "d22f7c0ea32be749517a20deb719f8c11891f731",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/pairing-setup-deferred-20261022",
+          "sha": "c20d8289bb72fdca07dd08506c37ead6d9da37da",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/pr1835-quick",
+          "sha": "8193d7379c7cbdc420b02bc75d4e9e37c4823f17",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/production-dependencies-141776ba",
+          "sha": "5fcff4214fc459b30b37843aaa2cf075232f52f2",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "validation/refresh-failure-preservation-20261022",
+          "sha": "67659fd6f340a215bb49acec5362208f8af1083b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/refresh-failure-preservation-recovery-20261022",
+          "sha": "cb21f150e8907d2f8ed1bc7658342bac3fbb9926",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/registration-diagnostics-20261022",
+          "sha": "0b98afc7ad5ea51dc97612466743a15baa9305ed",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/runtime-source-141776ba",
+          "sha": "9f7a566a17c59cac4121fb59b59d55dbfa574efb",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "validation/setup-state-recovery1-20261022",
+          "sha": "42eadd654c8de8aa2abd444a37db007e890d8e2e",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery4-20261022",
+          "sha": "1a281fa978b0afaabdafe8fb4385de838b0fed1c",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery5-20261022",
+          "sha": "2252f2299803a237f5d8c2ecfac716a661099172",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery6-20261022",
+          "sha": "fa168b097b97225a4d84d4d9984f37eb31b95d38",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery7-20261022",
+          "sha": "d540dcead306d7707d859834a9f530d962465977",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery-20261022",
+          "sha": "e39559a8c823073415a7b4fad1403e6a7f99eefc",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/signin-entry-ui-20261021",
+          "sha": "60018880a49634fb3e826670dc81b20cf721ff1c",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/signin-form-20261021",
+          "sha": "a5a294afff312902a302478f83cba44f6ef489ac",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/status-profile-diagnostics-20261023",
+          "sha": "a8be8bab654edcecef0ec52020e76f0809a5ecc2",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/upstream-first-6.0",
+          "sha": "1a227e49a8af33368b39c1ba7605bf3aff244b8b",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/vpn-interface-recovery-20261024",
+          "sha": "8808211d340c6e9e2a6274c0eaa863d7ab09474f",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        }
+      ],
+      "retained_anchors": [
+        {
+          "ref": "refs/heads/main",
+          "object_sha": "8f0ad98068ab75298be40b404f1d1a25d8ecbbbf",
+          "sha": "8f0ad98068ab75298be40b404f1d1a25d8ecbbbf"
+        }
+      ]
+    },
+    {
+      "repository_full_name": "NRG-Wardog/SideStore",
+      "actual_default_branch": "LiveContainerSupport",
+      "audited_default_sha": "c2beadd2c94df6854f83cb53d5b59c3540ec9783",
+      "branches": [
+        {
+          "name": "LiveContainerSupport",
+          "sha": "c2beadd2c94df6854f83cb53d5b59c3540ec9783",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "actual_default_branch"
+          ]
+        },
+        {
+          "name": "backport-sidesign-gsa-5xx",
+          "sha": "6e6891e492e64f64607cd0e8a2487b3cc7acdef7",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "debug/adi-consumption-decoder",
+          "sha": "1ebc69390f5b570f95cd823ac8df97c3a2f082f9",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "debug/adi-staging-order",
+          "sha": "4625e29929aa52fe33327c07076bfae0358a7bf0",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p0-constructor-diagnostics",
+          "sha": "aebf23d8129f831c1c706619a71c936ab73fb6e5",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p0-cxx-allocation-runtime",
+          "sha": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p0-elf-metadata-bounds",
+          "sha": "6e9f367d441dd48c3519f3b39d93acdeffd43c1e",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/v3.1.0-p0",
+          "sha": "0e6a626ae97401fb671ee12ae88e4f364fc2a31c",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "migration/production-dependencies-141776ba",
+          "sha": "dd4f0ca36e8ef1d858548f583c65842a8fc0ced3",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "migration/runtime-source-141776ba",
+          "sha": "9d8c71ed69684f805325ef440983e74d97113a71",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "validation/acquisition-diagnostics-20261021",
+          "sha": "5a10a8e725c62b77fe1faf5df80d34db970f006f",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/android-client-profile-20261021",
+          "sha": "2b734237b6fff38f44090579efff605d31f0fcb2",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/auth-response-diagnostics-20261021",
+          "sha": "7c9bb425633cc4a4d8f5afd8467212a42b12f818",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/cache-compatibility-20261024",
+          "sha": "bd345b75b33bc96d0859c665fb56354404919da5",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/cold-vpn-activation-20261024",
+          "sha": "73136ff9e20db617ef70d788699b49173fa6f0b9",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/comprehensive-diagnostics-20261021",
+          "sha": "98eabac83d4c9156199cb2b454b0fe20d55a1b11",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/host-bundle-repair-20261023",
+          "sha": "7ff41a436cb6d1ee6465110b34b5a1cfded7952d",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/iloader-onboarding-20261022",
+          "sha": "08c59413acec566352a68f2d1864a4e3f57dd2c3",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/iloader-remote-auth-20261022",
+          "sha": "40220d67736f7966eb4526e548909c5aac5910e9",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-integrity-20261019",
+          "sha": "9d90c9db20a5b07bd4a34254efb596fbc7c04616",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-fault-consumer-20261019",
+          "sha": "6a784903900c393eac26ec7ca43395e10a63a7a3",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-fault-observed-resolver-20261019",
+          "sha": "24a07daf072b8b4cc8101a1275d368fd0968f10b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-login-trace-20261018",
+          "sha": "85bf45f65a9c2835c18d2c8e2e9c618177c95b54",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-login-trace-app-lock-20261019",
+          "sha": "d507f9e417f12c262b4d7e717c84d4a244c8e625",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-login-trace-resolved-20261019",
+          "sha": "dc29ce0d79a299f32a340c460e1d61e8190e320c",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/pairing-finalization-recovery-20261022",
+          "sha": "606707ee6789b8db1dcbddf9ebe52205338f373d",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/pairing-setup-deferred-20261022",
+          "sha": "6c8ae29c0a9448a83ca710ea484d91d6b2d143cd",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/pr1835-quick",
+          "sha": "825b3f888dfc7cd53e9f17039ffba75659f04ffc",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/refresh-failure-preservation-20261022",
+          "sha": "638fa62ce2a540efe6c92dd20c282c32ddc0b2e6",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/registration-diagnostics-20261022",
+          "sha": "9071aa585fb39001c4f0e7357b3b33529cbcea2a",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery1-20261022",
+          "sha": "87c121c4487f1a8215f0171b8322e4dcef7f3f4e",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery2-20261022",
+          "sha": "5ade239d19ad7e2c6969ec33e43b5b063b1b032e",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery3-20261022",
+          "sha": "95345e487d9374b4eeffaef2bf2087e1c60aee73",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery4-20261022",
+          "sha": "952d8bbb5ece3195054c09ad0705cd2a29e3c93c",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery7-20261022",
+          "sha": "41be1eee21d909da9fffbb8c36aefee466ceb94a",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery-20261022",
+          "sha": "02fc8d8d43863fa8c5375194a50e187e762479c8",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/signin-entry-ui-20261021",
+          "sha": "4d53289bce3968a6b406e43b8faa65fa30a79ab1",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/status-profile-diagnostics-20261023",
+          "sha": "bbe33f395e8971811d6f6b0d6fb3c45c1d3217a7",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/upstream-first-6.0",
+          "sha": "28dd1f873cad2e12e1c07cacb80ac9685560e02c",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/upstream-sync-20261021",
+          "sha": "545ba0b359afd9a0c7a7a1750d9d5148d42d4438",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/verified-apple-libraries-20261021",
+          "sha": "0208234c01113e43ddfa92ccae14a697cc607628",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/vpn-interface-recovery-20261024",
+          "sha": "5afdedc3e50be60082ac1d405a456274920b8eab",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/workqueue-abi-20261020",
+          "sha": "4f8414143a08de04282052ca0035d1311bec770d",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        }
+      ],
+      "retained_anchors": [
+        {
+          "ref": "refs/heads/LiveContainerSupport",
+          "object_sha": "c2beadd2c94df6854f83cb53d5b59c3540ec9783",
+          "sha": "c2beadd2c94df6854f83cb53d5b59c3540ec9783"
+        }
+      ]
+    },
+    {
+      "repository_full_name": "NRG-Wardog/SideSign",
+      "actual_default_branch": "main",
+      "audited_default_sha": "483c626d6e5004b45298518352307eb492fe1ccd",
+      "branches": [
+        {
+          "name": "debug/adi-production-dependencies",
+          "sha": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "debug/adi-staging-order",
+          "sha": "45039f2c16348e098a69f4421719798b00f00429",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p0-constructor-diagnostics",
+          "sha": "b829a21c3955b4084fc3a6f613bad9162a8d43ef",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p0-cxx-allocation-runtime",
+          "sha": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p0-elf-metadata-bounds",
+          "sha": "74a79cc4d1e6018696c39dfe975dfd13c449870b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/v3.1.0-p0",
+          "sha": "081994b142c781f9a32bbddfa7277f305b20447b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "main",
+          "sha": "483c626d6e5004b45298518352307eb492fe1ccd",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "actual_default_branch"
+          ]
+        },
+        {
+          "name": "migration/production-dependencies-141776ba",
+          "sha": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "migration/runtime-source-141776ba",
+          "sha": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "validation/acquisition-diagnostics-20261021",
+          "sha": "1faede6b047d8b3650601f2b0b51c4d185cf26f9",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/auth-response-diagnostics-20261021",
+          "sha": "c1469f9ecdc9b59b7bdf8bc3105dca1933686219",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/comprehensive-diagnostics-20261021",
+          "sha": "215a5fa5eb8fa3ec82daf8865a7d4c1bff18c4c4",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/iloader-remote-auth-20261022",
+          "sha": "d05efa30f37bad7c7ddaa50186fc1ac8ba703eca",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-ab-20261019",
+          "sha": "a375e72d1ff39319c14d22ab98ddecd46c758783",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-20261019",
+          "sha": "b28fb0b72937849d4428e9ae313209b606f859b4",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-integrity-20261019",
+          "sha": "a3617d2eab547665480324034571cf22aa684257",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-resolved-20261019",
+          "sha": "24f0ba8e701cded5deadce115f93e99a6263c599",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-fault-aggregate-20261019",
+          "sha": "e296f830780226e9ff27b84ad66bba114f71dafc",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-fault-observed-resolver-20261019",
+          "sha": "6e24a6f1389d102a64216b8c3d7344257baa28df",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-login-trace-20261018",
+          "sha": "770b991b1dbc269ad19dd18b8b2e8252b665af9b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-login-trace-resolved-20261019",
+          "sha": "c733332b0d64022cd603ab9ac5de054413729aab",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-remote-reserve-20261019",
+          "sha": "b47478bb876363ae47fca6caac323765c453310b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/pr1835-quick",
+          "sha": "4e852649fada9851774a80e2639414d20f3efd72",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery1-20261022",
+          "sha": "483c626d6e5004b45298518352307eb492fe1ccd",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/setup-state-recovery-20261022",
+          "sha": "ad390ad9636808ad76ff9a8e5a28f589314799f4",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/upstream-first-6.0",
+          "sha": "9757970d656135f0b21dc00700507d099f170320",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/upstream-sync-20261021",
+          "sha": "b3b8ffafcfa7f3873eb77890dbb6fbe46e27b558",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/verified-apple-libraries-20261021",
+          "sha": "451627628701f81a669a1df00f3f43cbf6adca04",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/workqueue-abi-20261020",
+          "sha": "ba9ac345f302e1096668d22bd94241b4d174caed",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        }
+      ],
+      "retained_anchors": [
+        {
+          "ref": "refs/heads/main",
+          "object_sha": "483c626d6e5004b45298518352307eb492fe1ccd",
+          "sha": "483c626d6e5004b45298518352307eb492fe1ccd"
+        },
+        {
+          "ref": "refs/tags/v0.1.0",
+          "object_sha": "3440e8eb14e415b47f1231e67a09285bc76fa658",
+          "sha": "3440e8eb14e415b47f1231e67a09285bc76fa658"
+        },
+        {
+          "ref": "refs/tags/v0.1.1",
+          "object_sha": "c1f814bc62a265560214ad27df30bd6d1780a7c7",
+          "sha": "c1f814bc62a265560214ad27df30bd6d1780a7c7"
+        },
+        {
+          "ref": "refs/tags/v0.1.2",
+          "object_sha": "fa0b0b75a49baaadf95745a896610cd47769df9d",
+          "sha": "fa0b0b75a49baaadf95745a896610cd47769df9d"
+        },
+        {
+          "ref": "refs/tags/v0.1.3",
+          "object_sha": "3bdb1eb792e17cc75aa8c50bfa1754d394413304",
+          "sha": "3bdb1eb792e17cc75aa8c50bfa1754d394413304"
+        },
+        {
+          "ref": "refs/tags/v0.1.4",
+          "object_sha": "7f818429fec3c8d7b63871b8bfdf063603cd2115",
+          "sha": "7f818429fec3c8d7b63871b8bfdf063603cd2115"
+        },
+        {
+          "ref": "refs/tags/v0.1.5",
+          "object_sha": "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d",
+          "sha": "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d"
+        },
+        {
+          "ref": "refs/tags/v0.1.6",
+          "object_sha": "4018d6ba53055d2674352ec8b0ee033aac06ecc9",
+          "sha": "4018d6ba53055d2674352ec8b0ee033aac06ecc9"
+        },
+        {
+          "ref": "refs/tags/v0.1.7",
+          "object_sha": "10b446fc6fc47fe81b60879dfb126d0c8098ec29",
+          "sha": "10b446fc6fc47fe81b60879dfb126d0c8098ec29"
+        }
+      ]
+    },
+    {
+      "repository_full_name": "NRG-Wardog/AnisetteKit",
+      "actual_default_branch": "main",
+      "audited_default_sha": "3e670c2e1b72ff328d3a64353d8de2418df87e73",
+      "branches": [
+        {
+          "name": "debug/adi-consumption-investigation",
+          "sha": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "debug/adi-rejection-ff5a1af",
+          "sha": "a04485e25ab4ab1dc41c81f5061c3b442d588660",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "debug/adi-staging-order",
+          "sha": "f494494ede88890555df345054f7fbb87b53aea5",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/adi-abi-20261008",
+          "sha": "ff5a1af34fe1fef443c1f82e614c073e21054970",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p0-constructor-diagnostics",
+          "sha": "94659b4d54eed5729b34f4103b3f70579aa8d8e9",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p0-cxx-allocation-runtime",
+          "sha": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/p0-elf-metadata-bounds",
+          "sha": "9c876820d102affe2f55ee4b7f735fff6abd990a",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "fix/v3.1.0-p0",
+          "sha": "0dfcc89aa93411d84f7c50beb3c75599af89e852",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "main",
+          "sha": "3e670c2e1b72ff328d3a64353d8de2418df87e73",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "actual_default_branch"
+          ]
+        },
+        {
+          "name": "migration/runtime-source-141776ba",
+          "sha": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "known_workflow_dependency",
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "research/adi-binary-match-20261009",
+          "sha": "87a76cb0648edf43e83705d8138de7ebc4f132ea",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-ab-20261019",
+          "sha": "e72d04b84123823c93e9162daffa73b7afcfd2c9",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-20261019",
+          "sha": "227dfd8c8456cd62e4ceff4971b17afb2003d7e8",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-fault-aggregate-20261019",
+          "sha": "56f9aab3b2726821ed460e770c531e72a8233b8b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-login-trace-20261018",
+          "sha": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/p0-remote-reserve-20261019",
+          "sha": "b76bd9c00c1926de38c2269849a4bf647e3b84d1",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/pr1835-quick",
+          "sha": "26e101d72c2a4e0e70ee94342a775b20d6f7092b",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/upstream-first-6.0",
+          "sha": "3e670c2e1b72ff328d3a64353d8de2418df87e73",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/upstream-sync-20261021",
+          "sha": "20c17ed96763c7ab39053e9f7a82532a88ad7654",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/workqueue-abi-20261020",
+          "sha": "d444374cbd332b07dadf4e99effcc018cfd22b94",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        }
+      ],
+      "retained_anchors": [
+        {
+          "ref": "refs/heads/main",
+          "object_sha": "3e670c2e1b72ff328d3a64353d8de2418df87e73",
+          "sha": "3e670c2e1b72ff328d3a64353d8de2418df87e73"
+        },
+        {
+          "ref": "refs/tags/v0.9.0",
+          "object_sha": "38a0d6dc5db9dd3257cfc27bb6dc9c05d23c84e3",
+          "sha": "38a0d6dc5db9dd3257cfc27bb6dc9c05d23c84e3"
+        }
+      ]
+    },
+    {
+      "repository_full_name": "NRG-Wardog/minimuxer",
+      "actual_default_branch": "develop",
+      "audited_default_sha": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
+      "branches": [
+        {
+          "name": "develop",
+          "sha": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "actual_default_branch",
+            "open_pull_request_source_or_base"
+          ]
+        },
+        {
+          "name": "joematt",
+          "sha": "01c3ed15d53c2ff9f51bce37dc34a9d5905f793c",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "master",
+          "sha": "f9432a085b19de1bbcd744c600f510f499703a97",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "migration/runtime-source-141776ba",
+          "sha": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "ny/refactor",
+          "sha": "8ffabf6b92bf55bfe39dc1cac721726a994b5107",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "prebuild",
+          "sha": "edd369c26be6da204234795274a396bf1335fc48",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "rpairing-hb",
+          "sha": "e3614068c77fb09945eff363fbc3f9e8abf4c834",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "swiftpm",
+          "sha": "aee593661156cf7520463fc5e26d6109d53f548a",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/upstream-first-6.0",
+          "sha": "1d033920660c6f50b8f30c4c333f025867cd9e96",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/upstream-sync-20261021",
+          "sha": "48419a2d24bd74efcee6dc80552ea89e85dafdee",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "validation/vpn-interface-recovery-20261024",
+          "sha": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        }
+      ],
+      "retained_anchors": [
+        {
+          "ref": "refs/heads/develop",
+          "object_sha": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
+          "sha": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2"
+        },
+        {
+          "ref": "refs/tags/build",
+          "object_sha": "f9432a085b19de1bbcd744c600f510f499703a97",
+          "sha": "f9432a085b19de1bbcd744c600f510f499703a97"
+        },
+        {
+          "ref": "refs/tags/build-idevice-pls",
+          "object_sha": "c5a0b4fa8edf4a57a6fcd58aa69b87a198385b34",
+          "sha": null
+        }
+      ]
+    },
+    {
+      "repository_full_name": "NRG-Wardog/idevice",
+      "actual_default_branch": "master",
+      "audited_default_sha": "774f02a6d29777c85400f4ba7fa69c12b4227fb3",
+      "branches": [
+        {
+          "name": "dependabot/cargo/idevice/rustls-webpki-0.103.13",
+          "sha": "1023132a3bd82a22b2cb189b2005a5369351bcb3",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "master",
+          "sha": "774f02a6d29777c85400f4ba7fa69c12b4227fb3",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "actual_default_branch"
+          ]
+        },
+        {
+          "name": "migration/runtime-source-141776ba",
+          "sha": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "validation/upstream-first-6.0",
+          "sha": "774f02a6d29777c85400f4ba7fa69c12b4227fb3",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        },
+        {
+          "name": "validation/upstream-sync-20261021",
+          "sha": "f9eebbbeb83d92565204b53f2a317b0a29999b79",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        }
+      ],
+      "retained_anchors": [
+        {
+          "ref": "refs/heads/master",
+          "object_sha": "774f02a6d29777c85400f4ba7fa69c12b4227fb3",
+          "sha": "774f02a6d29777c85400f4ba7fa69c12b4227fb3"
+        },
+        {
+          "ref": "refs/tags/v0.1.53",
+          "object_sha": "4f82fecaaa24c2fcf3a2a91fdc412d17a74247e9",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v0.1.54",
+          "object_sha": "0a7338264bcc6f6afce7d6d0c998467f9d991d02",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v0.1.55",
+          "object_sha": "04ba4a91ae750f726603341c1eb7ab635a4af121",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v0.1.57",
+          "object_sha": "b0f4c0addfd9e9dcb65e10e29261bdfbcb94eb84",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v0.1.59",
+          "object_sha": "e3103cf0a8bd6837183fca03083039dba3859677",
+          "sha": "e3103cf0a8bd6837183fca03083039dba3859677"
+        },
+        {
+          "ref": "refs/tags/v0.1.60",
+          "object_sha": "85d2c8c81a418964f09b41d1490b92096a499af4",
+          "sha": "85d2c8c81a418964f09b41d1490b92096a499af4"
+        },
+        {
+          "ref": "refs/tags/v0.1.61",
+          "object_sha": "c76c9468dc44e605fde088c3046276a007e1137c",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v0.1.62",
+          "object_sha": "480441e61144013282d382586b9c037c1bd66f0d",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v0.1.63",
+          "object_sha": "01ec7d7e9a5a730e6af4f16f6d2ad416ff8364c2",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v0.1.64",
+          "object_sha": "49e982ddd1745696cf5e3ea755fcf5f79a1bab71",
+          "sha": "49e982ddd1745696cf5e3ea755fcf5f79a1bab71"
+        },
+        {
+          "ref": "refs/tags/v0.1.64-ss-399cd94",
+          "object_sha": "399cd94a66a8528dcf422ef0e9c4afd2f1942a2b",
+          "sha": "399cd94a66a8528dcf422ef0e9c4afd2f1942a2b"
+        },
+        {
+          "ref": "refs/tags/v0.1.64-ss-4fb1f90",
+          "object_sha": "4fb1f90649125f24a5e45740c72e850575a77be1",
+          "sha": "4fb1f90649125f24a5e45740c72e850575a77be1"
+        },
+        {
+          "ref": "refs/tags/v0.1.64-ss-b1dac43",
+          "object_sha": "b1dac4384e4fd2263aa51d6b73339d90715a9d74",
+          "sha": "b1dac4384e4fd2263aa51d6b73339d90715a9d74"
+        },
+        {
+          "ref": "refs/tags/v0.1.65",
+          "object_sha": "062b668e2eb819964bd23b70e9f09ccca7101a81",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v0.1.65-ss-0be9d10",
+          "object_sha": "0be9d10d09b5687d77c17ff11ef28f6282c88494",
+          "sha": "0be9d10d09b5687d77c17ff11ef28f6282c88494"
+        },
+        {
+          "ref": "refs/tags/v0.1.65-ss-3c2439e",
+          "object_sha": "3c2439e0120f08855043e4ff924617596fb399e6",
+          "sha": "3c2439e0120f08855043e4ff924617596fb399e6"
+        },
+        {
+          "ref": "refs/tags/v0.1.65-ss-895f502",
+          "object_sha": "895f502d321292680617235266c5c6d8a307f6b3",
+          "sha": "895f502d321292680617235266c5c6d8a307f6b3"
+        },
+        {
+          "ref": "refs/tags/v0.1.65-ss-9b07ddb",
+          "object_sha": "9b07ddbd6535926e80fb4d38046c884dc7381580",
+          "sha": "9b07ddbd6535926e80fb4d38046c884dc7381580"
+        },
+        {
+          "ref": "refs/tags/v0.1.65-ss-ebd7dad",
+          "object_sha": "ebd7dadfc55d1c4facee3d11ecf5b28e20548b57",
+          "sha": "ebd7dadfc55d1c4facee3d11ecf5b28e20548b57"
+        },
+        {
+          "ref": "refs/tags/v0.1.66",
+          "object_sha": "8a28395588ad85f598017b5a4c2ba638b4e7d0ae",
+          "sha": null
+        },
+        {
+          "ref": "refs/tags/v0.1.66-ss-61c2704",
+          "object_sha": "61c27041f8d3d0be4cc3e046ee04501649c9d66e",
+          "sha": "61c27041f8d3d0be4cc3e046ee04501649c9d66e"
+        },
+        {
+          "ref": "refs/tags/v0.1.68-ss-3e55c84",
+          "object_sha": "3e55c8486b2057e40c1f74aaaa1155c82341cf76",
+          "sha": "3e55c8486b2057e40c1f74aaaa1155c82341cf76"
+        },
+        {
+          "ref": "refs/tags/v0.1.68-ss-7b1107d",
+          "object_sha": "7b1107d5e2d08ae13c96f923eef6f0ec8281f4c1",
+          "sha": "7b1107d5e2d08ae13c96f923eef6f0ec8281f4c1"
+        },
+        {
+          "ref": "refs/tags/v0.1.68-ss-94a41a0",
+          "object_sha": "94a41a00836997d55a05f254a8ceb74333ce3728",
+          "sha": "94a41a00836997d55a05f254a8ceb74333ce3728"
+        },
+        {
+          "ref": "refs/tags/v0.1.68-ss-f34cfd3",
+          "object_sha": "f34cfd3953bbd9ee54c81cf600011a35205a098b",
+          "sha": "f34cfd3953bbd9ee54c81cf600011a35205a098b"
+        }
+      ]
+    },
+    {
+      "repository_full_name": "NRG-Wardog/jktcp",
+      "actual_default_branch": "master",
+      "audited_default_sha": "a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9",
+      "branches": [
+        {
+          "name": "dependabot/cargo/rand-0.9.3",
+          "sha": "376b9d20a491354815d27bfaca6d57945f392202",
+          "protected": false,
+          "inventory_candidate": true,
+          "exclusion_reasons": []
+        },
+        {
+          "name": "master",
+          "sha": "a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "actual_default_branch"
+          ]
+        },
+        {
+          "name": "migration/runtime-source-141776ba",
+          "sha": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_migration_or_source_graph_provenance"
+          ]
+        },
+        {
+          "name": "validation/upstream-first-6.0",
+          "sha": "a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9",
+          "protected": false,
+          "inventory_candidate": false,
+          "exclusion_reasons": [
+            "conservative_release_build_or_package_provenance"
+          ]
+        }
+      ],
+      "retained_anchors": [
+        {
+          "ref": "refs/heads/master",
+          "object_sha": "a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9",
+          "sha": "a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9"
+        },
+        {
+          "ref": "refs/tags/v0.1.5",
+          "object_sha": "dfb32a2eab70771766faa34d89cdcb5502091c98",
+          "sha": "dfb32a2eab70771766faa34d89cdcb5502091c98"
+        },
+        {
+          "ref": "refs/tags/v0.1.6",
+          "object_sha": "58828d87a17135e90b82e343579e29e837ffd103",
+          "sha": null
+        }
+      ]
+    }
+  ]
+}

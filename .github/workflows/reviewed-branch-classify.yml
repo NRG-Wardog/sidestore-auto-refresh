@@ -1,0 +1,44 @@
+name: Read-only reviewed branch ancestry classification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.ci/branch-cleanup/inventory.json'
+
+permissions: {}
+concurrency:
+  group: reviewed-branch-classification
+  cancel-in-progress: false
+
+jobs:
+  classify:
+    if: github.event_name == 'push' && github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      REVIEWED_INVENTORY_SHA256: 450891d9f2649e5244368f536489fc66df5d56316bed930bcfdb275e80da57b7
+    steps:
+      - name: Checkout exact classifier workflow commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Test read-only classification without network
+        run: python3 -m unittest discover -s .ci/branch-cleanup -p 'test_classify.py' -v
+      - name: Classify exact recorded refs from all eight repositories without remote mutation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .ci/branch-cleanup/classify.py
+      - name: Space the next GitHub operation
+        run: sleep 3.1
+      - name: Save read-only classification for coordinator review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: branch-classification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: branch-classification.json
+          if-no-files-found: error
+          retention-days: 7
