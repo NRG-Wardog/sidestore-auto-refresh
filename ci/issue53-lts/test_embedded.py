@@ -57,7 +57,7 @@ class EmbeddedTests(unittest.TestCase):
             pin=embedded.git(upstream,'rev-parse','HEAD').decode().strip()
             built=root/'built';generated=built/'GeneratedDependencies/OpenSSL35';generated.mkdir(parents=True)
             (generated/'fixture').write_bytes(b'synthetic library, not executed')
-            receipt={'schema':'issue53-ios-generated-dependency-v1','status':'BUILT_COMPILE_LINK_CHECKED_NOT_RUNTIME_QUALIFIED',
+            receipt={'optimization':'Os','schema':'issue53-ios-generated-dependency-v1','status':'BUILT_COMPILE_LINK_CHECKED_NOT_RUNTIME_QUALIFIED',
                 'source':json.loads((embedded.HERE/'source.json').read_text()),'recipe_sha256':build.digest(embedded.HERE/'build_ios.py'),
                 'shared_recipe_sha256':build.digest(embedded.HERE/'build.py'),'device_executed':False,'simulator_executed':False,
                 'production_admission':False,'old_gitlink_overwritten':False,'slices':{k:{} for k in build_ios.SLICES},

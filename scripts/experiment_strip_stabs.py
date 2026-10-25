@@ -41,8 +41,21 @@ OPENSSL_TARGETS = {
     'OpenSSLEmbedded': 'Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Frameworks/OpenSSL.framework/OpenSSL',
 }
 
-def target_policy(include_generated_openssl=False):
-    return {**TARGETS, **OPENSSL_TARGETS} if include_generated_openssl else dict(TARGETS)
+UNSIGNED_HELPER_TARGETS = {
+    'SideStoreSupport': 'Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport',
+    'ZSign': 'Payload/LiveContainer.app/Frameworks/ZSign.dylib',
+}
+UNSIGNED_HELPER_DSYMS = {
+    'SideStoreSupport': ('LiveContainer', 'SideStoreSupport.framework.dSYM'),
+    'ZSign': ('LiveContainer', 'ZSign.dylib.dSYM'),
+}
+
+
+def target_policy(include_generated_openssl=False, include_unsigned_helpers=False):
+    result = dict(TARGETS)
+    if include_generated_openssl: result.update(OPENSSL_TARGETS)
+    if include_unsigned_helpers: result.update(UNSIGNED_HELPER_TARGETS)
+    return result
 
 DSYMS = {
     'LiveContainerSwiftUI': ('LiveContainer', 'LiveContainerSwiftUI.framework.dSYM'),
@@ -134,8 +147,8 @@ def run(command, log):
     require(result.returncode == 0, 'trusted tool failed: ' + command[0] + '; see ' + str(log))
 
 
-def repackage(original, output, replacements, *, include_generated_openssl=False):
-    require(set(replacements) == set(target_policy(include_generated_openssl).values()), 'binary replacement allowlist differs')
+def repackage(original, output, replacements, *, include_generated_openssl=False, include_unsigned_helpers=False):
+    require(set(replacements) == set(target_policy(include_generated_openssl, include_unsigned_helpers).values()), 'binary replacement allowlist differs')
     require(not output.exists() and not output.is_symlink(), 'fresh derivative IPA required')
     old, comment = inspect(original)
     with zipfile.ZipFile(original) as source, zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as target:
@@ -222,7 +235,7 @@ def apple_adhoc_diagnostic(source, stripped, work, output):
 
 def transform_verified_inputs(original, targets, diagnostics, sidecar, *, work, output,
                               report, expected_original_sha, apple_adhoc_package=True,
-                              apple_adhoc_diagnostic_only=False, include_generated_openssl=False):
+                              apple_adhoc_diagnostic_only=False, include_generated_openssl=False, include_unsigned_helpers=False):
     """Shared copy-only transformation. Caller binds input IPA and symbols provenance.
 
 No fixed artifact/run identifier is consulted here. Both experiment and native
@@ -232,7 +245,7 @@ same-run packaging execute this exact transformation and all original gates.
     args = SimpleNamespace(work=work, output=output, apple_adhoc_package=apple_adhoc_package,
                            apple_adhoc_diagnostic_only=apple_adhoc_diagnostic_only)
     require(digest(original) == expected_original_sha, 'bound initial IPA hash differs')
-    paths = target_policy(include_generated_openssl)
+    paths = target_policy(include_generated_openssl, include_unsigned_helpers)
     require(set(targets) == set(paths) and set(diagnostics) == set(paths), 'transform target/symbol closure differs')
     with zipfile.ZipFile(original) as archive:
         require(all(archive.read(paths[key]) == data for key, data in targets.items()), 'bound target bytes differ')
@@ -242,6 +255,8 @@ same-run packaging execute this exact transformation and all original gates.
     report['retained_debug_sidecar_sha256'] = digest(sidecar)
     report['before_size'] = size_report(original)
     for key, data in targets.items():
+        if key in UNSIGNED_HELPER_TARGETS:
+            require(signing(data).get('signature_present') is False, 'helper is no longer unsigned')
         require(image_uuid(data) == diagnostics[key]['uuid'], 'initial dSYM UUID differs')
         write(output / (key + '-before.json'), snapshot(data))
     write(output / 'SideStore-original-signing-metadata.json', signature_metadata(targets['SideStore']))
@@ -307,7 +322,8 @@ same-run packaging execute this exact transformation and all original gates.
     if include_generated_openssl:
         require(replacements[OPENSSL_TARGETS['OpenSSLHost']] == replacements[OPENSSL_TARGETS['OpenSSLEmbedded']],
                 'generated OpenSSL transformed copies differ')
-    verification = repackage(original, ipa, replacements, include_generated_openssl=include_generated_openssl)
+    verification = repackage(original, ipa, replacements, include_generated_openssl=include_generated_openssl,
+                             include_unsigned_helpers=include_unsigned_helpers)
     report['after_size'] = size_report(ipa)
     require(ipa.stat().st_size < original.stat().st_size, 'derivative archive is not smaller')
     require(digest(original) == expected_original_sha, 'original IPA changed')

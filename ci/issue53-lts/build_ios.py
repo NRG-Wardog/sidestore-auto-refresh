@@ -63,7 +63,8 @@ def decorate(framework,sdk):
     (framework/'PrivacyInfo.xcprivacy').write_bytes(plistlib.dumps({'NSPrivacyCollectedDataTypes':[],
         'NSPrivacyAccessedAPITypes':[],'NSPrivacyTrackingDomains':[],'NSPrivacyTracking':False}))
 
-def generate(output,archive=None):
+def generate(output,archive=None,*,optimization="O2"):
+    opt=build.optimization_flag(optimization)
     output,archive=build.normalized_paths(output,archive)
     if platform.system()!='Darwin':raise ValueError('Apple SDK build requires macOS')
     if output.exists():raise ValueError('Refusing existing generated dependency output')
@@ -89,7 +90,7 @@ def generate(output,archive=None):
         sdk_path=command(['xcrun','--sdk',sdk,'--show-sdk-path'])
         sdk_version=command(['xcrun','--sdk',sdk,'--show-sdk-version'])
         flags=['-target',triple,'-isysroot',sdk_path]
-        env.update(SDKROOT=sdk_path,CFLAGS='-O2 -g -fPIC '+' '.join(flags),LDFLAGS=' '.join(flags))
+        env.update(SDKROOT=sdk_path,CFLAGS=opt+' -g -fPIC '+' '.join(flags),LDFLAGS=' '.join(flags))
         configure=[str(tools['perl']),str(source/'Configure'),target,'no-shared','no-module','enable-legacy','no-asm',
                    '--prefix='+str(prefix),'--openssldir='+str(prefix/'ssl')]
         previous=Path.cwd()
@@ -125,7 +126,7 @@ def generate(output,archive=None):
         probe=stage/'module-probe.m';probe.write_text('@import OpenSSL;\nint main(void) { return OpenSSL_version(0) == 0 || OSSL_PROVIDER_load(0, "legacy") == 0; }\n')
         command([str(tools['clang']),*flags,'-fmodules','-fmodules-cache-path='+str(stage/'module-cache'),
                  '-F',str(stage),str(probe),'-framework','OpenSSL','-o',str(stage/'module-probe')],120)
-        receipts[name]={'sdk':sdk,'sdk_version':sdk_version,'architecture':arch,'target_triple':triple,
+        receipts[name]={'build_environment':{key:env[key] for key in ('CFLAGS','LDFLAGS','ZERO_AR_DATE','SOURCE_DATE_EPOCH')},'sdk':sdk,'sdk_version':sdk_version,'architecture':arch,'target_triple':triple,
             'configure':configure,'configuration_sha256':build.digest(stage/'configdata.txt'),
             'source_inventory_sha256':hashlib.sha256(json.dumps(original,sort_keys=True).encode()).hexdigest(),
             'archives_sha256':{p.name:build.digest(p) for p in archives},'framework_inventory':build.inventory(framework),
@@ -158,7 +159,7 @@ def generate(output,archive=None):
     closure={(p['SupportedPlatform'],p.get('SupportedPlatformVariant'),tuple(sorted(p['SupportedArchitectures']))) for p in libs}
     if len(libs)!=2 or closure!={('ios',None,('arm64',)),('ios','simulator',('arm64','x86_64'))}:raise ValueError('Unexpected XCFramework slice closure')
     receipt={'schema':'issue53-ios-generated-dependency-v1','status':'BUILT_COMPILE_LINK_CHECKED_NOT_RUNTIME_QUALIFIED',
-        'source':pins,'recipe_sha256':build.digest(Path(__file__)),'shared_recipe_sha256':build.digest(HERE/'build.py'),
+        'source':pins,'optimization':optimization,'recipe_sha256':build.digest(Path(__file__)),'shared_recipe_sha256':build.digest(HERE/'build.py'),
         'xcode':xcode,'tools':{name:{'invocation':str(p),'resolved':str(p.resolve(strict=True)),'sha256':build.digest(p)} for name,p in tools.items()},
         'slices':receipts,'merged_simulator_module_probe_sha256':merged_probe_hashes,'simulator_architecture_specific_headers':differing,'generated_inventory':build.inventory(generated),
         'xcframework_relative_path':'GeneratedDependencies/OpenSSL35/OpenSSL.xcframework',
@@ -169,4 +170,5 @@ def generate(output,archive=None):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--archive',type=Path)
-    args=parser.parse_args();generate(args.output,args.archive)
+    parser.add_argument('--optimization',choices=('O2','Os'),default='O2')
+    args=parser.parse_args();generate(args.output,args.archive,optimization=args.optimization)

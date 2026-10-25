@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['integration/complete-issues-oct25']
-    paths: ['ci/issues-native/**', '.github/workflows/issues-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_native_size_optimization.py']
+    paths: ['ci/issues-native/**', '.github/workflows/issues-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
 permissions:
   contents: read
 concurrency:
@@ -79,6 +79,8 @@ jobs:
         id: source_gate
         run: |
           set -euo pipefail
+          python3 -B harness/ci/issues-native/test_release_coverage.py | tee evidence/release-coverage-controls.log
+          python3 -B harness/ci/issues-native/test_native_transfer_seal.py 2>&1 | tee evidence/native-transfer-seal-controls.log
           python3 -B harness/ci/issues-native/test_generated_openssl_inputs.py 2>&1 | tee evidence/generated-openssl-seal-controls.log
           python3 -B harness/ci/issue53-lts/test_embedded.py 2>&1 | tee evidence/embedded-openssl-scaffold-controls.log
           python3 -B harness/ci/issues-native/test_workflow_failure_collection.py
@@ -87,8 +89,10 @@ jobs:
           python3 -B harness/ci/issues-native/test_issue_receipt.py
           python3 -B harness/ci/issues-native/test_candidate_graph.py
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py
+          python3 -B harness/ci/issues-native/test_russian_pairing_projection.py
           python3 -B harness/ci/issues-native/verify_candidate_graph.py
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
+          python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
       - name: Qualify exact owned ODA source and verified local startup
         id: owned_oda_tests
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
@@ -257,12 +261,31 @@ jobs:
         timeout-minutes: 35
         run: |
           set -euo pipefail
-          trap 'status=$?; if test -f lts-ios-build/build-ios.log; then cp lts-ios-build/build-ios.log evidence/; fi; for slice in ios-arm64 sim-arm64 sim-x86_64; do if test -f "lts-ios-build/$slice/configdata.txt"; then cp "lts-ios-build/$slice/configdata.txt" "evidence/$slice-openssl-config.log"; fi; done; exit "$status"' EXIT
+          collect_crypto_evidence() {
+            status=$?
+            trap - EXIT
+            if test -f lts-host-build/build.log; then cp lts-host-build/build.log evidence/openssl-host-build.log; fi
+            if test -f lts-host-build/configdata.txt; then cp lts-host-build/configdata.txt evidence/openssl-host-config.log; fi
+            if test -f lts-ios-build/build-ios.log; then cp lts-ios-build/build-ios.log evidence/; fi
+            for slice in ios-arm64 sim-arm64 sim-x86_64; do
+              if test -f "lts-ios-build/$slice/configdata.txt"; then cp "lts-ios-build/$slice/configdata.txt" "evidence/$slice-openssl-config.log"; fi
+            done
+            exit "$status"
+          }
+          trap collect_crypto_evidence EXIT
           python3 -B -m unittest discover -s harness/ci/issue53-lts -p 'test_*.py' 2>&1 | tee evidence/openssl-lts-controls.log
-          python3 -B harness/ci/issue53-lts/build_ios.py --output lts-ios-build 2>&1 | tee evidence/openssl-ios-build-driver.log
+          python3 -B harness/ci/issue55-openssl-size/test_experiment.py 2>&1 | tee evidence/openssl-size-controls.log
+          python3 -B harness/ci/issue55-openssl-size/test_admission.py 2>&1 | tee evidence/openssl-admission-controls.log
+          python3 -B harness/ci/issue53-lts/build.py --output lts-host-build --optimization Os 2>&1 | tee evidence/lts-build-driver.log
+          cp lts-host-build/build-receipt.json evidence/openssl-host-build-receipt.json
+          python3 -B harness/ci/issue53-crypto/acquire.py --output openssl-qualification-inputs 2>&1 | tee evidence/comparison-acquisition.log
+          python3 -B harness/ci/issue53-crypto/consumer.py acquire --inputs openssl-qualification-inputs 2>&1 | tee evidence/signer-acquisition.log
+          python3 -B harness/ci/issue53-lts/qualify.py --built lts-host-build --inputs openssl-qualification-inputs --evidence evidence 2>&1 | tee evidence/lts-qualification-driver.log
+          python3 -B harness/ci/issue53-lts/build_ios.py --output lts-ios-build --archive lts-host-build/openssl-3.5.9.tar.gz --optimization Os 2>&1 | tee evidence/openssl-ios-build-driver.log
+          cp lts-ios-build/ios-build-receipt.json evidence/openssl-ios-build-receipt.json
+          python3 -B harness/ci/issue55-openssl-size/measure.py --mac lts-host-build --ios lts-ios-build --evidence evidence 2>&1 | tee evidence/openssl-size-measurement.log
           python3 -B harness/ci/issues-native/record.py stage-openssl lts-ios-build
           python3 -B harness/ci/issues-native/record.py stage-embedded-openssl lts-ios-build sources/RemotePairingKit
-          cp lts-ios-build/ios-build-receipt.json evidence/openssl-ios-build-receipt.json
       - name: Capture genuine app lock transition to exact AnisetteKit
         id: package_resolution
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.abi_inspection.outcome == 'success' && steps.openssl_inputs.outcome == 'success' }}
@@ -278,33 +301,22 @@ jobs:
           python3 harness/ci/issues-native/record.py seal-resolution
           python3 harness/ci/issues-native/record.py verify-resolved
           python3 harness/ci/issues-native/record.py snapshot compiler-inputs
-      - name: Record effective Release coverage settings without changing them
+      - name: Verify effective Release instrumentation settings for both projects
         id: coverage_settings
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.package_resolution.outcome == 'success' }}
         run: |
           set -euo pipefail
-          xcodebuild -project sources/LiveContainer/LiveContainer.xcodeproj -scheme LiveContainer \
-            -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' \
-            -derivedDataPath "$RUNNER_TEMP/native-LiveContainer" \
-            -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution \
-            -showBuildSettings -json > "$RUNNER_TEMP/LiveContainer-release-settings.json"
-          python3 - <<'PY_COVERAGE'
-          import json, os, pathlib
-          keys = ('CLANG_ENABLE_CODE_COVERAGE', 'ENABLE_CODE_COVERAGE',
-                  'GCC_GENERATE_TEST_COVERAGE_FILES', 'GCC_INSTRUMENT_PROGRAM_FLOW_ARCS',
-                  'SWIFT_OPTIMIZATION_LEVEL', 'ENABLE_TESTABILITY')
-          rows = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'LiveContainer-release-settings.json').read_text())
-          if not isinstance(rows, list) or not rows: raise ValueError('Missing effective build settings')
-          observed = []
-          for row in rows:
-              settings = row['buildSettings']
-              if settings.get('CONFIGURATION') != 'Release': raise ValueError('Not Release build settings')
-              observed.append({'target': row['target'], 'configuration': 'Release',
-                               'settings': {key: settings.get(key) for key in keys}})
-          receipt = {'workflow_commit': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
-                     'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'behavior_changed': False, 'targets': observed}
-          pathlib.Path('evidence/LiveContainer-release-coverage-settings.json').write_text(json.dumps(receipt, indent=2))
-          PY_COVERAGE
+          for owner in LiveContainer SideStore; do
+            project=LiveContainer.xcodeproj
+            if [ "$owner" = SideStore ]; then project=AltStore.xcodeproj; fi
+            xcodebuild -project "sources/$owner/$project" -alltargets \
+              -sdk iphoneos -configuration Release \
+              -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution \
+              -showBuildSettings -json > "$RUNNER_TEMP/$owner-release-settings.json"
+          done
+          python3 harness/ci/issues-native/release_coverage.py settings --require-support-size \
+            --inputs "$RUNNER_TEMP/LiveContainer-release-settings.json" "$RUNNER_TEMP/SideStore-release-settings.json" \
+            --output evidence/release-coverage-settings.json
       - name: Compile unsigned LiveContainer app and extensions
         id: livecontainer_build
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.package_resolution.outcome == 'success' }}
@@ -329,6 +341,13 @@ jobs:
             -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee evidence/SideStore-build.log
           printf '0\n' > evidence/SideStore-build.exit-code.txt
+      - name: Reject instrumentation in actual native Release compiler commands
+        if: ${{ !cancelled() && steps.livecontainer_build.outcome == 'success' && steps.sidestore_build.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 harness/ci/issues-native/release_coverage.py logs --require-support-size \
+            --inputs evidence/LiveContainer-build.log evidence/SideStore-build.log \
+            --output evidence/release-coverage-commands.json
       - name: Verify unchanged compiler inputs and record outputs
         run: |
           set -euo pipefail
@@ -342,7 +361,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, stat, subprocess
+          import hashlib, json, os, pathlib, stat, subprocess, sys
           
           def require(ok, message):
               if not ok:
@@ -414,6 +433,15 @@ jobs:
               print(owner + ' archive bytes: ' + str(size), flush=True)
               # Leave 12 MiB for the GitHub outer artifact ZIP.
               require(size < 524288000, owner + ' archive requires bounded artifact splitting: ' + str(size))
+          sys.path.insert(0, str(pathlib.Path('harness/ci/issues-native').resolve(strict=True)))
+          from native_transfer_seal import create as seal_native_transfers
+          seal_sha = seal_native_transfers(pathlib.Path('evidence/receipt.json'),
+              {owner: pathlib.Path(os.environ['RUNNER_TEMP']) / ('native-transfer-' + owner)
+               for owner in ('LiveContainer', 'SideStore')},
+              pathlib.Path('evidence/native-transfer-seal.json'),
+              {key: receipt[key] for key in ('workflow_commit', 'run_id', 'run_attempt')})
+          with open(os.environ['GITHUB_ENV'], 'a') as environment:
+              environment.write('NATIVE_TRANSFER_SEAL_SHA256=' + seal_sha + '\n')
           PY
       - name: Upload unsigned LiveContainer and matching compile evidence
         if: success()
@@ -443,6 +471,8 @@ jobs:
           sys.path.insert(0, str(root))
           suite = unittest.TestSuite()
           for pattern in ('test_macho_stab_guard.py', 'test_experiment_strip_stabs.py',
+                          'test_macho_local_symbol_guard.py', 'test_experiment_local_symbols.py', 'test_local_symbol_packaging.py', 'test_local_symbol_runtime_keep.py',
+                          'test_sidebackup_stabs.py', 'test_sidebackup_same_run.py',
                           'test_native_size_optimization.py', 'test_combined_packaging.py', 'test_ipa_size_report.py'):
               tests = unittest.TestLoader().discover(str(root), pattern=pattern)
               if tests.countTestCases() == 0: raise ValueError('Missing size controls: ' + pattern)

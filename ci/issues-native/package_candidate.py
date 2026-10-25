@@ -64,6 +64,14 @@ def main():
     from verify_candidate_graph import load_candidate_graph
     if receipt.get('requested_graph') != load_candidate_graph()['owners']:
         raise ValueError('Compile receipt graph differs from reviewed candidate')
+    from native_transfer_seal import verify as verify_transfer_seal
+    transfer_roots = {owner: Path(os.environ['RUNNER_TEMP']) / ('native-transfer-' + owner)
+                      for owner in ('LiveContainer', 'SideStore')}
+    run_identity = {key: receipt[key] for key in ('workflow_commit', 'run_id', 'run_attempt')}
+    seal_path = Path('evidence/native-transfer-seal.json')
+    seal_sha = os.environ['NATIVE_TRANSFER_SEAL_SHA256']
+    sealed_manifests = verify_transfer_seal(seal_path, Path('evidence/receipt.json'), transfer_roots,
+                                          run_identity, expected_seal_sha=seal_sha)
     expected = json.loads(Path('evidence/product-hashes.json').read_text())
     if set(expected) != {'LiveContainer', 'SideStore'}: raise ValueError('Unexpected product set')
     root = Path('packaging-inputs')
@@ -114,13 +122,25 @@ def main():
     initial_hash = sha(initial)
     try:
         optimized, size_report = optimize_same_run_ipa(initial, expected_sha=initial_hash,
-            transfer_roots={owner: Path(os.environ['RUNNER_TEMP']) / ('native-transfer-' + owner) for owner in expected},
+            transfer_roots=transfer_roots,
             receipt_path=Path('evidence/receipt.json'), work=Path('packaging-size-work'),
             output=Path('packaging-size-products'), retained=Path('size-diagnostics'),
-            run_identity={key: receipt[key] for key in ('run_id', 'run_attempt', 'workflow_commit')},
-            generated_openssl=generated_openssl)
+            run_identity=run_identity, generated_openssl=generated_openssl, include_local_symbols=True,
+            expected_transfer_manifests=sealed_manifests)
+        size_report['native_transfer_seal_sha256'] = seal_sha
+        from optimize_sidebackup_candidate import optimize_sidebackup_same_run
+        optimized, size_report = optimize_sidebackup_same_run(optimized, prior_report=size_report,
+            transfer=transfer_roots['SideStore'], receipt_path=Path('evidence/receipt.json'),
+            run_identity=run_identity, output=Path('packaging-sidebackup-products'),
+            retained=Path('size-diagnostics/sidebackup'), expected_manifest_sha=sealed_manifests['SideStore'])
+        verify_transfer_seal(seal_path, Path('evidence/receipt.json'), transfer_roots,
+                             run_identity, expected_seal_sha=seal_sha)
+        shutil.copyfile(seal_path, Path('size-diagnostics/native-transfer-seal.json'))
+        if sha(Path('size-diagnostics/native-transfer-seal.json')) != seal_sha:
+            raise ValueError('Retained transfer seal differs')
     finally:
         copy_size_reports(Path('packaging-size-products'), Path('package-evidence/size-reports'))
+        copy_size_reports(Path('packaging-sidebackup-products'), Path('package-evidence/sidebackup-reports'))
     native_record.verify_generated_openssl_payload()
     native_record.verify_generated_openssl_payload(embedded=True)
     # The transform never edits compiled products, receipts, or the initial IPA.
@@ -147,6 +167,7 @@ def main():
                       public_release_modified=False, physical_device_validation=False,
                       metadata_changes=records, initial_ipa_sha256=initial_hash,
                       size_optimization_receipt_sha256=sha(Path('diagnostic/size-optimization.json')),
+                      native_transfer_seal_sha256=seal_sha,
                       retained_original_ipa_and_symbols_sha256=size_report['retained_debug_sidecar_sha256'],
                       signing_policy='reviewed Apple ad-hoc; original designated requirement replaced; installer resigning required')
     Path('diagnostic/provenance.json').write_text(json.dumps(provenance, indent=2))

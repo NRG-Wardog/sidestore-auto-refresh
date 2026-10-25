@@ -1,8 +1,8 @@
 """Project reviewed candidate input blobs and finite additive coverage.
 
 Historical baseline owners/hashes and every existing ordered case are retained.
-Only explicitly allowlisted new production inputs and five reviewed host guard
-cases may be added. This projection is not proof that any test executed.
+Only explicitly allowlisted new production inputs and reviewed host/Russian
+case extensions may be added. This projection is not proof that any test executed.
 """
 import copy
 import hashlib
@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from russian_pairing_projection import add as add_russian_pairing
 from russian_setup_projection import REVIEWED_INPUT as RUSSIAN_REVIEWED_INPUT, add as add_russian_setup
 from verify_candidate_graph import HERE, load_candidate_graph, require, valid_path, git
 
@@ -108,12 +109,14 @@ def contracts(sources, output, verify=False):
     for name in CONTRACTS:
         original = HERE / name
         additional_inputs = ADDITIONAL_INPUTS[name]
-        russian = name == 'setup-state-recovery-contract.json' and RUSSIAN_REVIEWED_INPUT.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {})
-        if russian: additional_inputs = additional_inputs + (RUSSIAN_REVIEWED_INPUT,)
+        russian = RUSSIAN_REVIEWED_INPUT.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {})
+        if russian and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (RUSSIAN_REVIEWED_INPUT,)
         projected, changes = project(json.loads(original.read_text()), graph, sources, additional_inputs)
         if name == 'setup-state-recovery-contract.json':
             projected = add_reviewed_host_coverage(projected)
             if russian: projected = add_russian_setup(projected)
+        elif russian:
+            projected = add_russian_pairing(projected)
         data = (json.dumps(projected, indent=2, sort_keys=True) + '\n').encode()
         target = output / name
         if verify:
@@ -123,7 +126,8 @@ def contracts(sources, output, verify=False):
             target.write_bytes(data)
         receipts[name] = {'frozen_contract_sha256': sha(original.read_bytes()),
                           'candidate_contract_sha256': sha(data), 'rebound_inputs': changes,
-                          'russian_setup_extension': projected.get('russian_setup_extension')}
+                          'russian_setup_extension': projected.get('russian_setup_extension'),
+                          'russian_pairing_extension': projected.get('russian_pairing_extension')}
     receipt = {'schema': 'reviewed-candidate-contract-projection-v1',
                'graph_sha256': sha((HERE / 'candidate-graph.json').read_bytes()),
                'existing_behavioral_expectations_preserved': True,

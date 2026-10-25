@@ -9,7 +9,17 @@ import build
 
 HERE=Path(__file__).resolve().parent
 
-def validate_receipt(receipt):
+def consumer_policy():
+    policy=json.loads((HERE/'consumer-policy.json').read_text())
+    expected={'schema':'issue53-generated-consumer-policy-v1','optimization':'Os',
+              'historical_builder_default':'O2','qualification':'same-run-native-macos-and-three-ios-slices'}
+    if policy!=expected:raise ValueError('Unexpected generated consumer policy')
+    return policy
+
+def validate_receipt(receipt, *, allow_size_experiment=False):
+    allowed = ("O2", "Os") if allow_size_experiment else (consumer_policy()["optimization"],)
+    if receipt.get("optimization", "O2") not in allowed:
+        raise ValueError("Experimental optimization is not admitted for consumer staging")
     if receipt.get('schema')!='issue53-ios-generated-dependency-v1' or receipt.get('status')!='BUILT_COMPILE_LINK_CHECKED_NOT_RUNTIME_QUALIFIED':
         raise ValueError('Unexpected generated iOS receipt')
     if receipt.get('source')!=json.loads((HERE/'source.json').read_text()) or receipt.get('recipe_sha256')!=build.digest(HERE/'build_ios.py') or receipt.get('shared_recipe_sha256')!=build.digest(HERE/'build.py'):
@@ -19,10 +29,10 @@ def validate_receipt(receipt):
     if set(receipt.get('slices',{}))!={'ios-arm64','sim-arm64','sim-x86_64'} or set(receipt.get('merged_simulator_module_probe_sha256',{}))!={'arm64','x86_64'} or receipt.get('xcframework_relative_path')!='GeneratedDependencies/OpenSSL35/OpenSSL.xcframework':
         raise ValueError('Incomplete generated slice/probe/path closure')
 
-def validate(built):
+def validate(built, *, allow_size_experiment=False):
     built=Path(built).resolve(strict=True)
     receipt=json.loads((built/'ios-build-receipt.json').read_text())
-    validate_receipt(receipt)
+    validate_receipt(receipt, allow_size_experiment=allow_size_experiment)
     generated=built/'GeneratedDependencies/OpenSSL35'
     if build.inventory(generated)!=receipt.get('generated_inventory'):raise ValueError('Generated framework/dSYM bytes differ')
     return generated,receipt

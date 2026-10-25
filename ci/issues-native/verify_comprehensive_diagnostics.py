@@ -1,4 +1,5 @@
 """Consolidated source-owned fake diagnostics; never links or executes native providers."""
+from russian_pairing_projection import resources as russian_pairing_resources
 import argparse
 import hashlib
 import json
@@ -254,6 +255,7 @@ def load_contract(path):
         require(isinstance(names, list) and names and
                 all(isinstance(name, str) and name and 'PENDING' not in name for name in names) and
                 len(names) == len(set(names)), 'Unbound or malformed setup case contract: ' + suite)
+    russian_pairing_resources(contract)
     names = contract.get('pairing_recovery_case_names')
     require(isinstance(names, list) and names and len(names) == len(set(names)) and
             all(isinstance(n, str) and n and 'PENDING' not in n for n in names),
@@ -408,14 +410,15 @@ def pairing_recovery_extraction(output, contract, before_compile=False):
             for name in PAIRING_RECOVERY_FIXTURE_PATHS}, 'Pairing recovery fixture input hashes differ')
     require(value.get('baseline_store_sha256') == PAIRING_RECOVERY_BASELINE_STORE_SHA256,
             'Pairing recovery delivered baseline method differs')
-    outputs = {name: digest(regular(root, name).read_bytes()) for name in PAIRING_RECOVERY_OUTPUTS}
+    output_names = PAIRING_RECOVERY_OUTPUTS + russian_pairing_resources(contract)
+    outputs = {name: digest(regular(root, name).read_bytes()) for name in output_names}
     require(value.get('output_sha256') == outputs and value.get('fixture_sha256') == outputs['fixture.swift'],
             'Pairing recovery generated Swift/bundle hashes differ')
     for key in ('owned_paths', 'doubles'):
         require(isinstance(value.get(key), list) and value[key] and
                 all(isinstance(item, str) and item for item in value[key]), 'Missing pairing recovery boundary: ' + key)
     actual = {p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()}
-    allowed = set(PAIRING_RECOVERY_OUTPUTS) | {'sources.json'}
+    allowed = set(output_names) | {'sources.json'}
     if not before_compile: allowed |= {'fixture', 'cases.json'}
     require(actual <= allowed and allowed - {'fixture', 'cases.json'} <= actual,
             'Pairing recovery output closure differs')

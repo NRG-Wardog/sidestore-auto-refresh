@@ -31,7 +31,7 @@ class GeneratedOpenSSLInputsTests(unittest.TestCase):
         self.evidence.mkdir();self.tmp.mkdir()
         self.consumer=self.sources/'LiveContainer';project=self.consumer/'LiveContainer.xcodeproj/project.pbxproj';project.parent.mkdir(parents=True)
         project.write_text('path = GeneratedDependencies/OpenSSL35/OpenSSL.xcframework;')
-        self.built=self.root/'built';generated=self.built/'GeneratedDependencies/OpenSSL35'
+        self.built=self.root/'lts-ios-build';generated=self.built/'GeneratedDependencies/OpenSSL35'
         self.framework=generated/'OpenSSL.xcframework/ios-arm64/OpenSSL.framework';self.framework.mkdir(parents=True)
         (self.framework/'OpenSSL').write_bytes(macho())
         (self.framework/'Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'OpenSSL','CFBundleIdentifier':'org.openssl.generated.lts'}))
@@ -41,7 +41,7 @@ class GeneratedOpenSSLInputsTests(unittest.TestCase):
             {'LibraryIdentifier':'ios-arm64_x86_64-simulator','LibraryPath':'OpenSSL.framework','SupportedPlatform':'ios','SupportedPlatformVariant':'simulator','SupportedArchitectures':['arm64','x86_64']}]}))
         self.installer=recorder.generated_installer();folder=self.installer.HERE
         receipt={'schema':'issue53-ios-generated-dependency-v1','status':'BUILT_COMPILE_LINK_CHECKED_NOT_RUNTIME_QUALIFIED',
-                 'source':json.loads((folder/'source.json').read_text()),'recipe_sha256':recorder.sha(folder/'build_ios.py'),
+                 'source':json.loads((folder/'source.json').read_text()),'optimization':'Os','recipe_sha256':recorder.sha(folder/'build_ios.py'),
                  'shared_recipe_sha256':recorder.sha(folder/'build.py'),
                  'slices':{k:{} for k in ('ios-arm64','sim-arm64','sim-x86_64')},
                  'merged_simulator_module_probe_sha256':{'arm64':'0'*64,'x86_64':'0'*64},
@@ -49,9 +49,35 @@ class GeneratedOpenSSLInputsTests(unittest.TestCase):
                  'generated_inventory':self.installer.build.inventory(generated),
                  'device_executed':False,'simulator_executed':False,'production_admission':False,'old_gitlink_overwritten':False}
         (self.built/'ios-build-receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
-        for name,value in [('S',self.sources),('E',self.evidence),('TMP',self.tmp)]:
+        for name,value in [('ROOT',self.root),('S',self.sources),('E',self.evidence),('TMP',self.tmp)]:
             mock=patch.object(recorder,name,value);mock.start();self.addCleanup(mock.stop)
+        # This suite owns compiler-input sealing, not native qualification execution.
+        self.qualification={'schema':'synthetic-size-qualification-boundary','receipt_sha256':'a'*64}
+        admission=patch.object(recorder,'openssl_size_qualification',return_value=self.qualification)
+        self.admission=admission.start();self.addCleanup(admission.stop)
         env=patch.dict(os.environ,{'GITHUB_SHA':'workflow','GITHUB_RUN_ID':'run','GITHUB_RUN_ATTEMPT':'1'});env.start();self.addCleanup(env.stop)
+
+    def test_qualification_failure_precedes_either_installer_mutation(self):
+        with patch.object(recorder,'openssl_size_qualification',side_effect=ValueError('qualification rejected')), \
+             patch.object(recorder,'generated_installer') as installer:
+            with self.assertRaisesRegex(ValueError,'qualification rejected'):recorder.stage_openssl(self.built)
+            with self.assertRaisesRegex(ValueError,'qualification rejected'):recorder.stage_embedded_openssl(self.built,self.root/'upstream')
+            installer.assert_not_called()
+
+    def test_other_build_directory_rejected_before_installer(self):
+        other=self.root/'other-ios-build';other.mkdir()
+        with patch.object(recorder,'generated_installer') as installer:
+            with self.assertRaisesRegex(RuntimeError,'exact same-run'):
+                recorder.stage_openssl(other)
+            with self.assertRaisesRegex(RuntimeError,'exact same-run'):
+                recorder.stage_embedded_openssl(other,self.root/'upstream')
+            installer.assert_not_called()
+
+    def test_sealed_qualification_binding_cannot_change_after_staging(self):
+        self.stage()
+        with patch.object(recorder,'openssl_size_qualification',return_value={'schema':'synthetic-size-qualification-boundary','receipt_sha256':'b'*64}):
+            with self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):
+                recorder.generated_openssl_snapshot(required=True,sealed=True)
 
     def stage(self):
         with patch.object(recorder,'tracked',return_value={'project':'immutable'}), patch.object(recorder,'git',return_value=recorder.OWNERS['LiveContainer'][1]):
@@ -78,6 +104,8 @@ class GeneratedOpenSSLInputsTests(unittest.TestCase):
         self.assertEqual(result['generated_binary_sha256'],result['native_binary_sha256'])
         self.assertFalse(result['historical_gitlink_used_as_payload'])
         self.assertFalse(result['target_executed'])
+        self.assertEqual(result['size_qualification'],self.qualification)
+        self.assertGreaterEqual(self.admission.call_count,4)
 
     def test_bytes_extra_files_modes_and_run_drift_rejected(self):
         self.stage();root=self.consumer/'GeneratedDependencies/OpenSSL35'
@@ -200,6 +228,24 @@ class EmbeddedGeneratedInputsTests(unittest.TestCase):
         (product.parent/'ZSign.dylib').write_bytes(macho())
         with self.assertRaisesRegex(RuntimeError,'does not link'):
             recorder.verify_generated_openssl_payload()
+
+
+class SizeQualificationBridgeTests(unittest.TestCase):
+    def test_same_run_identity_paths_and_nested_receipt_are_forwarded_exactly(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);e=root/'evidence';nested={'synthetic':'ios-receipt'}
+            with patch.object(recorder,'ROOT',root),patch.object(recorder,'E',e), \
+                 patch.object(recorder,'openssl_size_admission_module') as loader, \
+                 patch.dict(os.environ,{'GITHUB_SHA':'exact-sha','GITHUB_RUN_ID':'exact-run','GITHUB_RUN_ATTEMPT':'2'}):
+                loader.return_value.verify_measurement.return_value={'synthetic':'binding'}
+                self.assertEqual(recorder.openssl_size_qualification(nested),{'synthetic':'binding'})
+                loader.return_value.verify_measurement.assert_called_once_with(e,root/'lts-host-build',root/'lts-ios-build',
+                    {'workflow_commit':'exact-sha','run_id':'exact-run','run_attempt':'2'},expected_ios_receipt=nested)
+    def test_admission_error_is_not_normalized_or_suppressed(self):
+        with patch.object(recorder,'openssl_size_admission_module') as loader, \
+             patch.dict(os.environ,{'GITHUB_SHA':'sha','GITHUB_RUN_ID':'run','GITHUB_RUN_ATTEMPT':'1'}):
+            loader.return_value.verify_measurement.side_effect=ValueError('cross-run receipt')
+            with self.assertRaisesRegex(ValueError,'cross-run receipt'):recorder.openssl_size_qualification()
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

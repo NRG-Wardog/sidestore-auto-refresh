@@ -1,0 +1,12 @@
+{
+  "candidate_inputs": {
+    "LiveContainer/.ci/comprehensive-diagnostics/generate_pairing_recovery_fixture.py": "bcaaa5cf0238c685a454e5603d52fc75250fb5f73d3747a4a773ab64c5c68e2e",
+    "LiveContainer/.ci/comprehensive-diagnostics/generate_wire_fixture.py": "eae2b298aa9c4a23b4aa8bacc0e72a0645ec6acdcae8d38c3391c7dc468c4683",
+    "LiveContainer/.ci/comprehensive-diagnostics/pairing_recovery_harness.swift": "894e33d965582853fd988ec0c82209b2abe0fc2ef7fd84f73fea5337acd6fa20",
+    "LiveContainer/.ci/comprehensive-diagnostics/test_pairing_recovery_contract.py": "3bf2b460ed162a04e7c59c3eea38161a096ca5ca891e8e52239d1981c9149411",
+    "LiveContainer/LiveContainerSwiftUI/Utilities/V3Localization.swift": "76af17a76bcc59a1dc7f4cc5f6d3d79f29dd876a84ce8758e78055d0d46857fb",
+    "LiveContainer/Resources/Localizable.xcstrings": "6d234b56fafc3c0103bb8da6019fa817905a74809eb637c224e93de7d4cd6f73"
+  },
+  "frozen_contract_sha256": "858106577241aef930f9dc4fb976d74c66625bb86217b78e769f07f0f4fd7750",
+  "schema": "reviewed-russian-pairing-extension-v1"
+}

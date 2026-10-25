@@ -143,6 +143,26 @@ def check_sealed_generated_files_before_validation(root, *, filename, schema, co
                             diagnostic=diagnostic, message=message)
 
 
+def openssl_size_admission_module():
+    """Load the source-owned stdlib admission checker without ambient build modules."""
+    import importlib.util
+    path = Path(__file__).resolve().parents[1] / 'issue55-openssl-size/admission.py'
+    require(path.is_file() and not path.is_symlink(), 'OpenSSL size admission helper missing or linked')
+    spec = importlib.util.spec_from_file_location('_same_run_openssl_size_admission', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def openssl_size_qualification(expected_ios_receipt=None):
+    """Revalidate same-run host qualification and exact measured iOS input, not device proof."""
+    identity = {'workflow_commit': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
+                'run_attempt': os.environ['GITHUB_RUN_ATTEMPT']}
+    return openssl_size_admission_module().verify_measurement(
+        E, ROOT / 'lts-host-build', ROOT / 'lts-ios-build', identity,
+        expected_ios_receipt=expected_ios_receipt)
+
+
 def generated_openssl_snapshot(*, required=False, sealed=False):
     consumer = S / 'LiveContainer'
     root = consumer / 'GeneratedDependencies/OpenSSL35'
@@ -157,7 +177,8 @@ def generated_openssl_snapshot(*, required=False, sealed=False):
     generated, receipt = generated_installer().validate_installed(consumer)
     observed = {'present': True, 'relative_path': 'LiveContainer/GeneratedDependencies/OpenSSL35',
                 'source': receipt['source'], 'recipe_sha256': receipt['recipe_sha256'],
-                'shared_recipe_sha256': receipt['shared_recipe_sha256'], 'files': generated_inventory(generated)}
+                'shared_recipe_sha256': receipt['shared_recipe_sha256'],
+                'size_qualification': openssl_size_qualification(receipt), 'files': generated_inventory(generated)}
     if sealed:
         path = E / 'generated-openssl-stage.json'
         require(path.is_file() and not path.is_symlink(), 'Generated OpenSSL stage receipt missing')
@@ -171,6 +192,9 @@ def generated_openssl_snapshot(*, required=False, sealed=False):
 
 
 def stage_openssl(built):
+    openssl_size_qualification()  # Fail before any consumer mutation.
+    require(Path(built).resolve(strict=True) == (ROOT / 'lts-ios-build').resolve(strict=True),
+            'Staging requires the exact same-run qualified iOS build directory')
     consumer = S / 'LiveContainer'
     before = tracked(consumer)
     require(git(consumer, 'rev-parse', 'HEAD') == OWNERS['LiveContainer'][1], 'Consumer pin differs before staging')
@@ -203,7 +227,8 @@ def generated_embedded_snapshot(*, required=False, sealed=False):
                 'source_repository': receipt['source_repository'], 'source_commit': receipt['source_commit'],
                 'source_tree': receipt['source_tree'], 'adapter_sha256': receipt['adapter_sha256'],
                 'source': nested['source'], 'recipe_sha256': nested['recipe_sha256'],
-                'shared_recipe_sha256': nested['shared_recipe_sha256'], 'files': generated_inventory(overlay)}
+                'shared_recipe_sha256': nested['shared_recipe_sha256'],
+                'size_qualification': openssl_size_qualification(nested), 'files': generated_inventory(overlay)}
     if sealed:
         path = E / 'generated-embedded-openssl-stage.json'
         require(path.is_file() and not path.is_symlink(), 'Embedded generated stage receipt missing')
@@ -217,6 +242,9 @@ def generated_embedded_snapshot(*, required=False, sealed=False):
 
 
 def stage_embedded_openssl(built, upstream):
+    openssl_size_qualification()  # Fail before any consumer mutation.
+    require(Path(built).resolve(strict=True) == (ROOT / 'lts-ios-build').resolve(strict=True),
+            'Staging requires the exact same-run qualified iOS build directory')
     owner = 'SideStore/Dependencies/minimuxer'
     consumer = S / owner
     before = tracked(consumer)
@@ -325,6 +353,7 @@ def verify_generated_openssl_payload(*, embedded=False):
               'native_binary_sha256': sha(payload), 'identity': identity,
               'native_consumer_sha256': sha(consumer), 'native_consumer_dependency': expected_install,
               'generated_stage_receipt_sha256': current['stage_receipt_sha256'],
+              'size_qualification': current['size_qualification'],
               'generated_inputs_unchanged': True, 'historical_gitlink_used_as_payload': False,
               'target_executed': False, 'production_admission': False}
     write(key+'-payload.json', report)

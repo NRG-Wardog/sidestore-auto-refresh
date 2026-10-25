@@ -34,7 +34,7 @@ class IOSRecipeTests(unittest.TestCase):
     def test_installer_rejects_source_or_recipe_drift(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp).resolve()
-            (root/'ios-build-receipt.json').write_text(json.dumps({'schema':'issue53-ios-generated-dependency-v1','status':'BUILT_COMPILE_LINK_CHECKED_NOT_RUNTIME_QUALIFIED'}))
+            (root/'ios-build-receipt.json').write_text(json.dumps({'optimization':'Os','schema':'issue53-ios-generated-dependency-v1','status':'BUILT_COMPILE_LINK_CHECKED_NOT_RUNTIME_QUALIFIED'}))
             with self.assertRaisesRegex(ValueError,'source/recipe'):install_ios.validate(root)
 
     def test_installer_requires_complete_bytes_and_explicit_consumer(self):
@@ -42,7 +42,7 @@ class IOSRecipeTests(unittest.TestCase):
             root=Path(temp).resolve();built=root/'built';built.mkdir()
             generated=built/'GeneratedDependencies/OpenSSL35';generated.mkdir(parents=True)
             (generated/'fixture').write_bytes(b'synthetic output, never executed')
-            receipt={'schema':'issue53-ios-generated-dependency-v1','status':'BUILT_COMPILE_LINK_CHECKED_NOT_RUNTIME_QUALIFIED',
+            receipt={'optimization':'Os','schema':'issue53-ios-generated-dependency-v1','status':'BUILT_COMPILE_LINK_CHECKED_NOT_RUNTIME_QUALIFIED',
                 'source':json.loads((build_ios.HERE/'source.json').read_text()),
                 'recipe_sha256':build.digest(build_ios.HERE/'build_ios.py'),'shared_recipe_sha256':build.digest(build_ios.HERE/'build.py'),
                 'device_executed':False,'simulator_executed':False,'production_admission':False,'old_gitlink_overwritten':False,

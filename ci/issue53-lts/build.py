@@ -66,7 +66,12 @@ def tool_invocation(path):
 def normalized_paths(output,archive=None):
     return Path(output).resolve(), Path(archive).resolve() if archive is not None else None
 
-def build(output,archive=None):
+def optimization_flag(mode):
+    if mode not in ("O2", "Os"): raise ValueError("Unsupported optimization experiment")
+    return "-"+mode
+
+def build(output,archive=None,*,optimization="O2"):
+    opt=optimization_flag(optimization)
     output,archive=normalized_paths(output,archive)
     if platform.system()!='Darwin': raise ValueError('Only native macOS qualification is enabled')
     arch=platform.machine()
@@ -93,7 +98,7 @@ def build(output,archive=None):
     source=unpack(archive,output/'source',pins['sha256'])
     before=inventory(source)
     minimum='11.0' if arch=='arm64' else '10.15'
-    env.update({'CC':str(clang),'AR':str(selected_tools['ar']),'RANLIB':str(selected_tools['ranlib']),'SDKROOT':sdk,'CFLAGS':'-O2 -g -fPIC -mmacosx-version-min='+minimum,
+    env.update({'CC':str(clang),'AR':str(selected_tools['ar']),'RANLIB':str(selected_tools['ranlib']),'SDKROOT':sdk,'CFLAGS':opt+' -g -fPIC -mmacosx-version-min='+minimum,
                 'LDFLAGS':'-mmacosx-version-min='+minimum,'ZERO_AR_DATE':'1',
                 'SOURCE_DATE_EPOCH':str(int(datetime.datetime(2026,9,29,tzinfo=datetime.timezone.utc).timestamp()))})
     prefix=output/'install'
@@ -143,7 +148,7 @@ def build(output,archive=None):
     (output/'headers.json').write_text(json.dumps(header_inventory,indent=2)+'\n')
     shutil.copyfile(source/'LICENSE.txt',output/'generated/LICENSE.txt')
     receipt={'schema':'issue53-lts-generated-dependency-v1','status':'BUILT_NOT_QUALIFIED_NOT_APP_READY',
-             'source':pins,'source_inventory_sha256':hashlib.sha256(json.dumps(before,sort_keys=True).encode()).hexdigest(),
+             'source':pins,'optimization':optimization,'source_inventory_sha256':hashlib.sha256(json.dumps(before,sort_keys=True).encode()).hexdigest(),
              'recipe_sha256':digest(Path(__file__)),'tools_sha256':tools,
              'tool_resolved_paths':{path:str(Path(path).resolve(strict=True)) for path in tools},'xcode':xcode,'compiler':compiler,
              'architecture':arch,'minimum_os':minimum,'sdk_version':sdk_version,'sdk_path':sdk,
@@ -162,4 +167,5 @@ def build(output,archive=None):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True);parser.add_argument('--archive',type=Path)
-    args=parser.parse_args();build(args.output.resolve(),args.archive.resolve() if args.archive else None)
+    parser.add_argument('--optimization',choices=('O2','Os'),default='O2')
+    args=parser.parse_args();build(args.output.resolve(),args.archive.resolve() if args.archive else None,optimization=args.optimization)

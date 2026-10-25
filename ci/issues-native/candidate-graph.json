@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "ed59e5228f21258c5bfe4a93b8b35c7f7f4527f4"
+      "0264cca8f11baf42c60697f92366a61c9cbb68cb"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "c85f5c4acf554daf22e5db8a08f701f1e8c398ae"
+      "090335943b5649d3a5dad5a185aaefa56b8f78a5"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -100,7 +100,7 @@
         ".github/workflows/native-app-compile.yml": "704a7faf9d48b8b586a70f0c2d935aa35ba85d80",
         ".github/workflows/package-diagnostic.yml": "fe77d4c7665195b7703dd05d65fdb8f081261eae",
         ".github/workflows/reviewed-branch-cleanup.yml": "ca5bbae8d856a8bc28b7899ac02e3790faa708ee",
-        "LiveContainer.xcodeproj/project.pbxproj": "5d82771cc052e2006e8799d01bc486d9ca2a2132",
+        "LiveContainer.xcodeproj/project.pbxproj": "fad36571edd7cea9fb9d567da722bdb7cb2380b6",
         "LiveContainer/Localization.m": "de9b74a6e6d7b5d93b19021e9d18cbdd6b7892b5",
         "LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift": "207d3c8d79263865d0b984f06dc6b264a2321309",
         "LiveContainerSwiftUI/Utilities/V3Localization.swift": "924be8f0143900faef51826fdc0909154ce59a29",
@@ -134,7 +134,7 @@
         "tests/test_russian_localization.py": "14de628975fb9bf2a192c6f91790c6c5ff9ccd25",
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8"
       },
-      "tree": "ab787755a282f83644b267e886aef7498f5b0956"
+      "tree": "9833f9867c54fb6fd3c354788b196a612dc7135a"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -157,6 +157,7 @@
         ".github/workflows/nightly.yml": "0a4831356302661ed391de04eb400ba01fad8570",
         ".github/workflows/reviewed-branch-cleanup.yml": "3c84d751489af85c66ac56f934b557fc083ac6d8",
         "AGENTS.md": null,
+        "AltStore.xcodeproj/project.pbxproj": "53a042b65192b1d6c2ed27926fdab69d4a09d51e",
         "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "c0ef6619c1f9971d78c809b9df3ac0e66b72d331",
         "AltStore/AppDelegate.swift": "a7f06b0675c18fe505f35c594b43f623b2dc9ec6",
         "Dependencies/SideSign": "aac073a32cc8649b8bb4e604f52e124dc867003e",
@@ -191,7 +192,7 @@
         "tests/test_diagnostic_provider_sequence.py": "7aa1b47cb7f6b0c40743a4a5393325037e81743b",
         "tests/upstream_sync/test_iloader_submit_route.py": "89740faba3efc4f71125e560fdf3ef5e6ad29a8d"
       },
-      "tree": "983764ebeecb56099ffb39707cd0c840b40aa1c0"
+      "tree": "722ba028de0239fa50954498f7eb85434f98cb41"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",

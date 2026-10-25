@@ -20,6 +20,24 @@ class ExperimentPackagingTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
+    def test_signed_helper_rejected_before_any_native_transformation(self):
+        from test_macho_stab_guard import fixture, signed_fixture
+        paths = driver.target_policy(include_unsigned_helpers=True)
+        targets = {key: fixture() for key in paths}
+        targets['SideStoreSupport'] = signed_fixture(correct_hashes=True)
+        original = self.root/'signed-helper.ipa'
+        with zipfile.ZipFile(original, 'w') as archive:
+            for key, path in paths.items(): archive.writestr(path, targets[key])
+        sidecar = self.root/'sidecar.zip'; sidecar.write_bytes(b'retained fixture')
+        diagnostics = {key: {'uuid': driver.image_uuid(data)} for key,data in targets.items()}
+        output = self.root/'output'; output.mkdir()
+        with patch.object(driver, 'size_report', return_value={}), patch.object(driver, 'run') as run:
+            with self.assertRaisesRegex(ValueError, 'helper is no longer unsigned'):
+                driver.transform_verified_inputs(original, targets, diagnostics, sidecar,
+                    work=self.root/'work', output=output, report={},
+                    expected_original_sha=driver.digest(original), include_unsigned_helpers=True)
+            run.assert_not_called()
+
     def archive(self):
         source = self.root / 'original.ipa'
         with zipfile.ZipFile(source, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
