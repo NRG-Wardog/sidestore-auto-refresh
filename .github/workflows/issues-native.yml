@@ -312,21 +312,22 @@ jobs:
             "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > evidence/release-settings/identity.txt
           for owner in LiveContainer SideStore; do
             project=LiveContainer.xcodeproj
-            package_args=()
+            if [ "$owner" = SideStore ]; then project=AltStore.xcodeproj; fi
+            # Nonempty in both branches: macOS Bash 3 treats empty arrays as
+            # unbound under nounset even when they were explicitly initialized.
+            query_args=(-project "sources/$owner/$project" -alltargets
+              -sdk iphoneos -configuration Release
+              -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution
+              -showBuildSettings -json)
             if [ "$owner" = SideStore ]; then
-              project=AltStore.xcodeproj
               # Only SideStore reuses its own successfully resolved package tree.
               # Keep the package-free LiveContainer query unchanged.
               packages="$RUNNER_TEMP/native-SideStore/SourcePackages"
               test -d "$packages"
               test ! -L "$packages"
-              package_args=(-clonedSourcePackagesDirPath "$packages")
+              query_args+=(-clonedSourcePackagesDirPath "$packages")
             fi
-            if xcodebuild -project "sources/$owner/$project" -alltargets \
-              -sdk iphoneos -configuration Release \
-              "${package_args[@]}" \
-              -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution \
-              -showBuildSettings -json > "$RUNNER_TEMP/$owner-release-settings.json"; then
+            if xcodebuild "${query_args[@]}" > "$RUNNER_TEMP/$owner-release-settings.json"; then
               query_status=0
             else
               query_status=$?

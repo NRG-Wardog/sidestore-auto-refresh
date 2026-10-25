@@ -19,13 +19,21 @@ class SettingsCacheTests(unittest.TestCase):
         resolver = WORKFLOW.split('      - name: Capture genuine app lock transition', 1)[1].split('      - name:', 1)[0]
         derived = re.search(r'-derivedDataPath "([^"\n]+)"', resolver).group(1)
         self.assertIn('packages="' + derived + '/SourcePackages"', SCRIPT)
-        self.assertIn('package_args=(-clonedSourcePackagesDirPath "$packages")', SCRIPT)
+        self.assertIn('query_args+=(-clonedSourcePackagesDirPath "$packages")', SCRIPT)
         self.assertNotIn('-derivedDataPath ', '\n'.join(line for line in SCRIPT.splitlines() if not line.lstrip().startswith('#')))
         self.assertIn('-alltargets', SCRIPT)
         self.assertIn('-onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution', SCRIPT)
         self.assertNotIn('GIT_ALLOW_PROTOCOL=', SCRIPT)
         self.assertEqual(WORKFLOW.count('GIT_ALLOW_PROTOCOL=https:file'), 1)
         self.assertIn('GIT_ALLOW_PROTOCOL: https', WORKFLOW)
+
+    def test_bash3_nounset_array_is_always_nonempty(self):
+        self.assertIn('set -euo pipefail', SCRIPT)
+        self.assertNotIn('set +u', SCRIPT)
+        self.assertNotRegex(SCRIPT, r'\w+_args=\(\)')
+        self.assertIn('query_args=(-project "sources/$owner/$project" -alltargets', SCRIPT)
+        self.assertIn('xcodebuild "${query_args[@]}"', SCRIPT)
+        self.assertLess(SCRIPT.index('query_args=(-project'), SCRIPT.index('query_args+=('))
 
     def run_shell(self, status=0, missing_cache=False, linked_cache=False, fail_owner=""):
         with tempfile.TemporaryDirectory() as directory:
