@@ -1,0 +1,30 @@
+{
+  "SideSign": {
+    "commit": "a1681f83612932bc1d68ccd007918fdb3fe7ca88",
+    "files": {
+      ".ci/iloader-auth-parity/ProviderDoubles.swift": "f56366fdbbe1174844e932ccb7c05f1c1dc74a0460dbf8411b89112292ddb6cc",
+      ".ci/iloader-auth-parity/README.md": "864ad0d1edae535500f01303ce5609b530e918e5ca6b19e8165b65cf54c8c72b",
+      ".ci/iloader-auth-parity/RuntimeTests.swift": "f620762493e344b14eb293d0c32c9417f107ac18748e573c96b8d9147860e6f6",
+      ".ci/iloader-auth-parity/generate.py": "1a15878d63350255be309cb1ff9524b47f38a0871ea56532f0cbd8516e5e6e17",
+      ".ci/iloader-auth-parity/test_source.py": "c6a651eb2202a7963dbbaad797fc6c943b3b744954f6d6305b0f99e92fe5a40e",
+      "Sources/Anisette/ILoaderRemoteAnisette.swift": "5c8c7e9c7d6f57b7d7612e86d8940fb14798ab2d53af9cd70efb46fb89da496d",
+      "Sources/Anisette/ILoaderRemoteHTTPTransport.swift": "77e85892b30b41cfcddc4a6d5d064137059b8f026bc1383f282c7500d4953364",
+      "Tests/SideSignTests/ILoaderRemoteHTTPTransportTests.swift": "5e681b560d116447163abda16132a1307b77dcacc19372ef3c3e074a4405c9da"
+    }
+  },
+  "LiveContainer": {
+    "commit": "2591361545afd14a637b91fa78ce376589e7f326",
+    "files": {
+      "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "0215b11ee2cab143aeabc9b075ad94913234d49e4916b21583f1625201239015",
+      "MultitaskSupport/LCGuestSafeAreaGeometry.h": "ef01b692a930d671ab0f67035c929190c13c53584726511d5a64a2440b660828",
+      "MultitaskSupport/UIKitHooks.m": "588729f5e74931547b4e83a74ffc9a18f35a994050eb8b8d9149583c7ac39411",
+      "docs/validation/P1_LAYOUT_HARDENING.md": "131da936aa59175b634f4a584ad90a98a4cc06855bc735894d6e1515bef47a4c",
+      "tests/fixtures/guest_safe_area_geometry.c": "349bf9afc3ead6882220b8c805ce051f05116b1874ded567e1f8cac6e523766f",
+      "tests/test_guest_safe_area_geometry.py": "69fe18d203d2efee2489d80b227df92d2cb687bb1d1f70c11afb9a395caec0ce",
+      "tests/test_recovery_banner_layout.py": "5dc71745d6ddbb14de6c07a22cbecce808bbf9f6fda3d1facc8004ee958345f6"
+    }
+  },
+  "SideStore": {
+    "commit": "18ab80ac78853e988adbe5dab67a1f9f4027eff4"
+  }
+}

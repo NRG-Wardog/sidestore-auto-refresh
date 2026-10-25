@@ -1,0 +1,76 @@
+name: Validate recovered production forwardports
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.ci/branch-forwardports/**'
+      - '.github/workflows/reviewed-branch-forwardports.yml'
+permissions:
+  contents: read
+concurrency:
+  group: reviewed-branch-forwardports
+  cancel-in-progress: false
+jobs:
+  focused:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/SideSign
+          ref: a1681f83612932bc1d68ccd007918fdb3fe7ca88
+          path: SideSign
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/LiveContainer
+          ref: 2591361545afd14a637b91fa78ce376589e7f326
+          path: LiveContainer
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/SideStore
+          ref: 18ab80ac78853e988adbe5dab67a1f9f4027eff4
+          path: SideStore
+          persist-credentials: false
+      - name: Run independent source-owned gates and collect all failures
+        run: python3 .ci/branch-forwardports/run.py
+      - name: Preserve exact source receipts and bounded fixture logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forwardport-results-${{ github.sha }}
+          path: |
+            forwardport-results/*.json
+            forwardport-results/*.log
+            forwardport-results/iloader/source-evidence.json
+          if-no-files-found: error
+          retention-days: 14
+  native-layout:
+    needs: focused
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/LiveContainer
+          ref: 2591361545afd14a637b91fa78ce376589e7f326
+          submodules: recursive
+          persist-credentials: false
+      - name: Compile exact app candidate without signing or packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 2591361545afd14a637b91fa78ce376589e7f326
+          xcodebuild -project LiveContainer.xcodeproj -scheme LiveContainer -sdk iphoneos -destination 'generic/platform=iOS' -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build > native-build.log 2>&1 || { tail -150 native-build.log; exit 1; }
+      - name: Retain build log only, no IPA publication
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forwardport-native-log-${{ github.sha }}
+          path: native-build.log
+          if-no-files-found: warn
+          retention-days: 14
