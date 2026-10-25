@@ -68,4 +68,39 @@ class LocalSymbolGuardTests(unittest.TestCase):
             _,removable,_=classify(bytes(changed))
             self.assertFalse(removable)
 
+    def test_finite_apple_marker_requires_exact_tuple_and_position(self):
+        from test_experiment_local_symbols import add_synthetic_stab
+        before=fixture(False,local=b'_local'+b'x'*40)
+        after=add_synthetic_stab(remove_fixture_local(before))
+        verify_local_removal(before,after)
+        with self.assertRaisesRegex(ValueError,'STAB'):classify(after)
+        sym=next(raw for cmd,raw in commands(after)[2] if cmd==2)
+        off=struct.unpack_from('<I',sym,8)[0]
+        for field,fmt,value in ((4,'<B',0x3d),(5,'<B',1),(6,'<H',1),(8,'<Q',90260803)):
+            changed=bytearray(after);struct.pack_into(fmt,changed,off+field,value)
+            with self.subTest(field=field),self.assertRaises(ValueError):verify_local_removal(before,bytes(changed))
+        with self.assertRaises(ValueError):verify_local_removal(before,after.replace(b'radr://5614542',b'radr://5614543'))
+        for kind in ('duplicate','misplaced'):
+            changed=bytearray(after)
+            if kind=='duplicate':changed[off+16:off+32]=changed[off:off+16]
+            else:changed[off:off+16],changed[off+16:off+32]=changed[off+16:off+32],changed[off:off+16]
+            with self.subTest(kind=kind),self.assertRaises(ValueError):verify_local_removal(before,bytes(changed))
+
+    def test_marker_requires_sole_local_nonempty_indirect_and_no_reference(self):
+        from test_experiment_local_symbols import add_synthetic_stab
+        before=fixture(False,local=b'_local'+b'x'*40)
+        after=add_synthetic_stab(remove_fixture_local(before))
+        wrong=alter_command(after,0xb,12,2);wrong=alter_command(wrong,0xb,16,2);wrong=alter_command(wrong,0xb,20,0)
+        with self.assertRaisesRegex(ValueError,'local range'):verify_local_removal(before,wrong)
+        wrong=alter_command(after,0xb,8,1)
+        with self.assertRaises(ValueError):verify_local_removal(before,wrong)
+        dysym=struct.unpack('<20I',next(r for c,r in commands(after)[2] if c==0xb))
+        wrong=bytearray(after);struct.pack_into('<I',wrong,dysym[14],0)
+        with self.assertRaises(ValueError):verify_local_removal(before,bytes(wrong))
+        wrong=bytearray(after);wrong[dysym[14]:dysym[14]+dysym[15]*4]=bytes(dysym[15]*4)
+        wrong=alter_command(bytes(wrong),0xb,60,0)
+        with self.assertRaisesRegex(ValueError,'indirect condition'):verify_local_removal(before,wrong)
+        for old,new in ((b'_public',b'_publix'),(b'_undefined',b'_undefineX'),(b'export-trie',b'export-triX')):
+            with self.assertRaises(ValueError):verify_local_removal(before,after.replace(old,new))
+
 if __name__=='__main__':unittest.main()

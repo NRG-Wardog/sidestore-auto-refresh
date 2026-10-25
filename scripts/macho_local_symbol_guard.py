@@ -24,17 +24,32 @@ def symbol_rows(data):
     return result, dysym
 
 
-def classify(data):
+APPLE_SOURCE = {'commit':'e0d56624eca2a76c2ace4c21850df9e666de4ca5',
+    'strip_c_sha256':'53d2ce75886237bfd99e953790e48920bb9dbfd58873fb2a5c46d25dfe195ddb',
+    'url':'https://github.com/apple-oss-distributions/cctools/blob/e0d56624eca2a76c2ace4c21850df9e666de4ca5/misc/strip.c#L4148-L4264',
+    'compiled_Xcode_source_identity_claimed':False}
+
+APPLE_LOCAL_SENTINEL = (b'radr://5614542', 0x3c, 0, 0, 0x05614542)
+
+
+def classify(data, *, allow_apple_local_sentinel=False):
     shape = snapshot(data)  # All bounds/ranges, category closure and blob checks first.
-    require(shape['stab_count'] == 0, 'local-symbol diagnostic requires prior STAB removal')
     rows, dysym = symbol_rows(data)
+    sentinel = shape['stab_count'] != 0
+    if sentinel:
+        require(allow_apple_local_sentinel and shape['stab_count'] == 1 and rows[0] == APPLE_LOCAL_SENTINEL,
+                'local-symbol diagnostic requires prior STAB removal or exact Apple sentinel')
+        require(tuple(dysym[2:4]) == (0, 1) and dysym[15] > 0, 'Apple sentinel local range/indirect condition differs')
     local_start, local_count = dysym[2:4]
     protected_indices = set()
     for i in range(dysym[15]):
         index = struct.unpack_from('<I', data, dysym[14] + 4*i)[0]
-        if not index & 0xc0000000: protected_indices.add(index)
+        if not index & 0xc0000000:
+            require(not sentinel or index != 0, 'Apple sentinel referenced indirectly')
+            protected_indices.add(index)
     removable, protected = [], []
     for index, row in enumerate(rows):
+        if sentinel and index == 0: continue
         kind = row[1]
         is_local = local_start <= index < local_start + local_count
         eligible = is_local and not kind & 1 and (kind & 0x0e) in (2, 0x0e) and index not in protected_indices
@@ -44,7 +59,7 @@ def classify(data):
 
 def verify_local_removal(before, after, *, require_reduction=True):
     old, old_local, old_protected = classify(before)
-    new, new_local, new_protected = classify(after)
+    new, new_local, new_protected = classify(after, allow_apple_local_sentinel=True)
     for key in ('header', 'uuid', 'commands', 'segments', 'sections', 'linkedit_offset',
                 'linkedit_blobs', 'indirect_symbols'):
         require(old[key] == new[key], 'local-strip invariant changed: ' + key)
@@ -63,6 +78,10 @@ def verify_local_removal(before, after, *, require_reduction=True):
     if require_reduction:
         require(sum(removed.values()) > 0 and len(after) < len(before), 'no local-symbol size reduction')
     return {'schema': 'diagnostic-local-symbol-preservation-v1', 'before': old, 'after': new,
-            'removed_local_records': sum(removed.values()), 'remaining_local_records': sum(new_local.values()),
+            'removed_local_records': sum(removed.values()), 'remaining_removable_local_records': sum(new_local.values()),
+            'actual_local_symbol_category_count': symbol_rows(after)[1][3],
+            'compatibility_marker_count': new['stab_count'],
             'protected_records': sum(old_protected.values()), 'bytes_saved': len(before)-len(after),
+            'apple_compatibility_sentinel_retained': new['stab_count'] == 1,
+            'apple_sentinel_source_evidence': APPLE_SOURCE,
             'signature_verified': False, 'runtime_proven': False, 'packaging_approved': False}

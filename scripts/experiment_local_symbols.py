@@ -1,6 +1,7 @@
 """Copy-only, diagnostic-only Apple strip -x measurement on two reviewed images.
 
-Never emits an IPA and never approves modified code signatures. Exact source IPA
+Default mode never emits an IPA. Optional qualification requires strict signature
+and archive gates and permits only an internal experimental artifact. Exact source IPA
 and retained full dSYM ZIP SHA-256 are mandatory. Both inputs stay immutable.
 """
 import argparse
@@ -13,7 +14,7 @@ import sys
 import zipfile
 import zlib
 from experiment_strip_stabs import TARGETS, DSYMS, digest, unique_zip, write
-from macho_stab_guard import image_uuid, require, sha, snapshot, verify as verify_stab_removal
+from macho_stab_guard import image_uuid, require, sha, snapshot
 from macho_local_symbol_guard import classify, verify_local_removal, symbol_rows
 
 
@@ -63,18 +64,11 @@ def measure_all_targets(targets,diagnostics,output,report):
             require(original.read_bytes()==data,'strip mutated original copy')
             intermediate=candidate.read_bytes()
             capture_output(root/'after-strip-observed.json',intermediate)
-            cleaned=root/'stripped-stabs-cleaned'
-            cleanup=subprocess.run(['xcrun','--toolchain','default','strip','-S','-o',str(cleaned),str(candidate)],
-                                   stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False,timeout=120)
-            (root/'strip-stabs-cleanup.log').write_bytes(cleanup.stdout)
-            require(cleanup.returncode==0,'Apple debug-record cleanup failed: '+key)
-            require(candidate.read_bytes()==intermediate and original.read_bytes()==data,'cleanup changed prior copies')
-            final=cleaned.read_bytes()
-            capture_output(root/'after-stab-cleanup-observed.json',final)
-            # No marker exemption: unchanged debug-only gate proves this second
-            # operation removes only STAB, then original-to-final guard requires zero STAB.
-            cleanup_evidence=verify_stab_removal(intermediate,final,require_reduction=False)
-            write(root/'stab-cleanup-structural.json',cleanup_evidence)
+            final=intermediate
+            write(root/'unapproved-compression-measurement.json', {
+                'approved':False, 'deflated_before_bytes':deflated_size(data),
+                'deflated_after_bytes':deflated_size(final),
+                'deflated_bytes_saved':deflated_size(data)-deflated_size(final)})
             evidence=verify_local_removal(data,final)
             require(image_uuid(final)==diagnostics[key]['uuid'],'final dSYM UUID differs')
             evidence.update(deflated_before_bytes=deflated_size(data),deflated_after_bytes=deflated_size(final),
@@ -90,7 +84,8 @@ def measure_all_targets(targets,diagnostics,output,report):
     require(not errors,'one or more local-symbol diagnostic targets rejected; see per-target evidence')
 
 
-def experiment(ipa,ipa_sha,symbols,symbols_sha,output,*,inspect_only=False):
+def experiment(ipa,ipa_sha,symbols,symbols_sha,output,*,inspect_only=False,qualify_package=False):
+    require(not (inspect_only and qualify_package),'inspection and package qualification are exclusive')
     require(not output.exists() and not output.is_symlink(),'fresh diagnostic directory required')
     targets,diagnostics=bind_inputs(ipa,ipa_sha,symbols,symbols_sha)
     output.mkdir(parents=True)
@@ -113,16 +108,31 @@ def experiment(ipa,ipa_sha,symbols,symbols_sha,output,*,inspect_only=False):
         strip_path=Path(tool.stdout.strip()).resolve(strict=True)
         expected=Path(os.environ['DEVELOPER_DIR'])/'Toolchains/XcodeDefault.xctoolchain/usr/bin/strip'
         require(strip_path==expected.resolve(strict=True),'unrecognized strip tool path')
-        report['strip_tool']={'path':str(strip_path),'sha256':digest(strip_path),'flags_sequence':[['-x'],['-S']]}
+        report['strip_tool']={'path':str(strip_path),'sha256':digest(strip_path),'flags_sequence':[['-x']]}
         # Full original IPA and complete dSYM archive remain in separate retained diagnostics.
         retained=output/'retained';retained.mkdir()
         for source,name,expected in ((ipa,'original.ipa',ipa_sha),(symbols,'matching-debug-diagnostics.zip',symbols_sha)):
             shutil.copyfile(source,retained/name)
             require(digest(retained/name)==expected,'retained original readback differs')
+        if qualify_package:
+            from local_symbol_packaging import native
+            baseline=output/'before-transform-SideStore';baseline.write_bytes(targets['SideStore'])
+            native(['/usr/bin/codesign','--verify','--strict','--verbose=4',str(baseline)],output/'before-transform-strict.log')
         measure_all_targets(targets,diagnostics,output,report)
         require(digest(ipa)==ipa_sha and digest(symbols)==symbols_sha,'immutable source artifacts changed')
-        report['status']='STRUCTURAL_DIAGNOSTIC_PASS_SIGNING_AND_RUNTIME_UNQUALIFIED'
+        if qualify_package:
+            from local_symbol_packaging import qualify_package as package
+            package(ipa,targets,diagnostics,output,report)
+            require(digest(ipa)==ipa_sha and digest(symbols)==symbols_sha,'immutable package source artifacts changed')
+            report['status']='LOCAL_SYMBOL_PACKAGE_QUALIFIED_DEVICE_AND_RELEASE_UNQUALIFIED'
+        else:
+            report['status']='STRUCTURAL_DIAGNOSTIC_PASS_SIGNING_AND_RUNTIME_UNQUALIFIED'
         return report
+    except Exception:
+        report['status']='FAILED';report['packaging_approved']=False;report['ipa_emitted']=False
+        derivative=output/'local-symbol-qualified.ipa'
+        if derivative.exists():derivative.unlink()
+        raise
     finally:
         write(output/'diagnostic.json',report)
 
@@ -131,9 +141,11 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ('ipa','symbols','output'):parser.add_argument('--'+name,type=Path,required=True)
     for name in ('ipa-sha256','symbols-sha256'):parser.add_argument('--'+name,required=True)
-    parser.add_argument('--inspect-only',action='store_true')
+    modes=parser.add_mutually_exclusive_group()
+    modes.add_argument('--inspect-only',action='store_true')
+    modes.add_argument('--qualify-package',action='store_true')
     args=parser.parse_args()
     experiment(args.ipa.absolute(),args.ipa_sha256,args.symbols.absolute(),args.symbols_sha256,
-               args.output.resolve(),inspect_only=args.inspect_only)
+               args.output.resolve(),inspect_only=args.inspect_only,qualify_package=args.qualify_package)
 
 if __name__=='__main__':main()

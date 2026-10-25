@@ -1,4 +1,4 @@
-name: Measure local-symbol stripping without packaging
+name: Qualify local-symbol size experiment without app execution
 on:
   push:
     branches: [experiment/issue55-local-symbols]
@@ -69,13 +69,13 @@ jobs:
                   assert len(archive.namelist())==len(set(archive.namelist())), 'duplicate artifact member'
                   (inputs/target).write_bytes(archive.read(member))
           PY
-      - name: Diagnostic copies only, no app execution or IPA output
+      - name: Qualify copy-only signing and internal measurement IPA without app execution
         run: |
           set -euo pipefail
           python3 -B scripts/experiment_local_symbols.py \
             --ipa inputs/original.ipa --ipa-sha256 34e00688c9015d3b6fdd2bf6485fd20aa0396229fbd4962dfeea7ee8406079db \
             --symbols inputs/retained-symbols.zip --symbols-sha256 7e69f13837974b7983baf342b6a3046e462658e2148a39e84d94448b8036f6d6 \
-            --output local-symbol-products 2>&1 | tee evidence/driver.log
+            --output local-symbol-products --qualify-package 2>&1 | tee evidence/driver.log
       - name: Retain only regular diagnostic JSON and logs
         if: always()
         run: |
@@ -96,5 +96,15 @@ jobs:
         with:
           name: local-symbol-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain internally qualified measurement only after every gate passes
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-symbol-qualified-not-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            local-symbol-products/local-symbol-qualified.ipa
+            local-symbol-products/diagnostic.json
           if-no-files-found: error
           retention-days: 14

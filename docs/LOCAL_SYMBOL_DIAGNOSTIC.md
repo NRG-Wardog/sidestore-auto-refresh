@@ -2,7 +2,8 @@
 
 Scope: copy-only Apple `strip -x` on LiveContainerSwiftUI and embedded SideStore
 from an already qualified, STAB-stripped input IPA. No source/feature/provider/
-architecture removal, no app execution, no new IPA, no signing acceptance.
+architecture removal or app execution. Default mode emits no new IPA; optional
+internal package qualification has separate strict signing/archive gates.
 The original IPA retained in diagnostics is archival, not a transformed output.
 
 The diagnostic guard allows deletion only of unreferenced non-external N_SECT
@@ -50,9 +51,35 @@ Actual Apple strip measurements and native signing remain pending. The target
 is at most 24 MB or the closest demonstrated safe result; no minimum claim is
 made from symbol counts alone. The existing safe -S packaging path is untouched.
 
-Apple `strip -x` was observed on both reviewed inputs to introduce one N_OPT
-STAB (`radr://5614542`, type0x3c, section0, description0, value90260802).
-The diagnostic captures that output, then runs Apple `strip -S` on a separate
-copy. The unchanged debug-only gate must validate intermediate to cleaned bytes;
-the unchanged original-to-final local-symbol gate still requires zero STAB.
-There is no marker exemption, post-hoc mutation, or signing approval.
+## Finite Apple compatibility sentinel
+
+Official Apple cctools commit `e0d56624eca2a76c2ace4c21850df9e666de4ca5`,
+`misc/strip.c` SHA256 `53d2ce75886237bfd99e953790e48920bb9dbfd58873fb2a5c46d25dfe195ddb`,
+[documents intentional sentinel insertion](https://github.com/apple-oss-distributions/cctools/blob/e0d56624eca2a76c2ace4c21850df9e666de4ca5/misc/strip.c#L4148-L4264).
+This source is explanatory evidence, not a claim that the pinned Xcode binary
+was built from that revision. Independently captured Xcode outputs match it.
+
+The local-only policy permits exactly one tuple: name `radr://5614542`, type
+0x3c, section0, description0, value0x05614542, at index0 as the sole local entry.
+Indirect symbols must exist and none may reference it. It prevents an indirect
+symbol from taking index0; it is deliberately retained, not manually deleted.
+Other STAB records, altered/duplicate/misplaced sentinels, protected symbol
+changes, or any export/section/VM drift fail. Original inputs still require zero
+STAB. The ordinary production debug-only guard is unchanged. Apple `-S`
+reintroduces the same sentinel; a second `-S` is not used. `-N` would remove
+protected symbol tables and is forbidden.
+
+## Optional internal package qualification
+
+`--qualify-package` additionally verifies original SideStore with Apple strict
+codesign before any transform. Original and resealed SideStore must both satisfy
+the existing low-level page/special-slot verification with exact flags2,
+dual SHA1/SHA256, SideStore identifier, empty requirements/CMS, no entitlements,
+team or runtime flags, and unchanged executable geometry. Only validated unused
+signature padding can be zeroed. Final Apple strict codesign and original-to-final
+local semantics must pass before the exact two-member ZIP replacement. Every
+other member byte/metadata, closure and CRC remains checked, with measured full
+archive size and immutable original hash. SwiftUI stays unsigned. Success permits
+an internal experimental artifact, not release, device qualification, or delivery
+as the current complete Russian candidate. The original and full dSYMs remain
+archived separately. Any failed gate prevents derivative artifact promotion.
