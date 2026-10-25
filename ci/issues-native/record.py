@@ -109,6 +109,27 @@ def generated_inventory(root):
     return rows
 
 
+def require_generated_stage(stage, observed, *, schema, consumer_commit, diagnostic, message):
+    identity = {'schema': schema, 'workflow_commit': os.environ['GITHUB_SHA'],
+                'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+                'consumer_commit': consumer_commit}
+    identity_changes = {key: {'expected': value, 'observed': stage.get(key)}
+                        for key, value in identity.items() if stage.get(key) != value}
+    expected = stage.get('generated')
+    if identity_changes or expected != observed:
+        before = expected.get('files', {}) if isinstance(expected, dict) else {}
+        after = observed.get('files', {})
+        changes = {name: {'expected': before.get(name), 'observed': after.get(name)}
+                   for name in sorted(set(before) | set(after)) if before.get(name) != after.get(name)}
+        # Preserve the actual evidence before rejecting it. No normalization,
+        # exclusion or resealing is permitted by this diagnostic path.
+        write(diagnostic, {'schema': 'generated-stage-drift-diagnostic-v1',
+              'status': 'REJECTED_NOT_RESEALED', 'identity_changes': identity_changes,
+              'file_changes': changes, 'expected_generated': expected,
+              'observed_generated': observed, 'accepted': False})
+        require(False, message)
+
+
 def generated_openssl_snapshot(*, required=False, sealed=False):
     consumer = S / 'LiveContainer'
     root = consumer / 'GeneratedDependencies/OpenSSL35'
@@ -124,12 +145,10 @@ def generated_openssl_snapshot(*, required=False, sealed=False):
         path = E / 'generated-openssl-stage.json'
         require(path.is_file() and not path.is_symlink(), 'Generated OpenSSL stage receipt missing')
         stage = json.loads(path.read_text())
-        require(stage.get('schema') == 'same-run-generated-openssl-input-v1' and
-                stage.get('workflow_commit') == os.environ['GITHUB_SHA'] and
-                stage.get('run_id') == os.environ['GITHUB_RUN_ID'] and
-                stage.get('run_attempt') == os.environ['GITHUB_RUN_ATTEMPT'] and
-                stage.get('consumer_commit') == OWNERS['LiveContainer'][1] and
-                stage.get('generated') == observed, 'Generated OpenSSL stage identity/bytes drifted')
+        require_generated_stage(stage, observed, schema='same-run-generated-openssl-input-v1',
+                                consumer_commit=OWNERS['LiveContainer'][1],
+                                diagnostic='generated-openssl-stage-drift.json',
+                                message='Generated OpenSSL stage identity/bytes drifted')
         observed = {**observed, 'stage_receipt_sha256': sha(path)}
     return observed
 
@@ -168,12 +187,10 @@ def generated_embedded_snapshot(*, required=False, sealed=False):
         path = E / 'generated-embedded-openssl-stage.json'
         require(path.is_file() and not path.is_symlink(), 'Embedded generated stage receipt missing')
         stage = json.loads(path.read_text())
-        require(stage.get('schema') == 'same-run-generated-embedded-openssl-input-v1' and
-                stage.get('workflow_commit') == os.environ['GITHUB_SHA'] and
-                stage.get('run_id') == os.environ['GITHUB_RUN_ID'] and
-                stage.get('run_attempt') == os.environ['GITHUB_RUN_ATTEMPT'] and
-                stage.get('consumer_commit') == OWNERS[owner][1] and stage.get('generated') == observed,
-                'Embedded generated stage identity/bytes drifted')
+        require_generated_stage(stage, observed, schema='same-run-generated-embedded-openssl-input-v1',
+                                consumer_commit=OWNERS[owner][1],
+                                diagnostic='generated-embedded-openssl-stage-drift.json',
+                                message='Embedded generated stage identity/bytes drifted')
         observed = {**observed, 'stage_receipt_sha256': sha(path)}
     return observed
 

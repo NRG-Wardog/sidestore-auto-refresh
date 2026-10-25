@@ -128,7 +128,9 @@ def verify_owned_receipt(value, source_provenance=None):
 
 RUST_FEATURES = {
     'idevice': 'ring,usbmuxd,cryptexd,tunnel_tcp_stack',
-    'idevice-ffi': 'ring,tcp,usbmuxd,house_arrest,mobile_image_mounter,syslog_relay,springboardservices,tss,tunnel_tcp_stack',
+    # Custom USB tunnel startup imports HeartbeatClient unconditionally.
+    # Production defaults include heartbeat; explicit no-default tests must too.
+    'idevice-ffi': 'ring,tcp,usbmuxd,house_arrest,mobile_image_mounter,syslog_relay,springboardservices,tss,tunnel_tcp_stack,heartbeat',
 }
 REQUIRED_RUST_TESTS = {
     'idevice': ('ddi_defaults_keep_distinct_persistence_fields',

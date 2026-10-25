@@ -182,10 +182,22 @@ class NativeIssueReceiptTests(unittest.TestCase):
             finally:
                 os.chdir(old)
 
+    def test_custom_usb_heartbeat_is_explicit_without_enabling_defaults(self):
+        from run_issue_tests import RUST_FEATURES
+        # Regression for E0432 in tunnel_provider::tunnel_create_usb: selecting
+        # the custom tunnel stack also needs its live HeartbeatClient service.
+        features = RUST_FEATURES['idevice-ffi'].split(',')
+        self.assertIn('tunnel_tcp_stack', features)
+        self.assertEqual(features.count('heartbeat'), 1)
+        self.assertNotIn('full', features)
+        self.assertNotIn('aws-lc', features)
+        runner = (Path(__file__).parent / 'run_issue_tests.py').read_text()
+        self.assertIn("'--no-default-features'", runner)
+
     def test_feature_and_workflow_closure(self):
         from run_issue_tests import RUST_FEATURES, SUITES
         self.assertIn('cryptexd', RUST_FEATURES['idevice'].split(','))
-        self.assertTrue({'tss', 'tunnel_tcp_stack', 'mobile_image_mounter'} <= set(RUST_FEATURES['idevice-ffi'].split(',')))
+        self.assertTrue({'tss', 'tunnel_tcp_stack', 'mobile_image_mounter', 'heartbeat'} <= set(RUST_FEATURES['idevice-ffi'].split(',')))
         for name in ('ownership', 'listener', 'mss', 'adapter_clone_scope'):
             self.assertIn(('idevice', '.ci/issue53', 'test_' + name + '.py'), SUITES)
         root = Path(__file__).resolve().parents[2]

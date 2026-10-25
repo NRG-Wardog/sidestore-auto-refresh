@@ -1,0 +1,169 @@
+name: Diagnose exact generated OpenSSL resolver input drift
+'on':
+  workflow_dispatch: null
+  push:
+    branches:
+    - test/openssl-stage-diagnostics
+    paths:
+    - ci/issues-native/**
+    - ci/issue53-lts/**
+    - .github/workflows/openssl-resolution-diagnostic.yml
+permissions:
+  contents: read
+concurrency:
+  group: openssl-resolution-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/test/openssl-stage-diagnostics'
+    runs-on: macos-26
+    timeout-minutes: 65
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      RUSTUP_TOOLCHAIN: 1.98.1
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - name: Initialize failure evidence before checkout
+      run: |
+        set -euo pipefail
+        mkdir -p evidence
+        printf 'workflow_commit=%s\nrun_id=%s\nrun_attempt=%s\nstatus=RESOLVER_DIAGNOSTIC_NOT_APP_BUILD\n' \
+          "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > evidence/attempt.txt
+    - name: Checkout workflow and evidence recorder only
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        repository: NRG-Wardog/sidestore-auto-refresh
+        ref: ${{ github.sha }}
+        path: harness
+        persist-credentials: false
+        set-safe-directory: false
+        submodules: false
+        lfs: false
+    - name: Record candidate harness identity
+      run: |
+        set -euo pipefail
+        test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
+        cp harness/ci/issues-native/candidate-graph.json evidence/requested-candidate.json
+        git -C harness rev-parse HEAD HEAD^{tree} > evidence/harness-identity.txt
+    - name: Acquire exact immutable source graph
+      run: |
+        set -euo pipefail
+        mkdir -p evidence sources
+        python3 harness/ci/issues-native/record.py acquire 2>&1 | tee evidence/acquisition.log
+        python3 harness/ci/issues-native/record.py snapshot acquired
+        { xcodebuild -version; xcrun --sdk iphoneos --show-sdk-version; swift --version; uname -a; } > evidence/toolchain.txt
+        xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+    - name: Verify source identity and exact drift controls
+      id: source_gate
+      run: |
+        set -euo pipefail
+        python3 -B harness/ci/issues-native/test_generated_openssl_inputs.py 2>&1 | tee evidence/generated-input-controls.log
+        python3 -B harness/ci/issues-native/verify_candidate_graph.py
+    - name: Install pinned transport build prerequisites
+      id: build_tools
+      if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+      run: |
+        set -euo pipefail
+        rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+        RUSTUP_DIST_SERVER=https://static.rust-lang.org rustup component add --toolchain "$RUSTUP_TOOLCHAIN" llvm-tools-preview \
+          2>&1 | tee evidence/rust-llvm-tools-install.log
+        rustup target add --toolchain "$RUSTUP_TOOLCHAIN" aarch64-apple-ios
+        cargo +1.98.1 install --locked bindgen-cli --version 0.72.1 --root "$RUNNER_TEMP/native-tools"
+        echo "$RUNNER_TEMP/native-tools/bin" >> "$GITHUB_PATH"
+        { rustc +1.98.1 --version --verbose; cargo +1.98.1 --version; "$RUNNER_TEMP/native-tools/bin/bindgen" --version; } >> evidence/toolchain.txt
+        test "$(rustc +1.98.1 --version)" = 'rustc 1.98.1 (48a229cea 2026-09-01)'
+        test "$(cargo +1.98.1 --version)" = 'cargo 1.98.1 (797e8a9bc 2026-08-05)'
+    - name: Run Rust ownership and packet regressions
+      id: rust_tests
+      if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
+      run: |
+        set -euo pipefail
+        python3 -B harness/ci/issues-native/run_issue_tests.py --idevice-native
+    - name: Compile iOS transport and stage local framework
+      id: transport_build
+      if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
+      run: |
+        set -euo pipefail
+        cd sources/idevice
+        BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)" IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+          cargo +1.98.1 build --locked --release --target aarch64-apple-ios --features obfuscate --manifest-path ffi/Cargo.toml \
+          2>&1 | tee ../../evidence/transport-build.log
+        test -f target/aarch64-apple-ios/release/libidevice_ffi.a
+        test -f ffi/idevice.h
+        cp ffi/idevice.h swift/include/idevice.h
+        # This is a fresh checkout; replace only the pre-existing binary output directory.
+        rm -rf swift/IDevice.xcframework
+        xcodebuild -create-xcframework -library target/aarch64-apple-ios/release/libidevice_ffi.a \
+          -headers swift/include -output swift/IDevice.xcframework 2>&1 | tee ../../evidence/transport-framework.log
+        cd ../..
+        mux=sources/SideStore/Dependencies/minimuxer/DeviceGateway/LocalBinary
+        mkdir -p "$mux"
+        test ! -e "$mux/IDevice.xcframework"
+        cp -R sources/idevice/swift/IDevice.xcframework "$mux/IDevice.xcframework"
+    - name: Inspect exact native archive symbols and generated header without execution
+      id: abi_inspection
+      if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.transport_build.outcome == 'success' }}
+      run: |
+        set -euo pipefail
+        python3 -B harness/ci/issues-native/idevice-abi-gate/verify_native_abi.py \
+          --source sources/idevice \
+          --framework sources/idevice/swift/IDevice.xcframework \
+          --staged-framework sources/SideStore/Dependencies/minimuxer/DeviceGateway/LocalBinary/IDevice.xcframework \
+          --output evidence/idevice-abi-inspection.json 2>&1 | tee evidence/idevice-abi-inspection.log
+    - name: Build and seal explicit generated LTS inputs for both consumers
+      id: openssl_inputs
+      if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+      timeout-minutes: 35
+      run: |
+        set -euo pipefail
+        trap 'status=$?; if test -f lts-ios-build/build-ios.log; then cp lts-ios-build/build-ios.log evidence/; fi; for slice in ios-arm64 sim-arm64 sim-x86_64; do if test -f "lts-ios-build/$slice/configdata.txt"; then cp "lts-ios-build/$slice/configdata.txt" "evidence/$slice-openssl-config.log"; fi; done; exit "$status"' EXIT
+        python3 -B -m unittest discover -s harness/ci/issue53-lts -p 'test_*.py' 2>&1 | tee evidence/openssl-lts-controls.log
+        python3 -B harness/ci/issue53-lts/build_ios.py --output lts-ios-build 2>&1 | tee evidence/openssl-ios-build-driver.log
+        python3 -B harness/ci/issues-native/record.py stage-openssl lts-ios-build
+        python3 -B harness/ci/issues-native/record.py stage-embedded-openssl lts-ios-build sources/RemotePairingKit
+        cp lts-ios-build/ios-build-receipt.json evidence/openssl-ios-build-receipt.json
+    - name: Resolve exact app graph and retain original fail-closed snapshot check
+      id: package_resolution
+      if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.abi_inspection.outcome == 'success' && steps.openssl_inputs.outcome == 'success' }}
+      run: |
+        set -euo pipefail
+        # Fresh Xcode resolution is allowed to update the app lock, then the recorder
+        # admits only resolver originHash metadata. Every source-locked pin remains exact.
+        test ! -e "$RUNNER_TEMP/native-SideStore"
+        test ! -L "$RUNNER_TEMP/native-SideStore"
+        GIT_ALLOW_PROTOCOL=https:file xcodebuild -resolvePackageDependencies -disablePackageRepositoryCache \
+          -project sources/SideStore/AltStore.xcodeproj -scheme SideStore \
+          -derivedDataPath "$RUNNER_TEMP/native-SideStore" 2>&1 | tee evidence/SideStore-resolution.log
+        python3 harness/ci/issues-native/record.py seal-resolution
+        python3 harness/ci/issues-native/record.py verify-resolved
+        python3 harness/ci/issues-native/record.py snapshot compiler-inputs
+    - name: Capture raw observed generated path modes even when validation rejected them
+      if: ${{ !cancelled() && steps.openssl_inputs.outcome == 'success' }}
+      run: |
+        set -euo pipefail
+        python3 -B - <<'PY_OBSERVED'
+        import pathlib, sys
+        sys.path.insert(0, str(pathlib.Path('harness/ci/issues-native').resolve()))
+        import record
+        roots = {'host': pathlib.Path('sources/LiveContainer/GeneratedDependencies/OpenSSL35'),
+                 'embedded': pathlib.Path('sources/SideStore/Dependencies/minimuxer/GeneratedDependencies/RemotePairingKit')}
+        record.write('raw-generated-observed-after-resolution.json', {
+            'schema': 'raw-generated-inventory-diagnostic-v1', 'accepted': False,
+            'inventories': {name: record.generated_inventory(root) for name, root in roots.items()}})
+        PY_OBSERVED
+    - name: Upload resolver diagnostics only, never app products
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: openssl-resolution-diagnostic-${{ github.run_id }}
+        path: evidence/
+        if-no-files-found: error
+        retention-days: 14

@@ -166,6 +166,29 @@ class EmbeddedGeneratedInputsTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):
                 recorder.generated_embedded_snapshot(required=True,sealed=True)
 
+    def test_drift_diagnostic_records_empty_directory_and_modes_without_admitting(self):
+        owner,overlay,installer=self.fixture_overlay()
+        with patch.object(recorder,'generated_installer',return_value=installer), \
+             patch.object(recorder,'tracked',return_value={'source':'unchanged'}), \
+             patch.object(recorder,'git',return_value=recorder.OWNERS[owner][1]):
+            recorder.stage_embedded_openssl(self.built,self.root/'upstream-fixture')
+            sealed=(self.evidence/'generated-embedded-openssl-stage.json').read_bytes()
+            (overlay/'synthetic-empty-directory').mkdir()
+            with self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):
+                recorder.generated_embedded_snapshot(required=True,sealed=True)
+            report=json.loads((self.evidence/'generated-embedded-openssl-stage-drift.json').read_text())
+            self.assertFalse(report['accepted'])
+            self.assertEqual(report['status'],'REJECTED_NOT_RESEALED')
+            self.assertIsNone(report['file_changes']['synthetic-empty-directory']['expected'])
+            self.assertEqual(report['file_changes']['synthetic-empty-directory']['observed']['kind'],'directory')
+            (overlay/'synthetic-empty-directory').rmdir()
+            file=overlay/'GeneratedDependencies/OpenSSL35/LICENSE.txt';file.chmod(0o444)
+            with self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):
+                recorder.generated_embedded_snapshot(required=True,sealed=True)
+            report=json.loads((self.evidence/'generated-embedded-openssl-stage-drift.json').read_text())
+            self.assertEqual(report['file_changes']['GeneratedDependencies/OpenSSL35/LICENSE.txt']['observed']['mode'],0o444)
+            self.assertEqual((self.evidence/'generated-embedded-openssl-stage.json').read_bytes(),sealed)
+
     def test_native_bundle_presence_without_linked_consumer_is_rejected(self):
         GeneratedOpenSSLInputsTests.stage(self)
         GeneratedOpenSSLInputsTests.snapshot(self)
