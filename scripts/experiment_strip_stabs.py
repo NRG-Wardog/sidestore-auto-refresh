@@ -165,27 +165,48 @@ def capture_signature(path, output, label):
 def apple_adhoc_diagnostic(source, stripped, work, output):
     results = {}
     for label, original in (('original', source), ('stripped-ldid', stripped)):
-        capture_signature(original, output, label)
-        target = work / ('apple-' + label) / 'SideStore'
-        target.parent.mkdir()
-        shutil.copy2(original, target)
-        before = original.read_bytes()
-        run(['/usr/bin/codesign', '--force', '--sign', '-', '--identifier', 'SideStore',
-             '--digest-algorithm=sha1,sha256', '--timestamp=none', str(target)],
-            output / (label + '-apple-reseal.log'))
-        capture_signature(target, output, label + '-apple')
-        # Capture both probe outcomes even if the first verifier fails.
-        check = subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '--verbose=4', str(target)],
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
-        (output / (label + '-apple-verify.log')).write_bytes(check.stdout)
-        structural = verify(before, target.read_bytes(), require_reduction=False, preserve_stabs=True)
-        write(output / (label + '-apple-structural.json'), structural)
-        require(original.read_bytes() == before, 'Apple probe modified source copy')
-        results[label] = {'strict_verify_exit_code': check.returncode,
-                          'signing_policy_review_pending': True, 'binary_sha256': digest(target)}
+        results[label] = {'strict_verify_exit_code': None, 'structural_pass': False,
+                          'signing_policy_review_pending': True}
+        try:
+            capture_signature(original, output, label)
+            target = work / ('apple-' + label) / 'SideStore'
+            target.parent.mkdir()
+            shutil.copy2(original, target)
+            before = original.read_bytes()
+            run(['/usr/bin/codesign', '--force', '--sign', '-', '--identifier', 'SideStore',
+                 '--digest-algorithm=sha1,sha256', '--timestamp=none', str(target)],
+                output / (label + '-apple-reseal.log'))
+            capture_signature(target, output, label + '-apple')
+            # Capture both probe outcomes even if the first verifier fails.
+            check = subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '--verbose=4', str(target)],
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+            (output / (label + '-apple-verify.log')).write_bytes(check.stdout)
+            write(output / (label + '-apple-snapshots.json'),
+                  {'before': snapshot(before), 'after': snapshot(target.read_bytes())})
+            results[label]['strict_verify_exit_code'] = check.returncode
+            results[label]['binary_sha256'] = digest(target)
+            if label == 'stripped-ldid':
+                # Product hypothesis uses the immutable green binary, not the
+                # smaller intermediate signature allocation, as its reference.
+                try:
+                    final_comparison = verify(source.read_bytes(), target.read_bytes())
+                    write(output / 'green-to-stripped-apple-structural.json', final_comparison)
+                    results[label]['green_to_final_structural_pass'] = True
+                except Exception as error:
+                    results[label]['green_to_final_structural_pass'] = False
+                    results[label]['green_to_final_structural_error'] = str(error)
+            structural = verify(before, target.read_bytes(), require_reduction=False, preserve_stabs=True)
+            write(output / (label + '-apple-structural.json'), structural)
+            require(original.read_bytes() == before, 'Apple probe modified source copy')
+            results[label]['structural_pass'] = True
+        except Exception as error:
+            # Independent evidence collection, never a successful gate override.
+            results[label]['error'] = str(error)
+        finally:
+            write(output / 'apple-adhoc-probe.json', results)
     write(output / 'apple-adhoc-probe.json', results)
-    require(all(row['strict_verify_exit_code'] == 0 for row in results.values()),
-            'Apple ad-hoc diagnostic strict verification failed')
+    require(all(row['strict_verify_exit_code'] == 0 and row['structural_pass'] and row.get('green_to_final_structural_pass', True) for row in results.values()),
+            'Apple ad-hoc diagnostic strict verification or structural gate failed')
     return results
 
 

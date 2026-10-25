@@ -79,15 +79,15 @@ class ExperimentPackagingTests(unittest.TestCase):
         source = self.root / 'source'; source.write_bytes(b'original')
         stripped = self.root / 'stripped'; stripped.write_bytes(b'stripped')
         output = self.root / 'output'; output.mkdir()
-        with patch.object(driver, 'capture_signature'), patch.object(driver, 'run') as run, \
+        with patch.object(driver, 'capture_signature'), patch.object(driver, 'snapshot', return_value={}), patch.object(driver, 'run') as run, \
              patch.object(driver, 'verify', return_value={'synthetic_only': True}) as structural, \
              patch.object(driver.subprocess, 'run', side_effect=[
                  subprocess.CompletedProcess([], 1, b'first failed'),
                  subprocess.CompletedProcess([], 0, b'second passed')]):
-            with self.assertRaisesRegex(ValueError, 'diagnostic strict verification failed'):
+            with self.assertRaisesRegex(ValueError, 'diagnostic strict verification or structural gate failed'):
                 driver.apple_adhoc_diagnostic(source, stripped, self.root, output)
         self.assertEqual(run.call_count, 2)
-        self.assertEqual(structural.call_count, 2)
+        self.assertEqual(structural.call_count, 3)
         self.assertTrue((output / 'apple-adhoc-probe.json').is_file())
         self.assertFalse(list(output.glob('*.ipa')))
         for call in run.call_args_list:
@@ -96,6 +96,31 @@ class ExperimentPackagingTests(unittest.TestCase):
         text = Path(driver.__file__).read_text()
         early = text.index("report['status'] = 'APPLE_ADHOC_DIAGNOSTIC_PASS_POLICY_REVIEW_PENDING_NO_IPA'")
         self.assertLess(text.index('return', early), text.index('verification = repackage'))
+
+    def test_first_structural_failure_does_not_skip_second_probe_or_pass_job(self):
+        source = self.root / 'source'; source.write_bytes(b'original')
+        stripped = self.root / 'stripped'; stripped.write_bytes(b'stripped')
+        output = self.root / 'output'; output.mkdir()
+        with patch.object(driver, 'capture_signature'), patch.object(driver, 'snapshot', return_value={}), \
+             patch.object(driver, 'run') as run, \
+             patch.object(driver, 'verify', side_effect=[ValueError('LINKEDIT VM allocation grew'), {}, {}]) as structural, \
+             patch.object(driver.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'valid on disk')):
+            with self.assertRaisesRegex(ValueError, 'structural gate failed'):
+                driver.apple_adhoc_diagnostic(source, stripped, self.root, output)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(structural.call_count, 3)
+        receipt = json.loads((output / 'apple-adhoc-probe.json').read_text())
+        self.assertFalse(receipt['original']['structural_pass'])
+        self.assertEqual(receipt['original']['strict_verify_exit_code'], 0)
+        self.assertTrue(receipt['stripped-ldid']['structural_pass'])
+        self.assertTrue(receipt['stripped-ldid']['green_to_final_structural_pass'])
+        self.assertEqual(structural.call_args_list[1].args, (b'original', b'stripped'))
+        self.assertEqual(structural.call_args_list[1].kwargs, {})
+        self.assertEqual(structural.call_args_list[2].args, (b'stripped', b'stripped'))
+        self.assertTrue(structural.call_args_list[2].kwargs['preserve_stabs'])
+        for label in receipt:
+            self.assertTrue((output / (label + '-apple-snapshots.json')).is_file())
+        self.assertFalse(list(output.glob('*.ipa')))
 
     def test_actual_cli_and_exact_transform_arguments_remain_bounded(self):
         script = Path(driver.__file__)
