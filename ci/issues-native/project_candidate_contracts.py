@@ -18,7 +18,8 @@ CONTRACTS = ('comprehensive-diagnostics-contract.json', 'setup-state-recovery-co
 ADDITIONAL_INPUTS = {
     'comprehensive-diagnostics-contract.json': (
         'SideStore/SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift',
-        'SideStore/Dependencies/SideSign/Sources/Anisette/ILoaderRemoteHTTPTransport.swift'),
+        'SideStore/Dependencies/SideSign/Sources/Anisette/ILoaderRemoteHTTPTransport.swift',
+        'SideStore/SideStore/Core/Operations/PipelineExecutionHandler.swift'),
     'setup-state-recovery-contract.json': (
         'SideStore/SideStore/Core/Operations/OperationContexts.swift',
         'SideStore/SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift',

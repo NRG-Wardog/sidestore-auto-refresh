@@ -719,7 +719,7 @@ def markers():
 
 
 def verify_receipt(path, contract_path=None):
-    contract_path = contract_path or HERE / 'setup-state-recovery-contract.json'
+    contract_path = Path(contract_path or HERE / 'setup-state-recovery-contract.json').resolve(strict=True)
     contract = load_contract(contract_path)
     report = json.loads(path.read_text())
     require(report.get('schema') == 'setup-state-recovery-run-v1' and report.get('status') == STATUS and
@@ -768,7 +768,7 @@ def verify_receipt(path, contract_path=None):
 
 
 def run(sources, swiftc, output, contract_path=None):
-    contract_path = contract_path or HERE / 'setup-state-recovery-contract.json'
+    contract_path = Path(contract_path or HERE / 'setup-state-recovery-contract.json').resolve(strict=True)
     contract = load_contract(contract_path)
     require(not sources.is_symlink(), 'Symlink setup source root')
     sources = sources.resolve(strict=True)

@@ -161,6 +161,14 @@ jobs:
             --sources sources --swiftc "$(command -v swiftc)" --output evidence/setup-state-recovery --contract evidence/candidate-contracts/setup-state-recovery-contract.json \
             2>&1 | tee evidence/setup-state-recovery.log
           printf '0\n' > evidence/setup-state-recovery.exit-code.txt
+      - name: Upload early fixture failure diagnostics only
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.comprehensive_tests.outcome == 'failure' || steps.setup_tests.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: suite-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14
       - name: Install pinned transport build prerequisites
         id: build_tools
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}

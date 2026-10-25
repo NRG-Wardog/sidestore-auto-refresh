@@ -29,6 +29,8 @@ FINAL = (
     'Upload experimental candidate IPA and provenance',
 )
 EVIDENCE = 'Preserve evidence, including failures (not app products)'
+TELEMETRY = 'Upload early fixture failure diagnostics only'
+TELEMETRY_CONDITION = "${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.comprehensive_tests.outcome == 'failure' || steps.setup_tests.outcome == 'failure') }}"
 
 
 def steps():
@@ -36,7 +38,7 @@ def steps():
     result = []
     for part in text.split('      - name: ')[1:]:
         lines = part.splitlines()
-        row = {'name': lines[0], 'condition': 'success()'}
+        row = {'name': lines[0], 'condition': 'success()', 'text': part}
         for line in lines[1:]:
             match = re.fullmatch(r'        (id|if): (.+)', line)
             if match:
@@ -58,6 +60,9 @@ def simulate(rows, failures=(), cancelled=False):
             admitted = True
         elif condition == 'success()':
             admitted = not failed and not cancelled
+        elif condition == TELEMETRY_CONDITION:
+            admitted = (not cancelled and states.get('source_gate') == 'success' and
+                        any(states.get(key) == 'failure' for key in ('comprehensive_tests', 'setup_tests')))
         else:
             deps = re.findall(r"steps\.(\w+)\.outcome == 'success'", condition)
             if condition != expression(deps):
@@ -88,6 +93,39 @@ class FailureCollectionTests(unittest.TestCase):
         self.assertEqual(by_name[EVIDENCE]['condition'], 'always()')
         self.assertNotIn('continue-on-error', self.text)
         self.assertNotRegex(self.text, r'\|\|\s*(true|:|exit\s+0)')
+
+    def test_early_telemetry_is_failure_only_evidence_only_and_precedes_builds(self):
+        by_name = {r['name']: r for r in self.rows}
+        row = by_name[TELEMETRY]
+        self.assertEqual(row['condition'], TELEMETRY_CONDITION)
+        self.assertIn('        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n', row['text'])
+        self.assertEqual(re.findall(r'^          path: (.+)$', row['text'], re.M), ['evidence/'])
+        self.assertIn('          name: suite-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}\n', row['text'])
+        self.assertIn('          if-no-files-found: error\n', row['text'])
+        names = [r['name'] for r in self.rows]
+        setup = next(r['name'] for r in self.rows if r.get('id') == 'setup_tests')
+        tools = next(r['name'] for r in self.rows if r.get('id') == 'build_tools')
+        self.assertLess(names.index(setup), names.index(TELEMETRY))
+        self.assertLess(names.index(TELEMETRY), names.index(tools))
+        for failures, expected in [((), 'skipped'), (('source_gate',), 'skipped'),
+                                   (('issue_tests',), 'skipped'), (('comprehensive_tests',), 'success'),
+                                   (('setup_tests',), 'success'),
+                                   (('comprehensive_tests', 'setup_tests'), 'success')]:
+            with self.subTest(failures=failures):
+                states, failed = simulate(self.rows, failures)
+                self.assertEqual(states[TELEMETRY], expected)
+                self.assertEqual(failed, bool(failures))
+                if expected == 'success':
+                    self.assertEqual(states['livecontainer_build'], 'success')
+                    self.assertEqual(states['sidestore_build'], 'success')
+                    for name in FINAL:
+                        self.assertEqual(states[name], 'skipped')
+        states, failed = simulate(self.rows, ('comprehensive_tests', TELEMETRY))
+        self.assertTrue(failed)
+        self.assertEqual(states[TELEMETRY], 'failure')
+        self.assertEqual(states['sidestore_build'], 'success')
+        states, _ = simulate(self.rows, cancelled=True)
+        self.assertEqual(states[TELEMETRY], 'skipped')
 
     def test_each_independent_suite_failure_still_collects_other_suites(self):
         for failure in [key for key, deps in EXPECTED.items() if deps == ['source_gate'] and key != 'build_tools'] + ['rust_tests', 'livecontainer_build', 'sidestore_build']:

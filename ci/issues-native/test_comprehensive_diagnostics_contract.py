@@ -1212,6 +1212,43 @@ class RefreshControls(Controls):
 
 
 class ExtensionControls(RefreshControls):
+    def add_candidate_handler_input(self):
+        name = gate.EXTENSION_CANDIDATE_INPUT
+        path = self.sources / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('inert source-owned extension decision enum')
+        self.config['input_sha256'][name] = gate.digest(path.read_bytes())
+        self.save_contract()
+
+    def test_extension_candidate_exact_handler_input_passes(self):
+        self.add_candidate_handler_input()
+        def process(argv, **kwargs):
+            result = self.control_process(argv, **kwargs)
+            if self.calls[-1][0] == 'extension-generate':
+                path = Path(argv[-1]) / 'source-receipt.json'
+                value = json.loads(path.read_text())
+                value['source_sha256']['handlers'] = self.config['input_sha256'][gate.EXTENSION_CANDIDATE_INPUT]
+                gate.write_json(path, value)
+            return result
+        report = self.run_control(process)
+        self.assertEqual(report['extension_selection_cases']['count'], 17)
+
+    def test_extension_candidate_missing_or_unreviewed_handler_rejected(self):
+        for extra in (False, True):
+            probe = self.fresh()
+            ExtensionControls.add_candidate_handler_input(probe)
+            def process(argv, **kwargs):
+                result = probe.control_process(argv, **kwargs)
+                if extra and probe.calls[-1][0] == 'extension-generate':
+                    path = Path(argv[-1]) / 'source-receipt.json'
+                    value = json.loads(path.read_text())
+                    value['source_sha256']['unreviewed_handler'] = 'f' * 64
+                    gate.write_json(path, value)
+                return result
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, 'Extension source hashes differ'):
+                probe.run_control(process)
+            self.assertNotIn('extension-compile', dict(probe.calls))
+
     def test_extension_command_uniqueness(self):
         report = self.run_control()
         self.assertEqual(len(report['suites']), 8)

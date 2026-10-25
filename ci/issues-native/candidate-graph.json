@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "7d4a6c028d261316285279f67001256e32b3b280"
+      "6f11f8843ea6ae11f0d82b902e5d9170a197862f"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -48,6 +48,9 @@
         ".ci/branch-cleanup/allowlist.json": "152ec8b04398d1f5aafcd0018e865cf09b0278dd",
         ".ci/branch-cleanup/cleanup.py": "db84b91a0f98a60cf9e19ef2172c3ab1b4da029b",
         ".ci/branch-cleanup/test_cleanup.py": "d2c59ce6dfde05518eff6723cc6fad17bb918d0f",
+        ".ci/extension-selection/Cases.swift": "124f2b2b16d0164f114898a48c6062735443a805",
+        ".ci/extension-selection/Doubles.swift": "09aaec3bb1e31ce8948abd0b184d04c822cf051d",
+        ".ci/extension-selection/generate_fixture.py": "64ba5e70835b8b5e7a30e6087dad33478f8787d2",
         ".github/workflows/build.yml": "7d17217482f45cb96cc8d9393be2799a071bd026",
         ".github/workflows/native-app-compile.yml": "704a7faf9d48b8b586a70f0c2d935aa35ba85d80",
         ".github/workflows/package-diagnostic.yml": "fe77d4c7665195b7703dd05d65fdb8f081261eae",
@@ -77,7 +80,7 @@
         "tests/test_release_size_configuration.py": "8960d36f35e0dfb8bba56f233d974bb6815aa11f",
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8"
       },
-      "tree": "e55f4926efe4fd087d9082d864c4951196b8bbf1"
+      "tree": "743c91c0550bcd35dd09140fa504388adff5c7d4"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",

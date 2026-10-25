@@ -604,6 +604,18 @@ def extraction_receipt(output, contract):
     return result
 
 
+EXTENSION_CANDIDATE_INPUT = 'SideStore/SideStore/Core/Operations/PipelineExecutionHandler.swift'
+
+
+def extension_source_inputs(contract):
+    # The reviewed candidate extracts the real decision enum; frozen fixtures
+    # predate that dependency. No other additional receipt key is admitted.
+    paths = dict(EXTENSION_INPUT_PATHS)
+    if EXTENSION_CANDIDATE_INPUT in contract['input_sha256']:
+        paths['handlers'] = EXTENSION_CANDIDATE_INPUT
+    return paths
+
+
 def extension_selection_extraction(output, contract, before_compile=False):
     root = output / 'extension-selection'
     path = regular(root, 'source-receipt.json')
@@ -614,8 +626,9 @@ def extension_selection_extraction(output, contract, before_compile=False):
     require(isinstance(value.get('case_names'), list) and
             sorted(value['case_names']) == sorted(contract['extension_selection_case_names']),
             'Extension extraction case closure differs')
+    source_paths = extension_source_inputs(contract)
     require(value.get('source_sha256') == {key: contract['input_sha256'][name]
-            for key, name in EXTENSION_INPUT_PATHS.items()}, 'Extension source hashes differ')
+            for key, name in source_paths.items()}, 'Extension source hashes differ')
     require(value.get('fixture_files_sha256') == {name: contract['input_sha256'][EXTENSION + '/' + name]
             for name in EXTENSION_FIXTURE_FILES}, 'Extension fixture hashes differ')
     generated = {name: digest(regular(root, name).read_bytes()) for name in EXTENSION_OUTPUTS}
@@ -631,7 +644,7 @@ def extension_selection_extraction(output, contract, before_compile=False):
     require(actual <= allowed and set(EXTENSION_OUTPUTS) | {'source-receipt.json'} <= actual,
             'Extension generated output closure differs')
     return {'path': 'extension-selection/source-receipt.json', 'sha256': digest(path.read_bytes()),
-            'generated_sha256': generated, 'input_count': len(EXTENSION_INPUT_PATHS) + len(EXTENSION_FIXTURE_FILES)}
+            'generated_sha256': generated, 'input_count': len(source_paths) + len(EXTENSION_FIXTURE_FILES)}
 
 
 def extension_selection_export(output, contract):
@@ -691,7 +704,7 @@ class Runner:
 
 
 def verify_receipt(path, contract_path=None):
-    contract_path = contract_path or HERE / 'comprehensive-diagnostics-contract.json'
+    contract_path = Path(contract_path or HERE / 'comprehensive-diagnostics-contract.json').resolve(strict=True)
     contract = load_contract(contract_path)
     report = json.loads(path.read_text())
     require(report.get('status') == STATUS and report.get('suites') == list(SUITES), 'Consolidated suite did not pass')
@@ -785,7 +798,7 @@ def verify_receipt(path, contract_path=None):
 
 
 def run(sources, swiftc, output, contract_path=None):
-    contract_path = contract_path or HERE / 'comprehensive-diagnostics-contract.json'
+    contract_path = Path(contract_path or HERE / 'comprehensive-diagnostics-contract.json').resolve(strict=True)
     contract = load_contract(contract_path)
     require(not sources.is_symlink(), 'Symlink source root')
     sources = sources.resolve(strict=True)
