@@ -20,6 +20,7 @@ REQUIRED_SCRIPTS = {
     "adapt_sidestore_070_signing.py",
 }
 LIVE_CONTAINER_SCRIPTS = {
+    "ipa_size_report.py",
     "patch_native_error_presenters.py",
     "patch_cf_bundle_scan.py",
     "patch_lc_certificate_observation.py",

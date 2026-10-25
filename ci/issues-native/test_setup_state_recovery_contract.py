@@ -40,6 +40,7 @@ class Controls(unittest.TestCase):
                            [('setup-localization', gate.LOCALIZATION_CASE_COUNT), ('early-refresh-boundaries', 24),
                             ('certificate-portal-evidence', 19), ('remote-identity-reuse', gate.IDENTITY_CASE_COUNT),
                             *((suite, spec['case_count']) for suite, spec in gate.ADDITIVE_SPECS.items())]}}
+        self.contract['case_names']['host-refresh-bundle'] = list(gate.HOST_BASELINE_CASES)
         self.contract_path = self.root / 'contract.json'
         self.save_contract()
         self.mutation = None
@@ -167,7 +168,7 @@ class Controls(unittest.TestCase):
                                if spec['prefix'] + '-source' == name)
             folder = Path(argv[argv.index('--output') + 1]); folder.mkdir()
             (folder / spec['swift']).write_text('inert additive ' + suite)
-            inputs = gate.ADDITIVE_SUITE_INPUTS[suite]
+            inputs = self.contract['additive_suite_inputs'][suite]
             value = {'schema': spec['source_schema'], 'status': 'STATIC_PASS_GENERATED_NOT_COMPILED_NOT_RUN',
                 'swift_compiled': False, 'swift_executed': False, 'network_executed': False,
                 'native_provider_executed': False,
@@ -196,8 +197,8 @@ class Controls(unittest.TestCase):
                                  (self.sources / 'SideStore').resolve(strict=True))
                 value = {'schema': spec['source_schema'], 'pass': True,
                     'swift_executed': False, 'network_executed': False, 'provider_executed': False,
-                    'device_executed': False, 'source_assertion_count': 34,
-                    'expected_case_names': self.contract['case_names'][suite], 'expected_case_count': 30,
+                    'device_executed': False, 'source_assertion_count': gate.host_bundle_variant(self.contract)[2],
+                    'expected_case_names': self.contract['case_names'][suite], 'expected_case_count': len(self.contract['case_names'][suite]),
                     'inputs': [{'path': p.removeprefix('SideStore/'), 'sha256': self.contract['input_sha256'][p]}
                                for p in inputs['production']],
                     'support': [{'path': p.removeprefix('SideStore/'), 'sha256': self.contract['input_sha256'][p]}
@@ -213,7 +214,7 @@ class Controls(unittest.TestCase):
             if suite == 'host-refresh-bundle':
                 self.assertEqual(len(argv), 1)
                 data = json.dumps({'schema': spec['cases_schema'], 'pass': True,
-                    'cases': self.contract['case_names'][suite], 'case_count': spec['case_count'],
+                    'cases': self.contract['case_names'][suite], 'case_count': len(self.contract['case_names'][suite]),
                     'network_executed': False, 'provider_executed': False, 'device_executed': False}).encode() + b'\n'
             else:
                 gate.write_json(Path(argv[-1]), {'schema': spec['cases_schema'], 'status': 'pass',
@@ -277,6 +278,53 @@ class Controls(unittest.TestCase):
         self.assertFalse(report['native_provider_executed'])
         gate.verify_receipt(self.output / 'report.json', self.contract_path)
 
+
+    def use_candidate_host_contract(self):
+        path = gate.HOST_CANDIDATE_INPUT
+        target = self.sources / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('inert actual registry source boundary')
+        self.contract['input_sha256'][path] = gate.digest(target.read_bytes())
+        self.contract['additive_suite_inputs']['host-refresh-bundle']['production'].append(path)
+        self.contract['case_names']['host-refresh-bundle'] = list(gate.HOST_CANDIDATE_CASES)
+        self.save_contract()
+
+    def test_host_bundle_reviewed_candidate_closure(self):
+        self.use_candidate_host_contract()
+        report = self.run_gate()
+        self.assertEqual(report['evidence']['cases']['host-refresh-bundle']['case_count'], 35)
+        gate.verify_receipt(self.output / 'report.json', self.contract_path)
+
+    def test_host_bundle_rejects_unknown_candidate_case(self):
+        self.use_candidate_host_contract()
+        self.contract['case_names']['host-refresh-bundle'][-2] = 'unreviewed-case'
+        self.save_contract()
+        with self.assertRaisesRegex(ValueError, 'host bundle exact case closure'):
+            self.run_gate()
+
+    def test_host_bundle_rejects_unreviewed_candidate_input(self):
+        self.use_candidate_host_contract()
+        self.contract['additive_suite_inputs']['host-refresh-bundle']['production'].append('SideStore/unreviewed.swift')
+        self.save_contract()
+        with self.assertRaisesRegex(ValueError, 'Host bundle exact source path closure'):
+            self.run_gate()
+
+    def test_host_bundle_rejects_candidate_receipt_wrong_count(self):
+        self.use_candidate_host_contract()
+        def mutate(name, argv, data):
+            if name == 'host-refresh-bundle-source':
+                self.rewrite_json(self.output / 'host-refresh-bundle/sources.json',
+                    lambda value: value.update(expected_case_count=30))
+        self.mutation = mutate
+        with self.assertRaisesRegex(ValueError, 'static assertion or case closure'):
+            self.run_gate()
+
+    def test_host_bundle_rejects_candidate_missing_registry_input(self):
+        self.use_candidate_host_contract()
+        self.contract['additive_suite_inputs']['host-refresh-bundle']['production'].pop()
+        self.save_contract()
+        with self.assertRaisesRegex(ValueError, 'Host bundle exact source path closure'):
+            self.run_gate()
 
     def test_host_bundle_accepts_canonical_parent_symlink_alias(self):
         # macOS temp roots can be spelled /var/... or /private/var/....
@@ -408,6 +456,66 @@ class Controls(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Cache compatibility static proof differs'):
             self.run_gate()
         self.assertFalse(any(n.endswith('-compile') for n in self.command_names))
+
+    def set_reviewed_cache_host_change(self):
+        self.contract['reviewed_cache_host_change'] = {
+            'original_sha256': '4e139e9d643f59fb6990fdc246ecfa9aaa32acbc4595ea839b38bd9c4199522e',
+            'candidate_sha256': self.contract['input_sha256']['SideStore/SideStore/Core/Operations/PipelineRunner.swift'],
+            'insertion_sha256': 'cd11ece003588f8aeac44bab28c1d3797c11dfb5e23e9facd7a947c8a7057af6'}
+        self.save_contract()
+
+    def test_cache_candidate_rejects_false_whole_file_preservation_claim(self):
+        self.set_reviewed_cache_host_change()
+        with self.assertRaisesRegex(ValueError, 'Cache host changed beyond'):
+            self.run_gate()
+        self.assertFalse(any(n.endswith('-compile') for n in self.command_names))
+
+    def test_cache_accepts_exact_reviewed_host_insertion_honestly(self):
+        self.set_reviewed_cache_host_change()
+        def mutate(name, argv, data):
+            if name == 'cache-compatibility-source':
+                self.rewrite_json(self.output / 'cache-compatibility/sources.json', lambda value: value.update(
+                    host_pipeline_byte_identical=False, host_pipeline_except_reviewed_reuse_main_byte_identical=True,
+                    reviewed_reuse_main_insertion_sha256='cd11ece003588f8aeac44bab28c1d3797c11dfb5e23e9facd7a947c8a7057af6'))
+        self.mutation = mutate
+        report = self.run_gate()
+        self.assertFalse(report['evidence']['additive']['cache-compatibility']['host_pipeline_byte_identical'])
+
+    def test_cache_rejects_unknown_host_insertion_hash(self):
+        self.set_reviewed_cache_host_change()
+        def mutate(name, argv, data):
+            if name == 'cache-compatibility-source':
+                self.rewrite_json(self.output / 'cache-compatibility/sources.json', lambda value: value.update(
+                    host_pipeline_byte_identical=False, host_pipeline_except_reviewed_reuse_main_byte_identical=True,
+                    reviewed_reuse_main_insertion_sha256='0' * 64))
+        self.mutation = mutate
+        with self.assertRaisesRegex(ValueError, 'Cache host changed beyond'):
+            self.run_gate()
+        self.assertFalse(any(n.endswith('-compile') for n in self.command_names))
+
+    def test_identity_candidate_policy_does_not_expand_historical_baseline(self):
+        path = gate.IDENTITY_CANDIDATE_INPUT
+        target = self.sources / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('inert reviewed diagnostic policy')
+        self.contract['input_sha256'][path] = gate.digest(target.read_bytes())
+        self.contract['candidate_only_inputs'] = {'remote-identity-reuse': [path]}
+        self.save_contract()
+        def mutate(name, argv, data):
+            if name == 'identity-source':
+                self.rewrite_json(self.output / 'remote-identity-reuse/source-evidence.json', lambda value:
+                    value['inputs_sha256'].update({path: self.contract['input_sha256'][path]}))
+        self.mutation = mutate
+        report = self.run_gate()
+        self.assertNotIn(path, report['evidence']['identity']['baseline_inputs_sha256'])
+        self.assertIn(path, report['evidence']['identity']['inputs_sha256'])
+
+    def test_unknown_candidate_only_identity_input_is_rejected(self):
+        self.contract['candidate_only_inputs'] = {'remote-identity-reuse': ['SideStore/unknown.swift']}
+        self.save_contract()
+        with self.assertRaisesRegex(ValueError, 'Unreviewed candidate-only'):
+            self.run_gate()
+        self.assertFalse(self.command_names)
 
     def test_unbound_contract_stops_before_subprocess(self):
         self.contract['source_inputs_bound'] = False; self.save_contract()

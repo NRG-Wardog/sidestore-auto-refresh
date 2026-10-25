@@ -13,6 +13,7 @@ SUITES = [
     ('LiveContainer', 'tests', 'test_release_size_configuration.py'),
     ('SideStore', 'tests/appid_expiry', 'test_appid_expiry_bridge.py'),
     ('SideStore', 'tests/reuse_main', 'test_contract.py'),
+    ('SideStore', 'tests/cache_compatibility', 'test_host_preservation.py'),
     ('SideStore', 'tests', 'test_diagnostic_provider_sequence.py'),
     ('idevice', '.ci/issue53', 'test_ownership.py'),
 ]

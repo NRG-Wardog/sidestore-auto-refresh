@@ -249,8 +249,40 @@ ADDITIVE_SPECS = {
 }
 
 
+IDENTITY_CANDIDATE_INPUT = 'SideStore/SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift'
+
+
+def identity_candidate_inputs(contract):
+    added = contract.get('candidate_only_inputs', {})
+    require(added in ({}, {'remote-identity-reuse': [IDENTITY_CANDIDATE_INPUT]}),
+            'Unreviewed candidate-only input closure')
+    paths = added.get('remote-identity-reuse', [])
+    require(all(p in contract['input_sha256'] for p in paths), 'Unbound candidate-only identity source')
+    return paths
+
+
+HOST_BASELINE_CASES = ['baseline_missing_cache_has_nil_target', 'canonical_host_recovers_without_mutating_source', 'success_cleanup_preserves_unowned_files', 'original_identity_mismatch_rejected', 'resigned_identity_mismatch_rejected', 'active_identity_mismatch_rejected', 'missing_active_bundle_rejected', 'missing_profile_rejected', 'missing_extension_record_rejected', 'extra_extension_record_rejected', 'duplicate_extension_record_rejected', 'extension_suffix_mismatch_rejected', 'unsupported_symlink_still_rejected', 'source_changed_during_copy_rejected_and_cleaned', 'corrupted_copy_rejected_and_cleaned', 'cancellation_checkpoint_1_preserved_and_cleaned', 'cancellation_checkpoint_2_preserved_and_cleaned', 'cancellation_checkpoint_3_preserved_and_cleaned', 'cancellation_checkpoint_4_preserved_and_cleaned', 'cancellation_checkpoint_5_preserved_and_cleaned', 'revoked_admission_preserved_and_cleaned', 'repeated_refresh_has_independent_owned_copies', 'concurrent_refresh_owners_do_not_collide', 'integration_refresh_missing_cache_prepares_and_cleans', 'integration_nonrefresh_does_not_recover', 'integration_nonself_does_not_recover', 'integration_valid_cache_is_preserved', 'integration_pipeline_failure_cleans_copy', 'integration_pipeline_cancellation_cleans_copy', 'all_terminal_paths_preserve_source_and_cleanup']
+HOST_CANDIDATE_CASES = ['baseline_missing_cache_has_nil_target', 'canonical_host_recovers_without_mutating_source', 'success_cleanup_preserves_unowned_files', 'original_identity_mismatch_rejected', 'resigned_identity_mismatch_rejected', 'active_identity_mismatch_rejected', 'missing_active_bundle_rejected', 'missing_profile_rejected', 'missing_extension_record_rejected', 'extra_extension_record_rejected', 'duplicate_extension_record_rejected', 'extension_suffix_mismatch_rejected', 'unsupported_symlink_still_rejected', 'source_changed_during_copy_rejected_and_cleaned', 'corrupted_copy_rejected_and_cleaned', 'cancellation_checkpoint_1_preserved_and_cleaned', 'cancellation_checkpoint_2_preserved_and_cleaned', 'cancellation_checkpoint_3_preserved_and_cleaned', 'cancellation_checkpoint_4_preserved_and_cleaned', 'cancellation_checkpoint_5_preserved_and_cleaned', 'revoked_admission_preserved_and_cleaned', 'repeated_refresh_has_independent_owned_copies', 'concurrent_refresh_owners_do_not_collide', 'integration_refresh_missing_cache_prepares_and_cleans', 'integration_nonrefresh_does_not_recover', 'integration_nonself_does_not_recover', 'integration_valid_cache_is_preserved', 'integration_pipeline_failure_cleans_copy', 'integration_pipeline_cancellation_cleans_copy', 'integration_legacy_bool_does_not_enroll_validated_strategy', 'integration_unregistered_payload_nonce_does_not_opt_in', 'integration_registered_payload_restores_validated_strategy', 'integration_opt_out_bool_overrides_matching_registry', 'integration_known_association_nonce_mismatch_fails_before_pipeline', 'all_terminal_paths_preserve_source_and_cleanup']
+HOST_CANDIDATE_INPUT = 'SideStore/SideStore/Core/Operations/OperationContexts.swift'
+
+
+def host_bundle_variant(contract):
+    names = contract.get('case_names', {}).get('host-refresh-bundle')
+    require(names in (HOST_BASELINE_CASES, HOST_CANDIDATE_CASES), 'Unreviewed host bundle exact case closure')
+    candidate = names == HOST_CANDIDATE_CASES
+    expected = {key: list(paths) for key, paths in ADDITIVE_SUITE_INPUTS['host-refresh-bundle'].items()}
+    if candidate:
+        expected['production'].append(HOST_CANDIDATE_INPUT)
+    require(contract.get('additive_suite_inputs', {}).get('host-refresh-bundle') == expected,
+            'Host bundle exact source path closure differs')
+    require(not candidate or HOST_CANDIDATE_INPUT in contract.get('input_sha256', {}),
+            'Unbound host bundle candidate input')
+    return expected, (35 if candidate else 30), (38 if candidate else 34)
+
+
 def load_contract(path):
     value = json.loads(path.read_text())
+    identity_candidate_inputs(value)
     require(value.get('schema') == 'setup-state-recovery-contract-v1', 'Setup contract schema differs')
     require(value.get('source_inputs_bound') is True, 'Setup source hashes remain unbound')
     require(value.get('suites') == list(SUITES), 'Setup suite closure differs')
@@ -264,7 +296,10 @@ def load_contract(path):
     for spec in ADDITIVE_SUITE_INPUTS.values():
         for paths in spec.values():
             required.update(paths)
-    require(value.get('additive_suite_inputs') == ADDITIVE_SUITE_INPUTS, 'Additive exact source path closure differs')
+    host_inputs, host_count, _ = host_bundle_variant(value)
+    required.update(host_inputs['production'])
+    expected_additive = dict(ADDITIVE_SUITE_INPUTS, **{'host-refresh-bundle': host_inputs})
+    require(value.get('additive_suite_inputs') == expected_additive, 'Additive exact source path closure differs')
     require(value.get('suite_inputs') == SUITE_INPUTS, 'Setup exact source path closure differs')
     for key in ('input_sha256',):
         hashes = value.get(key)
@@ -280,6 +315,7 @@ def load_contract(path):
     for suite, count in [('setup-localization', LOCALIZATION_CASE_COUNT), ('early-refresh-boundaries', 24),
                          ('certificate-portal-evidence', 19), ('remote-identity-reuse', IDENTITY_CASE_COUNT),
                          *((suite, spec['case_count']) for suite, spec in ADDITIVE_SPECS.items())]:
+        if suite == 'host-refresh-bundle': count = host_count
         names = value.get('case_names', {}).get(suite)
         require(isinstance(names, list) and len(names) == count and len(set(names)) == count and
                 all(isinstance(n, str) and n for n in names), 'Invalid exact case closure: ' + suite)
@@ -493,8 +529,9 @@ def identity_extraction(output, contract):
     for key in ('swift_executed', 'network_executed', 'native_provider_executed', 'native_keychain_executed'):
         require(value.get(key) is False, 'Unbounded identity generation: ' + key)
     spec = SUITE_INPUTS['remote-identity-reuse']
+    candidate_production = spec['production'] + identity_candidate_inputs(contract)
     for key, paths, inventory in (
-        ('inputs_sha256', spec['production'], contract['input_sha256']),
+        ('inputs_sha256', candidate_production, contract['input_sha256']),
         ('baseline_inputs_sha256', spec['production'], contract['delivered_baseline']['input_sha256']),
         ('support_inputs_sha256', spec['support'], contract['input_sha256'])):
         require(value.get(key) == {p: inventory[p] for p in paths}, 'Identity actual-source input closure differs: ' + key)
@@ -512,7 +549,7 @@ def identity_extraction(output, contract):
             'Identity exact source-wiring controls differ')
     spans = value.get('production_extracts')
     require(isinstance(spans, list) and len(spans) > 0 and all(
-        isinstance(row, dict) and row.get('source') in spec['production'] and
+        isinstance(row, dict) and row.get('source') in candidate_production and
         isinstance(row.get('anchor'), str) and row['anchor'] and
         type(row.get('first_line')) is int and row['first_line'] > 0 and
         isinstance(row.get('sha256'), str) and re.fullmatch('[0-9a-f]{64}', row['sha256']) for row in spans),
@@ -525,13 +562,14 @@ def additive_extraction(output, contract, suite):
     root = output / suite
     value = json.loads(regular(root, spec['receipt']).read_text())
     if suite == 'host-refresh-bundle':
+        inputs, count, assertions = host_bundle_variant(contract)
         require(value.get('schema') == spec['source_schema'] and value.get('pass') is True,
                 'Host bundle source extraction did not pass')
         for key in ('swift_executed', 'network_executed', 'provider_executed', 'device_executed'):
             require(value.get(key) is False, 'Unbounded host bundle generation: ' + key)
-        require(value.get('source_assertion_count') == 34 and
+        require(value.get('source_assertion_count') == assertions and
                 value.get('expected_case_names') == contract['case_names'][suite] and
-                value.get('expected_case_count') == spec['case_count'],
+                value.get('expected_case_count') == count,
                 'Host bundle static assertion or case closure differs')
         for key, paths in (('inputs', inputs['production']), ('support', inputs['fixture'])):
             require(value.get(key) == [{'path': p.removeprefix('SideStore/'),
@@ -576,7 +614,21 @@ def additive_extraction(output, contract, suite):
             digest(regular(root, spec['swift']).read_bytes()) == value.get('generated_sha256'),
             'Additive generated Swift closure or bytes differ')
     if suite == 'cache-compatibility':
-        require(all(value.get(key) is True for key in ('strict_compute_byte_identical', 'host_pipeline_byte_identical', 'execute_and_pruning_byte_identical', 'original_cache_key_byte_identical_except_symbol', 'original_cache_flow_except_retained_safety_boundaries_symbol_and_logs', 'copy_helper_overwrite_disabled', 'cache_components_lstat_no_follow', 'production_darwin_import_present', 'trusted_apps_root_canonicalized_once', 'alias_regression_uses_production_getter', 'alias_before_reference_byte_identical')),
+        change = contract.get('reviewed_cache_host_change')
+        if change is None:
+            require(value.get('host_pipeline_byte_identical') is True,
+                    'Cache host changed beyond reviewed ReuseMain insertion')
+        else:
+            require(change == {
+                'original_sha256': '4e139e9d643f59fb6990fdc246ecfa9aaa32acbc4595ea839b38bd9c4199522e',
+                'candidate_sha256': contract['input_sha256']['SideStore/SideStore/Core/Operations/PipelineRunner.swift'],
+                'insertion_sha256': 'cd11ece003588f8aeac44bab28c1d3797c11dfb5e23e9facd7a947c8a7057af6'},
+                'Cache reviewed host source binding differs')
+            require(value.get('host_pipeline_byte_identical') is False and
+                value.get('host_pipeline_except_reviewed_reuse_main_byte_identical') is True and
+                value.get('reviewed_reuse_main_insertion_sha256') == change['insertion_sha256'],
+                'Cache host changed beyond reviewed ReuseMain insertion')
+        require(all(value.get(key) is True for key in ('strict_compute_byte_identical', 'execute_and_pruning_byte_identical', 'original_cache_key_byte_identical_except_symbol', 'original_cache_flow_except_retained_safety_boundaries_symbol_and_logs', 'copy_helper_overwrite_disabled', 'cache_components_lstat_no_follow', 'production_darwin_import_present', 'trusted_apps_root_canonicalized_once', 'alias_regression_uses_production_getter', 'alias_before_reference_byte_identical')),
                 'Cache compatibility static proof differs')
     if suite == 'setup-connection-evidence':
         require(value.get('host_activation_message_contract') == 'exact_finite_guard_both_mirrors_before_generic_timeout' and
@@ -595,7 +647,8 @@ def additive_cases(output, contract, suite):
         value = json.loads(regular(output, 'commands/host-refresh-bundle-run.log').read_text())
         require(value.get('schema') == ADDITIVE_SPECS[suite]['cases_schema'] and value.get('pass') is True,
                 'Host bundle runtime did not pass')
-        require(type(value.get('case_count')) is int and value['case_count'] == 30 and
+        _, count, _ = host_bundle_variant(contract)
+        require(type(value.get('case_count')) is int and value['case_count'] == count and
                 value.get('cases') == contract['case_names'][suite], 'Host bundle ordered case closure differs')
         for key in ('network_executed', 'provider_executed', 'device_executed'):
             require(value.get(key) is False, 'Forbidden host bundle runtime boundary: ' + key)
