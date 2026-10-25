@@ -12,8 +12,6 @@
 
 ![LiveContainer 和 SideStore 应用图标由续签循环连接，旁边是项目名称 Auto-Refresh](docs/assets/project-banner.webp)
 
-[![组合版构建](https://github.com/NRG-Wardog/LiveContainer/actions/workflows/native-app-compile.yml/badge.svg)](https://github.com/NRG-Wardog/LiveContainer/actions/workflows/native-app-compile.yml)
-[![独立版构建](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml/badge.svg)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml)
 [![发布版本](https://img.shields.io/github/v/release/NRG-Wardog/sidestore-auto-refresh)](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest)
 [![许可证：MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -23,16 +21,56 @@
 
 <a id="current-status-v60"></a>
 
-## 当前状态：v6.0 取代 v3
+## 主要功能
 
-**v6.0 取代 v3，成为当前统一产品线。** 公开版 [v6.0.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0) 直接发布经过测试的同一 IPA，不重新构建或签名。验证仅限下述已确认流程，不涵盖所有设备、账户或后台场景。
+[下载最新版本](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest) · [安装指南](#installation)
 
-- **v6.0 DEVICE VERIFIED（实体设备已验证）：** 维护者设备上已确认 Apple 账户登录、IPA 安装及应用运行、扩展选择、添加 Sources 和 LiveContainer 客体应用、取消 Add Source、JITless 使用及客体应用后台行为。
-- **验证范围：** 报告的测试中，手动续签和续签后打开客体应用看起来正常。这不是长期运行或无人值守计划续签的证明。源更新（[#30](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/30)）状态仍未知；偏好持久化（[#34](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/34)）和 Keep/Reuse（[#44](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/44)）尚未经实体设备验证。
-- **历史版本：** v3.1.0 及更早的 v3、组合版 v2 和独立版 v1 保留原有发布记录。v3.1.0 的登录警告属于历史情况，不代表当前 v6.0 的登录结果；不推荐将旧版本视为已验证的回退方案。
-- **已有安装：** 请保留当前设置并备份重要的客体应用数据。不要以猜测性的恢复措施删除应用、重置账户数据或替换配对记录。
+- **无需电脑的自动续签：** 初始设置后直接在 iPhone 上续签，支持手动续签、每六小时/每天/每周计划、通知和历史记录。
+- **一个应用中的 LiveContainer + SideStore：** Home、Apps、Sources、Refresh 和 Settings 统一界面。
+- **安装和签署应用：** 导入 IPA 或安装链接，登录 Apple 账户，并选择保留哪些应用扩展。
+- **运行 LiveContainer 客体应用：** 添加客体应用，在支持的情况下使用 JITless，进行多任务操作，并通过可自定义控件返回宿主。
+- **浏览 Sources：** 添加应用目录、发现应用并安装。
+- **多语言界面：** 英语、简体中文、繁体中文和希伯来语，支持从右到左布局。
 
-本独立项目将 LiveContainer 和 SideStore 整合在同一界面中。首次安装和配对需要电脑。设置完成后，预期的续签路径使用 **Wi-Fi + App Store 官方 LocalDevVPN**，无需保持电脑连接。仅使用蜂窝网络进行续签仍属于实验功能。
+首次安装和配对需要电脑。续签使用 Wi-Fi 和官方 LocalDevVPN；iOS 控制后台调度，因此所选时间并非精确闹钟。
+
+<details>
+<summary><strong>更多功能和设置</strong></summary>
+
+### 自动续签和设置
+- **本机续签：** 通过官方 LocalDevVPN + CoreDevice 传输进行手动和计划续签，首次安装和配对后无需连接电脑。
+- **计划控制：** 每六小时、每天和每周计划，首选续签时间及目标应用选择。
+- **就绪检查和恢复：** 配对、账户、网络、后台应用刷新、通知和测试续签的设置清单；有限重试、重复运行处理及中断操作恢复。
+- **历史和提醒：** 持久化续签历史、与运行关联的验证、进度、到期/截止时间提醒，以及开始、完成和失败通知。
+
+### 应用、Sources 和签名
+- **统一导航：** 同一界面中的 Home、Apps、Sources、Refresh 和 Settings，提供可执行操作的账户、连接及应用状态。
+- **账户访问：** Apple 账户 / Personal Team 支持、登录、可选择设备/电话的双重认证及退出登录。
+- **应用安装：** 本地 IPA 导入、共享文件和 URL 安装、操作进度/取消，以及扩展选择。
+- **Sources：** 添加和管理来源目录、浏览应用列表并安装。更新已安装的来源应用尚未经实体设备验证。
+- **签名和开发工具：** 证书、团队、已注册设备、App IDs、App Groups、描述文件、配对文件管理、anisette 服务器设置及 SideSign 配置导入/导出。
+- **安装选项：** App ID 和扩展自定义、App Group ID 处理、重新签名应用导出，以及 bundle ID、iOS/应用版本、校验和及文件大小验证控制。
+- **备份：** 应用备份/恢复，以及受密码保护的账户文件导入/导出。
+
+### LiveContainer 客体应用
+- **客体应用：** 在 LiveContainer 内导入和运行应用，管理客体数据/容器及后台行为。
+- **运行选项：** JITless 设置和健康检查、JIT/SideJIT 配置及各应用的运行/兼容性选项。可用性取决于应用和设备。
+- **多任务：** 客体窗口/全屏模式、Dock 控制及启动时折叠 Dock 的选项。
+- **返回控件：** 显示/隐藏 Return 按钮、折叠为屏幕边缘标签、启动时折叠、保留位置，以及自定义图标/背景颜色。
+- **单应用控制：** 客体语言、方向、隐藏/锁定、共享/私有存放位置、插件加载器选择及兼容性设置。
+
+### 界面和语言
+- **应用布局：** List、Grid 和 Compact List、网格大小与应用标签控制，以及首选启动页面。
+- **外观：** 界面颜色/图标选项及独立的客体返回控件外观设置。
+- **多语言统一界面：** 英语、简体中文、繁体中文和希伯来语，包括从右到左布局及本地化日期。语言选择仅应用于宿主界面，不改变客体偏好。
+- **翻译文档：** 英语、简体中文、繁体中文、俄语和希伯来语 README。
+
+### 诊断和集成
+- **故障排查：** 健康检查、操作日志、可配置日志记录、可复制的诊断详情，以及认证、VPN、配对、传输、签名和安装各阶段的错误。
+- **现有集成：** Apple Shortcuts 的 Refresh All Apps 操作及受支持的应用/来源/安装链接。
+- **宿主与后端分离：** LiveContainer 管理界面和客体运行；内嵌 SideStore 提供账户、签名、配置、来源及安装服务。
+
+</details>
 
 [发布状态](#current-status-v60) · [安装参考](#installation) · [已知问题](#troubleshooting) · [验证](#verification-status) · [从源码构建](#build-it-yourself)
 
@@ -899,16 +937,18 @@ v3.0.1 记录在此保留，用于复现和历史验证。之后是此前发布�
 
 ## 自行构建
 
-当前 v6.0 的构建定义位于 **NRG-Wardog/LiveContainer**，并非本仓库 `main` 分支上的旧组合构建工作流。
+当前 v6.0 的原生构建实现在 **NRG-Wardog/LiveContainer** 中。本仓库的两个手动构建入口调用其固定修订的维护中工作流。有关当前入口和独立的 IPA 准入步骤，请参阅[维护中构建与审核打包](docs/MAINTAINED_BUILD.md)。
 
 1. 查看 `177ac31e90499231191b25f761014c17d9f2ba7b` 上的确切[原生编译工作流](https://github.com/NRG-Wardog/LiveContainer/blob/177ac31e90499231191b25f761014c17d9f2ba7b/.github/workflows/native-app-compile.yml)及其固定源码依赖图。原生构建 [40102842840](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40102842840) 使用 macOS 26、Xcode 26.4.1 和 Rust 1.98.1。
 2. 查看 `0403c859f943ffe4f17a048ac1309dd009f1f17b` 上的确切[打包工作流](https://github.com/NRG-Wardog/LiveContainer/blob/0403c859f943ffe4f17a048ac1309dd009f1f17b/.github/workflows/package-diagnostic.yml)及打包运行 [40104361491](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40104361491)。打包使用保留的原生构建产物及经过独立审核的验证凭据和输入哈希，不重新构建应用。
 3. 保留不可变源码修订、工作流限制、工具链和产物绑定。这些验证工作流限定特定仓库和分支身份，因此直接 fork 并原样触发不是通用的 v6.0 构建方法。新构建需要自己的已审核产物及证据，不会自动与已测试发布包逐字节相同。
 4. 安装时，请使用自己的 Apple 账户 / Personal Team 为 IPA 签名。请根据记录的构建器、确切发布附件及校验和识别公开安装包，而不是根据保留的上游 bundle 版本。
 
-以下旧 SAR 工作流仍可用于各自的独立版或历史目标；它们**不能**复现 v6.0 安装包：
+以下维护中的入口生成未签名的原生应用归档，而非可安装的 IPA 或公开发布版：
 
-[历史组合工作流](.github/workflows/livecontainer-build.yml) | [独立版工作流](.github/workflows/build-current.yml)
+[组合原生工作流](.github/workflows/livecontainer-build.yml) | [SideStore 共享依赖图工作流](.github/workflows/build-current.yml)
+
+历史验证源码和测试保留供审阅；归档的工作流定义不是当前构建入口。请参阅[验证历史整合](docs/VALIDATION_HISTORY_RECONCILIATION.md)。
 
 <a id="development-checks"></a>
 
