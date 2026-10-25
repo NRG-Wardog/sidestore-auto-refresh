@@ -1,0 +1,10 @@
+{
+  "implementation_commit": "c7111b580254190a0c037037036aaed49bfce8c6",
+  "harness_commit": "177ac31e90499231191b25f761014c17d9f2ba7b",
+  "workflow_sha256": {
+    "native-app-compile.yml": "b282741913b66c9dcf93520c9fdb646f66ab2cbb3d16020a589e557667f167b7",
+    "package-diagnostic.yml": "b78140c58ec74f57e124992399b9d6b5ab9456e8a6266ecdbc958823130e8e43"
+  },
+  "packager_commit": "3523c26dbdea4c49d2d113845af0721c9772a300",
+  "reviewed_native_run": 40102842840
+}

@@ -1,0 +1,27 @@
+name: Check maintained build entry contracts
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/livecontainer-build.yml', '.github/workflows/build-current.yml', '.github/workflows/maintained-entry-contract.yml', '.ci/maintained-build/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: builder
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/LiveContainer
+          ref: c7111b580254190a0c037037036aaed49bfce8c6
+          path: implementation
+          sparse-checkout: .github/workflows
+          persist-credentials: false
+      - run: python3 -B builder/.ci/maintained-build/test_contract.py -v
+        env:
+          MAINTAINED_IMPLEMENTATION_ROOT: ${{ github.workspace }}/implementation
