@@ -78,6 +78,7 @@ jobs:
       - name: Verify exact reviewed delta and separate historical source parity
         run: |
           set -euo pipefail
+          python3 -B harness/ci/issues-native/test_projected_contract_cli.py
           python3 -B harness/ci/issues-native/test_issue_receipt.py
           python3 -B harness/ci/issues-native/test_candidate_graph.py
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py

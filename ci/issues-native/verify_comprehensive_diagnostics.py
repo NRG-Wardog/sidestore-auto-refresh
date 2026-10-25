@@ -979,8 +979,9 @@ def main():
     parser.add_argument('--sources', type=Path, required=True)
     parser.add_argument('--swiftc', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--contract', type=Path, default=HERE / 'comprehensive-diagnostics-contract.json')
     args = parser.parse_args()
-    report = run(args.sources, args.swiftc, args.output)
+    report = run(args.sources, args.swiftc, args.output, args.contract)
     print(json.dumps({'status': report['status'], 'suites': report['suites'],
                       'producer_case_counts': {k: v['count'] for k, v in report['producer_exports'].items()}}, sort_keys=True))
 
