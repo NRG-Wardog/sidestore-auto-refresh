@@ -10,6 +10,7 @@ import struct
 import subprocess
 
 from audit_ipa_signing import inventory
+from ipa_size_report import optimize as optimize_ipa_size
 
 REQUIRED_SIDESTORE_INTENT_SYMBOLS = (
     b"9SideStore20RefreshAllAppsIntentV",
@@ -432,7 +433,9 @@ def package(root, host, side, output):
                VERIFIED_DYLIBIFY=str(converter))
     subprocess.run(['bash', str(script)], cwd=root, env=env, check=True)
     ipa = root / 'LiveContainer+SideStore.ipa'
+    size_result = optimize_ipa_size(ipa)
     result = verify(ipa, side)
+    result['size_optimization'] = size_result
     result['upstream_packaging_sha256'] = hashlib.sha256(upstream.encode()).hexdigest()
     result['dylibify'] = converter_evidence
     output.parent.mkdir(parents=True, exist_ok=True)

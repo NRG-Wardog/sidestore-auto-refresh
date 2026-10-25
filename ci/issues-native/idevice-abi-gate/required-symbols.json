@@ -1,0 +1,189 @@
+{
+  "status": "static_cfg_review_pass_binary_presence_pending_ci",
+  "workflow_source": "/workspace/shared/auth-copy-renderer/native-app-compile.auth-copy.yml",
+  "workflow_sha256": "b98cbefef13715076caba299ccaa7c85f0f25c1b5e656b343b8287579e211969",
+  "compile_command": "cargo +1.98.1 build --locked --release --target aarch64-apple-ios --features obfuscate --manifest-path ffi/Cargo.toml",
+  "default_features_enabled": true,
+  "explicit_features": [
+    "obfuscate"
+  ],
+  "required_ffi_features": [
+    "remote_pairing",
+    "tunnel_tcp_stack"
+  ],
+  "required_target_cfg": [
+    "unix"
+  ],
+  "target": "aarch64-apple-ios",
+  "target_cfg_basis": "The reviewed Apple iOS arm64 target is Unix; no build.rs changes or additional feature-dependent gates apply to these six exports.",
+  "crate_type": [
+    "staticlib"
+  ],
+  "release_profile": {
+    "opt-level": "z",
+    "codegen-units": 1,
+    "lto": true,
+    "panic": "abort"
+  },
+  "resolved_source_feature_closure": {
+    "ffi": [
+      "afc",
+      "aws-lc",
+      "core_device",
+      "core_device_proxy",
+      "debug_proxy",
+      "default",
+      "dvt",
+      "heartbeat",
+      "house_arrest",
+      "installation_proxy",
+      "misagent",
+      "mobile_image_mounter",
+      "obfuscate",
+      "remote_pairing",
+      "rsd",
+      "springboardservices",
+      "tcp",
+      "tss",
+      "tunnel_tcp_stack",
+      "usbmuxd",
+      "xpc"
+    ],
+    "idevice": [
+      "_http",
+      "_serde_json",
+      "afc",
+      "aws-lc",
+      "core_device",
+      "core_device_proxy",
+      "debug_proxy",
+      "dvt",
+      "heartbeat",
+      "house_arrest",
+      "installation_proxy",
+      "misagent",
+      "mobile_image_mounter",
+      "obfuscate",
+      "remote_pairing",
+      "rsd",
+      "rustls",
+      "springboardservices",
+      "tcp",
+      "tss",
+      "tunnel_tcp_stack",
+      "usbmuxd",
+      "xpc"
+    ]
+  },
+  "symbols": [
+    {
+      "name": "pairable_host_prepare",
+      "mach_o_symbol": "_pairable_host_prepare",
+      "source": "ffi/src/pairing_host.rs",
+      "ffi_feature": "remote_pairing",
+      "function_cfg": [],
+      "enabled_under_reviewed_ci_flags": true,
+      "export": "unsafe(no_mangle), pub extern C",
+      "arity": 8,
+      "rust_signature": "pub unsafe extern \"C\" fn pairable_host_prepare(\n    name: *const c_char,\n    model: *const c_char,\n    allows_pinless_pairing: bool,\n    out_handle: *mut *mut PairableHostHandle,\n    out_service_id: *mut *mut c_char,\n    out_txt_data: *mut *mut u8,\n    out_txt_len: *mut usize,\n    out_host_alt_irk: *mut u8,\n) -> *mut IdeviceFfiError"
+    },
+    {
+      "name": "pairable_host_accept_fd",
+      "mach_o_symbol": "_pairable_host_accept_fd",
+      "source": "ffi/src/pairing_host.rs",
+      "ffi_feature": "remote_pairing",
+      "function_cfg": [
+        "unix"
+      ],
+      "enabled_under_reviewed_ci_flags": true,
+      "export": "unsafe(no_mangle), pub extern C",
+      "arity": 6,
+      "rust_signature": "pub unsafe extern \"C\" fn pairable_host_accept_fd(\n    handle: *mut PairableHostHandle,\n    fd: i32,\n    pin_cb: PairableHostPinCb,\n    ctx: *mut c_void,\n    out_peer_device: *mut *mut RpPairingPeerDeviceC,\n    out_pairing_file: *mut *mut RpPairingFileHandle,\n) -> *mut IdeviceFfiError"
+    },
+    {
+      "name": "pairable_host_free",
+      "mach_o_symbol": "_pairable_host_free",
+      "source": "ffi/src/pairing_host.rs",
+      "ffi_feature": "remote_pairing",
+      "function_cfg": [],
+      "enabled_under_reviewed_ci_flags": true,
+      "export": "unsafe(no_mangle), pub extern C",
+      "arity": 1,
+      "rust_signature": "pub unsafe extern \"C\" fn pairable_host_free(handle: *mut PairableHostHandle)"
+    },
+    {
+      "name": "rppairing_peer_device_free",
+      "mach_o_symbol": "_rppairing_peer_device_free",
+      "source": "ffi/src/rp_pairing_file.rs",
+      "ffi_feature": "remote_pairing",
+      "function_cfg": [],
+      "enabled_under_reviewed_ci_flags": true,
+      "export": "unsafe(no_mangle), pub extern C",
+      "arity": 1,
+      "rust_signature": "pub unsafe extern \"C\" fn rppairing_peer_device_free(peer_device: *mut RpPairingPeerDeviceC)"
+    },
+    {
+      "name": "tunnel_create_rppairing_with_options",
+      "mach_o_symbol": "_tunnel_create_rppairing_with_options",
+      "source": "ffi/src/tunnel_provider.rs",
+      "ffi_feature": "tunnel_tcp_stack",
+      "function_cfg": [],
+      "enabled_under_reviewed_ci_flags": true,
+      "export": "unsafe(no_mangle), pub extern C",
+      "arity": 9,
+      "rust_signature": "pub unsafe extern \"C\" fn tunnel_create_rppairing_with_options(\n    addr: *const idevice_sockaddr,\n    addr_len: idevice_socklen_t,\n    hostname: *const c_char,\n    pairing_file: *mut RpPairingFileHandle,\n    pair_if_needed: bool,\n    pin_callback: Option<extern \"C\" fn(context: *mut c_void) -> *const c_char>,\n    pin_context: *mut c_void,\n    out_adapter: *mut *mut AdapterHandle,\n    out_handshake: *mut *mut RsdHandshakeHandle,\n) -> *mut IdeviceFfiError"
+    },
+    {
+      "name": "rppairing_pair_network",
+      "mach_o_symbol": "_rppairing_pair_network",
+      "source": "ffi/src/tunnel_provider.rs",
+      "ffi_feature": "tunnel_tcp_stack",
+      "function_cfg": [],
+      "enabled_under_reviewed_ci_flags": true,
+      "export": "unsafe(no_mangle), pub extern C",
+      "arity": 7,
+      "rust_signature": "pub unsafe extern \"C\" fn rppairing_pair_network(\n    addr: *const idevice_sockaddr,\n    addr_len: idevice_socklen_t,\n    hostname: *const c_char,\n    pairing_file: *mut RpPairingFileHandle,\n    pin_callback: Option<extern \"C\" fn(context: *mut c_void) -> *const c_char>,\n    pin_context: *mut c_void,\n    out_peer_device: *mut *mut RpPairingPeerDeviceC,\n) -> *mut IdeviceFfiError"
+    }
+  ],
+  "nm_assertion": [
+    "<pinned-rust-sysroot>/lib/rustlib/aarch64-apple-darwin/bin/llvm-nm",
+    "--arch=arm64",
+    "--extern-only",
+    "--defined-only",
+    "--format=just-symbols",
+    "<archive>"
+  ],
+  "nm_match": "Require successful inspection of the full archive, then exact complete output lines for all six Mach-O-prefixed symbols. --defined-only excludes undefined symbols; no member filtering or fallback is permitted.",
+  "framework_assertion": "Read XCFramework Info.plist, require one non-simulator ios/arm64 slice, and compare static archive and generated header bytes to Cargo outputs before inspection. Inspect Cargo symbols once; copies inherit symbol validation only through rechecked exact archive byte identity, recorded explicitly. Keep independent header syntax/layout checks in all three include-directory contexts.",
+  "header_generator": {
+    "source": "ffi/build.rs",
+    "sha256": "4ed0afafbed97141a713f0a0ca6d2d2b78d79c7020342de20768856bc2a8310f",
+    "configuration": "cbindgen 0.29.0 C language; excludes only portable sockaddr aliases, not these exports."
+  },
+  "header_verification": "Compile assert_header.c with the same iOS SDK using clang -fsyntax-only; check function-pointer types and 64-bit repr(C) error/peer layouts. Never link or execute the target.",
+  "ci_invocation": "python3 harness/.ci/native-app-compile/idevice-abi-gate/verify_native_abi.py --source sources/idevice --framework sources/idevice/swift/IDevice.xcframework --staged-framework sources/SideStore/Dependencies/minimuxer/DeviceGateway/LocalBinary/IDevice.xcframework --output evidence/native-abi.json",
+  "insert_after": "Compile iOS transport and stage local framework, before package resolution/app compilation.",
+  "root_requirements": [
+    "Copy the three gate source files and required-symbols.json into the authorized compile-only harness before enabling the gate.",
+    "Update exact owner/source-parity/compatibility pins to the reviewed committed sources; do not build old 803f936 with the new Swift caller.",
+    "Keep the pinned Rust/Xcode toolchains, source acquisition, artifact hashing and existing admission gates unchanged."
+  ],
+  "limitations": [
+    "No compiler, cbindgen, nm, linker or target-native execution occurred during this static audit.",
+    "These checks establish binary symbol/header availability only when run against actual outputs; they do not validate runtime pairing, fd behavior or allocator behavior."
+  ],
+  "native_source_manifest_sha256": "b379a775e4c80026a27e7afd4769fed8354dfc73b1bc7ce001a219d41fb5d2ac",
+  "swift_source_sha256": "af0dd4c10cc613ac718e7374acc4ae2cfa056d3c3edcf459eecca8a3a2d1498a",
+  "symbol_reader": {
+    "rust_toolchain": "1.98.1",
+    "rust_commit": "48a229ceaefd4985c50990b14116b6d856af0985",
+    "host": "aarch64-apple-darwin",
+    "llvm_version": "22.1.8",
+    "component": "llvm-tools-preview",
+    "distribution_manifest_url": "https://static.rust-lang.org/dist/channel-rust-1.98.1.toml",
+    "reviewed_distribution_manifest_sha256": "a7c8774a5fd8441c997d94c029776cbc5eb111e9d72ab5d256fa69866644347e",
+    "component_url": "https://static.rust-lang.org/dist/2026-09-03/llvm-tools-1.98.1-aarch64-apple-darwin.tar.xz",
+    "component_sha256": "9b68ac31be7c6d25a08ce34dbd2c1d026b8006905e74415b6d9576678379ecbc",
+    "reason": "Apple Xcode nm rejects compiler_builtins bitcode from the pinned Rust LLVM version; inspect with that exact Rust host toolchain component instead."
+  }
+}

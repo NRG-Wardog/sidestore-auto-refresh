@@ -1,0 +1,1607 @@
+{
+  "schema_version": 1,
+  "optimization": "lossless ZIP deflate level 9",
+  "adopted": true,
+  "before": {
+    "schema_version": 1,
+    "ipa_bytes": 30416579,
+    "ipa_sha256": "86db9a6bf4accf7e886d88563f1474063c85865682131a5ba0b13ed55a33f321",
+    "uncompressed_bundle_bytes": 84086225,
+    "size_note": "Uncompressed bundle bytes exclude device allocation, app data and caches.",
+    "entry_count": 274,
+    "components": {
+      "Payload": 0,
+      "Payload/LiveContainer.app": 2813639,
+      "Payload/LiveContainer.app/Frameworks/CydiaSubstrate.framework": 382003,
+      "Payload/LiveContainer.app/Frameworks/LiveContainerShared.framework": 423441,
+      "Payload/LiveContainer.app/Frameworks/LiveContainerSwiftUI.framework": 22202128,
+      "Payload/LiveContainer.app/Frameworks/OpenSSL.framework": 4424821,
+      "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework": 40452646,
+      "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework": 2763763,
+      "Payload/LiveContainer.app/Frameworks/TestJITLess.dylib": 132200,
+      "Payload/LiveContainer.app/Frameworks/TweakLoader.dylib": 215360,
+      "Payload/LiveContainer.app/Frameworks/ZSign.dylib": 687440,
+      "Payload/LiveContainer.app/PlugIns/LaunchAppExtension.appex": 258549,
+      "Payload/LiveContainer.app/PlugIns/LiveProcess.appex": 225942,
+      "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex": 8146049,
+      "Payload/LiveContainer.app/PlugIns/ShareExtension.appex": 958244
+    },
+    "largest_files": [
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore",
+        "bytes": 29846176,
+        "compressed_bytes": 9926143,
+        "sha256": "5dbd416a3be49f52b018b28f084c6a99bf20dc3eb1de5399b46567e1c73ad9a9",
+        "crc": 1171514312,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "55540500031fc6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI",
+        "bytes": 22193704,
+        "compressed_bytes": 4095000,
+        "sha256": "6d06288d5b2e9105b7975b06d9081717c1bbf04201d91ff2a210973051b73836",
+        "crc": 2592244155,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/LiveWidgetExtension",
+        "bytes": 5848752,
+        "compressed_bytes": 1941159,
+        "sha256": "a4614460d0e44b943bc5e7164f80af8588d443b96f8a3db7491bdcb6924b3b78",
+        "crc": 2358366240,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "555405000320c6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Frameworks/OpenSSL.framework/OpenSSL",
+        "bytes": 5113136,
+        "compressed_bytes": 2036462,
+        "sha256": "355ff3a21cb4eb8ef86bfba202414de1a9070b3ddf8703d03cedfcacbe9e5431",
+        "crc": 4111928851,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          56
+        ],
+        "comment": "",
+        "extra": "5554050003a3c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/OpenSSL.framework/OpenSSL",
+        "bytes": 4423680,
+        "compressed_bytes": 1803105,
+        "sha256": "df7faa880948b310527a191362fda21b31f6d9d261731ec1fe1ab9b7728854a4",
+        "crc": 2452013814,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Assets.car",
+        "bytes": 2926792,
+        "compressed_bytes": 2730695,
+        "sha256": "df9551f3da7ce2a3dbd32fa3e554aad03c36c821f5fa63266da2ee9c70059279",
+        "crc": 2046522510,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          46,
+          6
+        ],
+        "comment": "",
+        "extra": "5554050003aec4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport",
+        "bytes": 2759888,
+        "compressed_bytes": 788049,
+        "sha256": "9831c100a108b07c04a39dfa2136d1242fbfa715a0d7944300d1d8df4fc05362",
+        "crc": 1047077083,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/Assets.car",
+        "bytes": 2276008,
+        "compressed_bytes": 2244250,
+        "sha256": "3ae8c38e1c788db386ee880bd652a6bae50b6c157f5070911a38b358bb5f1a6d",
+        "crc": 4196761109,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          48,
+          12
+        ],
+        "comment": "",
+        "extra": "55540500032bc5dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideBackup.ipa",
+        "bytes": 1694848,
+        "compressed_bytes": 1673190,
+        "sha256": "a0892740375975a4d1f306a0c5096de2f5f9cad23c3e5fea7a3ebaf0f8c91e34",
+        "crc": 2930692011,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          48,
+          12
+        ],
+        "comment": "",
+        "extra": "55540500032bc5dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Assets.car",
+        "bytes": 1234984,
+        "compressed_bytes": 1183543,
+        "sha256": "cf390150e02733b9f3a237ca44181d0bfa11c729c1eeac67576ac69eff95c922",
+        "crc": 580004873,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/PlugIns/ShareExtension.appex/ShareExtension",
+        "bytes": 956064,
+        "compressed_bytes": 218865,
+        "sha256": "25a68b965e0869505a69692d23c226c6cd8d56e771cf8abdb73461235fa911d6",
+        "crc": 952297911,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "555405000320c6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/ZSign.dylib",
+        "bytes": 687440,
+        "compressed_bytes": 234966,
+        "sha256": "0da073848e8f9aa1ebcdcfa1179ff7e8c4cca63f2e7490ffc2aaab47ec1c6184",
+        "crc": 3117941085,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/LiveContainerShared.framework/LiveContainerShared",
+        "bytes": 422656,
+        "compressed_bytes": 135268,
+        "sha256": "250e47d18e8473698354cebac93e060244785106d28d67e7feae8050c0ccc008",
+        "crc": 4225251682,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/CydiaSubstrate.framework/CydiaSubstrate",
+        "bytes": 379968,
+        "compressed_bytes": 103494,
+        "sha256": "bca859c9413cb85ca0d3ecfca494c61d67e4acd5846660e618526a152963965b",
+        "crc": 2294449115,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/he.lproj/Localizable.strings",
+        "bytes": 311393,
+        "compressed_bytes": 88230,
+        "sha256": "4b2fe852fbe6349143c089bcb5b006be50dfad65f28f7dd1af346fccec5df8ad",
+        "crc": 387334960,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/PlugIns/LaunchAppExtension.appex/LaunchAppExtension",
+        "bytes": 254512,
+        "compressed_bytes": 51793,
+        "sha256": "c5fe03b6b204d11d2e55f10147944cb2ec27e5497510630d3345fe9a1c1267e9",
+        "crc": 122188500,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "555405000320c6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/PlugIns/LiveProcess.appex/LiveProcess",
+        "bytes": 217088,
+        "compressed_bytes": 37857,
+        "sha256": "8872637a1ad011d0d867bdbfb320f1e3ad4080c1c736999702010c7e4edbfde3",
+        "crc": 1055533690,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "555405000320c6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/TweakLoader.dylib",
+        "bytes": 215360,
+        "compressed_bytes": 54058,
+        "sha256": "c6cc5fc0626cf4e3375fcbf7b00efca1ba76e0a2b9d16be7187f99ceadb09412",
+        "crc": 3426987717,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/zh-Hant.lproj/Localizable.strings",
+        "bytes": 211649,
+        "compressed_bytes": 79823,
+        "sha256": "b963f285a8084d8bf8d544256b93d6038d62854df7fa2ad7b8ba97612ac1f0f2",
+        "crc": 2762986773,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/zh-Hans.lproj/Localizable.strings",
+        "bytes": 208780,
+        "compressed_bytes": 79321,
+        "sha256": "01720133737a31cc8b0ed4362c1942a4ea3db64660d4d0402abb230e74b4033a",
+        "crc": 1803672358,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/LiveContainer",
+        "bytes": 149968,
+        "compressed_bytes": 21037,
+        "sha256": "88a58a8f9e195743219e3ab052bc73495be0f43033b699c7ee8a579989561c17",
+        "crc": 2544141563,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "555405000320c6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/en.lproj/Localizable.strings",
+        "bytes": 135413,
+        "compressed_bytes": 47170,
+        "sha256": "a0eedb3ad1b4f03c5f2cfb3b79b777cff42bb515e299a73dd1ba72ee3f5310d8",
+        "crc": 1989571119,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/TestJITLess.dylib",
+        "bytes": 132200,
+        "compressed_bytes": 17740,
+        "sha256": "cc4df8e12bfa290acc9a3ec8e4efd30df67cc7fe4a2dc969047e4f9b92c3424c",
+        "crc": 4280544093,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/AltStore.momd/AltStore 17_7.omo",
+        "bytes": 56160,
+        "compressed_bytes": 13614,
+        "sha256": "5533ec1a0eaa5423ba24f014572e1da26eee6bb7218bd71ed181da12b3b308f4",
+        "crc": 447057677,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          54
+        ],
+        "comment": "",
+        "extra": "5554050003a2c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/AltStore17ToAltStore17_1.cdm",
+        "bytes": 53562,
+        "compressed_bytes": 30388,
+        "sha256": "2ee0c5a24bf0a5683142e1f5ab2c23569dc0d11f84207c2ab90f4060bc156049",
+        "crc": 3165610430,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          52
+        ],
+        "comment": "",
+        "extra": "55540500039fc4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/AppIcon76x76@2x~ipad.png",
+        "bytes": 48717,
+        "compressed_bytes": 48062,
+        "sha256": "2a65d3a5ee1454813b56fbc261600999da2592206c7917696b64bc766b683551",
+        "crc": 1232691351,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          58
+        ],
+        "comment": "",
+        "extra": "5554050003a5c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/ru.lproj/Localizable.strings",
+        "bytes": 46402,
+        "compressed_bytes": 14499,
+        "sha256": "b0a494725f1ce2c6bf074dd676e4e6d12aaa2b49e34b4491488d7e6ab48dc731",
+        "crc": 2030264078,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/AltStore11ToAltStore17_1.cdm",
+        "bytes": 41886,
+        "compressed_bytes": 23657,
+        "sha256": "81402604d7f224020151f34afa84e56dc4f7c764a2da9253ef9a48e6e1850b5e",
+        "crc": 716714163,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          52
+        ],
+        "comment": "",
+        "extra": "55540500039fc4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/AltStore11ToAltStore17.cdm",
+        "bytes": 41805,
+        "compressed_bytes": 23705,
+        "sha256": "70a045bbd8522231318da5811cba5845fcd10faac0afb5c89f70a71dc96e5251",
+        "crc": 1399245051,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          52
+        ],
+        "comment": "",
+        "extra": "55540500039fc4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/fr.lproj/Localizable.strings",
+        "bytes": 41206,
+        "compressed_bytes": 13087,
+        "sha256": "92fcee5b152139157ca03435ca3d793a552dd24f4b2325ff82534f3290108bc9",
+        "crc": 1108752958,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      }
+    ],
+    "duplicate_candidates": [
+      {
+        "sha256": "55474c19795653ffd14f8fc5c77ff80fd5ea0741ff766bdd92811b199b5a67b7",
+        "bytes_per_copy": 5023,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/ViewApp.intentdefinition",
+          "Payload/LiveContainer.app/ViewApp.intentdefinition"
+        ],
+        "repeated_bytes": 5023
+      },
+      {
+        "sha256": "42fb8a30dd8d7ba0900e1bf17fe64ed8c12cfdb8a9c791ab6b4e1eceb0f299c0",
+        "bytes_per_copy": 398,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CCryptoBoringSSLShims.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CryptoBoringWrapper.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CryptoExtras.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_Crypto.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CCryptoBoringSSL.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CCryptoBoringSSLShims.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CryptoBoringWrapper.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CryptoExtras.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_Crypto.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CCryptoBoringSSL.bundle/PrivacyInfo.xcprivacy"
+        ],
+        "repeated_bytes": 3582
+      },
+      {
+        "sha256": "d3c165222696071f2bd843dc780169efa9e83c98f0b307bafe9d2ddef1f0724f",
+        "bytes_per_copy": 1336,
+        "paths": [
+          "Payload/LiveContainer.app/zh-Hant.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/zh_HK.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/zh_TW.lproj/InfoPlist.strings"
+        ],
+        "repeated_bytes": 2672
+      },
+      {
+        "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+        "bytes_per_copy": 73,
+        "paths": [
+          "Payload/LiveContainer.app/de.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/en_AU.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ar.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/el.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ja.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/uk.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/es_419.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/es.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/pt_BR.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/da.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/it.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/sk.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/pt_PT.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ms.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/sv.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/cs.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ko.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/no.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/hu.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/tr.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/pl.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/en_GB.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/vi.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ru.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/fr_CA.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/fr.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/fi.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/id.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/nl.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/th.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ro.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/hr.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/hi.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ca.lproj/InfoPlist.strings"
+        ],
+        "repeated_bytes": 2409
+      },
+      {
+        "sha256": "a2f80aa3247adb34c777a1338252dd7f1987cc2afa6b4d77196b3c731f3bdda8",
+        "bytes_per_copy": 1332,
+        "paths": [
+          "Payload/LiveContainer.app/zh-Hans.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/zh_CN.lproj/InfoPlist.strings"
+        ],
+        "repeated_bytes": 1332
+      },
+      {
+        "sha256": "4e8f0cf3b928e4182a467223a7acb44cbb87164c471d53531ddec54de3398ce5",
+        "bytes_per_copy": 713,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CCryptoBoringSSLShims.bundle/Info.plist",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CCryptoBoringSSLShims.bundle/Info.plist"
+        ],
+        "repeated_bytes": 713
+      },
+      {
+        "sha256": "7a23b308ea558039d18cb75307a0dfe7e74fef3cc3bd4331f7d9083201ecc4ef",
+        "bytes_per_copy": 709,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CryptoBoringWrapper.bundle/Info.plist",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CryptoBoringWrapper.bundle/Info.plist"
+        ],
+        "repeated_bytes": 709
+      },
+      {
+        "sha256": "df64f86eabad4f0794db07ef502a859b4595d241f0cf4524a69b814f7fd6cec9",
+        "bytes_per_copy": 703,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CCryptoBoringSSL.bundle/Info.plist",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CCryptoBoringSSL.bundle/Info.plist"
+        ],
+        "repeated_bytes": 703
+      },
+      {
+        "sha256": "6c9abcfb19b0b249c9b9536a55dc42553bbeb4a0c79aef78fb456cb5c1111236",
+        "bytes_per_copy": 695,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CryptoExtras.bundle/Info.plist",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CryptoExtras.bundle/Info.plist"
+        ],
+        "repeated_bytes": 695
+      },
+      {
+        "sha256": "a8d4412afdb0bdcf5799d94e03bea20275aac6fd7df75681e826d00e0aaf3a7f",
+        "bytes_per_copy": 683,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_Crypto.bundle/Info.plist",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_Crypto.bundle/Info.plist"
+        ],
+        "repeated_bytes": 683
+      },
+      {
+        "sha256": "5a9b8fc0cddb10201bb47cc2804b3f004c7251476622d25bfc4eb54ed46e1084",
+        "bytes_per_copy": 373,
+        "paths": [
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Frameworks/OpenSSL.framework/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/OpenSSL.framework/PrivacyInfo.xcprivacy"
+        ],
+        "repeated_bytes": 373
+      },
+      {
+        "sha256": "8b270d0cbe9931206f22b5ab24021d9bbce88698b1bc0bb340170221055d8e7d",
+        "bytes_per_copy": 52,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LaunchAppExtension.appex/Metadata.appintents/version.json",
+          "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/Metadata.appintents/version.json",
+          "Payload/LiveContainer.app/Frameworks/LiveContainerSwiftUI.framework/Metadata.appintents/version.json"
+        ],
+        "repeated_bytes": 104
+      },
+      {
+        "sha256": "e42b392ce7d4ffb4053760e876effd283adc476e92d499802f97ff68458a3713",
+        "bytes_per_copy": 52,
+        "paths": [
+          "Payload/LiveContainer.app/Metadata.appintents/version.json",
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/Metadata.appintents/version.json"
+        ],
+        "repeated_bytes": 52
+      },
+      {
+        "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0",
+        "bytes_per_copy": 8,
+        "paths": [
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/PkgInfo",
+          "Payload/LiveContainer.app/PkgInfo"
+        ],
+        "repeated_bytes": 8
+      }
+    ],
+    "duplicate_note": "Identical bytes do not prove a file can be removed; runtime paths and signatures may require every copy."
+  },
+  "after": {
+    "schema_version": 1,
+    "ipa_bytes": 30341340,
+    "ipa_sha256": "d73d0d79971e3125a1083d9f2e7a0ca515e3d2da1360717b7db83235e17bcea6",
+    "uncompressed_bundle_bytes": 84086225,
+    "size_note": "Uncompressed bundle bytes exclude device allocation, app data and caches.",
+    "entry_count": 274,
+    "components": {
+      "Payload": 0,
+      "Payload/LiveContainer.app": 2813639,
+      "Payload/LiveContainer.app/Frameworks/CydiaSubstrate.framework": 382003,
+      "Payload/LiveContainer.app/Frameworks/LiveContainerShared.framework": 423441,
+      "Payload/LiveContainer.app/Frameworks/LiveContainerSwiftUI.framework": 22202128,
+      "Payload/LiveContainer.app/Frameworks/OpenSSL.framework": 4424821,
+      "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework": 40452646,
+      "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework": 2763763,
+      "Payload/LiveContainer.app/Frameworks/TestJITLess.dylib": 132200,
+      "Payload/LiveContainer.app/Frameworks/TweakLoader.dylib": 215360,
+      "Payload/LiveContainer.app/Frameworks/ZSign.dylib": 687440,
+      "Payload/LiveContainer.app/PlugIns/LaunchAppExtension.appex": 258549,
+      "Payload/LiveContainer.app/PlugIns/LiveProcess.appex": 225942,
+      "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex": 8146049,
+      "Payload/LiveContainer.app/PlugIns/ShareExtension.appex": 958244
+    },
+    "largest_files": [
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore",
+        "bytes": 29846176,
+        "compressed_bytes": 9884706,
+        "sha256": "5dbd416a3be49f52b018b28f084c6a99bf20dc3eb1de5399b46567e1c73ad9a9",
+        "crc": 1171514312,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "55540500031fc6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI",
+        "bytes": 22193704,
+        "compressed_bytes": 4071944,
+        "sha256": "6d06288d5b2e9105b7975b06d9081717c1bbf04201d91ff2a210973051b73836",
+        "crc": 2592244155,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/LiveWidgetExtension",
+        "bytes": 5848752,
+        "compressed_bytes": 1938495,
+        "sha256": "a4614460d0e44b943bc5e7164f80af8588d443b96f8a3db7491bdcb6924b3b78",
+        "crc": 2358366240,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "555405000320c6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Frameworks/OpenSSL.framework/OpenSSL",
+        "bytes": 5113136,
+        "compressed_bytes": 2028478,
+        "sha256": "355ff3a21cb4eb8ef86bfba202414de1a9070b3ddf8703d03cedfcacbe9e5431",
+        "crc": 4111928851,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          56
+        ],
+        "comment": "",
+        "extra": "5554050003a3c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/OpenSSL.framework/OpenSSL",
+        "bytes": 4423680,
+        "compressed_bytes": 1800485,
+        "sha256": "df7faa880948b310527a191362fda21b31f6d9d261731ec1fe1ab9b7728854a4",
+        "crc": 2452013814,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Assets.car",
+        "bytes": 2926792,
+        "compressed_bytes": 2732772,
+        "sha256": "df9551f3da7ce2a3dbd32fa3e554aad03c36c821f5fa63266da2ee9c70059279",
+        "crc": 2046522510,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          46,
+          6
+        ],
+        "comment": "",
+        "extra": "5554050003aec4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport",
+        "bytes": 2759888,
+        "compressed_bytes": 786883,
+        "sha256": "9831c100a108b07c04a39dfa2136d1242fbfa715a0d7944300d1d8df4fc05362",
+        "crc": 1047077083,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/Assets.car",
+        "bytes": 2276008,
+        "compressed_bytes": 2245466,
+        "sha256": "3ae8c38e1c788db386ee880bd652a6bae50b6c157f5070911a38b358bb5f1a6d",
+        "crc": 4196761109,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          48,
+          12
+        ],
+        "comment": "",
+        "extra": "55540500032bc5dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideBackup.ipa",
+        "bytes": 1694848,
+        "compressed_bytes": 1673396,
+        "sha256": "a0892740375975a4d1f306a0c5096de2f5f9cad23c3e5fea7a3ebaf0f8c91e34",
+        "crc": 2930692011,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          48,
+          12
+        ],
+        "comment": "",
+        "extra": "55540500032bc5dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Assets.car",
+        "bytes": 1234984,
+        "compressed_bytes": 1183180,
+        "sha256": "cf390150e02733b9f3a237ca44181d0bfa11c729c1eeac67576ac69eff95c922",
+        "crc": 580004873,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/PlugIns/ShareExtension.appex/ShareExtension",
+        "bytes": 956064,
+        "compressed_bytes": 221045,
+        "sha256": "25a68b965e0869505a69692d23c226c6cd8d56e771cf8abdb73461235fa911d6",
+        "crc": 952297911,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "555405000320c6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/ZSign.dylib",
+        "bytes": 687440,
+        "compressed_bytes": 232328,
+        "sha256": "0da073848e8f9aa1ebcdcfa1179ff7e8c4cca63f2e7490ffc2aaab47ec1c6184",
+        "crc": 3117941085,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/LiveContainerShared.framework/LiveContainerShared",
+        "bytes": 422656,
+        "compressed_bytes": 136508,
+        "sha256": "250e47d18e8473698354cebac93e060244785106d28d67e7feae8050c0ccc008",
+        "crc": 4225251682,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/CydiaSubstrate.framework/CydiaSubstrate",
+        "bytes": 379968,
+        "compressed_bytes": 103499,
+        "sha256": "bca859c9413cb85ca0d3ecfca494c61d67e4acd5846660e618526a152963965b",
+        "crc": 2294449115,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/he.lproj/Localizable.strings",
+        "bytes": 311393,
+        "compressed_bytes": 86704,
+        "sha256": "4b2fe852fbe6349143c089bcb5b006be50dfad65f28f7dd1af346fccec5df8ad",
+        "crc": 387334960,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/PlugIns/LaunchAppExtension.appex/LaunchAppExtension",
+        "bytes": 254512,
+        "compressed_bytes": 52074,
+        "sha256": "c5fe03b6b204d11d2e55f10147944cb2ec27e5497510630d3345fe9a1c1267e9",
+        "crc": 122188500,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "555405000320c6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/PlugIns/LiveProcess.appex/LiveProcess",
+        "bytes": 217088,
+        "compressed_bytes": 37968,
+        "sha256": "8872637a1ad011d0d867bdbfb320f1e3ad4080c1c736999702010c7e4edbfde3",
+        "crc": 1055533690,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "555405000320c6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/TweakLoader.dylib",
+        "bytes": 215360,
+        "compressed_bytes": 54081,
+        "sha256": "c6cc5fc0626cf4e3375fcbf7b00efca1ba76e0a2b9d16be7187f99ceadb09412",
+        "crc": 3426987717,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/zh-Hant.lproj/Localizable.strings",
+        "bytes": 211649,
+        "compressed_bytes": 78970,
+        "sha256": "b963f285a8084d8bf8d544256b93d6038d62854df7fa2ad7b8ba97612ac1f0f2",
+        "crc": 2762986773,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/zh-Hans.lproj/Localizable.strings",
+        "bytes": 208780,
+        "compressed_bytes": 78475,
+        "sha256": "01720133737a31cc8b0ed4362c1942a4ea3db64660d4d0402abb230e74b4033a",
+        "crc": 1803672358,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/LiveContainer",
+        "bytes": 149968,
+        "compressed_bytes": 21143,
+        "sha256": "88a58a8f9e195743219e3ab052bc73495be0f43033b699c7ee8a579989561c17",
+        "crc": 2544141563,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          52,
+          16
+        ],
+        "comment": "",
+        "extra": "555405000320c6dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/en.lproj/Localizable.strings",
+        "bytes": 135413,
+        "compressed_bytes": 47422,
+        "sha256": "a0eedb3ad1b4f03c5f2cfb3b79b777cff42bb515e299a73dd1ba72ee3f5310d8",
+        "crc": 1989571119,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/TestJITLess.dylib",
+        "bytes": 132200,
+        "compressed_bytes": 17791,
+        "sha256": "cc4df8e12bfa290acc9a3ec8e4efd30df67cc7fe4a2dc969047e4f9b92c3424c",
+        "crc": 4280544093,
+        "external_attr": 2179792896,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          14
+        ],
+        "comment": "",
+        "extra": "555405000301c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/AltStore.momd/AltStore 17_7.omo",
+        "bytes": 56160,
+        "compressed_bytes": 12967,
+        "sha256": "5533ec1a0eaa5423ba24f014572e1da26eee6bb7218bd71ed181da12b3b308f4",
+        "crc": 447057677,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          54
+        ],
+        "comment": "",
+        "extra": "5554050003a2c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/AltStore17ToAltStore17_1.cdm",
+        "bytes": 53562,
+        "compressed_bytes": 30101,
+        "sha256": "2ee0c5a24bf0a5683142e1f5ab2c23569dc0d11f84207c2ab90f4060bc156049",
+        "crc": 3165610430,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          52
+        ],
+        "comment": "",
+        "extra": "55540500039fc4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/AppIcon76x76@2x~ipad.png",
+        "bytes": 48717,
+        "compressed_bytes": 48005,
+        "sha256": "2a65d3a5ee1454813b56fbc261600999da2592206c7917696b64bc766b683551",
+        "crc": 1232691351,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          58
+        ],
+        "comment": "",
+        "extra": "5554050003a5c4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/ru.lproj/Localizable.strings",
+        "bytes": 46402,
+        "compressed_bytes": 14604,
+        "sha256": "b0a494725f1ce2c6bf074dd676e4e6d12aaa2b49e34b4491488d7e6ab48dc731",
+        "crc": 2030264078,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/AltStore11ToAltStore17_1.cdm",
+        "bytes": 41886,
+        "compressed_bytes": 23871,
+        "sha256": "81402604d7f224020151f34afa84e56dc4f7c764a2da9253ef9a48e6e1850b5e",
+        "crc": 716714163,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          52
+        ],
+        "comment": "",
+        "extra": "55540500039fc4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/AltStore11ToAltStore17.cdm",
+        "bytes": 41805,
+        "compressed_bytes": 23904,
+        "sha256": "70a045bbd8522231318da5811cba5845fcd10faac0afb5c89f70a71dc96e5251",
+        "crc": 1399245051,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          45,
+          52
+        ],
+        "comment": "",
+        "extra": "55540500039fc4dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      },
+      {
+        "path": "Payload/LiveContainer.app/fr.lproj/Localizable.strings",
+        "bytes": 41206,
+        "compressed_bytes": 13133,
+        "sha256": "92fcee5b152139157ca03435ca3d793a552dd24f4b2325ff82534f3290108bc9",
+        "crc": 1108752958,
+        "external_attr": 2175008768,
+        "internal_attr": 0,
+        "date_time": [
+          2026,
+          10,
+          24,
+          14,
+          43,
+          10
+        ],
+        "comment": "",
+        "extra": "5554050003fec3dc6a75780b000104f50100000414000000",
+        "create_system": 3
+      }
+    ],
+    "duplicate_candidates": [
+      {
+        "sha256": "55474c19795653ffd14f8fc5c77ff80fd5ea0741ff766bdd92811b199b5a67b7",
+        "bytes_per_copy": 5023,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/ViewApp.intentdefinition",
+          "Payload/LiveContainer.app/ViewApp.intentdefinition"
+        ],
+        "repeated_bytes": 5023
+      },
+      {
+        "sha256": "42fb8a30dd8d7ba0900e1bf17fe64ed8c12cfdb8a9c791ab6b4e1eceb0f299c0",
+        "bytes_per_copy": 398,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CCryptoBoringSSLShims.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CryptoBoringWrapper.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CryptoExtras.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_Crypto.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CCryptoBoringSSL.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CCryptoBoringSSLShims.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CryptoBoringWrapper.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CryptoExtras.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_Crypto.bundle/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CCryptoBoringSSL.bundle/PrivacyInfo.xcprivacy"
+        ],
+        "repeated_bytes": 3582
+      },
+      {
+        "sha256": "d3c165222696071f2bd843dc780169efa9e83c98f0b307bafe9d2ddef1f0724f",
+        "bytes_per_copy": 1336,
+        "paths": [
+          "Payload/LiveContainer.app/zh-Hant.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/zh_HK.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/zh_TW.lproj/InfoPlist.strings"
+        ],
+        "repeated_bytes": 2672
+      },
+      {
+        "sha256": "144837e2d4a9f42c946d4fed5df3de3b14dfdcaaa252b4fbc5b9b3e135d00f4f",
+        "bytes_per_copy": 73,
+        "paths": [
+          "Payload/LiveContainer.app/de.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/en_AU.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ar.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/el.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ja.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/uk.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/es_419.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/es.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/pt_BR.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/da.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/it.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/sk.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/pt_PT.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ms.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/sv.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/cs.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ko.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/no.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/hu.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/tr.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/pl.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/en_GB.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/vi.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ru.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/fr_CA.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/fr.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/fi.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/id.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/nl.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/th.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ro.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/hr.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/hi.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/ca.lproj/InfoPlist.strings"
+        ],
+        "repeated_bytes": 2409
+      },
+      {
+        "sha256": "a2f80aa3247adb34c777a1338252dd7f1987cc2afa6b4d77196b3c731f3bdda8",
+        "bytes_per_copy": 1332,
+        "paths": [
+          "Payload/LiveContainer.app/zh-Hans.lproj/InfoPlist.strings",
+          "Payload/LiveContainer.app/zh_CN.lproj/InfoPlist.strings"
+        ],
+        "repeated_bytes": 1332
+      },
+      {
+        "sha256": "4e8f0cf3b928e4182a467223a7acb44cbb87164c471d53531ddec54de3398ce5",
+        "bytes_per_copy": 713,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CCryptoBoringSSLShims.bundle/Info.plist",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CCryptoBoringSSLShims.bundle/Info.plist"
+        ],
+        "repeated_bytes": 713
+      },
+      {
+        "sha256": "7a23b308ea558039d18cb75307a0dfe7e74fef3cc3bd4331f7d9083201ecc4ef",
+        "bytes_per_copy": 709,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CryptoBoringWrapper.bundle/Info.plist",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CryptoBoringWrapper.bundle/Info.plist"
+        ],
+        "repeated_bytes": 709
+      },
+      {
+        "sha256": "df64f86eabad4f0794db07ef502a859b4595d241f0cf4524a69b814f7fd6cec9",
+        "bytes_per_copy": 703,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CCryptoBoringSSL.bundle/Info.plist",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CCryptoBoringSSL.bundle/Info.plist"
+        ],
+        "repeated_bytes": 703
+      },
+      {
+        "sha256": "6c9abcfb19b0b249c9b9536a55dc42553bbeb4a0c79aef78fb456cb5c1111236",
+        "bytes_per_copy": 695,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_CryptoExtras.bundle/Info.plist",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_CryptoExtras.bundle/Info.plist"
+        ],
+        "repeated_bytes": 695
+      },
+      {
+        "sha256": "a8d4412afdb0bdcf5799d94e03bea20275aac6fd7df75681e826d00e0aaf3a7f",
+        "bytes_per_copy": 683,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/swift-crypto_Crypto.bundle/Info.plist",
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/swift-crypto_Crypto.bundle/Info.plist"
+        ],
+        "repeated_bytes": 683
+      },
+      {
+        "sha256": "5a9b8fc0cddb10201bb47cc2804b3f004c7251476622d25bfc4eb54ed46e1084",
+        "bytes_per_copy": 373,
+        "paths": [
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Frameworks/OpenSSL.framework/PrivacyInfo.xcprivacy",
+          "Payload/LiveContainer.app/Frameworks/OpenSSL.framework/PrivacyInfo.xcprivacy"
+        ],
+        "repeated_bytes": 373
+      },
+      {
+        "sha256": "8b270d0cbe9931206f22b5ab24021d9bbce88698b1bc0bb340170221055d8e7d",
+        "bytes_per_copy": 52,
+        "paths": [
+          "Payload/LiveContainer.app/PlugIns/LaunchAppExtension.appex/Metadata.appintents/version.json",
+          "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/Metadata.appintents/version.json",
+          "Payload/LiveContainer.app/Frameworks/LiveContainerSwiftUI.framework/Metadata.appintents/version.json"
+        ],
+        "repeated_bytes": 104
+      },
+      {
+        "sha256": "e42b392ce7d4ffb4053760e876effd283adc476e92d499802f97ff68458a3713",
+        "bytes_per_copy": 52,
+        "paths": [
+          "Payload/LiveContainer.app/Metadata.appintents/version.json",
+          "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/Metadata.appintents/version.json"
+        ],
+        "repeated_bytes": 52
+      },
+      {
+        "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0",
+        "bytes_per_copy": 8,
+        "paths": [
+          "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/PkgInfo",
+          "Payload/LiveContainer.app/PkgInfo"
+        ],
+        "repeated_bytes": 8
+      }
+    ],
+    "duplicate_note": "Identical bytes do not prove a file can be removed; runtime paths and signatures may require every copy."
+  },
+  "candidate_ipa_bytes": 30341340,
+  "saved_download_bytes": 75239,
+  "saved_uncompressed_bundle_bytes": 0,
+  "content_and_preserved_metadata_verified": true,
+  "preserved_metadata": "Entry order/names, bytes, CRC, timestamps, Unix mode/symlink attributes, member/archive comments and extra fields; ZIP compression headers may differ.",
+  "device_validation": "not performed; recompression does not establish device compatibility"
+}

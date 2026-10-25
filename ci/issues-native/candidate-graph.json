@@ -1,0 +1,178 @@
+{
+  "owners": {
+    "AnisetteKit": [
+      "NRG-Wardog/AnisetteKit",
+      "3e670c2e1b72ff328d3a64353d8de2418df87e73"
+    ],
+    "LiveContainer": [
+      "NRG-Wardog/LiveContainer",
+      "7d4a6c028d261316285279f67001256e32b3b280"
+    ],
+    "LiveContainer/OpenSSL": [
+      "krzyzanowskim/OpenSSL",
+      "623c84da314e85363236507ca38a4bde65df21c3"
+    ],
+    "LiveContainer/litehook": [
+      "LiveContainerMirror/litehook",
+      "a7e9f599d7f0b3d77008ad62bf10cb10dab6eca9"
+    ],
+    "SideStore": [
+      "NRG-Wardog/SideStore",
+      "dc0c714becee44b11ed0b484045d17c72b255945"
+    ],
+    "SideStore/Dependencies/SideSign": [
+      "NRG-Wardog/SideSign",
+      "5bf1ad1881a9929edf1fac7fc08a7f02b3c43cd1"
+    ],
+    "SideStore/Dependencies/minimuxer": [
+      "NRG-Wardog/minimuxer",
+      "4ca3af5270de8aa48e8bc100eadf1b3550260ea2"
+    ],
+    "idevice": [
+      "NRG-Wardog/idevice",
+      "447e3b48ff70556c58ccb23b17b6677e693b040b"
+    ],
+    "idevice/cpp/plist_ffi": [
+      "jkcoxson/plist_ffi",
+      "66e6e6362b58bc361725c3e1b0a34af498aa2b3a"
+    ],
+    "jktcp": [
+      "NRG-Wardog/jktcp",
+      "a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9"
+    ]
+  },
+  "reviewed_deltas": {
+    "LiveContainer": {
+      "baseline": "8808211d340c6e9e2a6274c0eaa863d7ab09474f",
+      "files": {
+        ".ci/branch-cleanup/allowlist.json": "152ec8b04398d1f5aafcd0018e865cf09b0278dd",
+        ".ci/branch-cleanup/cleanup.py": "db84b91a0f98a60cf9e19ef2172c3ab1b4da029b",
+        ".ci/branch-cleanup/test_cleanup.py": "d2c59ce6dfde05518eff6723cc6fad17bb918d0f",
+        ".github/workflows/build.yml": "7d17217482f45cb96cc8d9393be2799a071bd026",
+        ".github/workflows/native-app-compile.yml": "704a7faf9d48b8b586a70f0c2d935aa35ba85d80",
+        ".github/workflows/package-diagnostic.yml": "fe77d4c7665195b7703dd05d65fdb8f081261eae",
+        ".github/workflows/reviewed-branch-cleanup.yml": "ca5bbae8d856a8bc28b7899ac02e3790faa708ee",
+        "LiveContainer.xcodeproj/project.pbxproj": "efe0df2b053b8fbdb4c0167c0ce58e0ae25d6e26",
+        "LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift": "207d3c8d79263865d0b984f06dc6b264a2321309",
+        "LiveContainerSwiftUI/Utilities/V3SourceAppPresentation.swift": "5312f206458345534120fdc82f1021663fb2aa4e",
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "b022b9b668ffcb3759ab4af2fe7412db741d9ce0",
+        "MultitaskSupport/AppSceneViewController.h": "ecc9927a4ebd256346429a6dd60a7ff4c227bb6e",
+        "MultitaskSupport/AppSceneViewController.m": "e7d90528c08d375529f58603367543dde2a3199e",
+        "MultitaskSupport/DecoratedAppSceneViewController.h": "a6df0d79276542f27c09dda5ef27012854b8cdfa",
+        "MultitaskSupport/DecoratedAppSceneViewController.m": "2707669bd27aa3bc920ad5a0eb271c9dcecc93af",
+        "MultitaskSupport/LCGuestSafeAreaGeometry.h": "b086b34eec7deb97d926f5752e81788f272dfd98",
+        "MultitaskSupport/MultitaskDockView.swift": "308d94b718098c66fb0dc7269ecf076d704192ab",
+        "MultitaskSupport/UIKitHooks.m": "9def2e0164f2b3d9910461206bcfffcc18035688",
+        "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
+        "docs/validation/P1_LAYOUT_HARDENING.md": "58ca36616e11a93cadc97988222243f1b6d2b659",
+        "docs/validation/issue47-guest-input-and-safe-area.md": "3a501c138a3904c3eb64f6b6eb3ba8d1265a5abf",
+        "docs/validation/issue55-swiftui-size.md": "50a43285403de81cd53a9588d4221e69879d73d0",
+        "tests/fixtures/guest_safe_area_geometry.c": "01dbd92f5dd94e67ab3be3bdc9792b2b25be6461",
+        "tests/fixtures/source_app_presentation.swift": "0cba80d4f2de0716fd81d3a980596c07c8be1181",
+        "tests/provider_sequence/main.swift": "275a64df2e3de10212e6b804a021bd2397ff0b31",
+        "tests/test_diagnostic_provider_sequence.py": "59b47f64e5841c456fa4f1bba40fb17eaabf2ca0",
+        "tests/test_guest_input_lifecycle.py": "39bf0e8c348d5da7ea5f24c08851aa51adadfa84",
+        "tests/test_guest_safe_area_geometry.py": "396d43c13d8134437f03c7d3eda10c372abe0cf2",
+        "tests/test_recovery_banner_layout.py": "e630276bb1dc9f04b579355838ae9fb365322ede",
+        "tests/test_release_size_configuration.py": "8960d36f35e0dfb8bba56f233d974bb6815aa11f",
+        "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8"
+      },
+      "tree": "e55f4926efe4fd087d9082d864c4951196b8bbf1"
+    },
+    "SideStore": {
+      "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
+      "files": {
+        ".ci/branch-cleanup/allowlist.json": "f4fa7e585a01a176694441a15fb33bf8cfbc8ce7",
+        ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
+        ".ci/branch-cleanup/test_cleanup.py": "bae89afbd4d820fd1fae69819800f88e6cd4a706",
+        ".github/workflows/nightly.yml": "0a4831356302661ed391de04eb400ba01fad8570",
+        ".github/workflows/reviewed-branch-cleanup.yml": "3c84d751489af85c66ac56f934b557fc083ac6d8",
+        "AGENTS.md": null,
+        "AltStore/AppDelegate.swift": "d2a1846f792c40d65c50d94cefa1bebc9a971ab3",
+        "Dependencies/SideSign": "5bf1ad1881a9929edf1fac7fc08a7f02b3c43cd1",
+        "SideStore/Core/Anisette/AnisetteProvider.swift": "985a6c348a8d81a4109bec4b0fdfac5f5d6df018",
+        "SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift": "120ccfafedeed87a399e087e94a7050fd69c412b",
+        "SideStore/Core/Auth/AuthManager.swift": "d267cd7d09e4395cff39b1feb2181ca4cc352970",
+        "SideStore/Core/Operations/OperationContexts.swift": "3d74c1a588b6f24363313cb01cd94f38efc643de",
+        "SideStore/Core/Operations/PipelineExecutionHandler.swift": "77bff7371b018035687751eea30fcebd61bd75fb",
+        "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": "9ad0648bea8c442a10f1abfb4f9126d2424e4120",
+        "SideStore/Core/Operations/PipelineOperations/InstallAppOperation.swift": "4623c1c049864853e5a6aade9da6a6677d475a7d",
+        "SideStore/Core/Operations/PipelineOperations/PrepareAppExtensionBundleIDsOperation.swift": "464b23b254c88f0f06448e3474402a02ca89000f",
+        "SideStore/Core/Operations/PipelineOperations/RemoveAppExtensionsOperation.swift": "a4fec8ef0e66faa799159cc99526510cac97cd33",
+        "SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift": "8bfda475e9604e54644f403891aa39bce79fec25",
+        "SideStore/Core/Operations/PipelineRunner.swift": "7c4cd4ff7fc984e1591592dd36db72c659cefa9e",
+        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": "4305bd59abcedeef8136e4f8dec2a71a4529b505",
+        "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
+        "tests/appid_expiry/test_appid_expiry_bridge.py": "4e223dabf1e11f5838f6c65a9fd81362443a6414",
+        "tests/provider_sequence/main.swift": "275a64df2e3de10212e6b804a021bd2397ff0b31",
+        "tests/provider_sequence/noncooperative.swift": "a0780887c8595aa8222abb05ac2c7f86a57ca01d",
+        "tests/reuse_main/RegistryCases.swift": "cd5ac91c7f9c2f3684f85fe816f1d9bf396f024e",
+        "tests/reuse_main/run.sh": "ff1abdb0b30d00289c3f874a9f743523e3417306",
+        "tests/reuse_main/test_contract.py": "f812660a56c20370ab1d3f55ad64916a693b8f79",
+        "tests/test_diagnostic_provider_sequence.py": "97a66e2cf7a8ee7bcedecd4ccd7e30ab188ada07",
+        "tests/upstream_sync/test_iloader_submit_route.py": "4f7e956fe564c12f832d52dea34f108cc5eff0ce"
+      },
+      "tree": "f7795f9e716d5d04ddcf6289cc58084588bc82ac"
+    },
+    "SideStore/Dependencies/SideSign": {
+      "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
+      "files": {
+        ".ci/branch-cleanup/allowlist.json": "075b4e6ab4628192a58bc6740afe1529cd65b841",
+        ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
+        ".ci/branch-cleanup/test_cleanup.py": "bae89afbd4d820fd1fae69819800f88e6cd4a706",
+        ".ci/iloader-auth-parity/ProviderDoubles.swift": "e666d255e47a8c8daba07ceeff6c8aa430cf88a0",
+        ".ci/iloader-auth-parity/README.md": "77daef817254205bb00ea5c9f8ac0c7b1e099dd7",
+        ".ci/iloader-auth-parity/RuntimeTests.swift": "ad6b22c6749e9119b4ab5bd8a1f97e45939d8ea5",
+        ".ci/iloader-auth-parity/generate.py": "3275d011e17dad30f8b18e9808b02e0341b5e6fa",
+        ".ci/iloader-auth-parity/test_source.py": "a65c46e7b1c596b266117a1ae7aec432f8fb4a7f",
+        ".ci/reuse-main/Cases.swift": "00a9d472f1ccbae09d671f012a8b5e8bbeae57ea",
+        ".ci/reuse-main/README.md": "2b4da3e1eb44aa404000eb9301b2bfc2a085e7f4",
+        ".ci/reuse-main/SignerCases.swift": "b2939d25f8ca3f9210c175185e87a2a453dc3c77",
+        ".ci/reuse-main/SignerDoubles.swift": "42042ca751c40b033ffb00e8653ae66ba9c73958",
+        ".ci/reuse-main/run.sh": "2d667b03c0819230709f9dd44efea57ca2f06f73",
+        ".ci/reuse-main/test_source.py": "6658702c092c4c644722f20ffb95a6b8e3e8b3db",
+        ".github/workflows/reviewed-branch-cleanup.yml": "32e136f1df8c9adbb5e1f3b03cc88937bb8223cc",
+        "CLI/CommandHandler.swift": "d80a9b661d5c198fa8d47c2775668aef4c730622",
+        "Sources/Anisette/ILoaderRemoteAnisette.swift": "c4ffdc804ad6597a801406a7903592a7524dc772",
+        "Sources/Anisette/ILoaderRemoteHTTPTransport.swift": "49ac64a6449efd7bf78740b475f71161c685c155",
+        "Sources/CodeSigning/CodeSignerAPI.swift": "228d6e788746f7ac724910bfb1d36b2501f5bd12",
+        "Sources/CodeSigning/ExtensionSigningPolicy.swift": "4dfdbebb444cb45f1e9a76c357a47f74766f81a2",
+        "Tests/SideSignTests/ILoaderRemoteHTTPTransportTests.swift": "3f06fd743c9adf1e5d90636b531c76f008ae8669"
+      },
+      "tree": "1e46df8ba3aa71d41a49c48185afbe601c665b81"
+    },
+    "idevice": {
+      "baseline": "774f02a6d29777c85400f4ba7fa69c12b4227fb3",
+      "files": {
+        ".ci/branch-cleanup/allowlist.json": "ce2c02ab4152fb188421c17585fa4f17b997cda7",
+        ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
+        ".ci/branch-cleanup/test_cleanup.py": "bae89afbd4d820fd1fae69819800f88e6cd4a706",
+        ".ci/issue53/README.md": "48239ba8177da06b8e8b48bf93f3cd5c660b8884",
+        ".ci/issue53/fixtures/idevice.h": "2d68c39216e2c2f36f8b87580782eca5333b9d35",
+        ".ci/issue53/fixtures/ownership.cpp": "36c79d82749819518454de9d9c59bdf74231a150",
+        ".ci/issue53/test_ownership.py": "aaf1d451e8730ddfd21dd5c62242926c33aad062",
+        ".github/workflows/reviewed-branch-cleanup.yml": "674e070d322100297169f68d89025044fbfabacf",
+        "AI.md": null,
+        "cpp/include/idevice++/house_arrest.hpp": "9567afce89b3fe2782a19e03ea93eaea5759cf5b",
+        "cpp/src/house_arrest.cpp": "91499e14c9c0ac4f0b3fdc4516287e4ef3f20014",
+        "cpp/src/lockdown.cpp": "935053a4929d48489115c8f65b08437b590e054a",
+        "cpp/src/os_trace_relay.cpp": "e76ac6b790374be5c5492d3c6c8d0aead4220f0e",
+        "cpp/src/springboardservices.cpp": "e56efab730dd51ec9f9bddfd7f2aa5724cf55f44",
+        "cpp/src/syslog_relay.cpp": "4b454393e7de3e4e28bf6df889474e5bdad62ed2",
+        "ffi/examples/mounter.c": "79bc5fd2126e1072c6d2a3daee38298af31558d3",
+        "ffi/src/house_arrest.rs": "47b59626b46a787ee63526fa7663f14cd9c7d42e",
+        "ffi/src/lockdown.rs": "e3382565ec210dba0fb2c41e4c9db6fa47f1f75a",
+        "ffi/src/mobile_image_mounter.rs": "f3c267dbc68b8b3d164cd2a25c44ce03408b1cc8",
+        "ffi/src/os_trace_relay.rs": "e4dcaecb0382d1c725eec991625af021cad7a904",
+        "ffi/src/provider.rs": "40a157a158b4145d12e9e344fc8cc722ab3ab4b5",
+        "ffi/src/springboardservices.rs": "133e57cb4bacf42c178a5be0fb761edc4026577e",
+        "ffi/src/syslog_relay.rs": "1b32650e99c460c62419b02d2d8d8668d435712b",
+        "ffi/src/usbmuxd.rs": "9669a3418fa2073599d175929cb70b41e81c50f7",
+        "idevice/src/usbmuxd/mod.rs": "99918699df94e232e3b4681c2f50baf0e92f5c63",
+        "idevice/src/usbmuxd/raw_packet.rs": "ab704757497d40664ac3a434a03b76c5634a75cf"
+      },
+      "tree": "1c35a9c6dcf18d9b78aae2fbcb08f103d0aba60f"
+    }
+  },
+  "schema_version": 1
+}
