@@ -12,12 +12,13 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import struct
 import sys
 import zipfile
 
 from audit_ipa_signing import inventory as signing_inventory, signing
 from ipa_size_report import inspect, report as size_report
-from macho_stab_guard import image_uuid, require, sha, snapshot, verify, signature_metadata
+from macho_stab_guard import image_uuid, require, sha, snapshot, verify, signature_metadata, commands
 from package_livecontainer_combined import verify as verify_combined
 
 RUN = '40213898605'
@@ -147,12 +148,54 @@ def repackage(original, output, replacements):
     return verify_combined(output)
 
 
+def capture_signature(path, output, label):
+    data = path.read_bytes()
+    raw = next(raw for cmd, raw in commands(data)[2] if cmd == 0x1d)
+    offset, size = struct.unpack_from('<II', raw, 8)
+    require(offset <= len(data) and size <= len(data)-offset, 'diagnostic signature outside image')
+    # Raw public code-signature bytes, not a policy acceptance of unknown layouts.
+    write(output / (label + '-signature-raw.json'), {
+        'binary_sha256': sha(data), 'offset': offset, 'size': size,
+        'signature_hex': data[offset:offset+size].hex(), 'policy_accepted': False})
+    display = subprocess.run(['/usr/bin/codesign', '--display', '--verbose=4', str(path)],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    (output / (label + '-codesign-display.log')).write_bytes(display.stdout)
+
+
+def apple_adhoc_diagnostic(source, stripped, work, output):
+    results = {}
+    for label, original in (('original', source), ('stripped-ldid', stripped)):
+        capture_signature(original, output, label)
+        target = work / ('apple-' + label) / 'SideStore'
+        target.parent.mkdir()
+        shutil.copy2(original, target)
+        before = original.read_bytes()
+        run(['/usr/bin/codesign', '--force', '--sign', '-', '--identifier', 'SideStore',
+             '--digest-algorithm=sha1,sha256', '--timestamp=none', str(target)],
+            output / (label + '-apple-reseal.log'))
+        capture_signature(target, output, label + '-apple')
+        # Capture both probe outcomes even if the first verifier fails.
+        check = subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '--verbose=4', str(target)],
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+        (output / (label + '-apple-verify.log')).write_bytes(check.stdout)
+        structural = verify(before, target.read_bytes(), require_reduction=False, preserve_stabs=True)
+        write(output / (label + '-apple-structural.json'), structural)
+        require(original.read_bytes() == before, 'Apple probe modified source copy')
+        results[label] = {'strict_verify_exit_code': check.returncode,
+                          'signing_policy_review_pending': True, 'binary_sha256': digest(target)}
+    write(output / 'apple-adhoc-probe.json', results)
+    require(all(row['strict_verify_exit_code'] == 0 for row in results.values()),
+            'Apple ad-hoc diagnostic strict verification failed')
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--work', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--inspect-only', action='store_true')
+    parser.add_argument('--apple-adhoc-diagnostic-only', action='store_true')
     args = parser.parse_args()
     require(not args.output.exists() and not args.output.is_symlink(), 'output artifact directory must be fresh')
     args.output.mkdir(parents=True)
@@ -205,6 +248,11 @@ def main():
                 report['sidestore_signing_metadata'] = original_signing_metadata
                 require(after_signing.get('signature_present') is True and after_signing.get('xml_entitlements') is None
                         and not after_signing.get('der_entitlements_present'), 'reseal changed empty entitlement inventory')
+                if args.apple_adhoc_diagnostic_only:
+                    report['apple_adhoc_diagnostics'] = apple_adhoc_diagnostic(source, candidate, args.work, args.output)
+                    require(digest(original) == IPA_SHA, 'original IPA changed')
+                    report['status'] = 'APPLE_ADHOC_DIAGNOSTIC_PASS_POLICY_REVIEW_PENDING_NO_IPA'
+                    return
                 run(['/usr/bin/codesign', '--verify', '--strict', '--verbose=4', str(candidate)], args.output / (key + '-codesign-verify.log'))
                 report['sidestore_signature'] = 'existing_empty_entitlement_ldid_recipe_resealed_and_apple_strict_verified'
             else:

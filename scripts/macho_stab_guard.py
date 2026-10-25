@@ -184,7 +184,7 @@ def snapshot(data):
             'command_end': command_end, 'bytes': len(data), 'sha256': sha(data)}
 
 
-def verify(before, after, *, require_reduction=True):
+def verify(before, after, *, require_reduction=True, preserve_stabs=False):
     old, new = snapshot(before), snapshot(after)
     for key in ('header', 'uuid', 'commands', 'segments', 'sections', 'linkedit_offset',
                 'linkedit_blobs', 'symbols', 'symbol_count', 'symbol_groups', 'indirect_symbols'):
@@ -199,10 +199,19 @@ def verify(before, after, *, require_reduction=True):
     elif new['command_end'] < old['command_end']:
         require(not any(after[new['command_end']:old['command_end']]), 'removed signature command left nonzero header slack')
     require(before[start:old['linkedit_offset']] == after[start:new['linkedit_offset']], 'non-LINKEDIT body changed')
-    require(new['stab_count'] == 0, 'debug STAB records remain')
+    if preserve_stabs:
+        require(not require_reduction, 'signature-only comparison cannot request stripping')
+        require(old['stab_count'] == new['stab_count'], 'signature-only change altered debug records')
+        def symbol_bytes(data):
+            raw = next(raw for cmd, raw in commands(data)[2] if cmd == 2)
+            offset, count, strings, size = struct.unpack_from('<4I', raw, 8)
+            return data[offset:offset+count*16], data[strings:strings+size]
+        require(symbol_bytes(before) == symbol_bytes(after), 'signature-only symbol/string tables changed')
+    else:
+        require(new['stab_count'] == 0, 'debug STAB records remain')
     if require_reduction:
         require(old['stab_count'] > 0 and len(after) < len(before), 'no debug-only size reduction')
-    return {'before': old, 'after': new, 'removed_stabs': old['stab_count'],
+    return {'before': old, 'after': new, 'removed_stabs': old['stab_count'] - new['stab_count'],
             'bytes_saved': len(before) - len(after), 'runtime_proven': False}
 
 

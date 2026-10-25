@@ -160,6 +160,18 @@ class StabGuardTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unreviewed entitlement'):
             signature_metadata(bytes(changed))
 
+    def test_signature_only_probe_retains_full_debug_records_and_default_still_rejects(self):
+        original = fixture()
+        receipt = verify(original, original, require_reduction=False, preserve_stabs=True)
+        self.assertEqual(receipt['removed_stabs'], 0)
+        with self.assertRaisesRegex(ValueError, 'debug STAB records remain'):
+            verify(original, original, require_reduction=False)
+        changed = original.replace(b'debug.c', b'other.c')
+        with self.assertRaisesRegex(ValueError, 'symbol/string tables changed'):
+            verify(original, changed, require_reduction=False, preserve_stabs=True)
+        with self.assertRaisesRegex(ValueError, 'altered debug records'):
+            verify(original, fixture(False), require_reduction=False, preserve_stabs=True)
+
     def test_malformed_and_unsupported_images_reject(self):
         original = fixture()
         for changed in (b'\xca\xfe\xba\xbe' + original[4:], original[:10],

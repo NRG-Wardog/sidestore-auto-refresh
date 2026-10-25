@@ -75,6 +75,28 @@ class ExperimentPackagingTests(unittest.TestCase):
             driver.inputs(self.root, work)
         self.assertFalse(work.exists())
 
+    def test_diagnostic_probes_both_copies_and_cannot_package(self):
+        source = self.root / 'source'; source.write_bytes(b'original')
+        stripped = self.root / 'stripped'; stripped.write_bytes(b'stripped')
+        output = self.root / 'output'; output.mkdir()
+        with patch.object(driver, 'capture_signature'), patch.object(driver, 'run') as run, \
+             patch.object(driver, 'verify', return_value={'synthetic_only': True}) as structural, \
+             patch.object(driver.subprocess, 'run', side_effect=[
+                 subprocess.CompletedProcess([], 1, b'first failed'),
+                 subprocess.CompletedProcess([], 0, b'second passed')]):
+            with self.assertRaisesRegex(ValueError, 'diagnostic strict verification failed'):
+                driver.apple_adhoc_diagnostic(source, stripped, self.root, output)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(structural.call_count, 2)
+        self.assertTrue((output / 'apple-adhoc-probe.json').is_file())
+        self.assertFalse(list(output.glob('*.ipa')))
+        for call in run.call_args_list:
+            self.assertIn('--digest-algorithm=sha1,sha256', call.args[0])
+            self.assertEqual(Path(call.args[0][-1]).name, 'SideStore')
+        text = Path(driver.__file__).read_text()
+        early = text.index("report['status'] = 'APPLE_ADHOC_DIAGNOSTIC_PASS_POLICY_REVIEW_PENDING_NO_IPA'")
+        self.assertLess(text.index('return', early), text.index('verification = repackage'))
+
     def test_actual_cli_and_exact_transform_arguments_remain_bounded(self):
         script = Path(driver.__file__)
         process = subprocess.run([sys.executable, '-B', str(script), '--help'], capture_output=True, text=True)

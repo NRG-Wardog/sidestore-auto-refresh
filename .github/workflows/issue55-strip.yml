@@ -151,9 +151,9 @@ jobs:
           python3 package-evidence/validate_ldid_bottle.py "$LDID_PREFIX"
           export PATH="$LDID_PREFIX/bin:$PATH"
           { xcodebuild -version; brew list --versions ldid; shasum -a 256 "$LDID_PREFIX/bin/ldid"; } > package-evidence/toolchain.txt
-          python3 harness/scripts/experiment_strip_stabs.py --artifacts inputs --work strip-work --output product 2>&1 | tee package-evidence/strip.log
+          python3 harness/scripts/experiment_strip_stabs.py --artifacts inputs --work strip-work --output product --apple-adhoc-diagnostic-only 2>&1 | tee package-evidence/strip.log
       - name: Upload successful experiment only
-        if: success()
+        if: ${{ success() && false }} # Diagnostic-only run never publishes products.
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: issue55-strip-experimental-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -166,7 +166,7 @@ jobs:
           compression-level: 0
           retention-days: 14
       - name: Retain matching full debug symbols separately
-        if: success()
+        if: ${{ success() && false }} # Diagnostic-only run never publishes products.
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: issue55-strip-debug-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
