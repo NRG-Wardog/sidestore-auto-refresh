@@ -21,7 +21,8 @@ ADDITIONAL_INPUTS = {
         'SideStore/Dependencies/SideSign/Sources/Anisette/ILoaderRemoteHTTPTransport.swift'),
     'setup-state-recovery-contract.json': (
         'SideStore/SideStore/Core/Operations/OperationContexts.swift',
-        'SideStore/SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift'),
+        'SideStore/SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift',
+        'SideStore/tests/cache_compatibility/test_host_preservation.py'),
 }
 
 HOST_ADDITIONAL_CASES = (

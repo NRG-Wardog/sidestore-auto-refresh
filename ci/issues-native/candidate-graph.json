@@ -18,7 +18,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "dfa525c2f2fb030ec539c07e65c3453a92d32ec7"
+      "46274c50dc09a0ac54869713920054619d106c72"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -85,10 +85,10 @@
         ".ci/branch-cleanup/allowlist.json": "f4fa7e585a01a176694441a15fb33bf8cfbc8ce7",
         ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
         ".ci/branch-cleanup/test_cleanup.py": "bae89afbd4d820fd1fae69819800f88e6cd4a706",
-        ".ci/iloader-onboarding-scope/OperationBoundaries.swift": "d39a5ac7d5c1b4e11b8c4b3c172c80d2262df74a",
-        ".ci/iloader-onboarding-scope/RuntimeTests.swift": "a5c043580d0ffbe79383701866ba301c84cea807",
+        ".ci/iloader-onboarding-scope/OperationBoundaries.swift": "f1bf9a78d98e40e302b1250aebd4872226a08aa7",
+        ".ci/iloader-onboarding-scope/RuntimeTests.swift": "3a5ae16401a07a7a5ee32dac435b9828110a1139",
         ".ci/iloader-onboarding-scope/generate.py": "6c2b0fffadbb4c4dc1366de03487dd0e54075dfb",
-        ".ci/iloader-onboarding-scope/test_source.py": "31986f431c2022f0759df15812c425de186c7548",
+        ".ci/iloader-onboarding-scope/test_source.py": "5e7457061d0d6346e1e3bcf193ff5413962161ce",
         ".ci/remote-identity-reuse/generate_fixture.py": "bc68af1ca5d198b8286da85c160533152bdb610d",
         ".ci/remote-identity-reuse/test_generator.py": "9f2353524f694fbc386234f5c5c5d00f6f6c059d",
         ".github/workflows/nightly.yml": "0a4831356302661ed391de04eb400ba01fad8570",
@@ -107,7 +107,7 @@
         "SideStore/Core/Operations/PipelineOperations/RemoveAppExtensionsOperation.swift": "a4fec8ef0e66faa799159cc99526510cac97cd33",
         "SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift": "8bfda475e9604e54644f403891aa39bce79fec25",
         "SideStore/Core/Operations/PipelineRunner.swift": "7c4cd4ff7fc984e1591592dd36db72c659cefa9e",
-        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": "a49da0fbc3f2bc8e7463171ab3ffe95787e9e719",
+        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": "f80a512589bfc784ae542bc347eadef82aa3f89a",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
         "tests/appid_expiry/test_appid_expiry_bridge.py": "4e223dabf1e11f5838f6c65a9fd81362443a6414",
         "tests/cache_compatibility/generate_fixture.py": "b467d1370ba0a211e5342a79a4ea282b3985b1f6",
@@ -124,7 +124,7 @@
         "tests/test_diagnostic_provider_sequence.py": "d3df41d9fbab0f29b8d60f28326124b79abf4818",
         "tests/upstream_sync/test_iloader_submit_route.py": "4f7e956fe564c12f832d52dea34f108cc5eff0ce"
       },
-      "tree": "8196e65e606c292dcb5cecc55582155aa971fa00"
+      "tree": "f310d871c52f156529f442f8de0081e4bbe19492"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",

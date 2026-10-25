@@ -538,6 +538,21 @@ class Controls(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Incomplete delivered baseline'):
             self.run_gate()
 
+    def test_explicitly_pinned_cache_control_keeps_package_inventory_closed(self):
+        path = gate.CACHE_COMPATIBILITY + '/test_host_preservation.py'
+        added = self.sources / path
+        added.write_text('inert reviewed cache negative control')
+        self.contract['input_sha256'][path] = gate.digest(added.read_bytes())
+        self.assertEqual(gate.inventory(self.sources, self.contract), self.contract['input_sha256'])
+        unknown = self.sources / gate.CACHE_COMPATIBILITY / 'unreviewed-extra.py'
+        unknown.write_text('inert unreviewed file')
+        with self.assertRaisesRegex(ValueError, 'Unpinned setup fixture'):
+            gate.inventory(self.sources, self.contract)
+        unknown.unlink()
+        added.write_text('modified control')
+        with self.assertRaisesRegex(ValueError, 'source hashes differ'):
+            gate.inventory(self.sources, self.contract)
+
     def test_extra_unpinned_fixture_rejected(self):
         (self.sources / gate.EARLY / 'unreviewed.py').write_text('inert')
         with self.assertRaisesRegex(ValueError, 'Unpinned setup fixture'):
