@@ -1,0 +1,181 @@
+{
+  "contract_set": "runtime-source-parity-141776ba.v1",
+  "format_version": 1,
+  "owner": "AnisetteKit",
+  "provenance": {
+    "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+    "source_basis": "Reviewed AnisetteKit parity source report; runtime files only.",
+    "upstream_commit": "1f5a7e36553cc865b873f222b87a6486c0bcc7bf",
+    "upstream_repository": "mahee96/AnisetteKit"
+  },
+  "provides": [
+    {
+      "contract": "anisette-provider",
+      "source_paths": [
+        "Native/Loader/elf_loader_emulator.cpp",
+        "Native/Loader/elf_loader_emulator.h",
+        "Native/Loader/elf_loader_host.cpp",
+        "Native/Loader/elf_loader_host.h",
+        "Native/anisette_base.cpp",
+        "Native/anisette_base.h",
+        "Native/anisette_core_mac.cpp",
+        "Native/anisette_core_uc.cpp",
+        "Native/include/anisette_core.h",
+        "Sources/AnisetteClient.swift",
+        "Sources/AnisetteDataProvider.swift",
+        "Sources/AnisetteDataResponse.swift",
+        "Sources/AnisetteError.swift",
+        "Sources/AnisetteHeaderResponse.swift",
+        "Sources/AnisetteHeadersDTO.swift",
+        "Sources/AnisetteKit.swift",
+        "Sources/AnisetteKitLogging.swift",
+        "Sources/AnisetteRequestHeaders.swift",
+        "Sources/Constants.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "diagnostics",
+      "source_paths": [
+        "Native/Loader/elf_loader_emulator.cpp",
+        "Native/Loader/elf_loader_emulator.h",
+        "Native/Loader/elf_loader_host.cpp",
+        "Native/Loader/elf_loader_host.h",
+        "Native/anisette_base.cpp",
+        "Native/anisette_base.h",
+        "Native/anisette_core_mac.cpp",
+        "Native/anisette_core_uc.cpp",
+        "Native/include/anisette_core.h",
+        "Sources/AnisetteClient.swift",
+        "Sources/AnisetteDataProvider.swift",
+        "Sources/AnisetteDataResponse.swift",
+        "Sources/AnisetteError.swift",
+        "Sources/AnisetteHeaderResponse.swift",
+        "Sources/AnisetteHeadersDTO.swift",
+        "Sources/AnisetteKit.swift",
+        "Sources/AnisetteKitLogging.swift",
+        "Sources/AnisetteRequestHeaders.swift",
+        "Sources/Constants.swift"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "requires": [],
+  "sources": [
+    {
+      "basis": "anisette-source-parity.json:files:Native/Loader/elf_loader_emulator.cpp",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.cpp",
+      "sha256": "840b7f4ca30a12da86e0b0ae08a453ebb88e1cd74327f94a303b362b94e8604f"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/Loader/elf_loader_emulator.h",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.h",
+      "sha256": "aacfd99cf5049d2208bc9d6af471411ca3acd277828ebcd1f27914f552f2f62c"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/Loader/elf_loader_host.cpp",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_host.cpp",
+      "sha256": "8a58a96cca4e7d742336b8ffe47f8b1591a3e3bdbf7d60eed2cff2da05195382"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/Loader/elf_loader_host.h",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_host.h",
+      "sha256": "9c1523da56936340d6d57dba7d18fc52ebbfd331bf8e44807b779a5cc211950b"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/anisette_base.cpp",
+      "mode": "100644",
+      "path": "Native/anisette_base.cpp",
+      "sha256": "46a17d20a707b4be111f9342495bbbe454de472768ffe74cc08ac9174f09c024"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/anisette_base.h",
+      "mode": "100644",
+      "path": "Native/anisette_base.h",
+      "sha256": "6c47c3fef881d99082d1eb7e687fc78de6339568118259884d2b8a0d6c6e8664"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/anisette_core_mac.cpp",
+      "mode": "100644",
+      "path": "Native/anisette_core_mac.cpp",
+      "sha256": "ca06ed404c1822e1335400ca47b06ac41f2343175462a2368118418e89929308"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/anisette_core_uc.cpp",
+      "mode": "100644",
+      "path": "Native/anisette_core_uc.cpp",
+      "sha256": "2c443523819368c8a48ada0eadb9dbff1d6657b73454db44d45c3cc626e40ab7"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/include/anisette_core.h",
+      "mode": "100644",
+      "path": "Native/include/anisette_core.h",
+      "sha256": "ca1ea4005f77dcca17c68965ba2dd1f65596e282a57adb4277f1d90d8bd11f02"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Sources/AnisetteClient.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteClient.swift",
+      "sha256": "f8c551295db79d7acb082a98953b0581fe812da41c766d1c3bf2cb5bdc9e1b79"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Sources/AnisetteDataProvider.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteDataProvider.swift",
+      "sha256": "96a3af11c76ca7476162d25ca345b8e3aeb9f3343fc3e77b03481a61d6c79020"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Sources/AnisetteDataResponse.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteDataResponse.swift",
+      "sha256": "721650793ed43d2eed65f298208f497e1112435f2057934605912cc7c4dbd7f1"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Sources/AnisetteError.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteError.swift",
+      "sha256": "b9f767acd86603ba4089ff5c10d2a1b1ea085e2d66258cf36295b493fa239f18"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Sources/AnisetteHeaderResponse.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteHeaderResponse.swift",
+      "sha256": "e301838582d531a655125048bc4ed10db6cd78d8a87a0ce9872939813db47f68"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Sources/AnisetteHeadersDTO.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteHeadersDTO.swift",
+      "sha256": "359a87c2c24c261b183c3f0007cb6806d2667a59c13c2ec8318b0e2a14cdabef"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Sources/AnisetteKit.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteKit.swift",
+      "sha256": "8c8878134fa565363d40b8ffa280580628c6a90d6bd5c3b2046f14e1b2d3b6f2"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Sources/AnisetteKitLogging.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteKitLogging.swift",
+      "sha256": "db1f20cd9ba5a090c99188c52e3d802ce3549dc2754e48ee2db5133964d3db2d"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Sources/AnisetteRequestHeaders.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteRequestHeaders.swift",
+      "sha256": "2356f3ee1f31011c374d721c2aaeffa81d684e6fa85af1faebbcb4e5a3297ef6"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Sources/Constants.swift",
+      "mode": "100644",
+      "path": "Sources/Constants.swift",
+      "sha256": "5f6a4e3f38b13f7053dbff1ebc3a4a06779f502e79e41c5c82baf9443b4d5bd1"
+    }
+  ],
+  "version": "1.0.0"
+}

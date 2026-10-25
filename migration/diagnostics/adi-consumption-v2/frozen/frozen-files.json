@@ -1,0 +1,28 @@
+{
+  "files": {
+    "frozen/acceptance/build-evidence-download-receipt.json": "5ec3db33ebb9edfca779d0a374eea916e1bd93fa7469abf799725b8162c0df76",
+    "frozen/acceptance/candidate-download-receipt.json": "d085870c6a5f971678016c9d179f1337c513db9e6b6c8489a49b177aaaeb571a",
+    "frozen/acceptance/debug-evidence-download-receipt.json": "8e070d1c69959772e3e1247e3d61d7cb23adfc50b0fa8a88dc2f484c56269832",
+    "frozen/acceptance/independent-candidate-check.json": "d2e11ed3ffb9e41e26b9b022ea30ea530daf50e67af2769bb9bdea1b99313be3",
+    "frozen/acceptance/maintained-sources-after-native-build.json": "71aad0fbf9267a99c34928f32c1af3ce21d062f5f19532b4b9cc21a1f0235cee",
+    "frozen/acceptance/terminal-api.json": "49098fe56ad5df332921797d7127ad4adc3e30ac2af0a2eb6875200397b19185",
+    "frozen/accepted-package/anisette-generated/isolated-otp-patch.json": "0b15a254d34932a22539a2a874547a891de4b9a7a85965e13dd3caf0f8380cef",
+    "frozen/accepted-package/candidate-provenance.json": "cf521ff8af3479541fa0a7d0c496f7e46d379e825d32e9ea0d67819ffae165ea",
+    "frozen/contracts/compatibility-registry.json": "5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be",
+    "frozen/contracts/owners/AnisetteKit/runtime-contract.json": "dbc53821ebea05a9ae9e48d3550cd072e1167088d4b2afe2099af6013961520f",
+    "frozen/contracts/owners/LiveContainer/runtime-contract.json": "33b0ec571a0ba2b0e9bdc0217bf657745f8d9b1e4653e179f273d0cb72e62159",
+    "frozen/contracts/owners/SideSign/runtime-contract.json": "a8f3e388ad64356df0a4ae1043adb83596aad71756b9ed1d9009630a9debcee9",
+    "frozen/contracts/owners/SideStore/runtime-contract.json": "3c1f931eafdeea150cf38eb8496acd203e8bb795ae17247125e2e871b9434ef6",
+    "frozen/contracts/owners/idevice/runtime-contract.json": "d5d7cfe13bba7e9a67eda5999a2300a016d52382587f8dd4c823823828d14547",
+    "frozen/contracts/owners/jktcp/runtime-contract.json": "0b16156e19322dc8bc1f519d2eae510c940b31b29c83551672f0c0e20959c8ab",
+    "frozen/contracts/owners/minimuxer/runtime-contract.json": "79e14f781bfe807fd447c0527b6aabf5f8a58160245a90cd2bdd13cce72da1aa",
+    "frozen/contracts/provenance/source-evidence.json": "0af59c9fda7fb7dc9567b736de28aed83d9e694fdce8386c3f96f9c99d283bea",
+    "frozen/inventories/anisette-source-parity.json": "5a332efd3730eb3a2010a47b2c8aa807422ea57dbe9518a1280b1e24387a1ae8",
+    "frozen/inventories/combined-generated-source-inventory.json": "41e2845036e8faf3d307a04d4c3fb09521c9ab1bfa96b596014979f8456abb2a",
+    "frozen/inventories/rustfmt-1.98.1.json": "76baa0124c12ed739f64f12eefb909be7dc47e59a9d12d4e7dafaab26a2611c8",
+    "frozen/inventories/transport-generated-source-inventory.json": "95990a585640fdb517e6620d8a2635ead69add859d96f5aa9996de133041872e",
+    "frozen/maintained-sources.json": "6443edc6742a5fe072e40abb669307807fcba5f08480237b2715489b84bf5a84"
+  },
+  "format_version": 1,
+  "native_receipt_scope": "accepted production parity only"
+}

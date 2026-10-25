@@ -1,0 +1,143 @@
+{
+  "scope": "Local preparation only; no publication or native combined build",
+  "baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "runtime_sources_changed": false,
+  "tests": {
+    "repository_suite": {
+      "passed": 1015,
+      "skipped": 181,
+      "reason": "Swift/Xcode/native platform prerequisites unavailable on Linux; historical source fixtures supplied",
+      "status": "passed",
+      "total": 1196,
+      "failed": 0
+    },
+    "latest_anisette_artifact_suite": {
+      "passed": 14,
+      "skipped": 0,
+      "includes_one_new_collector_provenance_case_after_repository_suite": true,
+      "status": "passed",
+      "total": 14,
+      "failed": 0
+    },
+    "maintained_gate": {
+      "passed": 36,
+      "optimized_run": 36,
+      "skipped": 0,
+      "status": "passed",
+      "total": 36,
+      "failed": 0
+    },
+    "reviewed_contract_gate": {
+      "passed": 58,
+      "skipped": 0,
+      "status": "passed",
+      "total": 58,
+      "failed": 0
+    },
+    "workflow_yaml_and_bash_syntax": true,
+    "git_diff_check": true,
+    "pending_production_pins_rejected_before_acquisition": true,
+    "builder_history_fix": {
+      "status": "passed",
+      "total": 37,
+      "passed": 37,
+      "skipped": 0,
+      "failed": 0,
+      "optimized_total": 37,
+      "shallow_clone_regression_reproduced": true,
+      "full_history_repair_verified": true
+    },
+    "sidebackup_output_allowance": {
+      "status": "passed",
+      "total": 40,
+      "passed": 40,
+      "skipped": 0,
+      "failed": 0,
+      "optimized_total": 40
+    },
+    "swiftpm_mirror_origin": {
+      "status": "passed",
+      "total": 50,
+      "passed": 50,
+      "skipped": 0,
+      "failed": 0,
+      "optimized_total": 50,
+      "focused_anisette_artifact_total": 14,
+      "real_shared_clone_fixture": true,
+      "exact_maintained_anisette_fixture_files": 31,
+      "native_Xcode_observation": false
+    },
+    "native6_reader_reuse": {
+      "reader": {
+        "total": 9,
+        "passed": 9,
+        "skipped": 0,
+        "failed": 0
+      },
+      "reader_optimized": {
+        "total": 9,
+        "passed": 9,
+        "skipped": 0,
+        "failed": 0
+      },
+      "workflow_and_existing_gates": {
+        "total": 25,
+        "passed": 25,
+        "skipped": 0,
+        "failed": 0
+      }
+    },
+    "native_readiness_linkage": {
+      "gate_normal": {
+        "total": 57,
+        "passed": 57,
+        "skipped": 0,
+        "failed": 0
+      },
+      "gate_optimized": {
+        "total": 57,
+        "passed": 57,
+        "skipped": 0,
+        "failed": 0
+      },
+      "anisette_artifact": {
+        "total": 14,
+        "passed": 14,
+        "skipped": 0,
+        "failed": 0
+      }
+    },
+    "final_published_graph": {
+      "gate_normal": {
+        "total": 57,
+        "passed": 57,
+        "skipped": 0,
+        "failed": 0
+      },
+      "gate_optimized": {
+        "total": 57,
+        "passed": 57,
+        "skipped": 0,
+        "failed": 0
+      },
+      "contracts": {
+        "total": 58,
+        "passed": 58,
+        "skipped": 0,
+        "failed": 0
+      },
+      "artifact_repository_and_lane": {
+        "total": 49,
+        "passed": 49,
+        "skipped": 0,
+        "failed": 0
+      }
+    }
+  },
+  "pending": [
+    "Parent review and authorized active integration publication",
+    "Strict macOS required tests and exact-final-ref Xcode graph",
+    "Combined iOS builds, packaging/signing/symbol checks, upload/re-download verification"
+  ],
+  "physical_device_execution": false
+}

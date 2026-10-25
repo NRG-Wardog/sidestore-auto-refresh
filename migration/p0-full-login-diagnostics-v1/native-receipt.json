@@ -1,0 +1,112 @@
+{
+  "capture_summary_sha256": "cc94d8d6e989d6e76fbf869bc606c95d9be09b9859b301db077c3e1d675c2939",
+  "captured_source_owners": {
+    "AnisetteKit": {
+      "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "tree": "734664d759b9e99caa09089905e6a240b149548d"
+    },
+    "LiveContainer": {
+      "commit": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "tree": "e8014dd771c25c4a05dc76ab0aa304a233642a83"
+    },
+    "SideSign": {
+      "commit": "c733332b0d64022cd603ab9ac5de054413729aab",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "tree": "6559fa8c226ea7496e1fb1aa813c058bfee3e342"
+    },
+    "SideStore": {
+      "commit": "dc29ce0d79a299f32a340c460e1d61e8190e320c",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "tree": "cb40141a5a16e55a682758713541fb7b3445f209"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "repository": "https://github.com/NRG-Wardog/idevice.git",
+      "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "repository": "https://github.com/NRG-Wardog/jktcp.git",
+      "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    }
+  },
+  "device_login_proven": false,
+  "final_sidestore_commit_directly_compiled": false,
+  "final_sidestore_equivalence": {
+    "blob": "3867aab14eaa661b8c9c526be9c473cb645a609c",
+    "branch": "validation/p0-login-trace-app-lock-20261019",
+    "bytes": 2815,
+    "commit": "d507f9e417f12c262b4d7e717c84d4a244c8e625",
+    "compiled_final_commit": false,
+    "independent_publication_review_path": "lock-child-proposal-39229204851/independent-publication-clearance.json",
+    "independent_publication_review_sha256": "82dbc29a45eb998cbc27f041adbac74f07866aa41a99987a59b67a4833ba92f1",
+    "mode": "100644",
+    "parent": "dc29ce0d79a299f32a340c460e1d61e8190e320c",
+    "sha256": "e97604f913903659539663f09176a20ee9ca5fe06188a41ff38f54257d076d08",
+    "sole_path": "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+    "tracked_compiler_input_equivalence_reviewed": true,
+    "tree": "829d5e86ae2365b2870d268e77735f11f16944fb"
+  },
+  "final_source_owners": {
+    "AnisetteKit": {
+      "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "tree": "734664d759b9e99caa09089905e6a240b149548d"
+    },
+    "LiveContainer": {
+      "commit": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "tree": "e8014dd771c25c4a05dc76ab0aa304a233642a83"
+    },
+    "SideSign": {
+      "commit": "c733332b0d64022cd603ab9ac5de054413729aab",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "tree": "6559fa8c226ea7496e1fb1aa813c058bfee3e342"
+    },
+    "SideStore": {
+      "commit": "d507f9e417f12c262b4d7e717c84d4a244c8e625",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "tree": "829d5e86ae2365b2870d268e77735f11f16944fb"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "repository": "https://github.com/NRG-Wardog/idevice.git",
+      "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "repository": "https://github.com/NRG-Wardog/jktcp.git",
+      "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    }
+  },
+  "fresh_all_language_ui_execution": false,
+  "guest_execution": false,
+  "initializer47_containment_integrated": false,
+  "normal_release_completed": false,
+  "original_handoff_sha256": "776b0813e84a6cd7202960e8ff92fb6e79b69167f4405250b01d8d678722ab08",
+  "physical_device_execution": false,
+  "schema_version": 1,
+  "scope": "Reviewed full-login diagnostic source graph, genuine native compile captures, and exact final SideStore app-lock equivalence; normal gated build eligibility only",
+  "scope_notes": [
+    "This review binds only this exact authenticated capture and reviewed host/input tuple; it is not a generic evidence validator.",
+    "Five owner source object graphs were replayed locally. idevice and jktcp complete recursive tree metadata were independently authenticated and reconstructed; their actual checkout-byte verification ran in the authenticated reviewed CI adapter.",
+    "All dependency source, registry, tool, transport and new product bytes were checked by the reviewed CI code, but most raw bytes are not retained. Local replay verifies retained records and complete cross-bindings, not a second build or independent re-hash of absent bytes.",
+    "Retained official SideStore OpenSSL ZIP and generated plist_ffi header received independent raw-byte checks. Preexisting signatures are identified, not cryptographically authenticated.",
+    "The precise SideStore app-lock-only child may be published after separate full-tree equivalence review and authenticated commit readback. The future child was not directly compiled.",
+    "Fresh builder admission and normal release eligibility remain separate. This does not prove actual-device initializer or login success."
+  ],
+  "source_basis": "p0-full-login-diagnostics-v1",
+  "status": "INDEPENDENTLY_REVIEWED_FULL_LOGIN_DIAGNOSTICS_PASS"
+}

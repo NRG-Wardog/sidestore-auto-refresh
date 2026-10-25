@@ -1,0 +1,20 @@
+{
+  "origin_commit": "4ef8f978af2e16b8a41f611f48f99a17aa5a066a",
+  "origin_path": "scripts/templates/v3_unified_shell.swift",
+  "origin_git_blob_sha1": "3829b114db836c76979e959cdfd893227edef956",
+  "origin_source_sha256": "ac30ff087c8c03080d0734517e130e42c19dd05d32de60cad9f58f8ba5de1cf1",
+  "fixture_path": "tests/fixtures/v3_jitless_legacy_4ef_source.swift",
+  "fixture_sha256": "5a0e5bb09d8186ea2926dc2e054c8654d31a070118e8449194517b8073d7fb6e",
+  "captured_declarations": [
+    "V3SetupReadinessObservation",
+    "V3SetupReadinessObservationPolicy",
+    "beginSetupFactObservation",
+    "isSetupFactRevisionCurrent",
+    "invalidateSetupFacts",
+    "recordJITLessReadiness",
+    "V3PKCS12CertificateFacts",
+    "V3JITLessStatusResult",
+    "V3JITLessStatusReader",
+    "V3CanonicalJITLessCertificateUpdated onReceive closure"
+  ]
+}

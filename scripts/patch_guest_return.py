@@ -4,6 +4,73 @@ import sys
 
 MARKER = "LC_GUEST_RETURN_V3"
 
+# The virtual-window delegate owns the same completion that Swift awaits in
+# LCAppModel.runApp. Consume it before cleanup can re-enter the delegate.
+VIRTUAL_LAUNCH_COMPLETION = r'''
+// LC_VIRTUAL_LAUNCH_COMPLETION_V1: main-queue terminal ownership.
+- (void)lcCompleteLaunch:(AppSceneViewController *)controller error:(NSError *)error {
+    NSAssert(NSThread.isMainThread, @"Guest launch completion must run on main");
+    if (self.lcLaunchSettled) return;
+    self.lcLaunchSettled = YES;
+    void (^completion)(NSNumber *, NSError *) = self.pidAvailableHandler;
+    self.pidAvailableHandler = nil;
+    // Cleanup releases container ownership before a caller can relaunch.
+    // It may call appSceneVCAppDidExit synchronously; the callback is consumed.
+    if (error) [controller appTerminationCleanUp];
+    if (completion) completion(error ? nil : @(controller.pid), error);
+}
+'''
+
+VIRTUAL_LAUNCH_EXIT = r'''    [self lcCompleteLaunch:vc error:vc.lcLaunchError ?: [NSError errorWithDomain:@"LiveContainerReturn" code:410
+        userInfo:@{NSLocalizedDescriptionKey: @"The guest exited before its launch completed."}]];
+'''
+
+VIRTUAL_LAUNCH_INITIALIZED = r'''- (void)appSceneVC:(AppSceneViewController*)vc didInitializeWithError:(NSError *)error {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.lcLaunchSettled) return;
+        NSError *launchError = error;
+        if (!launchError && (self.isAppTerminationRequested || !vc.isAppRunning)) {
+            launchError = vc.lcLaunchError ?: [NSError errorWithDomain:@"LiveContainerReturn" code:410
+                userInfo:@{NSLocalizedDescriptionKey: @"The guest exited before its launch completed."}];
+        }
+        if (launchError) {
+            [self lcCompleteLaunch:vc error:launchError];
+            // V3_GUEST_SAFE_DIAGNOSTIC_ID_V1: never display or copy provider text.
+            BOOL knownExit = [launchError.domain isEqualToString:@"LiveContainerReturn"] && launchError.code == 410;
+            NSString *diagnosticID = knownExit ? @"SS-GUEST-EXIT" : @"SS-GUEST-UNKNOWN";
+            NSString *safeMessage = knownExit ? @"The guest exited before its launch completed." : @"The guest could not be launched. The underlying cause is unknown.";
+            NSString *display = [NSString stringWithFormat:@"%@\nError ID: %@", safeMessage, diagnosticID];
+            NSSet *safeDomains = [NSSet setWithArray:@[@"LiveContainerReturn", NSCocoaErrorDomain, NSPOSIXErrorDomain, NSOSStatusErrorDomain, @"NSExtensionErrorDomain"]];
+            BOOL safeNative = [safeDomains containsObject:launchError.domain];
+            NSString *domain = safeNative ? launchError.domain : @"redacted";
+            NSString *code = safeNative ? [NSString stringWithFormat:@"%ld", (long)launchError.code] : @"unknown";
+            id builderValue = [NSBundle.mainBundle objectForInfoDictionaryKey:@"LCBuilderCommit"];
+            NSString *builder = [builderValue isKindOfClass:NSString.class] && [(NSString *)builderValue length] == 40 &&
+                [builderValue rangeOfString:@"^[0-9a-fA-F]{40}$" options:NSRegularExpressionSearch].location != NSNotFound ? [builderValue lowercaseString] : @"unknown";
+            NSString *details = [NSString stringWithFormat:@"%@\ndiagnostic_code=%@ stage=guestLaunch underlying_domain=%@ underlying_code=%@ correlation=%@ builder_commit=%@", display, diagnosticID, domain, code, NSUUID.UUID.UUIDString, builder];
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"lc.common.error".loc message:display preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"lc.common.ok".loc style:UIAlertActionStyleCancel handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"lc.common.copy".loc style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+                UIPasteboard.generalPasteboard.string = details;
+            }]];
+            [self presentViewController:alert animated:YES completion:nil];
+        } else {
+            self.pid = vc.pid;
+            [self updateOriginalFrame];
+            [self lcCompleteLaunch:vc error:nil];
+        }
+    });
+}'''
+
+CANCELLATION_OLD = '''        [weakSelf appTerminationCleanUp];
+        [weakSelf.delegate appSceneVC:weakSelf didInitializeWithError:error];'''
+CANCELLATION_NEW = '''        dispatch_async(dispatch_get_main_queue(), ^{
+            // Preserve the original extension error before cleanup settles a pending launch.
+            weakSelf.lcLaunchError = error;
+            [weakSelf appTerminationCleanUp];
+            [weakSelf.delegate appSceneVC:weakSelf didInitializeWithError:error];
+        });'''
+
 # Shared by the real control and executable geometry regression tests.
 GEOMETRY = r'''
 static double LCReturnAxisCenter(double origin, double length, double position) {
@@ -21,7 +88,7 @@ static int LCReturnShouldHide(int running, int decorated, int maximized) {
 CONTROL = GEOMETRY + r'''
 // LC_GUEST_RETURN_V3: the control owns no guest process or scene.
 static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
-    id saved = [NSUserDefaults.lcUserDefaults objectForKey:key];
+    id saved = [NSUserDefaults.lcSharedDefaults objectForKey:key];
     double value = [saved isKindOfClass:NSNumber.class] ? [saved doubleValue] : fallbackRGB;
     if (!isfinite(value) || value < 0 || value > 0xFFFFFF || floor(value) != value) value = fallbackRGB;
     NSUInteger rgb = (NSUInteger)value;
@@ -44,13 +111,13 @@ static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
     if (!(self = [super initWithFrame:frame])) return nil;
     self.backgroundColor = UIColor.clearColor;
     self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    NSArray *saved = [NSUserDefaults.lcUserDefaults arrayForKey:@"LCReturnControlPosition"];
+    NSArray *saved = [NSUserDefaults.lcSharedDefaults arrayForKey:@"LCReturnControlPosition"];
     self.position = CGPointMake(0.95, 0.25);
     if (saved.count == 2 && [saved[0] isKindOfClass:NSNumber.class] && [saved[1] isKindOfClass:NSNumber.class]) {
         double x = [saved[0] doubleValue], y = [saved[1] doubleValue];
         if (isfinite(x) && isfinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1) self.position = CGPointMake(x, y);
     }
-    if ([NSUserDefaults.lcUserDefaults boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse];
+    if ([NSUserDefaults.lcSharedDefaults boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse];
     self.button = [UIButton buttonWithType:UIButtonTypeSystem];
     self.button.backgroundColor = UIColor.secondarySystemBackgroundColor;
     self.button.layer.cornerRadius = 22;
@@ -69,7 +136,7 @@ static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
     [self addSubview:self.button];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillChangeFrameNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillHideNotification object:nil];
-    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesChanged:) name:NSUserDefaultsDidChangeNotification object:NSUserDefaults.lcUserDefaults];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesChanged:) name:NSUserDefaultsDidChangeNotification object:NSUserDefaults.lcSharedDefaults];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesChanged:) name:UIApplicationDidBecomeActiveNotification object:nil];
     NSLog(@"[LC_RETURN] CONTROL_SHOWN");
     return self;
@@ -113,11 +180,11 @@ static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
     [super layoutSubviews];
     CGRect rect = [self availableRect];
     // A 44-point target must not be placed outside a tiny resized window.
-    self.button.hidden = [NSUserDefaults.lcUserDefaults boolForKey:@"LCHideReturnControl"] || CGRectIsNull(rect) || rect.size.width < 44 || rect.size.height < 44;
+    self.button.hidden = [NSUserDefaults.lcSharedDefaults boolForKey:@"LCHideReturnControl"] || CGRectIsNull(rect) || rect.size.width < 44 || rect.size.height < 44;
     if (self.button.hidden) return;
     self.button.accessibilityLabel = self.collapsed ? @"Show Return to LiveContainer" : @"Return to LiveContainer";
     self.button.accessibilityHint = self.collapsed ? @"Restores the Return button" : self.expandedHint;
-    BOOL customColors = [NSUserDefaults.lcUserDefaults boolForKey:@"LCGuestReturnCustomColors"];
+    BOOL customColors = [NSUserDefaults.lcSharedDefaults boolForKey:@"LCGuestReturnCustomColors"];
     // nil restores the inherited system tint when custom colors are disabled.
     self.button.tintColor = customColors ? LCGuestReturnColor(@"LCGuestReturnTintRGB", 0x007AFF) : nil;
     UIColor *background = customColors ? LCGuestReturnColor(@"LCGuestReturnBackgroundRGB", 0xF2F2F7) : UIColor.secondarySystemBackgroundColor;
@@ -146,7 +213,7 @@ static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
     [self setNeedsLayout];
     [self layoutIfNeeded];
     if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled) {
-        [NSUserDefaults.lcUserDefaults setObject:@[@(self.position.x), @(self.position.y)] forKey:@"LCReturnControlPosition"];
+        [NSUserDefaults.lcSharedDefaults setObject:@[@(self.position.x), @(self.position.y)] forKey:@"LCReturnControlPosition"];
         NSLog(@"[LC_RETURN] CONTROL_MOVED");
     }
 }
@@ -159,18 +226,18 @@ static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
     }
     if (self.action) {
         // A retained guest should reopen as a tab when Start Collapsed is on.
-        if ([NSUserDefaults.lcUserDefaults boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse];
+        if ([NSUserDefaults.lcSharedDefaults boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse];
         self.action();
     }
 }
 @end
 '''
 
-SETTINGS_PROPERTIES = '''    @AppStorage("LCHideReturnControl", store: UserDefaults.lc()) private var hideReturnControl = false
-    @AppStorage("LCGuestReturnStartsCollapsed", store: UserDefaults.lc()) private var returnStartsCollapsed = false
-    @AppStorage("LCGuestReturnCustomColors", store: UserDefaults.lc()) private var returnCustomColors = false
-    @AppStorage("LCGuestReturnTintRGB", store: UserDefaults.lc()) private var returnTintRGB = 0x007AFF
-    @AppStorage("LCGuestReturnBackgroundRGB", store: UserDefaults.lc()) private var returnBackgroundRGB = 0xF2F2F7
+SETTINGS_PROPERTIES = '''    @AppStorage("LCHideReturnControl", store: UserDefaults.lcShared()) private var hideReturnControl = false
+    @AppStorage("LCGuestReturnStartsCollapsed", store: UserDefaults.lcShared()) private var returnStartsCollapsed = false
+    @AppStorage("LCGuestReturnCustomColors", store: UserDefaults.lcShared()) private var returnCustomColors = false
+    @AppStorage("LCGuestReturnTintRGB", store: UserDefaults.lcShared()) private var returnTintRGB = 0x007AFF
+    @AppStorage("LCGuestReturnBackgroundRGB", store: UserDefaults.lcShared()) private var returnBackgroundRGB = 0xF2F2F7
 '''
 
 SETTINGS_SECTION = '''                Section {
@@ -497,11 +564,34 @@ def section(text, start, end, replacement, label):
     return text[:a] + replacement + "\n\n" + text[b:]
 
 
+def patch_lifecycle_diagnostics(implementation):
+    """Label extension callbacks without changing their cleanup or ownership."""
+    callbacks = (
+        ('setRequestCancellationBlock:^(NSUUID *uuid, NSError *error) {',
+         'PROCESS_CANCELLED', 1),
+        ('setRequestInterruptionBlock:^(NSUUID *uuid) {',
+         'PROCESS_INTERRUPTED', 2),
+    )
+    for callback, event, expected in callbacks:
+        log = f'        NSLog(@"[LC_GUEST_LIFECYCLE] {event} pid=%d source=extension_request", weakSelf.pid);'
+        marked = callback + "\n" + log
+        if implementation.count(callback) != expected:
+            raise ValueError("Changed extension lifecycle callback: " + event)
+        if log in implementation:
+            if implementation.count(marked) != expected or implementation.count(log) != expected:
+                raise ValueError("Partial extension lifecycle diagnostic: " + event)
+        else:
+            implementation = implementation.replace(callback, marked)
+    return implementation
+
+
 def verify(texts):
     implementation, header, window, dock, hooks, model, tab, bootstrap, settings, decorated = (texts[p] for p in PATHS)
+    if patch_lifecycle_diagnostics(implementation) != implementation:
+        raise ValueError("Missing extension lifecycle diagnostics")
     for text, token in ((implementation, CONTROL), (implementation, METHODS), (implementation, CLEANUP),
                         (window, WINDOW_MANAGER), (dock, DOCK_RESUME), (header, "lcActivateHost"),
-                        (hooks, "DIRECT_PROCESS_RESTART_RETURN"), (model, "LC_RETURN_CONTAINER_GUARD"),
+                        (model, "LC_RETURN_CONTAINER_GUARD"),
                         (tab, "MultitaskWindowManager.mainSceneSession")):
         if token.strip() not in text:
             raise ValueError("Incomplete guest-return patch: " + token[:65])
@@ -515,14 +605,32 @@ def verify(texts):
     for state in ("YES", "NO"):
         if f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];" not in decorated:
             raise ValueError("Return visibility transition missing: " + state)
+    for block in (VIRTUAL_LAUNCH_COMPLETION, VIRTUAL_LAUNCH_INITIALIZED, VIRTUAL_LAUNCH_EXIT):
+        if block.strip() not in decorated:
+            raise ValueError("Incomplete virtual guest launch completion")
+    if (CANCELLATION_NEW not in implementation or
+            "@property(nonatomic, strong) NSError *lcLaunchError;" not in header or
+            "@property(nonatomic, readonly) bool isAppTerminationCleanUpCalled;" not in header or
+            "if (self.appSceneVC && !self.appSceneVC.isAppTerminationCleanUpCalled)" not in decorated or
+            "[self.appSceneVC appTerminationCleanUp]; // Retire a pending launch before its PID arrives." not in decorated):
+        raise ValueError("Incomplete interrupted guest launch completion")
+    # The SideStore-only escape hook that used to carry a second copy of the
+    # direct-return diagnostic is removed by the startup patcher, which runs
+    # after this one. Its presence is therefore not an error here; this patcher
+    # simply never reads it for anything but writing the file back unchanged.
+    if DIRECT_CONTROL.strip() in hooks or DIRECT_RUNTIME.strip() in hooks:
+        raise ValueError("the direct return control must not be duplicated into SideStore hooks")
 
 
 def patch(root):
     root = Path(root)
     texts = {p: (root / p).read_text(encoding="utf-8") for p in PATHS}
     implementation, header, window, dock, hooks, model, tab, bootstrap, settings, decorated = (texts[p] for p in PATHS)
+    implementation = patch_lifecycle_diagnostics(implementation)
+    texts[PATHS[0]] = implementation
     if MARKER in implementation:
         verify(texts)
+        (root / PATHS[0]).write_text(implementation, encoding="utf-8")
         return
     if any(marker in implementation for marker in ("LC_GUEST_RETURN_V1", "LC_GUEST_RETURN_V2")):
         raise ValueError("Reapply the return patch to clean pinned sources, not an older patched tree")
@@ -533,6 +641,7 @@ def patch(root):
     implementation = replace(implementation, "@implementation AppSceneViewController", "@implementation AppSceneViewController\n" + METHODS, "return method")
     implementation = replace(implementation, "    [self.view addSubview:_contentView];", "    [self.view addSubview:_contentView];\n    [self.view setNeedsLayout]; // Re-show control after asynchronous guest initialization.", "control readiness")
     implementation = replace(implementation, "return _pid > 0 && getpgid(_pid) > 0;", "return !_isAppTerminationCleanUpCalled && _pid > 0 && getpgid(_pid) > 0;", "retired process is not resumable")
+    implementation = replace(implementation, CANCELLATION_OLD, CANCELLATION_NEW, "preserve extension cancellation error")
     implementation = section(implementation, "- (void)appTerminationCleanUp {", "- (void)setBackgroundNotificationEnabled:", CLEANUP, "synchronous cleanup")
     implementation = replace(implementation, "- (void)setUpAppPresenter {", "- (void)setUpAppPresenter {\n    if (_isAppTerminationCleanUpCalled || !self.isAppRunning) {\n        [self appTerminationCleanUp];\n        return;\n    }", "cancelled guest cannot create a scene")
     request_start = "    [_extension beginExtensionRequestWithInputItems:@[item] completion:^(NSUUID *identifier) {"
@@ -545,7 +654,7 @@ def patch(root):
     updated_request = updated_request.replace("    }];", "        });\n    }];", 1)
     implementation = implementation[:a] + updated_request + implementation[b:]
 
-    header = replace(header, "- (void)terminate;", "@property(nonatomic, copy) void (^lcActivateHost)(void);\n- (void)terminate;", "host action")
+    header = replace(header, "- (void)terminate;", "@property(nonatomic, copy) void (^lcActivateHost)(void);\n@property(nonatomic, strong) NSError *lcLaunchError;\n@property(nonatomic, readonly) bool isAppTerminationCleanUpCalled;\n- (void)terminate;", "host action")
 
     window = replace(window, "    var bundleId: String\n", "    var bundleId: String\n    let windowID = UUID().uuidString\n    var pid: Int32 = 0\n    weak var controller: AppSceneViewController?\n    var launchCallback: ((NSNumber, Error?) -> Void)?\n", "per-window launch identity")
     window = section(window, "    @objc class func openAppWindow(", "\n}\n\n@available(iOS 16.1, *)\nstruct AppSceneViewSwiftUI", WINDOW_MANAGER, "window registry")
@@ -589,7 +698,6 @@ def patch(root):
             if await MainActor.run(body: { MultitaskManager.isUsing(container: currentDataFolder) }) {
                 throw "lc.container.inUse".loc + "\\nA retained guest still owns this container. Close its existing window before relaunching."
             }''', "container ownership")
-    hooks = replace(hooks, "    [LCSharedUtils launchToGuestAppWithClassicMode:0];", '    NSLog(@"[LC_RETURN] MODE_DIRECT mode=DIRECT_PROCESS_RESTART_RETURN");\n    [LCSharedUtils launchToGuestAppWithClassicMode:0];', "direct fallback diagnostic")
     tab = replace(tab, "            shouldToggleMainWindowOpen = true\n", "            shouldToggleMainWindowOpen = true\n            if #available(iOS 16.1, *) {\n                MultitaskWindowManager.mainSceneSession = sceneDelegate.window?.windowScene?.session\n            }\n", "capture real main scene")
     tab = replace(tab, "                    DataManager.shared.model.mainWindowOpened = false", "                    DataManager.shared.model.mainWindowOpened = false\n                    if #available(iOS 16.1, *), MultitaskWindowManager.mainSceneSession?.persistentIdentifier == scene1.session.persistentIdentifier {\n                        MultitaskWindowManager.mainSceneSession = nil\n                    }", "clear disconnected main scene")
     bootstrap = replace(bootstrap, "extern char **environ;", "#include <math.h>\n" + DIRECT_CONTROL + DIRECT_RUNTIME + "\nextern char **environ;", "direct return presenter")
@@ -601,6 +709,26 @@ def patch(root):
         decorated = replace(decorated, f"self.isMaximized = {state};",
                             f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];",
                             "Return visibility on maximize/restore " + state)
+    decorated = replace(decorated, "@property(nonatomic) bool isAppTerminationRequested;",
+                        "@property(nonatomic) bool isAppTerminationRequested;\n@property(nonatomic) BOOL lcLaunchSettled;",
+                        "virtual launch completion ownership")
+    decorated = replace(decorated, "@implementation DecoratedAppSceneViewController",
+                        "@implementation DecoratedAppSceneViewController\n" + VIRTUAL_LAUNCH_COMPLETION,
+                        "virtual launch completion helper")
+    decorated = replace(decorated, "        [self appSceneVCAppDidExit:self.appSceneVC];",
+                        "        if (self.appSceneVC && !self.appSceneVC.isAppTerminationCleanUpCalled) {\n"
+                        "            [self.appSceneVC appTerminationCleanUp]; // Retire a pending launch before its PID arrives.\n"
+                        "        } else {\n"
+                        "            // Keep explicit Close working for a retained terminated view or failed initializer.\n"
+                        "            [self appSceneVCAppDidExit:self.appSceneVC];\n"
+                        "        }",
+                        "close before guest PID")
+    initialized = "- (void)appSceneVC:(AppSceneViewController*)vc didInitializeWithError:(NSError *)error {"
+    decorated = replace(decorated, "    }\n}\n\n" + initialized,
+                        "    }\n" + VIRTUAL_LAUNCH_EXIT + "}\n\n" + initialized,
+                        "virtual launch exit completion")
+    decorated = section(decorated, initialized, "- (void)appSceneVCWillActivateScene:",
+                        VIRTUAL_LAUNCH_INITIALIZED, "virtual launch result completion")
     updated = dict(zip(PATHS, (implementation, header, window, dock, hooks, model, tab, bootstrap, settings, decorated)))
     verify(updated)
     # Validate every anchor before writing any file, so upstream drift is not a partial patch.

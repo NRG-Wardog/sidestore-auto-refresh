@@ -1,0 +1,13 @@
+...............s..........s....sssss.s.s.s........................s.s........s...........sssss..........s..s..s.sssssss.s............s...s...s.....................................sssss.....s........s....s..s.........................ss..s..ss...ss.ss.ss.s..s......s...s............................................................s......................................s..........s....Running: /opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3 -c import sys;sys.stdout.buffer.write(b'hello\n\n')
+hello
+
+.Running: /opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3 -c import subprocess,sys,time;subprocess.Popen([sys.executable,"-c","import time,pathlib;time.sleep(0.7);pathlib.Path('/tmp/tmpx7w4fkzt/unexpected-child-survival').touch()"]);print("started",flush=True);time.sleep(20)
+started
+..Running: /opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3 -c raise SystemExit(7)
+......................sss..............................s.s....s...ss..s.ss....................................s..ssssss.........ssssssssssssssssssssssssssssssss.ssssssss................................s.........s.s.s...s...s.......s.s.s.ss.s..ssss.....s..s.......s..............................s....s.s....ss...s.ss..s..ss...s.......................s..........................s.sss...................................................................................................................................ss.....s.............s........ss.......s.....s....................................s.ssssss.s...........s...............................................s...............s...........s..s....................s.s.s.............................s.................ss......s......./opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/zipfile/__init__.py:1625: UserWarning: Duplicate name: 'Payload/LiveContainer.app/Example.dylib'
+  return self._open_to_write(zinfo, force_zip64=force_zip64)
+................................
+----------------------------------------------------------------------
+Ran 1196 tests in 27.479s
+
+OK (skipped=181)

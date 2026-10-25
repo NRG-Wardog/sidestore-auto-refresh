@@ -1,0 +1,9 @@
+{
+  "commit": "dd8fff072238af26bcee00ae17881f9f15d3ec2c",
+  "origin": {
+    "kind": "direct",
+    "repository": "https://github.com/NRG-Wardog/LiveContainer.git"
+  },
+  "single_parent": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
+  "tree": "5b7e6b28c14cd6c2aac54c32ed2ccc5ae6fff5cd"
+}

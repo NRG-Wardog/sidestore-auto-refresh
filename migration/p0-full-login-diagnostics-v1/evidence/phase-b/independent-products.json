@@ -1,0 +1,188 @@
+{
+  "artifact": {
+    "bytes": 47313261,
+    "index_entries_recomputed": 406,
+    "member_count": 407,
+    "sha256": "b2c931dccffaa7232e8818e674267013e083af2ecb8ff47d256414b6bbc77c93"
+  },
+  "boundary_checks": {
+    "genuine_openssl_source_bound_synthetic_root_positive": true,
+    "rejected_negative_cases": {
+      "extra_framework_file": "SideStore copied OpenSSL framework differs from verified binary artifact",
+      "legacy_switch_cannot_allow_sidestore": "legacy prebuilt allowance belongs only to LiveContainer",
+      "missing_source_proof": "newly built bundle unexpectedly has signature resources",
+      "mutated_copy_Info.plist": "Invalid file",
+      "mutated_copy_OpenSSL": "SideStore copied OpenSSL framework differs from verified binary artifact",
+      "mutated_copy_PrivacyInfo.xcprivacy": "SideStore copied OpenSSL framework differs from verified binary artifact",
+      "mutated_copy__CodeSignature/CodeResources": "SideStore copied OpenSSL framework differs from verified binary artifact",
+      "sidestore_bytes_fail_livecontainer_pin": "pinned OpenSSL binary bytes differ",
+      "signed_framework_in_sidebackup": "newly built bundle unexpectedly has signature resources",
+      "source_proof_wrong_owner_LiveContainer": "SideStore source proof is owner/root scoped",
+      "source_proof_wrong_owner_None": "SideStore source proof is owner/root scoped",
+      "source_proof_wrong_owner_SideBackup": "SideStore source proof is owner/root scoped",
+      "wrong_framework_path": "verified SideStore OpenSSL copied framework is mandatory"
+    }
+  },
+  "limitations": [
+    "New SideStore, LiveContainer, extension, dylib, and SideBackup executable bytes are not retained. Their Mach-O, unsigned status and filesystem observations rely on the reviewed CI adapter execution and bound reports; this review independently checks report consistency, not those absent raw binaries.",
+    "The internal SideBackup IPA bytes are not retained. Its hash and size match the SideStore inventory, and nested 4-file inspection binds internally; reviewed CI also compared the embedded IPA to actual SideStore build output.",
+    "RemotePairingKit source checkout and current extracted SwiftPM artifact are not retained. Their actual current-run observation rests on reviewed verify_sidestore_openssl execution; serialized proof validation alone is not filesystem attestation.",
+    "Only the SideStore official retained OpenSSL archive supports independent raw-byte replay here. LiveContainer OpenSSL and CydiaSubstrate raw bytes are not retained in this artifact.",
+    "Pinned signature metadata is identified and inventoried, not cryptographically authenticated. No app, dependency, IPA, guest or native binary was executed; no archive was extracted; no remote state or candidate source was changed."
+  ],
+  "mismatches": [],
+  "offline_unit_tests": {
+    "count": 53,
+    "errors": 0,
+    "failures": 0,
+    "log": ".....................................................\n----------------------------------------------------------------------\nRan 53 tests in 0.352s\n\nOK\n",
+    "skipped": 0
+  },
+  "pinned_preexisting_exceptions": {
+    "LiveContainer/Frameworks/CydiaSubstrate.framework/CydiaSubstrate": "bca859c9413cb85ca0d3ecfca494c61d67e4acd5846660e618526a152963965b",
+    "LiveContainer/Frameworks/OpenSSL.framework/OpenSSL": "df7faa880948b310527a191362fda21b31f6d9d261731ec1fe1ab9b7728854a4",
+    "SideStore/Frameworks/OpenSSL.framework/OpenSSL": "355ff3a21cb4eb8ef86bfba202414de1a9070b3ddf8703d03cedfcacbe9e5431"
+  },
+  "products": {
+    "LiveContainer": {
+      "binary_count": 12,
+      "file_count": 115,
+      "inventory_sha256": "8e20ae5c23a7419724d28df768c06adf9e119549a2807f46fe84c23036eeb5f8",
+      "omitted_files": 0,
+      "signature_resource_count": 1,
+      "total_bytes": 34755399,
+      "unsigned_binary_count": 10
+    },
+    "SideBackup": {
+      "binary_count": 1,
+      "file_count": 4,
+      "inventory_sha256": "fbdd3f377c25ac25afaf5476819e638e6f84c2d28dd9f10de3a13f2018ed824e",
+      "omitted_files": 0,
+      "signature_resource_count": 0,
+      "total_bytes": 567046,
+      "unsigned_binary_count": 1
+    },
+    "SideStore": {
+      "binary_count": 3,
+      "file_count": 70,
+      "inventory_sha256": "ff8e72124ceb9d38030b77cb9ed4c16066b82a34e01a445b203d5b3a0ab86758",
+      "omitted_files": 0,
+      "signature_resource_count": 1,
+      "total_bytes": 40064948,
+      "unsigned_binary_count": 2
+    }
+  },
+  "reported_macho_count": 16,
+  "reported_unsigned_new_macho_count": 13,
+  "retained_openssl_independent_raw_macho_replay": {
+    "manual_header_and_load_commands_match_report": true,
+    "report": {
+      "architecture": "arm64",
+      "bytes": 5113136,
+      "cpu_subtype": 0,
+      "cpu_type": 16777228,
+      "executed": false,
+      "filetype": "MH_DYLIB",
+      "format": "MH_MAGIC_64",
+      "minimum_os": [
+        12,
+        0,
+        0
+      ],
+      "ncmds": 17,
+      "platform": "iOS",
+      "platform_id": 2,
+      "sdk": [
+        26,
+        5,
+        0
+      ],
+      "sha256": "355ff3a21cb4eb8ef86bfba202414de1a9070b3ddf8703d03cedfcacbe9e5431",
+      "signature_kind": "PINNED_PREEXISTING_METADATA_NOT_VALIDATED",
+      "signatures": [
+        {
+          "bytes": 58000,
+          "offset": 5055136
+        }
+      ],
+      "sizeofcmds": 1752,
+      "tools": [
+        [
+          3,
+          83034112
+        ]
+      ],
+      "unsigned": false
+    },
+    "reviewed_parser_matches_report": true
+  },
+  "run_id": 39229204851,
+  "schema_version": 1,
+  "sidebackup_resource": {
+    "bytes": 143857,
+    "distributed": false,
+    "executed": false,
+    "kind": "internal-build-resource",
+    "path": "SideStore/build/SideBackup.ipa",
+    "sha256": "6823d290eb638624ef25ac251e9071287381fabd1ed71272ac26a5f4b1130c2c"
+  },
+  "source_binding": {
+    "app_resolved_records_match_both_checkpoints": true,
+    "archive": {
+      "bytes": 45431584,
+      "expanded_bytes": 126591016,
+      "member_count": 1679,
+      "sha256": "37846a8bd302cb2443eff47f1045ab844d0cd40bf82cc6159cfad9aa5c3eff9e"
+    },
+    "commit": "e3f70d16c0c551540a533a39d540e78e5b0a60a8",
+    "copy_projection_matches_all_sidestore_product_reports": true,
+    "four_copy_files": {
+      "Info.plist": {
+        "bytes": 765,
+        "sha256": "dfc0efb5ff3a59f5e294127351d961b2bb1420bb6682e10beaf8ad8cf19d6143"
+      },
+      "OpenSSL": {
+        "bytes": 5113136,
+        "sha256": "355ff3a21cb4eb8ef86bfba202414de1a9070b3ddf8703d03cedfcacbe9e5431"
+      },
+      "PrivacyInfo.xcprivacy": {
+        "bytes": 373,
+        "sha256": "5a9b8fc0cddb10201bb47cc2804b3f004c7251476622d25bfc4eb54ed46e1084"
+      },
+      "_CodeSignature/CodeResources": {
+        "bytes": 33644,
+        "sha256": "36939ffaffe0975d13c057afaf9b51f43487f7229890f17a861fb0bdcdc6e3e3"
+      }
+    },
+    "framework_files": 149,
+    "manifest": {
+      "bytes": 1367,
+      "git_blob": "0176e1cd70b13481939eb282d081167a43a5bf17",
+      "path": "Package.swift",
+      "sha256": "4ab6b23b6ef59fda4c5ae6001574362b697d4882d396de4bdd93231e9eeb2dab"
+    },
+    "repository": "https://github.com/mahee96/RemotePairingKit.git",
+    "slice_directories": 11,
+    "slice_files": 152,
+    "source_proof_before_after_identical": true,
+    "source_proof_canonical_sha256": "3a01eda5ce6e0a734096daedeae1e24d75cfd933283bfed68ef3f1b0dc6803ec",
+    "source_proof_file_sha256": "33da0341808db9b8643b98dfd6d74c99a10d130d014e7ec84e45c4c98fac6274",
+    "tree": "007ba009bb6dbb4f2149da8e918a0dcd02b1a4e2",
+    "workspace_before_after_identical": true,
+    "workspace_replayed_against_exact_owner_rows": true,
+    "workspace_state": {
+      "bytes": 12598,
+      "sha256": "e0b22c9d1a334b1696a3b5ba4992dd312eeed9df609996f11b70f504414b5cbe"
+    },
+    "xcframework_metadata_files": 5
+  },
+  "status": "PASS_PRODUCT_EVIDENCE_BINDINGS_WITH_EXPLICIT_TRUST_LIMITS",
+  "trusted_local_adapter_bindings": {
+    "macho_contract.py": "1dd56952ebf275ecc95c38741e03fd551cffce77ec931f3439f901c24c29221b",
+    "native_build.py": "425b257543ba43faa0b5db1b540e181e7663802c758145e503cc0c3b08d6c77f",
+    "openssl_artifact_contract.py": "bd9202ffa2f7515c38b9d021010d9105c4283e5740a23c68e90e7fee6e47222c",
+    "source_primitives.py": "78f20236c15632044c0acc6375e97d5085a668d6fbad08f1bdb300c4dd5d39b2",
+    "tests/fixtures/RemotePairingKit.Package.swift": "4ab6b23b6ef59fda4c5ae6001574362b697d4882d396de4bdd93231e9eeb2dab",
+    "tests/fixtures/sidestore-openssl-3.6.2000.inventory.json": "914acae691d22d94af6de528097ddce74e06920f9dfd66f4b0e375bfaafbc5e8"
+  }
+}

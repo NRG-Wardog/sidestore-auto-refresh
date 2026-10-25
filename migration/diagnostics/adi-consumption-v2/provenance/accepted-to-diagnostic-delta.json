@@ -1,0 +1,394 @@
+{
+  "accepted_graph": {
+    "AnisetteKit": {
+      "commit": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+      "tree": "ca63e018a2ef7e3f0ba759860dfa5f5e6c854065"
+    },
+    "LiveContainer": {
+      "commit": "2a1d297ed94840b134a6ea5111065d228a51cf2b",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
+      "tree": "3b34a80de19a31e61a6375e562fe03e69b63812b"
+    },
+    "SideSign": {
+      "commit": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0",
+      "tree": "27329eab36999128b046eabad7a175faf71b03b0"
+    },
+    "SideStore": {
+      "commit": "1ebc69390f5b570f95cd823ac8df97c3a2f082f9",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71",
+      "tree": "4d043ad782d6dc782e765fe94564be353cb35e80"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "repository": "https://github.com/NRG-Wardog/idevice.git",
+      "source_checkpoint": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "repository": "https://github.com/NRG-Wardog/jktcp.git",
+      "source_checkpoint": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "source_checkpoint": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    }
+  },
+  "accepted_integration": {
+    "commit": "f9f23d980df363eb0f6eb5093b48e3639b03e137",
+    "repository": "NRG-Wardog/sidestore-auto-refresh",
+    "tree": "13894777e9d77822f60436fd471be31e1961ba18"
+  },
+  "contract_set": "runtime-adi-consumption-f9f23d9.v2",
+  "diagnostic_source_tuple": {
+    "AnisetteKit": {
+      "commit": "f494494ede88890555df345054f7fbb87b53aea5",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "role": "diagnostic_source_input",
+      "tree": "17b3b63607d4399c003e56b71b052bd7e73dc84a"
+    },
+    "LiveContainer": {
+      "commit": "6b128686477b569a936915abaa4bd2ec51b40c14",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "role": "diagnostic_source_input",
+      "tree": "2ee1dce1690533ee0010e1fc3852c86bb501a452"
+    },
+    "SideSign": {
+      "commit": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "role": "unchanged_accepted_source",
+      "tree": "27329eab36999128b046eabad7a175faf71b03b0"
+    },
+    "SideStore": {
+      "commit": "7b3f356c5128b17fdd76eed81285096b3cc41da7",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "role": "diagnostic_source_input",
+      "tree": "5eec041d13f5eb5d805189f5827d6a60ddfa91f2"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "repository": "https://github.com/NRG-Wardog/idevice.git",
+      "role": "unchanged_accepted_source",
+      "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "repository": "https://github.com/NRG-Wardog/jktcp.git",
+      "role": "unchanged_accepted_source",
+      "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "role": "unchanged_accepted_source",
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    }
+  },
+  "format_version": 1,
+  "frozen_registry_sha256": "97c9d0b81e9b59c8271ae1155393b2fcb534dc97ea367095d3adfcde8a3783ad",
+  "nonruntime_delta": [
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "5021ccbe2b23e5955d4656154257bdc2fe62e004",
+      "new_mode": "100644",
+      "new_sha256": "905864b0dd7fb55f0dbdc04655baf163ab8fca620dc63ab64542a06202b9cd2c",
+      "old_git_blob": "a2be3d09c099b31ccb7713a80757cbc2adb7fb53",
+      "old_mode": "100644",
+      "old_sha256": "f876929eb20e82959d53c7a1b2eb7a1a605c5e074f44a745f3e6048c57e8c04c",
+      "owner": "AnisetteKit",
+      "path": ".ci/native-tests/ADI_CONSUMPTION_DEBUG.md"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "6894e2b0f60a22db6cc005e58c2eda026f2ca8c6",
+      "new_mode": "100644",
+      "new_sha256": "fcbc0759be696ca69e23b5814f11592158c301dcc7aa8f2ae1f25b2c088548ae",
+      "old_git_blob": "25162a346ace527e7fe587de68d2a015d5234b18",
+      "old_mode": "100644",
+      "old_sha256": "36d9ee77e95b70c3d3bc9da1b7a832bb448b76fe0217ca08c2f4944d9c92990e",
+      "owner": "AnisetteKit",
+      "path": ".ci/native-tests/README.md"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "9c8854ef5b7a051598438a8d39bfc881e4fc3047",
+      "new_mode": "100644",
+      "new_sha256": "fc1ca4d25133751a7a01fd21d4d1321b26872f795004b20ebae6f0122cc5dbd7",
+      "old_git_blob": "e1cf39f0095d15f19b583a31952e75644d290835",
+      "old_mode": "100644",
+      "old_sha256": "c8b2dfc7c3d47d7fce06628cfafed2113efd40964af141b56310602d4ffcb83f",
+      "owner": "AnisetteKit",
+      "path": ".ci/native-tests/fixtures/adi_consumption_harness.cpp"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "3722ecdc0622d94aa1804078a5a87b404c42ecd8",
+      "new_mode": "100644",
+      "new_sha256": "be4649f2f3d5e298f162cf14a9f7a1790a0beec933ff6b2653791149b1a0c142",
+      "old_git_blob": "09c7797403026ac126ebf20e3bdbad40d14e1b0c",
+      "old_mode": "100644",
+      "old_sha256": "e83c228d6aacbd790f4013692ee2292c8f83085b520606cde0e3a28db56bd334",
+      "owner": "AnisetteKit",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "af791ee2844c808c16250005db89c18c5a8421e7",
+      "new_mode": "100644",
+      "new_sha256": "4c8d987fe29fcd51e7005219c212bae7868f92b03f3ba50d86d79ba6c12d8dc4",
+      "old_git_blob": "f6047fdcd49825dec2a89595f77391fbbba864fd",
+      "old_mode": "100644",
+      "old_sha256": "a85d806806994495a1a6b5e1d3d3f232c1aa8f381bc407b2e5060f4c17125425",
+      "owner": "AnisetteKit",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_vm_double.h"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "1309e0f9b9ccc800cb1299c803ff5f11e3844e75",
+      "new_mode": "100644",
+      "new_sha256": "a1c39676c7e192dfc4568ff1f1f47379a3b75228a90a40a77581e2ad3da2b8fc",
+      "old_git_blob": "15f93774edd8d8df5cb13d449b48398e5de393a2",
+      "old_mode": "100644",
+      "old_sha256": "f29cea97792a3facc8257c2dac9c6289c26fbb90a294922c25196b96104c72aa",
+      "owner": "AnisetteKit",
+      "path": ".ci/native-tests/run_tests.py"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "f63335339c84cfaaac6a2717bbc6c18c73c052ee",
+      "new_mode": "100644",
+      "new_sha256": "de9a04bb4b0941da41fb247b6e2d0221bcf77bfe5bb3d3652886854b2b2b245b",
+      "old_git_blob": "de74e81c1712b3517c6924db468f6dca6a50a225",
+      "old_mode": "100644",
+      "old_sha256": "4fb79393ddde16bbe89edbdfc2a27621b7775f52e356522a940970e07c4edc51",
+      "owner": "LiveContainer",
+      "path": "docs/debug-adi-consumption/README.md"
+    },
+    {
+      "change": "added",
+      "kind": "nonruntime",
+      "new_git_blob": "83077055c0cf27a1e9d972d27f7e4dcf4c3f7a62",
+      "new_mode": "100644",
+      "new_sha256": "2c78bd8218cf8e1262e6452272a69e4245562c7eef4c4350a57b5fb802e99b72",
+      "old_git_blob": null,
+      "old_mode": null,
+      "old_sha256": null,
+      "owner": "LiveContainer",
+      "path": "docs/debug-adi-consumption/contract-v2.json"
+    },
+    {
+      "change": "added",
+      "kind": "nonruntime",
+      "new_git_blob": "0bcc481a3cb14e0a131cd0e11d1540f5bf738e54",
+      "new_mode": "100644",
+      "new_sha256": "f6247675e12c3d52a0f56d58e353f604af177e17a2f5ebadb901c73b1fdffc1e",
+      "old_git_blob": null,
+      "old_mode": null,
+      "old_sha256": null,
+      "owner": "LiveContainer",
+      "path": "tests/adi_consumption/legacy_comparison_harness.swift"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "1eb8116f173db1940255a3a63c0c799b4293b498",
+      "new_mode": "100644",
+      "new_sha256": "4d8c636ce292b55899ab377e6ffaec6ceb5a403850a14e38af8c1d72e5414df9",
+      "old_git_blob": "4ceb60ae4265ad77c09fc73ddaa91b89f708dc04",
+      "old_mode": "100644",
+      "old_sha256": "c11cdb52e38e8c8986763d6e975eb506a93a5b1e9bddf22fbd29bca8edbbab6d",
+      "owner": "LiveContainer",
+      "path": "tests/adi_consumption/pipeline_harness.swift"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "d891733e088b1469068222550643868b25a92e37",
+      "new_mode": "100644",
+      "new_sha256": "b03830d266d17a0ae46c5c0dda22dad80fb20a5dbde4baa496894d862b87a382",
+      "old_git_blob": "09896af3bcb59156f3dd14333822067490141a72",
+      "old_mode": "100644",
+      "old_sha256": "34624b3341a4ba81b3ea96f5a7cdcdf98028e0f882607593a62c8dc3e4b621de",
+      "owner": "LiveContainer",
+      "path": "tests/adi_consumption/test_contract.py"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "f63335339c84cfaaac6a2717bbc6c18c73c052ee",
+      "new_mode": "100644",
+      "new_sha256": "de9a04bb4b0941da41fb247b6e2d0221bcf77bfe5bb3d3652886854b2b2b245b",
+      "old_git_blob": "de74e81c1712b3517c6924db468f6dca6a50a225",
+      "old_mode": "100644",
+      "old_sha256": "4fb79393ddde16bbe89edbdfc2a27621b7775f52e356522a940970e07c4edc51",
+      "owner": "SideStore",
+      "path": "docs/debug-adi-consumption/README.md"
+    },
+    {
+      "change": "added",
+      "kind": "nonruntime",
+      "new_git_blob": "83077055c0cf27a1e9d972d27f7e4dcf4c3f7a62",
+      "new_mode": "100644",
+      "new_sha256": "2c78bd8218cf8e1262e6452272a69e4245562c7eef4c4350a57b5fb802e99b72",
+      "old_git_blob": null,
+      "old_mode": null,
+      "old_sha256": null,
+      "owner": "SideStore",
+      "path": "docs/debug-adi-consumption/contract-v2.json"
+    },
+    {
+      "change": "added",
+      "kind": "nonruntime",
+      "new_git_blob": "0bcc481a3cb14e0a131cd0e11d1540f5bf738e54",
+      "new_mode": "100644",
+      "new_sha256": "f6247675e12c3d52a0f56d58e353f604af177e17a2f5ebadb901c73b1fdffc1e",
+      "old_git_blob": null,
+      "old_mode": null,
+      "old_sha256": null,
+      "owner": "SideStore",
+      "path": "tests/adi_consumption/legacy_comparison_harness.swift"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "1eb8116f173db1940255a3a63c0c799b4293b498",
+      "new_mode": "100644",
+      "new_sha256": "4d8c636ce292b55899ab377e6ffaec6ceb5a403850a14e38af8c1d72e5414df9",
+      "old_git_blob": "4ceb60ae4265ad77c09fc73ddaa91b89f708dc04",
+      "old_mode": "100644",
+      "old_sha256": "c11cdb52e38e8c8986763d6e975eb506a93a5b1e9bddf22fbd29bca8edbbab6d",
+      "owner": "SideStore",
+      "path": "tests/adi_consumption/pipeline_harness.swift"
+    },
+    {
+      "change": "modified",
+      "kind": "nonruntime",
+      "new_git_blob": "d891733e088b1469068222550643868b25a92e37",
+      "new_mode": "100644",
+      "new_sha256": "b03830d266d17a0ae46c5c0dda22dad80fb20a5dbde4baa496894d862b87a382",
+      "old_git_blob": "09896af3bcb59156f3dd14333822067490141a72",
+      "old_mode": "100644",
+      "old_sha256": "34624b3341a4ba81b3ea96f5a7cdcdf98028e0f882607593a62c8dc3e4b621de",
+      "owner": "SideStore",
+      "path": "tests/adi_consumption/test_contract.py"
+    }
+  ],
+  "proof_scope": "Immutable source identities only. Native focused tests, genuine dependency resolution, and product readiness remain separate exact-graph receipts. Historical a939 parity and f9/v1 receipts remain frozen and do not establish v2 readiness or an OTP fix.",
+  "runtime_delta": [
+    {
+      "change": "modified",
+      "kind": "runtime",
+      "new_git_blob": "ade371dbbd687c251e4bade39c788442b7620c25",
+      "new_mode": "100644",
+      "new_sha256": "077b377c87b201893f83afbff5a4dd37e01354253f08045a3831adcb50022346",
+      "old_git_blob": "807332a82a95ea6f2a2dfbb33038425dc7d4fb2c",
+      "old_mode": "100644",
+      "old_sha256": "2d30b0fd6e7edf99a29f8b2f36ddbbee07fab639e27887ac235d563d7f0d740c",
+      "owner": "AnisetteKit",
+      "path": "Native/Loader/adi_consumption_debug.h"
+    },
+    {
+      "change": "modified",
+      "kind": "runtime",
+      "new_git_blob": "83ca3d4f273cd1e7acab2dda2d687801335eb3f1",
+      "new_mode": "100644",
+      "new_sha256": "c710077c4ad735d2a274908a252e38d48aa6b1811c8a70e56159fd34a51c6e09",
+      "old_git_blob": "dacb7010b9824fd185b4e49be8b810e73f1a015c",
+      "old_mode": "100644",
+      "old_sha256": "814a8f250c8a85fe62ac2d91be2a57c17452eb19f6635953df6c73db7f611a34",
+      "owner": "AnisetteKit",
+      "path": "Native/Loader/elf_loader_emulator.cpp"
+    },
+    {
+      "change": "modified",
+      "kind": "runtime",
+      "new_git_blob": "076a453eb90f7a6c104b84ab7abf1e63be6809f2",
+      "new_mode": "100644",
+      "new_sha256": "cb9a3c00c2db529fb127b6ef3aeaaf2f4c70a7261ca6ddae99fe91af14774000",
+      "old_git_blob": "f7cf6e3fa9170f38433b598cb1a855ae2965e77c",
+      "old_mode": "100644",
+      "old_sha256": "37f2bff12173c53ae520cddb705888042bb2190e29d4ac377105550d7716f08e",
+      "owner": "AnisetteKit",
+      "path": "Native/anisette_core_uc.cpp"
+    },
+    {
+      "change": "modified",
+      "kind": "runtime",
+      "new_git_blob": "d672719ddb6191ed9e38ebc80f8b2869add22376",
+      "new_mode": "100644",
+      "new_sha256": "356d5bb03a12c8e7bf366f364078099e2f3945103c2d0c43965ac2650590287f",
+      "old_git_blob": "b965114ccf4d998b5fcf26646caa69edbd9b99d0",
+      "old_mode": "100644",
+      "old_sha256": "0dfc00fff5f0455ae73ae3df2e9294c6170f4679ebab075d7d720c52b1fc97e8",
+      "owner": "AnisetteKit",
+      "path": "Sources/AnisetteDataProvider.swift"
+    },
+    {
+      "change": "modified",
+      "kind": "runtime",
+      "new_git_blob": "2c840ddffd208d3284b3c85e55c2ef9d468a7240",
+      "new_mode": "100644",
+      "new_sha256": "cacde808173a4a82d1375872609ed813b80e8552578cb93a5427fb720c51b34f",
+      "old_git_blob": "8f547cb55332f00ab0e0d3e2e0cea15eb6187d14",
+      "old_mode": "100644",
+      "old_sha256": "6515a1e7f7d9fec65fc0e94355499bd836dc342251aac59a986b0dbc096a26d5",
+      "owner": "LiveContainer",
+      "path": "SideStoreSupport/SideStore.swift"
+    },
+    {
+      "change": "modified",
+      "kind": "runtime",
+      "new_git_blob": "1a9adb42f58fd1fa9f70808f644a0f3a4a19c4ea",
+      "new_mode": "100644",
+      "new_sha256": "5cd6baface3732e1dd1a276bf578ca6f055802d77b31bef6cef4dd78dbbe5649",
+      "old_git_blob": "f18a2b2545d10b65377c93eea158a7296a9fff5f",
+      "old_mode": "100644",
+      "old_sha256": "32bdefc47c05627e719e3269013b9582e879348d7e52bde509b0165e126de8e8",
+      "owner": "SideStore",
+      "path": "AltStore/AppDelegate.swift"
+    },
+    {
+      "change": "modified",
+      "kind": "runtime",
+      "new_git_blob": "410d52700ede5d64adf6a8d61c95532b4849c003",
+      "new_mode": "100644",
+      "new_sha256": "bc121d3f00cecfa735f2d827be23233e453cf7ed85c27630f328ccbeb11f1e3c",
+      "old_git_blob": "6bf7a111ce04a0b7920441ff069349b2164ab42a",
+      "old_mode": "100644",
+      "old_sha256": "8af40c8b3e425c599f7d2a4848b694ae2ee18abcfad39cf95c3ad66babd0df8f",
+      "owner": "SideStore",
+      "path": "AltStore/Core/Components/Keychain.swift"
+    },
+    {
+      "change": "modified",
+      "kind": "runtime",
+      "new_git_blob": "450c8e5119f2a631ff71083cd0e0c44d8601f8c0",
+      "new_mode": "100644",
+      "new_sha256": "170f4489956db31d75dbf1fb450d55be0d31cb426aa9937f94fb1a106c91defb",
+      "old_git_blob": "a315febb044b5c97e84f3d4631b4f83c443f2445",
+      "old_mode": "100644",
+      "old_sha256": "6d00c3d089a66a883c3b0f56bff6a8a62f3a290c9434aec65f28aa73985186b5",
+      "owner": "SideStore",
+      "path": "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift"
+    }
+  ],
+  "scope": "Exact accepted f9 diagnostic-v1 to staging-order diagnostic-v2 Git tree delta. Same VM/provider/identity/mutex and one OTP request; stage the supplied unchanged blob before normal native setup. Passive bounded consumption comparison and read-only per-key legacy status accompany the one-factor ordering experiment.",
+  "source_basis": "maintained-adi-consumption-v2",
+  "status": "local_review_data_draft"
+}

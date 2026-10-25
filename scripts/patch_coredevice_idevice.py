@@ -238,7 +238,7 @@ pub unsafe extern "C" fn tunnel_heartbeat_stop() {
                 client
             }
             Err(error) => {
-                transport_log(&format!("[SIDESTORE_COREDEVICE] HEARTBEAT_CONNECT_FAIL error={error}"));
+                transport_log("[SIDESTORE_COREDEVICE] HEARTBEAT_CONNECT_FAIL stage=heartbeat result=failed");
                 return Err(IdeviceError::InternalError(format!(
                     "CoreDevice heartbeat connection failed: {error}"
                 )));
@@ -250,17 +250,13 @@ pub unsafe extern "C" fn tunnel_heartbeat_stop() {
             loop {
                 match heartbeat.get_marco(60).await {
                     Ok(_) => {
-                        if let Err(error) = heartbeat.send_polo().await {
-                            transport_log(&format!(
-                                "[SIDESTORE_COREDEVICE] HEARTBEAT_POLO_FAIL error={error}"
-                            ));
+                        if let Err(_error) = heartbeat.send_polo().await {
+                            transport_log("[SIDESTORE_COREDEVICE] HEARTBEAT_POLO_FAIL stage=heartbeat result=failed");
                             break;
                         }
                     }
-                    Err(error) => {
-                        transport_log(&format!(
-                            "[SIDESTORE_COREDEVICE] HEARTBEAT_MARCO_FAIL error={error}"
-                        ));
+                    Err(_error) => {
+                        transport_log("[SIDESTORE_COREDEVICE] HEARTBEAT_MARCO_FAIL stage=heartbeat result=failed");
                         break;
                     }
                 }

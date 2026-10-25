@@ -1,0 +1,37 @@
+{
+  "anisettekit_revision": "1f5a7e36553cc865b873f222b87a6486c0bcc7bf",
+  "compiled_literal": "Checked OTP staging failed",
+  "dormant_native_symbol": "get_anisette_headers_isolated_uc",
+  "dormant_swift_api": "IsolatedAnisetteOTPProvider.getExistingHeaders",
+  "files": [
+    {
+      "original_sha256": "abee10baeca21b7d175872f1f05bd4c9b36f62dd563404e6e2a17b8a7c7c2d60",
+      "path": "Native/anisette_core_uc.cpp",
+      "prepared_sha256": "2c443523819368c8a48ada0eadb9dbff1d6657b73454db44d45c3cc626e40ab7"
+    },
+    {
+      "original_sha256": "887326b1b3d78426f39472654b58e75876d2e57f91ce7b0ff1bc3e0343ba0672",
+      "path": "Native/include/anisette_core.h",
+      "prepared_sha256": "ca1ea4005f77dcca17c68965ba2dd1f65596e282a57adb4277f1d90d8bd11f02"
+    },
+    {
+      "original_sha256": "9d2d00012d1019bf7e99c2b16a9af6570eec30f75a7a01cffa15be05c5b4384c",
+      "path": "Native/Loader/elf_loader_emulator.cpp",
+      "prepared_sha256": "840b7f4ca30a12da86e0b0ae08a453ebb88e1cd74327f94a303b362b94e8604f"
+    },
+    {
+      "original_sha256": "83b76029f2360edb70cef85abc09ec8e2f6c7ee122fb4f16b2ac7458f48a9c7a",
+      "path": "Native/Loader/elf_loader_emulator.h",
+      "prepared_sha256": "aacfd99cf5049d2208bc9d6af471411ca3acd277828ebcd1f27914f552f2f62c"
+    },
+    {
+      "original_sha256": "f501ed0ee8ec218aa8e8c0237fca00ecc916193f6b8b14b77bf1b949850680fc",
+      "path": "Sources/AnisetteDataProvider.swift",
+      "prepared_sha256": "96a3af11c76ca7476162d25ca345b8e3aeb9f3343fc3e77b03481a61d6c79020"
+    }
+  ],
+  "marker": "V3_CHECKED_ANISETTE_STAGING_V1",
+  "native_symbol": "get_anisette_headers_uc",
+  "schema_version": 1,
+  "swift_api": "UnicornAnisetteDataProvider.getAnisetteHeaders"
+}

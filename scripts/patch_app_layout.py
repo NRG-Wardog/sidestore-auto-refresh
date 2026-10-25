@@ -8,13 +8,17 @@ Only presentation and settings layers are modified.
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 import shutil
 import subprocess
 import sys
+import tempfile
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 MARKER_LIVE_CONTAINER = "// LC_APP_LAYOUT_PATCH_V1"
 MARKER_SIDESTORE = "// SIDESTORE_APP_LAYOUT_PATCH_V1"
+LIVE_CONTAINER_REVISION = "12377cf3b91d51739a33f14a302e5f522b238593"
 
 
 def template(name: str) -> str:
@@ -39,17 +43,23 @@ def patch_livecontainer_model(root: Path) -> None:
     models_dir = root / "LiveContainerSwiftUI" / "Models"
     models_dir.mkdir(parents=True, exist_ok=True)
     target = models_dir / "AppLayoutStyle.swift"
-    target.write_text(template("livecontainer_app_layout_style.swift"), encoding="utf-8")
+    content = template("livecontainer_app_layout_style.swift")
+    if target.exists() and target.read_text(encoding="utf-8") != content:
+        die("LiveContainer layout model drifted")
+    target.write_text(content, encoding="utf-8")
 
 
 def patch_livecontainer_grid_cell(root: Path) -> None:
     views_dir = root / "LiveContainerSwiftUI" / "Views" / "AppList"
     views_dir.mkdir(parents=True, exist_ok=True)
     target = views_dir / "LCGridAppCell.swift"
-    target.write_text(template("livecontainer_grid_app_cell.swift"), encoding="utf-8")
+    content = template("livecontainer_grid_app_cell.swift")
+    if target.exists() and target.read_text(encoding="utf-8") != content:
+        die("LiveContainer grid cell drifted")
+    target.write_text(content, encoding="utf-8")
 
 
-def patch_livecontainer_settings(root: Path) -> None:
+def patch_livecontainer_settings(root: Path, v3_grid: bool = False) -> None:
     path = root / "LiveContainerSwiftUI" / "Views" / "Settings" / "LCSettingsView.swift"
     text = path.read_text(encoding="utf-8")
     if MARKER_LIVE_CONTAINER in text:
@@ -60,6 +70,12 @@ def patch_livecontainer_settings(root: Path) -> None:
         '\n    @AppStorage("LCAppLayoutStyle", store: LCUtils.appGroupUserDefault) private var appLayoutStyle: AppLayoutStyle = .list\n'
         '    @AppStorage("LCShowAppLabels", store: LCUtils.appGroupUserDefault) private var showAppLabels: Bool = true'
     )
+    if v3_grid:
+        prop_addition = (
+            '\n    @AppStorage(LCGridSize.storageKey, store: LCUtils.appGroupUserDefault) private var gridSize: LCGridSize = .medium\n'
+            '    @AppStorage(LCLaunchTab.storageKey, store: LCUtils.appGroupUserDefault) private var launchTab: LCLaunchTab = .home\n'
+            '    @AppStorage("LCShowAppLabels", store: LCUtils.appGroupUserDefault) private var showAppLabels: Bool = true'
+        )
     text = replace_once(text, prop_anchor, prop_anchor + prop_addition, "LCSettingsView properties")
 
     section_anchor = '                Section{\n                    Toggle(isOn: $dynamicColors) {'
@@ -80,6 +96,23 @@ def patch_livecontainer_settings(root: Path) -> None:
         '                    }\n'
         '                    Toggle(isOn: $dynamicColors) {'
     )
+    if v3_grid:
+        section_replacement = (
+            '                Section{\n'
+            '                    ' + MARKER_LIVE_CONTAINER + '\n'
+            '                    Picker("Grid Size", selection: $gridSize) {\n'
+            '                        ForEach(LCGridSize.allCases) { size in\n'
+            '                            Text(size.displayName).tag(size)\n'
+            '                        }\n'
+            '                    }\n'
+            '                    Toggle("Show app labels", isOn: $showAppLabels)\n'
+            '                    Picker("Default Launch Screen", selection: $launchTab) {\n'
+            '                        ForEach(LCLaunchTab.allCases) { tab in\n'
+            '                            Text(tab.displayName).tag(tab)\n'
+            '                        }\n'
+            '                    }\n'
+            '                    Toggle(isOn: $dynamicColors) {'
+        )
     text = replace_once(text, section_anchor, section_replacement, "LCSettingsView interface section")
     path.write_text(text, encoding="utf-8")
 
@@ -213,7 +246,7 @@ def patch_livecontainer_banner_view(root: Path) -> None:
         banner_rep_path.write_text(rep_text, encoding="utf-8")
 
 
-def patch_livecontainer_app_list_view(root: Path) -> None:
+def patch_livecontainer_app_list_view(root: Path, v3_grid: bool = False) -> None:
     path = root / "LiveContainerSwiftUI" / "Views" / "AppList" / "LCAppListView.swift"
     text = path.read_text(encoding="utf-8")
     if MARKER_LIVE_CONTAINER in text:
@@ -255,6 +288,25 @@ def patch_livecontainer_app_list_view(root: Path) -> None:
         "        }\n"
         "    }\n"
     )
+    if v3_grid:
+        render_block = (
+            prop_anchor
+            + '    ' + MARKER_LIVE_CONTAINER + '\n'
+            '    @AppStorage(LCGridSize.storageKey, store: LCUtils.appGroupUserDefault) private var gridSize: LCGridSize = .medium\n'
+            '    @AppStorage("LCShowAppLabels", store: LCUtils.appGroupUserDefault) private var showAppLabels: Bool = true\n'
+            '    @ScaledMetric(relativeTo: .caption) private var gridTextScale: CGFloat = 1\n\n'
+            '    private var gridColumns: [GridItem] {\n'
+            '        [GridItem(.adaptive(minimum: gridSize.minimumWidth * min(1.5, max(1, gridTextScale))), spacing: 16, alignment: .top)]\n'
+            '    }\n\n'
+            '    private func renderAppCollection(apps: [LCAppModel]) -> some View {\n'
+            '        LazyVGrid(columns: gridColumns, spacing: 16) {\n'
+            '            ForEach(apps, id: \\.self) { app in\n'
+            '                LCGridAppCell(appModel: app, delegate: self, showLabels: showAppLabels, gridSize: gridSize)\n'
+            '            }\n'
+            '            .transition(.scale)\n'
+            '        }\n'
+            '    }\n'
+        )
     text = replace_once(text, prop_anchor, render_block, "LCAppListView render block insertion")
 
     body_list_anchor = (
@@ -287,12 +339,103 @@ def patch_livecontainer_app_list_view(root: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def patch_livecontainer(root: Path) -> None:
+def apply_livecontainer(root: Path, v3_grid: bool = False) -> None:
     patch_livecontainer_model(root)
     patch_livecontainer_grid_cell(root)
-    patch_livecontainer_settings(root)
+    patch_livecontainer_settings(root, v3_grid=v3_grid)
     patch_livecontainer_banner_view(root)
-    patch_livecontainer_app_list_view(root)
+    patch_livecontainer_app_list_view(root, v3_grid=v3_grid)
+    patch_livecontainer_compact_geometry(root)
+
+
+def patch_livecontainer_compact_geometry(root: Path) -> None:
+    """The compact row must shrink its content, not only its outer height."""
+    base = root / "LiveContainerSwiftUI/Views/AppList/LCAppBanner"
+    view_path = base / "LCAppBannerView.swift"
+    text = view_path.read_text(encoding="utf-8")
+    text = replace_once(text, "    let runControl = LCAppBannerRunControl()", """    private var layoutStyle: AppLayoutStyle = .list
+    private var iconSizeConstraints: [NSLayoutConstraint] = []
+
+    func applyLayoutStyle(_ style: AppLayoutStyle) {
+        layoutStyle = style
+        for constraint in iconSizeConstraints { constraint.constant = style == .compactList ? 40 : 60 }
+        versionLabel.isHidden = style == .compactList
+        if style == .compactList {
+            remarkLabel.isHidden = true
+            containerLabel.isHidden = true
+        } else {
+            containerLabel.isHidden = false
+        }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+
+    let runControl = LCAppBannerRunControl()""", "compact root geometry")
+    text = replace_once(text, "CGSize(width: UIView.noIntrinsicMetric, height: Self.bannerHeight)",
+                        "CGSize(width: UIView.noIntrinsicMetric, height: layoutStyle == .compactList ? Self.compactBannerHeight : Self.bannerHeight)", "compact intrinsic size")
+    text = replace_once(text, "        NSLayoutConstraint.activate([\n            visualBackgroundView.leadingAnchor", """        iconSizeConstraints = [
+            iconImageView.widthAnchor.constraint(equalToConstant: 60),
+            iconImageView.heightAnchor.constraint(equalToConstant: 60)
+        ]
+        NSLayoutConstraint.activate(iconSizeConstraints)
+        NSLayoutConstraint.activate([
+            visualBackgroundView.leadingAnchor""", "compact icon constraints")
+    text = replace_once(text, "            iconImageView.widthAnchor.constraint(equalToConstant: 60),\n            iconImageView.heightAnchor.constraint(equalToConstant: 60),\n", "", "compact remove duplicate icon constraints")
+    view_path.write_text(text, encoding="utf-8")
+    controller = base / "LCAppBannerViewController.swift"
+    text = controller.read_text(encoding="utf-8")
+    text = replace_once(text, "            traitCollection: traitCollection\n        )\n    }", """            traitCollection: traitCollection
+        )
+        bannerView.applyLayoutStyle(configuration.layoutStyle)
+        preferredContentSize = CGSize(width: 0, height: bannerView.intrinsicContentSize.height)
+    }""", "compact controller sizing")
+    controller.write_text(text, encoding="utf-8")
+
+
+def patch_livecontainer(root: Path, v3_grid: bool = False) -> None:
+    """Validate all anchors in a staging tree before changing the checkout."""
+    if not (root / ".git").exists():
+        die("LiveContainer requires a versioned checkout at the pinned source revision")
+    revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    if revision != LIVE_CONTAINER_REVISION:
+        die(f"LiveContainer revision mismatch: {revision}")
+    manifest_path = root / ".lc-app-layout.json"
+    patch_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    template_hashes = {name: hashlib.sha256(template(name).encode()).hexdigest() for name in (
+        "livecontainer_app_layout_style.swift", "livecontainer_grid_app_cell.swift")}
+    names = ["Models/AppLayoutStyle.swift", "Views/Settings/LCSettingsView.swift",
+             "Views/AppList/LCAppListView.swift", "Views/AppList/LCGridAppCell.swift"]
+    names += ["Views/AppList/LCAppBanner/" + name for name in (
+        "LCAppBanner.swift", "LCAppBannerView.swift", "LCAppBannerViewController.swift")]
+    names = ["LiveContainerSwiftUI/" + name for name in names]
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if (manifest.get("revision") != LIVE_CONTAINER_REVISION or manifest.get("templates") != template_hashes
+                or manifest.get("patch") != patch_hash or manifest.get("v3_grid", False) != v3_grid
+                or set(manifest.get("files", {})) != set(names)):
+            die("LiveContainer layout manifest/template drift")
+        for name, expected in manifest["files"].items():
+            path = root / name
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                die(f"LiveContainer layout replay drift: {name}")
+        return
+    with tempfile.TemporaryDirectory(prefix="lc-layout-") as directory:
+        staging = Path(directory)
+        for name in names:
+            source = root / name
+            if source.exists():
+                (staging / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, staging / name)
+        apply_livecontainer(staging, v3_grid=v3_grid)
+        verify_livecontainer(staging, v3_grid=v3_grid)
+        manifest = {"revision": LIVE_CONTAINER_REVISION, "patch": patch_hash, "templates": template_hashes,
+                    "v3_grid": v3_grid, "files": {}}
+        for name in names:
+            data = (staging / name).read_bytes()
+            manifest["files"][name] = hashlib.sha256(data).hexdigest()
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_bytes(data)
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
 def patch_sidestore_defaults(root: Path) -> None:
@@ -536,7 +679,7 @@ def patch_sidestore(root: Path) -> None:
     patch_sidestore_my_apps(root)
 
 
-def verify_livecontainer(root: Path) -> None:
+def verify_livecontainer(root: Path, v3_grid: bool = False) -> None:
     settings = (root / "LiveContainerSwiftUI" / "Views" / "Settings" / "LCSettingsView.swift").read_text(encoding="utf-8")
     app_list = (root / "LiveContainerSwiftUI" / "Views" / "AppList" / "LCAppListView.swift").read_text(encoding="utf-8")
     banner = (root / "LiveContainerSwiftUI" / "Views" / "AppList" / "LCAppBanner" / "LCAppBanner.swift").read_text(encoding="utf-8")
@@ -555,6 +698,14 @@ def verify_livecontainer(root: Path) -> None:
         die("LiveContainer grid cell does not route actions through LCAppBannerViewController")
     if "case compactList = \"compactList\"" not in model:
         die("LiveContainer AppLayoutStyle compactList case missing")
+    if v3_grid:
+        for text, label in ((settings, "settings"), (app_list, "app list")):
+            if "LCAppLayoutStyle" in text or "appLayoutStyle" in text:
+                die(f"LiveContainer v3 {label} retains legacy layout selection")
+            if "LCGridSize.storageKey" not in text:
+                die(f"LiveContainer v3 {label} lacks global grid size")
+        if "LCLaunchTab.storageKey" not in settings or "gridSize: gridSize" not in app_list:
+            die("LiveContainer v3 preference wiring missing")
 
     compiler = shutil.which("swiftc")
     if compiler:
@@ -602,15 +753,20 @@ def identify_target(path: Path) -> str:
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
-        die("usage: patch_app_layout.py <checkout-path> [<checkout-path-2> ...]")
+    import argparse
 
-    for arg in sys.argv[1:]:
-        target_path = Path(arg).resolve()
-        target_type = identify_target(target_path)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--v3-grid", action="store_true")
+    parser.add_argument("checkouts", nargs="+", type=Path)
+    args = parser.parse_args()
+    targets = [(path.resolve(), identify_target(path.resolve())) for path in args.checkouts]
+    if args.v3_grid and any(kind != "livecontainer" for _, kind in targets):
+        die("--v3-grid only supports LiveContainer checkouts")
+
+    for target_path, target_type in targets:
         if target_type == "livecontainer":
-            patch_livecontainer(target_path)
-            verify_livecontainer(target_path)
+            patch_livecontainer(target_path, v3_grid=args.v3_grid)
+            verify_livecontainer(target_path, v3_grid=args.v3_grid)
             print(f"Applied and verified App Layout patch on LiveContainer: {target_path}")
         elif target_type == "sidestore":
             patch_sidestore(target_path)

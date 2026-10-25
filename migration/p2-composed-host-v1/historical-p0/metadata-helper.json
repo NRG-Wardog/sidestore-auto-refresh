@@ -1,0 +1,40 @@
+{
+  "device_validation": false,
+  "guest_execution": false,
+  "leak_sanitizer_enabled": false,
+  "proprietary_input": false,
+  "results": {
+    "normal": {
+      "checks": 713,
+      "failures": 0,
+      "guest_execution": false,
+      "proprietary_input": false,
+      "schema": 1
+    },
+    "optimized": {
+      "checks": 713,
+      "failures": 0,
+      "guest_execution": false,
+      "proprietary_input": false,
+      "schema": 1
+    },
+    "sanitized": {
+      "checks": 713,
+      "failures": 0,
+      "guest_execution": false,
+      "proprietary_input": false,
+      "schema": 1
+    }
+  },
+  "sanitizers": [
+    "address",
+    "undefined"
+  ],
+  "schema": 1,
+  "source_sha256": {
+    ".ci/native-tests/fixtures/elf_metadata_bounds_unit.cpp": "bb4e7ec60202f6576f8013d0925c69c6ca4d8fca6061d93b233587efdb35487a",
+    "Native/Loader/elf_metadata_bounds.h": "7acd9287cc351b55141f40a0baecda9c3d3202a420cf4b7f0f2515572d877253",
+    "Native/anisette_base.h": "6c47c3fef881d99082d1eb7e687fc78de6339568118259884d2b8a0d6c6e8664",
+    "Native/include/anisette_core.h": "ca1ea4005f77dcca17c68965ba2dd1f65596e282a57adb4277f1d90d8bd11f02"
+  }
+}

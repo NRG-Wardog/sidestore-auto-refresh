@@ -1,0 +1,14 @@
+test_bitcode_style_omitted_addresses_are_supported (test_archive_symbols.SymbolProofTests.test_bitcode_style_omitted_addresses_are_supported) ... ok
+test_complete_wrapper_preserves_failed_proof_and_accepts_only_complete_read (test_archive_symbols.SymbolProofTests.test_complete_wrapper_preserves_failed_proof_and_accepts_only_complete_read) ... ok
+test_component_is_selected_only_from_actual_host_listing (test_archive_symbols.SymbolProofTests.test_component_is_selected_only_from_actual_host_listing) ... ok
+test_exact_global_text_definitions_pass (test_archive_symbols.SymbolProofTests.test_exact_global_text_definitions_pass) ... ok
+test_failed_reader_retains_stdout_stderr_command_and_status (test_archive_symbols.SymbolProofTests.test_failed_reader_retains_stdout_stderr_command_and_status) ... ok
+test_matching_full_llvm_version_is_extracted (test_archive_symbols.SymbolProofTests.test_matching_full_llvm_version_is_extracted) ... ok
+test_missing_symbol_fails (test_archive_symbols.SymbolProofTests.test_missing_symbol_fails) ... ok
+test_observed_partial_output_with_reader_error_fails (test_archive_symbols.SymbolProofTests.test_observed_partial_output_with_reader_error_fails) ... ok
+test_undefined_local_and_similar_names_are_not_definitions (test_archive_symbols.SymbolProofTests.test_undefined_local_and_similar_names_are_not_definitions) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.006s
+
+OK

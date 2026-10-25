@@ -137,6 +137,25 @@ SWIFT_TESTS = r'''
 '''
 
 class GuestReturnTests(unittest.TestCase):
+    def test_the_return_control_does_not_depend_on_removed_sidestore_hooks(self):
+        # The SideStore-only escape hook was removed with the rest of that UI.
+        # This patcher used to inject a second copy of the direct-return
+        # diagnostic into it, so it failed closed on a clean patched tree. The
+        # shipped control is LCDirectReturnPresenter in LCBootstrap.m, and the
+        # hooks file is now read, never written.
+        source = (ROOT / "scripts/patch_guest_return.py").read_text(encoding="utf-8")
+        startup = (ROOT / "scripts/patch_embedded_sidestore_startup.py").read_text(encoding="utf-8")
+        self.assertIn("SideStoreMyAppsViewController_orig_viewDidload", startup,
+                      "the hook removal must stay anchored to the swizzle it removes")
+        for removed in ("SideStoreMyAppsViewController_hook_escapeButtonTapped",
+                        "SideStoreMyAppsViewController_orig_viewDidload"):
+            self.assertNotIn(removed, module.DIRECT_CONTROL + module.DIRECT_RUNTIME + module.METHODS,
+                             "the shipped return control must not reintroduce the removed hook")
+        self.assertNotIn("hooks = replace(hooks", source,
+                         "the hooks file must not be patched")
+        self.assertNotIn('(hooks, "DIRECT_PROCESS_RESTART_RETURN")', source,
+                         "the removed hook must not still be a required token")
+
     def test_virtual_control_is_above_chrome_and_native_stays_local(self):
         self.assertIn('[(DecoratedAppSceneViewController *)self.delegate view] : self.view', module.METHODS)
         self.assertIn('[overlayHost addSubview:self.lcReturnControl]', module.METHODS)
@@ -201,15 +220,54 @@ class GuestReturnTests(unittest.TestCase):
             for start, end in (('- (void)layoutSubviews', '- (void)keyboard:'),
                                ('- (void)preferencesChanged:', '- (UIView *)hitTest:')):
                 self.assertNotIn('[self collapse]', control[control.index(start):control.index(end)])
-            self.assertIn('name:NSUserDefaultsDidChangeNotification object:NSUserDefaults.lcUserDefaults', control)
+            self.assertIn('name:NSUserDefaultsDidChangeNotification object:NSUserDefaults.lcSharedDefaults', control)
             self.assertIn('name:UIApplicationDidBecomeActiveNotification', control)
         self.assertIn('private var returnStartsCollapsed = false', module.SETTINGS_PROPERTIES)
         self.assertIn('private var returnCustomColors = false', module.SETTINGS_PROPERTIES)
         for key in ('LCGuestReturnStartsCollapsed', 'LCGuestReturnCustomColors',
                     'LCGuestReturnTintRGB', 'LCGuestReturnBackgroundRGB'):
-            self.assertIn(f'@AppStorage("{key}", store: UserDefaults.lc())', module.SETTINGS_PROPERTIES)
+            self.assertIn(f'@AppStorage("{key}", store: UserDefaults.lcShared())', module.SETTINGS_PROPERTIES)
             self.assertIn(f'@"{key}"', module.CONTROL)
             self.assertIn(f'@"{key}"', module.DIRECT_CONTROL)
+
+    def test_guest_return_shared_defaults_survive_separate_processes(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        source = r'''
+import Foundation
+let sharedSuite = CommandLine.arguments[1]
+let processSuite = CommandLine.arguments[2]
+let key = CommandLine.arguments[3]
+let mode = CommandLine.arguments[4]
+let shared = UserDefaults(suiteName: sharedSuite)!
+let processDefaults = UserDefaults(suiteName: processSuite)!
+if mode == "write" {
+    processDefaults.set(false, forKey: key)
+    shared.set(true, forKey: key)
+    shared.synchronize()
+} else {
+    precondition(processDefaults.object(forKey: key) == nil,
+                 "the second process must not read the first process's private defaults")
+    precondition(shared.bool(forKey: key),
+                 "the shared suite must carry the host preference across processes")
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            program, executable = root / "shared-defaults.swift", root / "shared-defaults"
+            program.write_text(source, encoding="utf-8")
+            built = subprocess.run([compiler, str(program), "-o", str(executable)],
+                                   capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            suite = "group.test.guest-return." + root.name
+            key = "LCGuestReturnStartsCollapsed." + root.name
+            for mode, process in (("write", "host"), ("read", "liveprocess")):
+                result = subprocess.run([str(executable), suite, process + "." + root.name, key, mode],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("NSUserDefaults.lcSharedDefaults", module.CONTROL)
+        self.assertIn("UserDefaults.lcShared()", module.SETTINGS_PROPERTIES)
 
     def test_appearance_keeps_tab_transparent_and_system_colors_available(self):
         for control in (module.CONTROL, module.DIRECT_CONTROL):
@@ -240,6 +298,24 @@ class GuestReturnTests(unittest.TestCase):
             run = subprocess.run([str(exe)], capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertIn('RETURN_CONTROL_TESTS_PASSED', run.stdout)
+
+    def test_extension_diagnostics_are_truthful_idempotent_and_behavior_neutral(self):
+        original = "\n".join([
+            '    [_extension setRequestCancellationBlock:^(NSUUID *uuid, NSError *error) {\n        [weakSelf appTerminationCleanUp];\n    }];',
+            '    [_extension setRequestInterruptionBlock:^(NSUUID *uuid) {\n        [weakSelf appTerminationCleanUp];\n    }];',
+            '    [self.extension setRequestInterruptionBlock:^(NSUUID *uuid) {\n        [weakSelf appTerminationCleanUp];\n    }];',
+        ])
+        generated = module.patch_lifecycle_diagnostics(original)
+        self.assertEqual(generated.count("PROCESS_INTERRUPTED pid="), 2)
+        self.assertEqual(generated.count("PROCESS_CANCELLED pid="), 1)
+        self.assertEqual(generated, module.patch_lifecycle_diagnostics(generated))
+        without_logs = "\n".join(line for line in generated.split("\n")
+                                 if "[LC_GUEST_LIFECYCLE]" not in line)
+        self.assertEqual(without_logs, original)
+        with self.assertRaises(ValueError):
+            module.patch_lifecycle_diagnostics(generated.replace("PROCESS_CANCELLED", "PROCESS_INTERRUPTED"))
+        with self.assertRaises(ValueError):
+            module.patch_lifecycle_diagnostics(original.replace("setRequestCancellationBlock", "changedCallback"))
 
     def test_cleanup_finishes_before_exit_callback(self):
         self.assertLess(module.CLEANUP.index("unregisterMultitaskContainer"), module.CLEANUP.index("appSceneVCAppDidExit"))
@@ -315,8 +391,11 @@ int main(void) {
             decorated = (root / "MultitaskSupport/DecoratedAppSceneViewController.m").read_text()
             for state in ("YES", "NO"):
                 self.assertIn(f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];", decorated)
-            # The Objective-C lcUserDefaults factory is imported into Swift as lc().
-            self.assertIn('store: UserDefaults.lc()', (root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text())
+            # All Guest Return settings injected into this view use the App
+            # Group accessor read by the LiveProcess Objective-C control.
+            patched_settings = (root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text()
+            self.assertIn('store: UserDefaults.lcShared()', patched_settings)
+            self.assertNotIn('store: UserDefaults.lc()', patched_settings)
             first = {name: (root/name).read_bytes() for name in module.PATHS}
             module.patch(root)
             self.assertEqual(first, {name: (root/name).read_bytes() for name in module.PATHS})

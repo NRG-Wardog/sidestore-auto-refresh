@@ -1,0 +1,3370 @@
+#!/usr/bin/env python3
+"""Pinned, transactional and hash-verified v3 command integration."""
+from pathlib import Path
+import hashlib
+import importlib.util
+import json
+import plistlib
+import re
+import subprocess
+import sys
+
+TEMPLATES = Path(__file__).with_name("templates")
+PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
+MARKER = "V3_COMMAND_PATCH_V1"
+PATCH_VERSION = 49
+
+
+def runtime_app_group_environment_key() -> str:
+    """The one key LiveProcess publishes and every process reads.
+
+    The generated Objective-C below cannot see the Swift constant, so the name
+    is repeated. Deriving it here means a rename fails at patch time instead of
+    silently splitting the host and the service across two shared stores.
+    """
+    shared = (TEMPLATES / "v3_shared_app_group.swift").read_text(encoding="utf-8")
+    match = re.search(r'static let runtimeGroupEnvironmentKey = "([A-Za-z0-9_]+)"', shared)
+    if not match:
+        raise SystemExit("v3 service: the runtime App Group environment key moved")
+    return match.group(1)
+
+
+RUNTIME_APP_GROUP_ENV_KEY = runtime_app_group_environment_key()
+BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
+HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
+HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
+HEADLESS_ANISETTE_MODELS_SOURCE = "AltStore/Settings/AnisetteServerModels.swift"
+HEADLESS_SIDESTORE_APP_UI_FILES = (
+    "Components/AppBannerView.swift",
+    "Components/AppBannerCollectionViewCell.swift",
+)
+HEADLESS_SIDESTORE_VIEW_FILES = (
+    "Views/Components/AppInfoView.swift",
+    "Views/Components/BundleResourceBrowserView.swift",
+    "Views/Components/CodeResourcesViewer.swift",
+    "Views/Components/CustomAppIDAlertViewController.swift",
+    "Views/Components/InfoPlistContainerView.swift",
+    "Views/Components/MachOResourceViewer.swift",
+    "Views/Components/UIKit/CollapsingMarkdownView.swift",
+    "Views/MyApps/DeleteAppAlertViewController.swift",
+    "Views/Settings/Advanced/Anisette/AnisetteDataView.swift",
+    "Views/Settings/Advanced/BackupRestore/BackupAndRestoreView.swift",
+    "Views/Settings/Advanced/Certificates/ActiveCertSectionView.swift",
+    "Views/Settings/Advanced/Certificates/CertificateDetailView.swift",
+    "Views/Settings/Advanced/Certificates/CertificateExporter.swift",
+    "Views/Settings/Advanced/Certificates/CertificateRowView.swift",
+    "Views/Settings/Advanced/Certificates/CertificateTypes.swift",
+    "Views/Settings/Advanced/Certificates/CertificatesListView.swift",
+    "Views/Settings/Advanced/Certificates/CertificatesView.swift",
+    "Views/Settings/Advanced/Certificates/CertificatesViewModel.swift",
+    "Views/Settings/Advanced/Certificates/PrivateKeyTextEditor.swift",
+    "Views/Settings/Advanced/Certificates/PrivateKeyTextInputView.swift",
+    "Views/Settings/Advanced/Certificates/RevokeAlertViewController.swift",
+    "Views/Settings/Advanced/Certificates/SetCertificateAlertViewController.swift",
+    "Views/Settings/Advanced/Certificates/SignableCertificatesListViewController.swift",
+    "Views/Settings/Advanced/Connection/ConnectionConfigView.swift",
+    "Views/Settings/Advanced/DeveloperServices/AppGroups/AppGroupsListView.swift",
+    "Views/Settings/Advanced/DeveloperServices/AppIDs/AppIDDetailView.swift",
+    "Views/Settings/Advanced/DeveloperServices/AppIDs/AppIDsListView.swift",
+    "Views/Settings/Advanced/DeveloperServices/Certificates/CertificatePortalDetailView.swift",
+    "Views/Settings/Advanced/DeveloperServices/Certificates/CertificatesPortalListView.swift",
+    "Views/Settings/Advanced/DeveloperServices/DeveloperServicesView.swift",
+    "Views/Settings/Advanced/DeveloperServices/DeveloperServicesViewModel.swift",
+    "Views/Settings/Advanced/DeveloperServices/Devices/DevicesListView.swift",
+    "Views/Settings/Advanced/DeveloperServices/Profiles/CreateManualProfileView.swift",
+    "Views/Settings/Advanced/DeveloperServices/Profiles/ProfilePortalDetailView.swift",
+    "Views/Settings/Advanced/DeveloperServices/Profiles/ProfilesListView.swift",
+    "Views/Settings/Advanced/JIT/SideJITServerConfigView.swift",
+    "Views/Settings/Advanced/NetworkDiscovery/BonjourDiscoveryView.swift",
+    "Views/Settings/Advanced/NetworkDiscovery/BonjourDiscoveryViewModel.swift",
+    "Views/Settings/Advanced/SideSign/SideSignConfigurationView.swift",
+    "Views/Settings/Advanced/UserCustomizations/ThemePickerView.swift",
+    "Views/Settings/Advanced/UserCustomizations/UserCustomizationsView.swift",
+    "Views/Settings/Advanced/WirelessPair/WirelessPairTargetDialog.swift",
+    "Views/Settings/Advanced/WirelessPair/WirelessPairView.swift",
+    "Views/Settings/Advanced/WirelessPair/WirelessPairViewModel.swift",
+    "Views/Settings/Auth/ExportAccountAlertViewController.swift",
+    "Views/Settings/Auth/ImportAccountAlertController.swift",
+    "Views/Settings/Auth/ResetAdiAlertViewController.swift",
+    "Views/Settings/Auth/RevokeCertificatesAlertViewController.swift",
+    "Views/Settings/Auth/SignOutAlertViewController.swift",
+    "Views/Settings/Diagnostics/DeveloperOptionsView.swift",
+    "Views/Settings/Diagnostics/ExperimentalFeaturesView.swift",
+    "Views/Settings/Diagnostics/OperationsLoggingControlView.swift",
+    "Views/Settings/TechyThings/ErrorLog/ConsoleLogView.swift",
+    "Views/Settings/TechyThings/HealthCheck/HealthCheckView.swift",
+    "Views/Settings/TechyThings/HealthCheck/HealthCheckViewModel.swift",
+    "Views/Settings/TechyThings/StorageExplorer/DirectoryExplorerView.swift",
+    "Views/Settings/TechyThings/StorageExplorer/StorageExplorerView.swift",
+    "Views/Settings/TechyThings/StorageExplorer/StorageExplorerViewModel.swift",
+    "Views/SplashView.swift",
+)
+HEADLESS_SIDESTORE_AUX_UI_FILES = (
+    "DeepLinks/ExportCertificateDialog.swift",
+    "DeepLinks/InstallAppDialog.swift",
+    "Views/Settings/Advanced/CacheMgmt/CacheManagementView.swift",
+    "Views/Settings/Advanced/CacheMgmt/CacheViewModel.swift",
+    "Views/Settings/Advanced/Connection/ConnectionConfig.swift",
+)
+HEADLESS_SIDESTORE_PIPELINE_UI_FILES = (
+    "Managing Apps/AppExtensionView.swift",
+    "Permissions/ReviewPermissionsViewController.swift",
+)
+# These live in the SideStore module, not AltStore, so they are excluded through
+# the SideStore target's membership exceptions. PresenterProvider is a typealias
+# in SideStore/Handlers used only by the PipelineHandler this patch rewrites, so
+# excluding its declaration leaves the headless target with no dangling use.
+HEADLESS_SIDESTORE_HANDLER_UI_FILES = (
+    "Handlers/PresenterProvider.swift",
+)
+
+HEADLESS_BACKEND_CONNECTION_CONFIG = '''// V3_HEADLESS_BACKEND_CONNECTION_CONFIG_V1: backend-owned transport configuration.
+import Foundation
+import Minimuxer
+
+final class ConnectionConfig {
+    static let shared = ConnectionConfig()
+
+    private static var defaultOverrideIP: String { "" }
+    private static var defaultRemoteServerIP: String { AppConstants.Connection.defaultRemoteServerIP }
+    private static var defaultWireGuardServerHost: String { AppConstants.Proxy.address }
+    private static var defaultWireGuardServerPort: UInt16 { AppConstants.Proxy.defaultPort }
+
+    var tunnelIfaceIp: String?
+    var tunnelIfaceSubnetMask: String?
+    var tunnelPeerIp: String?
+    var tunnelPeerSubnetMask: String?
+    var tunnelPeerReachable = false
+    var overrideTunnelPeerReachable = false
+    var remotePeerIp: String?
+    var remoteReachable = false
+
+    // Read persisted settings on every access. LiveContainer writes these keys
+    // directly through settingsSet, so a cached value would leave the already-
+    // bound Minimuxer connection-mode callback stale for the process lifetime.
+    var overrideTunnelPeerIp: String {
+        get { UserDefaults.standard.tunnelOverridePeerIp ?? Self.defaultOverrideIP }
+        set { UserDefaults.standard.tunnelOverridePeerIp = newValue }
+    }
+
+    var remoteServerIp: String {
+        get { UserDefaults.standard.remoteServerIp ?? Self.defaultRemoteServerIP }
+        set { UserDefaults.standard.remoteServerIp = newValue }
+    }
+
+    var useLocalVPN: Bool {
+        get { UserDefaults.standard.useLocalVPN }
+        set { UserDefaults.standard.useLocalVPN = newValue }
+    }
+
+    var wireguardServerHost: String {
+        get { UserDefaults.standard.wireGuardServerHost ?? Self.defaultWireGuardServerHost }
+        set { UserDefaults.standard.wireGuardServerHost = newValue }
+    }
+
+    var wireguardServerPort: UInt16 {
+        get { UserDefaults.standard.wireGuardServerPort ?? Self.defaultWireGuardServerPort }
+        set { UserDefaults.standard.wireGuardServerPort = newValue }
+    }
+
+    var connectionMode: DeviceConnectionMode {
+        useLocalVPN ? .localVPN : .remoteServer
+    }
+}
+
+extension UserDefaults {
+    @objc var tunnelOverridePeerIp: String? {
+        get { self.string(forKey: "TunnelOverridePeerIp") }
+        set { self.set(newValue, forKey: "TunnelOverridePeerIp") }
+    }
+
+    @objc var remoteServerIp: String? {
+        get { self.string(forKey: "RemoteServerIp") }
+        set { self.set(newValue, forKey: "RemoteServerIp") }
+    }
+
+    @objc var wireGuardServerHost: String? {
+        get { self.string(forKey: "WireGuardServerHost") }
+        set { self.set(newValue, forKey: "WireGuardServerHost") }
+    }
+
+    var wireGuardServerPort: UInt16? {
+        get {
+            guard self.object(forKey: "WireGuardServerPort") != nil else { return nil }
+            let val = self._wireGuardServerPort
+            return (val > 0 && val <= 65535) ? UInt16(val) : nil
+        }
+        set {
+            if let newValue {
+                self._wireGuardServerPort = Int(newValue)
+            } else {
+                self.removeObject(forKey: "WireGuardServerPort")
+            }
+        }
+    }
+
+    @objc(wireGuardServerPort) private var _wireGuardServerPort: Int {
+        get { self.integer(forKey: "WireGuardServerPort") }
+        set { self.set(newValue, forKey: "WireGuardServerPort") }
+    }
+}'''
+
+
+def remove_pbx_object(text, object_marker):
+    if text.count(object_marker) != 1:
+        raise SystemExit(f"v3 service: expected exactly one project object {object_marker!r}")
+    marker_at = text.index(object_marker)
+    line_start = text.rfind("\n", 0, marker_at) + 1
+    brace_at = text.index("{", marker_at)
+    depth = 0
+    end = None
+    for index in range(brace_at, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                end = index + 1
+                if end < len(text) and text[end] == ";":
+                    end += 1
+                if end < len(text) and text[end] == "\r":
+                    end += 1
+                if end < len(text) and text[end] == "\n":
+                    end += 1
+                break
+    if end is None:
+        raise SystemExit(f"v3 service: unbalanced project object {object_marker!r}")
+    return text[:line_start] + text[end:]
+
+
+# AltWidgetExtension remains a production dependency: the combined packager
+# moves that app product into LiveContainer as LiveWidgetExtension.
+def headless_project(text):
+    side_exception = '''A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				Resources/ReleaseEntitlements.plist,
+			);
+			platformFiltersByRelativePath = {'''
+    headless_exception = '''A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				Resources/ReleaseEntitlements.plist,
+				"Components/BackgroundTaskManager.swift",
+				"Browse/FeaturedViewController.swift",
+				"Browse/BrowseViewController.swift",
+				"Browse/FeaturedComponents.swift",
+				"Browse/ScreenshotCollectionViewCell.swift",
+				"News/NewsViewController.swift",
+				"TabBarController.swift",
+				"Components/ForwardingNavigationController.swift",
+				"Components/HeaderContentViewController.swift",
+				"Components/NavigationBar.swift",
+				"App Detail/AppContentViewController.swift",
+				"App Detail/AppContentViewControllerCells.swift",
+				"App Detail/AppDetailCollectionViewController.swift",
+				"App Detail/AppPermissionsCard.swift",
+				"App Detail/AppViewController.swift",
+				"App Detail/Screenshots/AppScreenshotsViewController.swift",
+				"App Detail/Screenshots/PreviewAppScreenshotsViewController.swift",
+				"App Detail/Screenshots/AppScreenshotCollectionViewCell.swift",
+				"Components/AppCardCollectionViewCell.swift",
+				"App IDs/AppIDsViewController.swift",
+				"News/NewsCollectionViewCell.swift",
+				"LaunchViewController.swift",
+				"Resources/Silence.m4a",
+				"Authentication/Authentication.storyboard",
+				"Authentication/AuthenticationViewController.swift",
+				"Authentication/InstructionsViewController.swift",
+				"Authentication/ResignAltStoreViewController.swift",
+				"Authentication/SelectTeamViewController.swift",
+				"Authentication/tvOS/Authentication.storyboard",
+				"Components/AppBannerView.xib",
+				"Components/tvOS/AppBannerView.xib",
+				"My Apps/InstalledAppsCollectionHeaderView.xib",
+				"My Apps/UpdateCollectionViewCell.xib",
+				"My Apps/tvOS/InstalledAppsCollectionHeaderView.xib",
+				"My Apps/tvOS/UpdateCollectionViewCell.xib",
+				"My Apps/MyAppsComponents.swift",
+				"My Apps/InstalledAppsCollectionHeaderView.swift",
+				"My Apps/UpdateCollectionViewCell.swift",
+				"My Apps/MyAppsViewController.swift",
+				"News/NewsCollectionViewCell.xib",
+				"News/tvOS/NewsCollectionViewCell.xib",
+				"Core/Intents/ViewAppIntentHandler.swift",
+				"Intents/Legacy/IntentHandler.swift",
+				"Settings/AboutPatreonHeaderView.xib",
+				"Settings/tvOS/AboutPatreonHeaderView.xib",
+				"Settings/AltAppIconsViewController.swift",
+                                "Settings/SettingsViewController.swift",
+                                "Settings/SettingsHeaderFooterView.swift",
+                                "Settings/InsetGroupTableViewCell.swift",
+				"Settings/AnisetteServerList.swift",
+				"Settings/PatreonViewController.swift",
+				"Settings/LicensesViewController.swift",
+				"Settings/RefreshAttemptsViewController.swift",
+				"Settings/Error Log/ErrorDetailsViewController.swift",
+				"Settings/Error Log/ErrorLogTableViewCell.swift",
+				"Settings/Error Log/ErrorLogViewController.swift",
+				"Settings/Settings.storyboard",
+				"Settings/SettingsHeaderFooterView.xib",
+				"Settings/tvOS/Settings.storyboard",
+				"Settings/tvOS/SettingsHeaderFooterView.xib",
+				"Resources/AltIcons.plist",
+				"Resources/Icons.xcassets/Modern/BlueIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/DarkIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/HoneydewIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/PrideIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/SandyIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/SkyIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/SnowIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/StarburstIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/StormIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/VistaIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/WinterIcon.appiconset",
+				"Sources/Components/SourceHeaderView.xib",
+				"Sources/Components/tvOS/SourceHeaderView.xib",
+				"Sources/Components/SourceComponents.swift",
+				"Sources/Components/SourceHeaderView.swift",
+				"Sources/Components/AddSourceTextFieldCell.swift",
+				"Sources/AddSourceViewController.swift",
+				"Sources/SourcesViewController.swift",
+				"Sources/SourceDetailViewController.swift",
+				"Sources/SourceDetailContentViewController.swift",
+				"Extensions/INInteraction+AltStore.swift",
+				"Sources/Sources.storyboard",
+				"Sources/tvOS/Sources.storyboard",
+				"iOS/LaunchScreen.storyboard",
+				"iOS/Main.storyboard",
+			"tvOS/Main.storyboard",
+			);
+			platformFiltersByRelativePath = {'''
+    app_ui_exclusions = "".join(f'\t\t\t\t"{path}",\n' for path in HEADLESS_SIDESTORE_APP_UI_FILES)
+    pipeline_ui_exclusions = "".join(
+        f'\t\t\t\t"{path}",\n' for path in HEADLESS_SIDESTORE_PIPELINE_UI_FILES)
+    headless_exception = replace(
+        headless_exception,
+        '\t\t\t\t"Components/HeaderContentViewController.swift",\n',
+        '\t\t\t\t"Components/HeaderContentViewController.swift",\n' + app_ui_exclusions + pipeline_ui_exclusions)
+    if text.count(side_exception) != 1:
+        raise SystemExit("v3 service: SideStore resource-exclusion anchor changed")
+    text = text.replace(side_exception, headless_exception, 1)
+    side_store_source_exception = '''A8EECF492F4B195000F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Tests/UITests/UITests.swift,
+				Tests/UITests/UITestsLaunchTests.swift,
+				Tests/UnitTests/datastructures/DataStructuresTests.swift,
+				Tests/UnitTests/datastructures/LinkedHashMapTests.swift,
+				Tests/UnitTests/datastructures/TreeMapTests.swift,
+				"Utils/misc/xcmapping-diff-reporter/xcmapping-diff.py",
+			);
+			target = BFD247692284B9A500981D42 /* SideStore */;
+		};'''
+    headless_side_store_source_exception = '''A8EECF492F4B195000F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Tests/UITests/UITests.swift,
+				Tests/UITests/UITestsLaunchTests.swift,
+				Tests/UnitTests/datastructures/DataStructuresTests.swift,
+				Tests/UnitTests/datastructures/LinkedHashMapTests.swift,
+				Tests/UnitTests/datastructures/TreeMapTests.swift,
+				"Utils/misc/xcmapping-diff-reporter/xcmapping-diff.py",
+				"Handlers/SignInFlowHandler.swift",
+			);
+			target = BFD247692284B9A500981D42 /* SideStore */;
+		};'''
+    view_exclusions = "".join(f'\t\t\t\t"{path}",\n'
+                               for path in HEADLESS_SIDESTORE_VIEW_FILES + HEADLESS_SIDESTORE_AUX_UI_FILES)
+    handler_exclusions = "".join(f'\t\t\t\t"{path}",\n' for path in HEADLESS_SIDESTORE_HANDLER_UI_FILES)
+    headless_side_store_source_exception = replace(
+        headless_side_store_source_exception,
+        '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n',
+        '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n' + view_exclusions + handler_exclusions)
+    text = replace(text, side_store_source_exception, headless_side_store_source_exception)
+    # Starscream has no source references. MarkdownKit and Nuke are used only
+    # by excluded legacy UI/cache code; the backend clears the old cache folder
+    # directly without retaining an image-pipeline package.
+    for marker in (
+        'A8C37029302DA7F30010213A /* MarkdownKit in Frameworks */ = {',
+        'A8C37027302DA7F30010213A /* XCRemoteSwiftPackageReference "MarkdownKit" */ = {',
+        'A8C37028302DA7F30010213A /* MarkdownKit */ = {',
+        'A8C37035302DA84D0010213A /* Starscream in Frameworks */ = {',
+        'A8C37033302DA84D0010213A /* XCRemoteSwiftPackageReference "Starscream" */ = {',
+        'A8C37034302DA84D0010213A /* Starscream */ = {',
+        'A8C3702F302DA82A0010213A /* Nuke in Frameworks */ = {',
+        'A8C3702D302DA82A0010213A /* XCRemoteSwiftPackageReference "Nuke" */ = {',
+        'A8C3702E302DA82A0010213A /* Nuke */ = {',
+    ):
+        text = remove_pbx_object(text, marker)
+    references = (
+        r'(?m)^\s*A8C37029302DA7F30010213A /\* MarkdownKit in Frameworks \*/,\r?\n',
+        r'(?m)^\s*A8C37028302DA7F30010213A /\* MarkdownKit \*/,\r?\n',
+        r'(?m)^\s*A8C37027302DA7F30010213A /\* XCRemoteSwiftPackageReference "MarkdownKit" \*/,\r?\n',
+        r"(?m)^\s*A8C37035302DA84D0010213A /\* Starscream in Frameworks \*/,\r?\n",
+        r"(?m)^\s*A8C37034302DA84D0010213A /\* Starscream \*/,\r?\n",
+        r"(?m)^\s*A8C37033302DA84D0010213A /\* XCRemoteSwiftPackageReference \"Starscream\" \*/,\r?\n",
+        r"(?m)^\s*A8C3702F302DA82A0010213A /\* Nuke in Frameworks \*/,\r?\n",
+        r"(?m)^\s*A8C3702D302DA82A0010213A /\* XCRemoteSwiftPackageReference \"Nuke\" \*/,\r?\n",
+        r"(?m)^\s*A8C3702E302DA82A0010213A /\* Nuke \*/,\r?\n",
+    )
+    for pattern in references:
+        text, count = re.subn(pattern, "", text)
+        if count != 1:
+            raise SystemExit(f"v3 service: expected one package project reference, found {count}")
+    icon_setting = "ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;"
+    if text.count(icon_setting) != 2:
+        raise SystemExit("v3 service: expected Debug and Release alternate-icon settings")
+    text = text.replace(icon_setting, "ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;")
+    return text
+
+
+def headless_info(text):
+    info = plistlib.loads(text.encode("utf-8"))
+    info.pop("UIMainStoryboardFile", None)
+    info.pop("UILaunchStoryboardName", None)
+    info.pop("UIBackgroundModes", None)
+    info.pop("INIntentsSupported", None)
+    info.pop("NSUserActivityTypes", None)
+    for icon_key in ("CFBundleIcons", "CFBundleIcons~ipad"):
+        icons = info.get(icon_key)
+        if isinstance(icons, dict):
+            icons.pop("CFBundleAlternateIcons", None)
+    scene_manifest = info.get("UIApplicationSceneManifest")
+    if not isinstance(scene_manifest, dict):
+        raise SystemExit("v3 service: SideStore scene manifest anchor is missing")
+    configurations = scene_manifest.get("UISceneConfigurations")
+    if not isinstance(configurations, dict):
+        raise SystemExit("v3 service: SideStore scene configurations are missing")
+    removed = 0
+    for scenes in configurations.values():
+        if not isinstance(scenes, list):
+            continue
+        for scene in scenes:
+            if isinstance(scene, dict):
+                scene.pop("UILaunchStoryboardName", None)
+            if isinstance(scene, dict) and scene.pop("UISceneStoryboardFile", None) is not None:
+                removed += 1
+    if removed != 1:
+        raise SystemExit(f"v3 service: expected one configured scene storyboard, found {removed}")
+    return plistlib.dumps(info, fmt=plistlib.FMT_XML, sort_keys=False).decode("utf-8")
+
+
+def headless_auth_manager(text):
+    start_marker = "    @discardableResult\n    func signIn(\n        presentingViewController: UIViewController? = nil,"
+    end_marker = "    // Developer Portal Operations"
+    if "V3_HEADLESS_AUTH_ENTRYPOINT_V1" in text:
+        if "SignInFlowHandler" in text or "presentingViewController: UIViewController? = nil" in text:
+            raise SystemExit("v3 service: legacy UIKit sign-in entry point removal is partial")
+        return text
+    if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+        raise SystemExit("v3 service: AuthManager sign-in entry point changed")
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    old = text[start:end]
+    if "SignInFlowHandler" not in old or "SignInOperation" not in old:
+        raise SystemExit("v3 service: AuthManager sign-in wrapper no longer matches the UI-only path")
+    text = text[:start] + (
+        "    // V3_HEADLESS_AUTH_ENTRYPOINT_V1: LiveContainer owns credentials and 2FA UI; "
+        "the embedded service still executes SignInOperation through V3HeadlessAuthHandler.\n"
+    ) + text[end:]
+    text = replace(text, "@preconcurrency import UIKit\n", "")
+    if "UIViewController" in text or "SignInFlowHandler" in text:
+        raise SystemExit("v3 service: UIKit sign-in presentation remains in AuthManager")
+    return text
+
+
+def redact_external_url_logs(text, relative):
+    marker = "V3_EXTERNAL_URL_LOG_REDACTION_V1"
+    if marker in text:
+        forbidden = ('debugLog("[SceneDelegate] scene(_:openURLContexts:) called with URL: \\(context.url)")',
+                     'debugLog("[SceneDelegate] open(_:) called with URL: \\(context.url)")',
+                     'debugLog("[URLHandler] handle(_:) called with URL: \\(url.absoluteString)")',
+                     'debugLog("[URLHandler] Failed to parse URLComponents for \\(url)")',
+                     'debugLog("[URLHandler] Host is nil for \\(url)")',
+                     'debugLog("[URLHandler] Matched host: \\(host), path: \\(url.path.lowercased())")',
+                     "debugLog(finished)",
+                     'debugLog("[ALTLog] Failed to create temp directory for imported IPA: \\(error)")',
+                     'debugLog("[ALTLog] Failed to copy imported IPA: \\(error)")',
+                     'debugLog("[AppDelegate] Failed to create temp directory for imported IPA: \\(error)")',
+                     'debugLog("[AppDelegate] Failed to copy imported IPA: \\(error)")')
+        if any(value in text for value in forbidden):
+            raise SystemExit(f"v3 service: raw URL or file error logging remains in {relative}")
+        return text
+    replacements = {
+        'debugLog("[SceneDelegate] scene(_:openURLContexts:) called with URL: \\(context.url)")':
+            'debugLog("[V3_URL] scene_request_received")',
+        'debugLog("[SceneDelegate] open(_:) called with URL: \\(context.url)")':
+            'debugLog("[V3_URL] scene_route_received")',
+        'debugLog("[URLHandler] handle(_:) called with URL: \\(url.absoluteString)")':
+            'debugLog("[V3_URL] handler_request_received")',
+        'debugLog("[URLHandler] Failed to parse URLComponents for \\(url)")':
+            'debugLog("[V3_URL] handler_rejected_invalid_url")',
+        'debugLog("[URLHandler] Host is nil for \\(url)")':
+            'debugLog("[V3_URL] handler_rejected_missing_host")',
+        'debugLog("[URLHandler] Matched host: \\(host), path: \\(url.path.lowercased())")':
+            'debugLog("[V3_URL] handler_route_matched")',
+        'debugLog(finished)':
+            'debugLog("[V3_URL] pairing_callback_submitted")',
+        'debugLog("[ALTLog] Failed to create temp directory for imported IPA: \\(error)")':
+            'debugLog("[ALTLog] Failed to create temp directory for imported IPA")',
+        'debugLog("[ALTLog] Failed to copy imported IPA: \\(error)")':
+            'debugLog("[ALTLog] Failed to copy imported IPA")',
+        'debugLog("[AppDelegate] Failed to create temp directory for imported IPA: \\(error)")':
+            'debugLog("[AppDelegate] Failed to create temp directory for imported IPA")',
+        'debugLog("[AppDelegate] Failed to copy imported IPA: \\(error)")':
+            'debugLog("[AppDelegate] Failed to copy imported IPA")',
+    }
+    for old, new in replacements.items():
+        if old in text:
+            text = replace(text, old, new)
+    if relative.endswith("URLHandler.swift"):
+        text += "\n// " + marker + ": secret-bearing external URLs are never logged.\n"
+    else:
+        text += "\n// " + marker + ": file URLs and pairing callback payloads are never logged.\n"
+    for forbidden in ('debugLog("[SceneDelegate] scene(_:openURLContexts:) called with URL: \\(context.url)")',
+                      'debugLog("[SceneDelegate] open(_:) called with URL: \\(context.url)")',
+                      'debugLog("[URLHandler] handle(_:) called with URL: \\(url.absoluteString)")',
+                      'debugLog("[URLHandler] Failed to parse URLComponents for \\(url)")',
+                      'debugLog("[URLHandler] Host is nil for \\(url)")',
+                      'debugLog("[URLHandler] Matched host: \\(host), path: \\(url.path.lowercased())")',
+                      "debugLog(finished)",
+                      'debugLog("[ALTLog] Failed to create temp directory for imported IPA: \\(error)")',
+                      'debugLog("[ALTLog] Failed to copy imported IPA: \\(error)")',
+                      'debugLog("[AppDelegate] Failed to create temp directory for imported IPA: \\(error)")',
+                      'debugLog("[AppDelegate] Failed to copy imported IPA: \\(error)")'):
+        if forbidden in text:
+            raise SystemExit(f"v3 service: failed to redact a raw URL/file log in {relative}: {forbidden}")
+    return text
+
+
+def replace_swift_function(text, signature, replacement, label):
+    if text.count(signature) != 1:
+        raise SystemExit(f"v3 service: expected one {label} implementation")
+    start = text.index(signature)
+    brace = text.index("{", start)
+    depth = 0
+    end = None
+    for index in range(brace, len(text)):
+        if text[index] == "{": depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                end = index + 1
+                break
+    if end is None:
+        raise SystemExit(f"v3 service: unbalanced {label} implementation")
+    return text[:start] + replacement + text[end:]
+
+
+def remove_swift_function_with_actor(text, signature, marker, label):
+    if text.count(signature) != 1:
+        raise SystemExit(f"v3 service: expected one {label} implementation")
+    start = text.index(signature)
+    brace = text.index("{", start)
+    depth = 0
+    end = None
+    for index in range(brace, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                end = index + 1
+                break
+    if end is None:
+        raise SystemExit(f"v3 service: unbalanced {label} implementation")
+    line_start = text.rfind("\n", 0, start) + 1
+    method_prefix = text[line_start:start]
+    method_indent = method_prefix[:len(method_prefix) - len(method_prefix.lstrip(" \t"))]
+    remove_start = line_start
+    replacement_indent = method_indent
+    actor_line_end = line_start - 1
+    actor_line_start = text.rfind("\n", 0, actor_line_end) + 1
+    actor_source = text[actor_line_start:actor_line_end]
+    actor_indent = actor_source[:len(actor_source) - len(actor_source.lstrip(" \t"))]
+    if actor_source.strip() == "@MainActor" and actor_indent == method_indent:
+        # The actor attribute belongs to this declaration. Remove it with the
+        # method, while keeping the indentation for the replacement marker.
+        remove_start = actor_line_start
+        replacement_indent = actor_indent
+    replacement = replacement_indent + "// " + marker + "\n"
+    return text[:remove_start] + replacement + text[end:]
+
+
+def headless_safe_log_format(text):
+    marker = "V3_SAFE_LOG_FORMAT_V1"
+    signature = "public func formatLogMessage(_ message: String) -> String"
+    replacement = r'''public func formatLogMessage(_ message: String) -> String {
+    // V3_SAFE_LOG_FORMAT_V1: user-copyable logs never contain credentials,
+    // provider bodies, identifiers, URLs, or device/container paths.
+    let providerErrorMarkers = ["UserInfo=", "NSErrorFailingURL", "NSURLErrorDomain",
+        "Error Domain=", "ServerError.badServerResponse", "invalidResponseFormat"]
+    let codePattern = #"(?i)\bCode=(-?\d+)"#
+    var suppressProviderDetails = false
+    var suppressSideBackupDetails = false
+    var output: [String] = []
+    for line in message.components(separatedBy: .newlines) {
+        if suppressProviderDetails {
+            if line.contains("}") { suppressProviderDetails = false }
+            continue
+        }
+        if providerErrorMarkers.contains(where: { line.localizedCaseInsensitiveContains($0) }) {
+            if let range = line.range(of: codePattern, options: .regularExpression) {
+                let code = String(line[range]).replacingOccurrences(of: #"(?i)^Code="#, with: "",
+                    options: .regularExpression)
+                output.append("[V3_LOG_REDACTED] native_code=\(code)")
+            } else {
+                output.append("[V3_LOG_REDACTED]")
+            }
+            suppressProviderDetails = line.contains("UserInfo={") && !line.contains("}")
+            continue
+        }
+        if suppressSideBackupDetails {
+            if line.contains("[SideBackup Logs End]") { suppressSideBackupDetails = false }
+            continue
+        }
+        if line.localizedCaseInsensitiveContains("SideBackup") {
+            output.append("[V3_LOG_REDACTED] side_backup")
+            suppressSideBackupDetails = line.contains("[SideBackup Logs") && !line.contains("[SideBackup Logs End]")
+            continue
+        }
+        var safe = line
+        safe = safe.replacingOccurrences(of: #"(?i)\b(?:https?|file)://[^\s]+"#,
+            with: "[redacted URL]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)(?:/private)?/(?:var|Users|tmp|Library|System|Applications|Volumes)/[^\s,;]+"#,
+            with: "[redacted path]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)\b(?:proxy-authorization|authorization)\s*[:=]\s*(?:bearer|basic)\s+[^\s,;]+"#,
+            with: "authorization=[redacted credential]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)(["']?(?:UDID|DSID|phone(?:ID|Number)|deviceEndpointIp|bundlePath|bundleIdentifier|bundleID|app(?:\s*ID|Identifier)|team(?:\s*ID|Identifier)|downloadURL|callbackURL|accessToken|refreshToken|sessionToken|authorization|cookie|password|verificationCode|securityCode|private[_ ]?key|certificateDER|provisioningProfile|token|path|session(?:_id)?|request_id|correlationID|authToken|xcodeToken|secret|credential)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)"#,
+            with: "$1[redacted]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b"#,
+            with: "[redacted UUID]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#,
+            with: "[redacted email]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)\b(?:[a-z0-9-]{1,63}\.)+[a-z][a-z0-9-]{1,63}\b"#,
+            with: "[redacted identifier]", options: .regularExpression)
+        output.append(safe)
+    }
+    return output.joined(separator: "\n")
+}'''
+    if text.count(signature) != 1:
+        raise SystemExit("v3 service: expected one SideStore log formatter")
+    start = text.index(signature)
+    prefix = text[:start]
+    tail = text[start:]
+    if marker in text:
+        if tail.rstrip() != replacement.rstrip():
+            raise SystemExit("v3 service: safe SideStore log formatter drifted")
+        return text
+
+    # The pinned formatter is the final top-level function in this file. Its
+    # regex literals contain `}` characters, so a brace counter that ignores
+    # Swift string syntax can cut the old implementation in the middle and
+    # leave executable fragments after the replacement. Require the exact
+    # final-function layout before replacing the complete tail.
+    lines = tail.rstrip().splitlines()
+    if not lines or not lines[-1].strip().endswith("}"):
+        raise SystemExit("v3 service: SideStore log formatter is incomplete")
+    if len(lines) > 1 and lines[-1].strip() != "}":
+        raise SystemExit("v3 service: SideStore log formatter is no longer the final top-level function")
+    if any(line and not line[0].isspace() for line in lines[1:-1]):
+        raise SystemExit("v3 service: SideStore log formatter is no longer the final top-level function")
+    return prefix + replacement + ("\n" if text.endswith("\n") else "")
+
+
+def headless_app_open(text):
+    marker = "V3_HEADLESS_EXTERNAL_OPEN_V1"
+    signature = "    func open(_ url: URL) -> Bool"
+    replacement = '''    func open(_ url: URL) -> Bool
+    {
+        // ''' + marker + ''': host-owned install/source routes do not present in LiveProcess.
+        URLHandler.shared.handle(url)
+    }'''
+    if marker in text:
+        if any(token in text for token in ("pendingImportIPAURL", "importAppDeepLinkNotification",
+                "importAppDeepLinkURLKey", "addSourceDeepLinkNotification", "addSourceDeepLinkURLKey")):
+            raise SystemExit("v3 service: legacy app IPA-import state remains")
+        method_start = text.index(signature)
+        method_end = text.index("\n    }", method_start) + len("\n    }")
+        method = text[method_start:method_end]
+        if method != replacement:
+            raise SystemExit("v3 service: embedded open-url adapter drifted")
+        return text
+    text = replace_swift_function(text, signature, replacement, "embedded open-url adapter")
+    if text.count("    var window: UIWindow?\n") != 1:
+        raise SystemExit("v3 service: AppDelegate window property changed")
+    text = replace(text, "    var window: UIWindow?\n", "")
+    text = replace(text, "        self.window?.tintColor = .altPrimary\n", "")
+    obsolete_deep_link_constants = (
+        '    nonisolated static let importAppDeepLinkNotification = Notification.Name(Bundle.Info.appbundleIdentifier + ".ImportAppDeepLinkNotification")\n',
+        '    nonisolated static let addSourceDeepLinkNotification = Notification.Name(Bundle.Info.appbundleIdentifier + ".AddSourceDeepLinkNotification")\n',
+        '    nonisolated static let importAppDeepLinkURLKey = "fileURL"\n',
+        '    nonisolated static let addSourceDeepLinkURLKey = "sourceURL"\n',
+    )
+    for declaration in obsolete_deep_link_constants:
+        if text.count(declaration) != 1:
+            raise SystemExit("v3 service: obsolete install/source deep-link constants changed")
+        text = replace(text, declaration, "")
+    pending_property = '''    // Holds an imported .ipa URL when the app isn't active yet (cold launch),
+    // so the import notification can be posted once the app becomes active.
+    private var pendingImportIPAURL: URL?
+
+'''
+    if pending_property not in text:
+        raise SystemExit("v3 service: app pending-import property changed")
+    text = replace(text, pending_property, "")
+    text = replace_swift_function(text, "func applicationDidBecomeActive(", "",
+        "legacy IPA-import active callback")
+    # Removing the callback leaves its indented separator behind. Do not emit
+    # an added whitespace-only line into the prepared pinned-source diff.
+    text = replace(text,
+        "\n    \n\n    func application(_ app: UIApplication, open url: URL",
+        "\n\n    func application(_ app: UIApplication, open url: URL")
+    if any(token in text for token in ("pendingImportIPAURL", "importAppDeepLinkNotification",
+            "importAppDeepLinkURLKey", "addSourceDeepLinkNotification", "addSourceDeepLinkURLKey")):
+        raise SystemExit("v3 service: legacy app IPA-import state remains")
+    return text
+
+
+def headless_sidestore_app_ui(text):
+    """Strip the remaining standalone SideStore appearance and Patreon UI hooks."""
+    marker = "V3_HEADLESS_SIDESTORE_APP_UI_REMOVED_V1"
+    if marker in text:
+        if any(token in text for token in (
+                "UIStackView.appearance(whenContainedInInstancesOf:",
+                "stackViewAppearance.spacing",
+                "openPatreonSettingsDeepLinkNotification",
+                "setTintColor()")):
+            raise SystemExit("v3 service: legacy SideStore appearance or Patreon UI remains")
+        return text
+
+    appearance_hack = '''        // navigation bar buttons spacing is too much (so hack it to use minimal spacing)
+        // this is swift-5 specific behavior and might change
+        // https://stackoverflow.com/a/64988363/11971304
+        //
+        // Warning: this affects all screens through out the app, and basically overrides storyboard
+        let stackViewAppearance = UIStackView.appearance(whenContainedInInstancesOf: [UINavigationBar.self])
+        stackViewAppearance.spacing = -8        // adjust as needed
+''' + " " * 8 + "\n"
+    if text.count(appearance_hack) != 1:
+        raise SystemExit("v3 service: SideStore navigation appearance hook changed")
+    text = replace(text, appearance_hack, "")
+    patreon_notification = ('    nonisolated static let openPatreonSettingsDeepLinkNotification = '
+                            'Notification.Name(Bundle.Info.appbundleIdentifier + '
+                            '".OpenPatreonSettingsDeepLinkNotification")\n')
+    if text.count(patreon_notification) != 1:
+        raise SystemExit("v3 service: dead Patreon notification declaration changed")
+    text = replace(text, patreon_notification, "")
+    text = replace(text, "        self.setTintColor()\n", "")
+    text = replace_swift_function(text, "    func setTintColor()", "", "legacy tint-color hook")
+    if any(token in text for token in (
+            "UIStackView.appearance(whenContainedInInstancesOf:",
+            "stackViewAppearance.spacing",
+            "openPatreonSettingsDeepLinkNotification",
+            "setTintColor()")):
+        raise SystemExit("v3 service: legacy SideStore appearance or Patreon UI remains")
+    # Record the transformation without retaining an executable UI symbol.
+    return text + "\n// " + marker + ": generated service has no standalone navigation appearance or Patreon UI.\n"
+
+
+def headless_lc_tab_view(text):
+    marker = "V3_HEADLESS_LC_TAB_ROUTING_REMOVED_V1"
+    if marker in text:
+        if "dispatchURL" in text:
+            raise SystemExit("v3 service: obsolete LCTabView URL dispatcher remains")
+        return text
+    text = replace(text,
+        "        .onOpenURL { url in\n            dispatchURL(url: url)\n        }",
+        "        // " + marker + ": URL routing belongs to V3UnifiedShell.")
+    text = replace_swift_function(text, "    func dispatchURL(url: URL)", "",
+                                  "obsolete LCTabView URL dispatcher")
+    if "dispatchURL" in text:
+        raise SystemExit("v3 service: obsolete LCTabView URL dispatcher remains")
+    return text
+
+
+def headless_open_sidestore_helper(text):
+    marker = "V3_HEADLESS_OPEN_SIDESTORE_HELPER_REMOVED_V1"
+    if marker in text:
+        if "static func openSideStore(" in text:
+            raise SystemExit("v3 service: obsolete LCUtils SideStore launcher remains")
+        return text
+    signature = "    static func openSideStore(delegate: LCAppModelDelegate? = nil, urlStr: String? = nil)"
+    if text.count(signature) != 1:
+        raise SystemExit("v3 service: LCUtils SideStore launcher changed")
+    text = replace_swift_function(text, signature, "", "obsolete LCUtils SideStore launcher")
+    return text + "\n// " + marker + ": callers route through the unified host.\n"
+
+
+def extract_swift_declaration(source, signature):
+    start = source.index(signature)
+    opening = source.index("{", start)
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start:index + 1]
+    raise SystemExit(f"v3 service: unterminated pinned Swift declaration: {signature}")
+
+
+def headless_anisette_models(source):
+    data_model = extract_swift_declaration(source, "struct AnisetteServerData: Codable {")
+    server_model = extract_swift_declaration(source, "struct Server: Codable, Identifiable, Hashable {")
+    return "import Foundation\nimport SideSign\n\n" + data_model + "\n\n" + server_model + "\n"
+
+
+def headless_nuke_app_delegate(text):
+    marker = "V3_HEADLESS_IMAGE_PIPELINE_REMOVED_V1"
+    if marker in text:
+        if any(value in text for value in ("import Nuke", "prepareImageCache", "ImagePipeline", "DataLoader")):
+            raise SystemExit("v3 service: legacy image pipeline remains in headless AppDelegate")
+        return text
+    text = replace(text, "import Nuke\n", "")
+    text = replace(text, "        self.prepareImageCache()\n",
+                   "        // " + marker + ": the headless service does not initialize legacy screen imagery.\n")
+    start_marker = "    func prepareImageCache()\n"
+    end_marker = "\n    func open(_ url: URL) -> Bool"
+    if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+        raise SystemExit("v3 service: AppDelegate image-pipeline method anchor changed")
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    text = text[:start] + text[end:]
+    if any(value in text for value in ("import Nuke", "prepareImageCache", "ImagePipeline", "DataLoader")):
+        raise SystemExit("v3 service: legacy image-pipeline references remain in headless AppDelegate")
+    return text
+
+
+LEGACY_IMAGE_CACHE_CLEANUP_HELPER = '''// V3_LEGACY_IMAGE_CACHE_CLEANUP_V1: clear the former SideStore screen cache without Nuke.
+enum V3LegacyImageCacheCleanup {
+    static let directoryName = "io.sidestore.Nuke"
+
+    static func clear(cachesDirectory: URL?, fileManager: FileManager = .default) throws {
+        guard let cachesDirectory else { return }
+        let root = cachesDirectory.standardizedFileURL
+        let cache = root.appendingPathComponent(directoryName, isDirectory: true).standardizedFileURL
+        guard cache.deletingLastPathComponent() == root else {
+            throw NSError(domain: "com.SideStore.Cache", code: 1)
+        }
+        guard fileManager.fileExists(atPath: cache.path) else { return }
+        try fileManager.removeItem(at: cache)
+    }
+}'''
+
+
+def headless_clear_cache_operation(text):
+    marker = "V3_LEGACY_IMAGE_CACHE_CLEANUP_V1"
+    if marker in text:
+        if ("import Nuke" in text or "ImagePipeline" in text or
+                "V3LegacyImageCacheCleanup.clear(cachesDirectory:" not in text):
+            raise SystemExit("v3 service: legacy image-cache operation adapter is incomplete")
+        return text
+    text = replace(text, "import Nuke\n", LEGACY_IMAGE_CACHE_CLEANUP_HELPER + "\n")
+    old = '''    private func clearNukeCache() {
+        guard let dataCache = ImagePipeline.shared.configuration.dataCache as? DataCache else { return }
+        dataCache.removeAll()
+    }'''
+    new = '''    private func clearNukeCache() {
+        do {
+            try V3LegacyImageCacheCleanup.clear(cachesDirectory:
+                FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first)
+        } catch {
+            self.debugLog("[ClearAppCacheOperation] legacy image-cache removal failed")
+        }
+    }'''
+    text = replace(text, old, new)
+    if "import Nuke" in text or "ImagePipeline" in text:
+        raise SystemExit("v3 service: Nuke remains in the headless cache-clear operation")
+    return text
+
+
+def headless_sidestore_app_delegate(text):
+    text = headless_background_fetch(text)
+    text = headless_app_intent_routing(text)
+    text = headless_app_open(text)
+    text = headless_sidestore_app_ui(text)
+    text = headless_nuke_app_delegate(text)
+    text = patch_crash_log_privacy(text)
+    return text + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_shared_app_group.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_secret_handoff.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
+
+
+def patch_crash_log_privacy(text):
+    marker = "V3_CRASH_REASON_LOG_PRIVACY_V1"
+    signature = "    func setupCrashHandler()"
+    if marker in text:
+        if (text.count(marker) != 1 or text.count(signature) != 1 or
+                "V3CrashLogPrivacy.safeCrashMarker(reason: exception.reason)" not in text):
+            raise SystemExit("v3 service: crash-log privacy adapter is partial")
+        function = extract_swift_declaration(text, signature)
+        expected = '''    func setupCrashHandler() {
+        NSSetUncaughtExceptionHandler { exception in
+            // Clear handler immediately so execution can never recurse under any circumstance.
+            NSSetUncaughtExceptionHandler(nil)
+
+            // ''' + marker + ''': exception reasons and call stacks can contain secrets or paths.
+            let message = V3CrashLogPrivacy.safeCrashMarker(reason: exception.reason)
+            debugLog(message)
+            fputs(message, stderr)
+            fflush(stderr)
+            NSLog("%@", message)
+        }
+    }'''
+        if function != expected:
+            raise SystemExit("v3 service: crash-log privacy adapter drifted")
+        return text
+
+    replacement = '''    func setupCrashHandler() {
+        NSSetUncaughtExceptionHandler { exception in
+            // Clear handler immediately so execution can never recurse under any circumstance.
+            NSSetUncaughtExceptionHandler(nil)
+
+            // ''' + marker + ''': exception reasons and call stacks can contain secrets or paths.
+            let message = V3CrashLogPrivacy.safeCrashMarker(reason: exception.reason)
+            debugLog(message)
+            fputs(message, stderr)
+            fflush(stderr)
+            NSLog("%@", message)
+        }
+    }'''
+    return replace_swift_function(text, signature, replacement, "crash handler")
+
+
+def headless_scene_open(text):
+    marker = "V3_HEADLESS_SCENE_URLS_V1"
+    if marker in text:
+        if ("pendingImportIPAURL" in text or "uniqueTemporaryURL()" in text or
+                "importAppDeepLinkNotification" in text or "    var window: UIWindow?\n" in text):
+            raise SystemExit("v3 service: legacy scene file-import UI remains")
+        return text
+    if text.count("    var window: UIWindow?\n") != 1:
+        raise SystemExit("v3 service: SceneDelegate window property changed")
+    text = replace(text, "    var window: UIWindow?\n", "")
+    pending_property = '''    // Holds an imported .ipa URL when the scene isn't active yet (cold launch),
+    // so the import notification can be posted once the scene becomes active.
+    private var pendingImportIPAURL: URL?
+
+'''
+    if pending_property not in text:
+        raise SystemExit("v3 service: scene pending-import property changed")
+    text = replace(text, pending_property, "")
+    pending_flush = '''        // Flush any .ipa import that arrived before the scene was active (cold launch).
+        guard let url = self.pendingImportIPAURL else { return }
+        self.pendingImportIPAURL = nil
+        NotificationCenter.default.post(name: AppDelegate.importAppDeepLinkNotification, object: nil, userInfo: [AppDelegate.importAppDeepLinkURLKey: url])
+'''
+    if pending_flush not in text:
+        raise SystemExit("v3 service: scene pending-import flush changed")
+    text = replace(text, pending_flush, "")
+    signature = "    func open(_ context: UIOpenURLContext)"
+    replacement = '''    func open(_ context: UIOpenURLContext)
+    {
+        // ''' + marker + ''': only the backup-result callback remains service-owned.
+        guard !context.url.isFileURL else { return }
+        _ = URLHandler.shared.handle(context.url)
+    }'''
+    text = replace_swift_function(text, signature, replacement, "scene URL adapter")
+    text = replace_swift_function(text, "func exportPairingFile(", "", "legacy pairing export UI")
+    if "exportPairingFile" in text:
+        raise SystemExit("v3 service: legacy pairing export presenter remains")
+    return text
+
+
+def headless_url_handler(text):
+    marker = "V3_HEADLESS_EXTERNAL_CALLBACKS_V3"
+    expected = (TEMPLATES / "v3_headless_url_handler.swift").read_text(encoding="utf-8")
+    if marker in text:
+        if text != expected:
+            raise SystemExit("v3 service: backup-result URL handler drifted")
+        return text
+    return expected
+
+
+def headless_app_manager_ui(text):
+    text = headless_app_manager_persisted_error_privacy(text)
+    marker = "V3_HEADLESS_APP_MANAGER_SIGNIN_REMOVED_V1"
+    deactivate_wrapper_marker = "V3_HEADLESS_APP_MANAGER_DEACTIVATE_APPLIMIT_WRAPPER_REMOVED_V1"
+    deactivate_wrapper_signature = (
+        "func deactivateApps(for appBundle: ALTApplication, presentingViewController: UIViewController?, "
+        "completion: @escaping (Result<Void, Error>) -> Void)")
+    pairing_marker = "V3_TYPED_PAIRING_FAILURE_PROPAGATION_V1"
+    if marker in text:
+        if ("AuthManager.shared.signIn(\n                    presentingViewController:" in text
+                or "import Intents\n" in text
+                or "ResignAltStoreViewController" in text
+                or "presenterProvider:" in text
+                or "isResignActive:" in text
+                or deactivate_wrapper_signature in text
+                or "self.deactivateApps(for: appBundle" in text
+                or deactivate_wrapper_marker not in text
+                or pairing_marker not in text
+                or "V3HeadlessPairingFailure.tagIfInvalidPairing(error)" not in text):
+            raise SystemExit("v3 service: legacy AppManager UI wrapper removal is partial")
+        return text
+    start_marker = "    func signIn(presentingViewController: UIViewController?,\n"
+    end_marker = "\n    func deactivateApps("
+    if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+        raise SystemExit("v3 service: AppManager UIKit sign-in wrapper changed")
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    old = text[start:end]
+    if "AuthManager.shared.signIn" not in old:
+        raise SystemExit("v3 service: AppManager sign-in wrapper no longer targets AuthManager")
+    text = text[:start] + "    // " + marker + ": interactive sign-in is owned by the LiveContainer host.\n" + text[end:]
+    text = replace(text,
+        '''return PipelineHandler(
+            isResignActive: presentingViewController is ResignAltStoreViewController,
+            presenterProvider: { [weak presentingViewController] in
+                presentingViewController?.presentedViewController ?? presentingViewController
+            }
+        )''',
+        "return PipelineHandler()")
+    if "presenterProvider:" in text or "isResignActive:" in text:
+        raise SystemExit("v3 service: AppManager PipelineHandler presenter state remains")
+    if "ResignAltStoreViewController" in text:
+        raise SystemExit("v3 service: legacy resign presenter still reaches AppManager")
+    text = replace(text, "        let nsError = error as NSError",
+        "        // " + pairing_marker + ": keep typed pairing failure context through AppManager mapping.\n"
+        "        let nsError = V3HeadlessPairingFailure.tagIfInvalidPairing(error) as NSError")
+    if text.count(deactivate_wrapper_signature) != 1:
+        raise SystemExit("v3 service: AppManager deactivate app-limit wrapper changed")
+    wrapper_start = text.index(deactivate_wrapper_signature)
+    wrapper_brace = text.index("{", wrapper_start)
+    depth = 0
+    wrapper_end = None
+    for index in range(wrapper_brace, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                wrapper_end = index + 1
+                break
+    if wrapper_end is None:
+        raise SystemExit("v3 service: AppManager deactivate app-limit wrapper is unbalanced")
+    wrapper = text[wrapper_start:wrapper_end]
+    required_wrapper_calls = (
+        "self.deactivate(activeApp, presentingViewController: presentingViewController)",
+        "self.deactivateApps(for: appBundle, presentingViewController: presentingViewController, completion: completion)",
+        "presentingViewController.present(alertController, animated: true, completion: nil)",
+    )
+    if any(wrapper.count(anchor) != 1 for anchor in required_wrapper_calls):
+        raise SystemExit("v3 service: AppManager deactivate app-limit presenter body drifted")
+    text = (text[:wrapper_start] + "// " + deactivate_wrapper_marker +
+            ": app-limit chooser belongs to the excluded My Apps UI; v3 uses PipelineRunner.\n" +
+            text[wrapper_end:])
+    if deactivate_wrapper_signature in text or "self.deactivateApps(for: appBundle" in text:
+        raise SystemExit("v3 service: AppManager deactivate app-limit wrapper removal is partial")
+    return replace(text, "import Intents\n", "")
+
+
+V3_PERSISTED_ERROR_PRIVACY_HELPER = '''// V3_PERSISTED_ERROR_PRIVACY_V1: persistent diagnostics never retain provider text or NSError userInfo.
+enum V3PersistedErrorSanitizer {
+    static let safeDescription = "The operation failed. Detailed error information was omitted to protect privacy."
+
+    private static let safeDomains: Set<String> = [
+        "ALTServerErrorDomain",
+        "SideSignErrorDomain",
+        "NSCocoaErrorDomain",
+        "NSPOSIXErrorDomain",
+        "NSURLErrorDomain",
+        "NSOSStatusErrorDomain",
+        "NSMachErrorDomain",
+        "kCFErrorDomainCFNetwork"
+    ]
+
+    static func sanitize(_ error: NSError) -> NSError {
+        let domainIsSafe = safeDomains.contains(error.domain)
+        return NSError(
+            domain: domainIsSafe ? error.domain : "V3RedactedErrorDomain",
+            code: domainIsSafe ? error.code : 0,
+            userInfo: [NSLocalizedDescriptionKey: safeDescription]
+        )
+    }
+
+    static func refreshHistoryDescription(for error: Error) -> String {
+        _ = error
+        return safeDescription
+    }
+}'''
+
+
+def headless_app_manager_persisted_error_privacy(text):
+    marker = "V3_PERSISTED_ERROR_PRIVACY_V1"
+    anchor = "import UniformTypeIdentifiers\n"
+    if marker not in text:
+        if text.count(anchor) != 1:
+            raise SystemExit("v3 service: AppManager import insertion point changed")
+        text = replace(text, anchor, anchor + "\n" + V3_PERSISTED_ERROR_PRIVACY_HELPER + "\n")
+    elif V3_PERSISTED_ERROR_PRIVACY_HELPER not in text:
+        raise SystemExit("v3 service: persisted error privacy helper drifted")
+
+    old = ("        // Sanitize NSError on same thread before performing background task.\n"
+           "        let sanitizedError = (error as NSError).sanitizedForSerialization()")
+    new = ("        // V3_PERSISTED_ERROR_PRIVACY_V1: retain only known-safe domain/code and a fixed message.\n"
+           "        let sanitizedError = V3PersistedErrorSanitizer.sanitize(error as NSError)")
+    if old in text:
+        text = replace(text, old, new)
+    elif new not in text:
+        raise SystemExit("v3 service: AppManager error persistence callsite changed")
+    persistence_sites = (
+        ("source.error = error.sanitizedForSerialization()",
+         "source.error = V3PersistedErrorSanitizer.sanitize(error as NSError)"),
+        ("let sanitizedError = (mergeError as NSError).sanitizedForSerialization()",
+         "let sanitizedError = V3PersistedErrorSanitizer.sanitize(mergeError as NSError)"),
+    )
+    for original, safe in persistence_sites:
+        if original in text:
+            text = replace(text, original, safe)
+        elif safe not in text:
+            raise SystemExit("v3 service: Source.error persistence callsite changed")
+    log_start = text.index("    func log(_ error:")
+    log_end = text.index("\n    }", log_start)
+    if (marker not in text or "sanitizedForSerialization()" in text[log_start:log_end]
+            or any(original in text for original, _ in persistence_sites)):
+        raise SystemExit("v3 service: AppManager persistence privacy transformation is partial")
+    return text
+
+
+def headless_app_manager_source_mutations(text):
+    """Keep confirmed source persistence in AppManager for both UI and v3."""
+    marker = "V3_SHARED_CONFIRMED_SOURCE_MUTATIONS_V1"
+    if marker in text:
+        required = (
+            "func addConfirmed(sourceURL: URL)",
+            "private func persistConfirmedSource(",
+            "func removeConfirmed(identifier: String",
+            "self.persistConfirmedSource(fetched, in: context, notificationSource: source)",
+            "self.removeConfirmed(identifier: sourceID, notificationSource: source)",
+            "let savedSource = try await viewContext.performAsync",
+            "notificationSource ?? savedSource",
+            "notificationSource ?? eventSource",
+            "guard sourceID != Source.altStoreIdentifier else",
+            "guard identifier != Source.altStoreIdentifier else",
+        )
+        if any(value not in text for value in required):
+            raise SystemExit("v3 service: shared AppManager source mutation extraction is partial")
+        return text
+
+    add_start = "    func add(@AsyncManaged _ source: Source,\n"
+    remove_start = "    func remove(@AsyncManaged _ source: Source, presentingViewController: UIViewController) async throws\n"
+    fetch_start = "    @discardableResult\n    func fetchSource(sourceURL: URL,\n"
+    if text.count(add_start) != 1 or text.count(remove_start) != 1 or text.count(fetch_start) != 1:
+        raise SystemExit("v3 service: AppManager source mutation anchors changed")
+    add_at = text.index(add_start)
+    remove_at = text.index(remove_start)
+    fetch_at = text.index(fetch_start)
+    if not add_at < remove_at < fetch_at:
+        raise SystemExit("v3 service: AppManager source mutation order changed")
+
+    replacement = '''    // V3_SHARED_CONFIRMED_SOURCE_MUTATIONS_V1: UI confirmation stays at the caller;
+    // persistence and notifications are shared by the UI and headless command paths.
+    func add(@AsyncManaged _ source: Source,
+             message: String? = NSLocalizedString("Make sure to only add sources that you trust.", comment: ""),
+             presentingViewController: UIViewController) async throws
+    {
+        let (sourceName, sourceURL) = await $source.perform { ($0.name, $0.sourceURL) }
+        let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        async let fetchedSource = try await self.fetchSource(sourceURL: sourceURL, managedObjectContext: context)
+
+        let title = String(format: NSLocalizedString("Would you like to add the source “%@”?", comment: ""), sourceName)
+        let action = await UIAlertAction(title: NSLocalizedString("Add Source", comment: ""), style: .default)
+        try await presentingViewController.presentConfirmationAlert(title: title, message: message ?? "", primaryAction: action)
+
+        let fetched = try await fetchedSource
+        let result = try await self.persistConfirmedSource(fetched, in: context, notificationSource: source)
+        guard !result.alreadyAdded else {
+            throw SourceError.duplicate(source, existingSource: nil)
+        }
+    }
+
+    // Presenter-free entry point used after the LiveContainer host has confirmed.
+    func addConfirmed(sourceURL: URL) async throws -> (identifier: String, alreadyAdded: Bool)
+    {
+        let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        let fetched = try await self.fetchSource(sourceURL: sourceURL, managedObjectContext: context)
+        return try await self.persistConfirmedSource(fetched, in: context, notificationSource: nil)
+    }
+
+    private func persistConfirmedSource(_ fetchedSource: Source,
+                                        in context: NSManagedObjectContext,
+                                        notificationSource: Source?) async throws -> (identifier: String, alreadyAdded: Bool)
+    {
+        let identifier = await AsyncManaged(wrappedValue: fetchedSource).identifier
+        // Source.isAdded opens an independent persistent-store context. The fetch operation
+        // has already inserted its candidate into `context`, so checking that same context
+        // would incorrectly report every new candidate as a duplicate.
+        guard try await !fetchedSource.isAdded() else { return (identifier, true) }
+
+        try await context.performAsync { try context.save() }
+        let viewContext = DatabaseManager.shared.viewContext
+        let savedSource = try await viewContext.performAsync {
+            Source.first(satisfying: NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier), in: viewContext)
+        }
+        guard let eventSource = notificationSource ?? savedSource else {
+            throw OperationError.noSources
+        }
+        await MainActor.run {
+            NotificationCenter.default.post(name: AppManager.didAddSourceNotification,
+                                            object: eventSource)
+        }
+        return (identifier, false)
+    }
+
+    func remove(@AsyncManaged _ source: Source, presentingViewController: UIViewController) async throws
+    {
+        let (sourceName, sourceID) = await $source.perform { ($0.name, $0.identifier) }
+        guard sourceID != Source.altStoreIdentifier else {
+            throw OperationError.forbidden(failureReason: NSLocalizedString("The default SideStore source cannot be removed.", comment: ""))
+        }
+        let title = String(format: NSLocalizedString("Are you sure you want to remove the source “%@”?", comment: ""), sourceName)
+        let message = NSLocalizedString("Any apps you've installed from this source will remain, but they'll no longer receive any app updates.", comment: "")
+        let action = await UIAlertAction(title: NSLocalizedString("Remove Source", comment: ""), style: .destructive)
+        try await presentingViewController.presentConfirmationAlert(title: title, message: message, primaryAction: action)
+
+        try await self.removeConfirmed(identifier: sourceID, notificationSource: source)
+    }
+
+    // Presenter-free entry point used after the LiveContainer host has confirmed.
+    func removeConfirmed(identifier: String, notificationSource: Source? = nil) async throws
+    {
+        guard identifier != Source.altStoreIdentifier else {
+            throw OperationError.forbidden(failureReason: NSLocalizedString("The default SideStore source cannot be removed.", comment: ""))
+        }
+        let viewContext = DatabaseManager.shared.viewContext
+        let eventSource: Source?
+        if let notificationSource {
+            eventSource = notificationSource
+        } else {
+            eventSource = try await viewContext.performAsync {
+                Source.first(satisfying: NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier), in: viewContext)
+            }
+        }
+
+        let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        try await context.performAsync {
+            let predicate = NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier)
+            guard let source = Source.first(satisfying: predicate, in: context) else { return }
+            guard source.identifier != Source.altStoreIdentifier else {
+                throw OperationError.forbidden(failureReason: NSLocalizedString("The default SideStore source cannot be removed.", comment: ""))
+            }
+            context.delete(source)
+            try context.save()
+        }
+
+        if let eventSource = notificationSource ?? eventSource {
+            await MainActor.run {
+                NotificationCenter.default.post(name: AppManager.didRemoveSourceNotification,
+                                                object: eventSource)
+            }
+        }
+    }
+
+'''
+    return text[:add_at] + replacement + text[fetch_at:]
+
+
+def headless_app_manager_metadata_parser(text):
+    """Share SideStore's existing metadata parser with the v3 input adapter."""
+    private_pattern = re.compile(
+        r"(?m)^(\s*)private static func readAppMetadata\(from url: URL, packageType: PackageType\)")
+    shared_pattern = re.compile(
+        r"(?m)^(\s*)static func readAppMetadata\(from url: URL, packageType: PackageType\)")
+    private_matches = list(private_pattern.finditer(text))
+    shared_matches = list(shared_pattern.finditer(text))
+    if len(private_matches) == 1 and not shared_matches:
+        declaration = private_matches[0].group(0).replace("private static func", "static func", 1)
+        return text[:private_matches[0].start()] + declaration + \
+            text[private_matches[0].end():]
+    if not private_matches and len(shared_matches) == 1:
+        return text
+    raise SystemExit("v3 service: pinned AppManager metadata parser visibility changed")
+
+
+def headless_app_manager(text):
+    text = headless_app_manager_ui(headless_app_manager_source_mutations(text))
+    return headless_app_manager_metadata_parser(text)
+
+
+def headless_refresh_attempt_error_privacy(text):
+    marker = "V3_REFRESH_HISTORY_ERROR_PRIVACY_V1"
+    old = "            self.errorDescription = error.localizedDescription"
+    new = ("            // " + marker + ": provider-controlled error text is not persisted in refresh history.\n"
+           "            self.errorDescription = V3PersistedErrorSanitizer.refreshHistoryDescription(for: error)")
+    if marker in text:
+        if text.count(marker) != 1 or old in text or new not in text:
+            raise SystemExit("v3 service: refresh history privacy transformation is partial")
+        return text
+    if text.count(old) != 1:
+        raise SystemExit("v3 service: RefreshAttempt errorDescription assignment changed")
+    return replace(text, old, new)
+
+
+def headless_intent_error_privacy(text):
+    marker = "V3_INTENT_ERROR_PRIVACY_V1"
+    old = "        let serializedError = (error as NSError).sanitizedForSerialization()"
+    new = ("        // " + marker + ": Shortcuts/Siri receive only safe structured identity and fixed copy.\n"
+           "        let serializedError = V3PersistedErrorSanitizer.sanitize(error as NSError)")
+    if marker in text:
+        if text.count(marker) != 1 or old in text or new not in text:
+            raise SystemExit("v3 service: App Intent error privacy transformation is partial")
+        return text
+    if text.count(old) != 1:
+        raise SystemExit("v3 service: IntentError initializer changed")
+    return replace(text, old, new)
+
+
+def headless_featured_sort_startup(text):
+    marker = "V3_HEADLESS_FEATURED_SORT_SKIP_V1"
+    call = "        await self.updateFeaturedSortIDs()\n"
+    if marker in text:
+        if text.count(marker) != 1 or call in text:
+            raise SystemExit("v3 service: Featured sort startup adapter is partial")
+        return text
+    return replace(
+        text,
+        call,
+        "        // " + marker + ": this embedded process has no Featured UI consumer.\n",
+    )
+
+
+def headless_app_boot_manager(text):
+    state_marker = "V3_HEADLESS_BOOT_UI_STATE_REMOVED_V1"
+    pairing_marker = "V3_HEADLESS_BOOT_PAIRING_PROMPT_REMOVED_V1"
+    sidejit_marker = "V3_HEADLESS_BOOT_SIDEJIT_DETECTION_REMOVED_V1"
+    state_block = "\n".join((
+        "    private let lock = NSLock()",
+        "    ",
+        "    private var cachedNeedsPairingPrompt = false",
+        "    public var needsPairingPrompt: Bool {",
+        "        get { lock.withLock { cachedNeedsPairingPrompt } }",
+        "        set { lock.withLock { cachedNeedsPairingPrompt = newValue } }",
+        "    }",
+        "    ",
+        "    private var cachedNeedsSideJITPrompt = false",
+        "    public var needsSideJITPrompt: Bool {",
+        "        get { lock.withLock { cachedNeedsSideJITPrompt } }",
+        "        set { lock.withLock { cachedNeedsSideJITPrompt = newValue } }",
+        "    }",
+        "    ",
+    ))
+    detection_branch = '''            if #available(iOS 17, *), !UserDefaults.standard.isSideJITServerEnabled {
+                do {
+                    try await SideJITManager.shared.isSideJITServerDetected()
+                    self.needsSideJITPrompt = true
+                } catch {
+                    debugLog("[AppBootManager] Cannot find sideJITServer")
+                }
+            }
+            '''
+    prompt_signature = "public func promptForPairing(on vc: UIViewController) async"
+    if state_marker in text:
+        forbidden = ("needsPairingPrompt", "needsSideJITPrompt", "promptForPairing(",
+                     "isSideJITServerDetected", "presentPairingFileAlert", "import UIKit")
+        if (any(token in text for token in forbidden) or pairing_marker not in text or
+                sidejit_marker not in text or "startMinimuxer(pairingFile: String)" not in text or
+                "performBootSequence() async" not in text or
+                "SideJITManager.shared.askForNetwork()" not in text or
+                "PairingFileManager.shared.fetchPairingFile()" not in text):
+            raise SystemExit("v3 service: AppBootManager headless boot adapter is partial")
+        return text
+    if text.count(state_block) != 1:
+        raise SystemExit("v3 service: AppBootManager pairing/JIT UI state changed")
+    text = text.replace(state_block,
+        "    // " + state_marker + ": prompt state belongs to the excluded launch controller.\n", 1)
+    if text.count(prompt_signature) != 1:
+        raise SystemExit("v3 service: AppBootManager pairing presenter changed")
+    if "PairingFileManager.shared.presentPairingFileAlert" not in text:
+        raise SystemExit("v3 service: AppBootManager pairing presenter no longer uses the pairing picker")
+    text = remove_swift_function_with_actor(text, prompt_signature, pairing_marker,
+                                            "AppBootManager pairing presenter")
+    for assignment, expected_count in (("self.needsPairingPrompt = false", 1),
+                                       ("self.needsPairingPrompt = true", 2)):
+        pattern = r"(?m)^[ \t]*" + re.escape(assignment) + r"[ \t]*\r?\n"
+        text, count = re.subn(pattern, "", text)
+        if count != expected_count:
+            raise SystemExit("v3 service: AppBootManager pairing state writes changed")
+    if text.count(detection_branch) != 1:
+        raise SystemExit("v3 service: AppBootManager obsolete SideJIT detection prompt branch changed")
+    text = text.replace(detection_branch,
+        "            // " + sidejit_marker + ": configured SideJIT network requests remain below.\n", 1)
+    text = replace(text, "import UIKit\n", "")
+    forbidden = ("needsPairingPrompt", "needsSideJITPrompt", "promptForPairing(",
+                 "isSideJITServerDetected", "presentPairingFileAlert", "UIViewController", "import UIKit")
+    if any(token in text for token in forbidden):
+        raise SystemExit("v3 service: AppBootManager pairing/JIT presenter reference remains")
+    if ("startMinimuxer(pairingFile: String)" not in text or
+            "performBootSequence() async" not in text or
+            "SideJITManager.shared.askForNetwork()" not in text or
+            "PairingFileManager.shared.fetchPairingFile()" not in text):
+        raise SystemExit("v3 service: AppBootManager backend boot path was changed")
+    return text
+
+
+def headless_sidejit_manager(text):
+    prompt_marker = "V3_HEADLESS_SIDEJIT_PROMPT_REMOVED_V1"
+    detection_marker = "V3_HEADLESS_SIDEJIT_DETECTION_REMOVED_V1"
+    prompt_signature = "public func presentJITPrompt(presentingVC: UIViewController)"
+    detection_signature = "public func isSideJITServerDetected() async throws"
+    if prompt_marker in text or detection_marker in text:
+        if (prompt_marker not in text or detection_marker not in text or
+                prompt_signature in text or detection_signature in text or
+                "UIAlertController" in text or "UIViewController" in text or
+                "import UIKit" in text or
+                "public func resolveServerURL() async -> String" not in text or
+                "public func askForNetwork() async" not in text):
+            raise SystemExit("v3 service: SideJIT UI/detection removal is partial")
+        return text
+    if text.count("import UIKit\n") != 1:
+        raise SystemExit("v3 service: SideJITManager UIKit import changed")
+    if text.count(detection_signature) != 1 or text.count(prompt_signature) != 1:
+        raise SystemExit("v3 service: SideJITManager detection/prompt methods changed")
+    text = remove_swift_function_with_actor(text, prompt_signature, prompt_marker,
+                                            "SideJITManager UI prompt")
+    text = replace_swift_function(text, detection_signature,
+        "// " + detection_marker + ": automatic server detection only existed to show the removed prompt.",
+        "SideJITManager obsolete prompt detection")
+    text = replace(text, "import UIKit\n", "import Foundation\nimport Darwin\n")
+    if (prompt_signature in text or detection_signature in text or "UIAlertController" in text or
+            "UIViewController" in text or "import UIKit" in text or
+            "public func resolveServerURL() async -> String" not in text or
+            "public func askForNetwork() async" not in text):
+        raise SystemExit("v3 service: SideJITManager configured network adapter changed")
+    return text
+
+
+def headless_pairing_file_manager(text):
+    marker = "V3_HEADLESS_PAIRING_FILE_UI_REMOVED_V1"
+    ui_start = "#if !os(tvOS)\nextension PairingFileManager: UIDocumentPickerDelegate {"
+    if marker in text:
+        if ("UIViewController" in text or "UIDocumentPicker" in text or "UIAlertController" in text or
+                "UniformTypeIdentifiers" in text or "import UIKit" in text or
+                "private var completion:" in text or
+                "nonisolated var pairingUDID:" not in text or
+                "nonisolated func fetchPairingFile()" not in text or
+                "func savePairingFile(contents: String)" not in text):
+            raise SystemExit("v3 service: PairingFileManager headless API removal is partial")
+        return text
+    if text.count(ui_start) != 1 or text.count("#endif") != 1:
+        raise SystemExit("v3 service: PairingFileManager picker extension changed")
+    for signature, count in (
+        ("func presentPairingFileAlert(on vc: UIViewController", 2),
+        ("func showPairingWarningAndProceed(on vc: UIViewController", 2),
+        ("func importPairingFile(presentingVC: UIViewController", 2),
+        ("func documentPicker(", 1),
+    ):
+        if text.count(signature) != count:
+            raise SystemExit("v3 service: PairingFileManager UIKit picker methods changed")
+    if text.count("private var completion: ((URL?) -> Void)?\n\n") != 1:
+        raise SystemExit("v3 service: PairingFileManager picker completion state changed")
+    text = replace(text, "@preconcurrency import UIKit\nimport UniformTypeIdentifiers\n",
+                   "import Foundation\n")
+    text = replace(text, "    private var completion: ((URL?) -> Void)?\n\n", "")
+    start = text.index(ui_start)
+    end_marker = "#endif"
+    end = text.rfind(end_marker)
+    if end < start or text[end + len(end_marker):].strip():
+        raise SystemExit("v3 service: PairingFileManager picker extension boundary changed")
+    text = text[:start] + "// " + marker + ": pairing bytes and persistence remain backend-owned.\n"
+    forbidden = ("UIViewController", "UIDocumentPicker", "UIAlertController", "UTType", "UniformTypeIdentifiers",
+                 "import UIKit", "private var completion:")
+    if (any(token in text for token in forbidden) or
+            "nonisolated var pairingUDID:" not in text or
+            "nonisolated func fetchPairingFile()" not in text or
+            "func savePairingFile(contents: String)" not in text):
+        raise SystemExit("v3 service: PairingFileManager backend API was removed with picker UI")
+    return text
+
+
+def headless_pipeline_handler(text):
+    marker = "V3_HEADLESS_BUNDLE_ID_PROMPT_V1"
+    decisions_marker = "V3_HEADLESS_PIPELINE_UI_DECISIONS_V1"
+    expected = {
+        "func resolveBundleIDMismatch(targetID: String, activeEffectiveID: String) async -> Bool":
+            '''func resolveBundleIDMismatch(targetID: String, activeEffectiveID: String) async -> Bool {
+    // ''' + decisions_marker + ''': no UI context means fail closed.
+    return false
+}''',
+        "func reviewPermissions(_ permissions: [ALTEntitlement], for app: AppProtocol, mode: PermissionReviewMode) async throws":
+            '''func reviewPermissions(_ permissions: [ALTEntitlement], for app: AppProtocol, mode: PermissionReviewMode) async throws {
+    // ''' + decisions_marker + ''': permission review cannot be approved headlessly.
+    throw OperationError.invalidOperationContext("PipelineHandler: Cannot review permissions because presenting view controller is unavailable")
+}''',
+        "func selectAppExtensionsToRemove(":
+            '''func selectAppExtensionsToRemove(
+        appBundle: ALTApplication,
+        localAppExtensions: [ALTApplication],
+        excessExtensions: Set<ALTApplication>
+    ) async throws -> ExtensionRemovalDecision {
+        // ''' + decisions_marker + ''': keep all extensions without the review UI.
+        return .keepAll(useMainProfile: false)
+    }''',
+        "func resolveUnsupportediOSVersion(errorDescription: String, appName: String, compatibleVersion: String) async throws -> Bool":
+            '''func resolveUnsupportediOSVersion(errorDescription: String, appName: String, compatibleVersion: String) async throws -> Bool {
+    // ''' + decisions_marker + ''': do not download an unrequested compatibility version.
+    return false
+}''',
+        "func resolveBundleIDOverride(initialBundleID: String) async throws":
+            '''func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID: String, appendTeamID: Bool)? {
+    // ''' + marker + ''': the combined host owns the interactive prompt.
+    return (initialBundleID, true)
+}''',
+        "func resolveAppGroupMismatch(originalGroup: String, correctedGroup: String) async throws -> AppGroupResolution":
+            '''func resolveAppGroupMismatch(originalGroup: String, correctedGroup: String) async throws -> AppGroupResolution {
+    // ''' + decisions_marker + ''': preserve the validated corrected group without UI.
+    return .correctAndProceed(correctedGroup)
+}''',
+        "func requestBackgroundSuspension() async":
+            '''func requestBackgroundSuspension() async {
+    // ''' + decisions_marker + ''': suspension is controlled by the host lifecycle.
+}''',
+    }
+
+    presenter_marker = "V3_HEADLESS_PIPELINE_PRESENTER_REMOVED_V1"
+    presenter_block = '''    let isResignActive: Bool
+    private let presenterProvider: PresenterProvider?
+''' + " " * 4 + '''
+    init(
+        isResignActive: Bool = false,
+        presenterProvider: PresenterProvider? = nil
+    ) {
+        self.isResignActive = isResignActive
+        self.presenterProvider = presenterProvider
+    }
+
+    @MainActor
+    private var isPresenterAvailable: Bool {
+        return self.activePresenter != nil
+    }
+
+    @MainActor
+    private var activePresenter: UIViewController? {
+        return self.presenterProvider?()
+    }
+    '''
+    if presenter_marker not in text:
+        if text.count(presenter_block) != 1:
+            raise SystemExit("v3 service: PipelineHandler presenter state changed")
+        text = replace(text, presenter_block,
+                       "    let isResignActive = false\n\n    // " +
+                       presenter_marker + ": headless operations never request resign suspension.")
+    elif (text.count("    let isResignActive = false\n") != 1 or
+          any(token in text for token in ("presenterProvider", "activePresenter", "isPresenterAvailable"))):
+        raise SystemExit("v3 service: legacy PipelineHandler presenter state remains")
+
+    def declaration(source, signature):
+        if source.count(signature) != 1:
+            raise SystemExit(f"v3 service: expected one PipelineHandler adapter {signature!r}")
+        start = source.index(signature)
+        # Include indentation and any actor annotation by replacing only the declaration body.
+        brace = source.index("{", start)
+        depth = 0
+        for index in range(brace, len(source)):
+            if source[index] == "{":
+                depth += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[start:index + 1]
+        raise SystemExit(f"v3 service: unbalanced PipelineHandler adapter {signature!r}")
+
+    if decisions_marker in text or marker in text:
+        for signature, replacement in expected.items():
+            if declaration(text, signature) != replacement:
+                raise SystemExit("v3 service: headless PipelineHandler UI decisions drifted")
+        if "AppExtensionViewHostingController" in text or "ReviewPermissionsViewController" in text:
+            raise SystemExit("v3 service: removed PipelineHandler UI controller reference remains")
+        if (text.count("    let isResignActive = false\n") != 1 or any(token in text for token in (
+                "isResignActive:", "presenterProvider", "activePresenter", "isPresenterAvailable",
+                "UIAlertController", "Finish Refresh", "presentingViewController"))):
+            raise SystemExit("v3 service: legacy PipelineHandler presenter state remains")
+        return text
+
+    patched = text
+    for signature, replacement in expected.items():
+        patched = replace_swift_function(patched, signature, replacement,
+                                         "headless PipelineHandler UI decision")
+    if "AppExtensionViewHostingController" in patched or "ReviewPermissionsViewController" in patched:
+        raise SystemExit("v3 service: removed PipelineHandler UI controller reference remains")
+    if (patched.count("    let isResignActive = false\n") != 1 or any(token in patched for token in (
+            "isResignActive:", "presenterProvider", "activePresenter", "isPresenterAvailable",
+            "UIAlertController", "Finish Refresh", "presentingViewController"))):
+        raise SystemExit("v3 service: legacy PipelineHandler presenter state remains")
+    return patched
+
+
+def headless_backup_operation(text):
+    """Bind only the concrete external backup step to its live operation owner."""
+    marker = "V3_BACKUP_CALLBACK_OWNER_V1"
+    if marker in text:
+        if any(token not in text for token in ("beginBackupCallback(action:", "endBackupCallback(callback)",
+                'notification.userInfo?["v3BackupNonce"]', "if callback == nil {")):
+            raise SystemExit("v3 service: backup callback owner patch is partial")
+        return text
+    text = replace(text,
+        "private func constructBackupURLs(bundleIdentifier: String, name: String, openAppURL: URL)",
+        "private func constructBackupURLs(bundleIdentifier: String, name: String, openAppURL: URL, callback: V3BackupCallbackIdentity?)")
+    text = replace(text,
+        'returnURLComponents?.queryItems = [URLQueryItem(name: "targetBundleID", value: appGroupBundleID)]',
+        'returnURLComponents?.queryItems = [URLQueryItem(name: "targetBundleID", value: appGroupBundleID)] + (callback?.queryItems ?? [])')
+    text = replace(text,
+        '        let (openURL, returnURL) = try self.constructBackupURLs(bundleIdentifier: bundleIdentifier, name: name, openAppURL: openAppURL)',
+        '''        // V3_BACKUP_CALLBACK_OWNER_V1: mint the one-shot callback before
+        // opening SideBackup; only its owning session may consume the result.
+        let headlessHandler = self.context.handler as? V3HeadlessPipelineHandler
+        let callback = try await headlessHandler?.beginBackupCallback(action: action.rawValue)
+        defer {
+            if let callback, let headlessHandler {
+                Task { @MainActor in headlessHandler.endBackupCallback(callback) }
+            }
+        }
+        let (openURL, returnURL) = try self.constructBackupURLs(bundleIdentifier: bundleIdentifier, name: name, openAppURL: openAppURL, callback: callback)''')
+    text = replace(text,
+        '            let appWillReturnObs = NotificationCenter.default.addObserver(',
+        '''            // A foreground transition does not establish whether an external
+            // copy stopped. Headless cancellation keeps the operation/journal
+            // owner until the actual callback or explicit device reconciliation.
+            var appWillReturnObs: NSObjectProtocol?
+            if callback == nil {
+                appWillReturnObs = NotificationCenter.default.addObserver(''')
+    text = replace(text,
+        '            let backupRespObs = NotificationCenter.default.addObserver(',
+        '            }\n\n            let backupRespObs = NotificationCenter.default.addObserver(')
+    text = replace(text,
+        '            ) { notification in\n                self.debugLog("[BackupRestoreAppOperation] appBackupDidFinish notification received. UserInfo: \\(String(describing: notification.userInfo))")',
+        '''            ) { notification in
+                if let callback,
+                   notification.userInfo?["v3BackupNonce"] as? String != callback.nonce { return }
+                self.debugLog("[BackupRestoreAppOperation] correlated backup result received")''')
+    text = replace(text,
+        '        let currentTime = CFAbsoluteTimeGetCurrent()\n        return await withCheckedContinuation',
+        '''        if let handler = self.context.handler as? V3HeadlessPipelineHandler,
+           !handler.backupCallbackMayOpen() { return false }
+        let currentTime = CFAbsoluteTimeGetCurrent()
+        return await withCheckedContinuation''')
+    text = replace(text,
+        '                        try? await Task.sleep(nanoseconds: 2_000_000_000)\n                        UIApplication.shared.open',
+        '''                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        if let handler = self.context.handler as? V3HeadlessPipelineHandler,
+                           !handler.backupCallbackMayOpen() {
+                            continuation.resume(returning: false)
+                            return
+                        }
+                        UIApplication.shared.open''')
+    # URL capabilities must not enter even the app's private diagnostic buffer.
+    text = replace(text,
+        '        self.debugLog("[BackupRestoreAppOperation] openApp() called with URL: \\(url.absoluteString)")',
+        '        self.debugLog("[BackupRestoreAppOperation] opening backup application")')
+    text = replace(text,
+        '        self.debugLog("[BackupRestoreAppOperation] openAppAndObserve() constructed URLs. openURL: \\(openURL.absoluteString), returnURL: \\(returnURL.absoluteString)")',
+        '        self.debugLog("[BackupRestoreAppOperation] prepared backup callback")')
+    return text
+
+
+def headless_sidebackup_response(text):
+    """SideBackup is built as a target dependency, then packaged into SideStore."""
+    marker = "V3_SIDEBACKUP_CALLBACK_QUERY_V1"
+    if marker in text:
+        if 'error.localizedDescription].map' in text or 'components.queryItems = ["errorDomain"' in text:
+            raise SystemExit("v3 service: SideBackup callback query patch is partial")
+        return text
+    text = replace(text,
+        '''        switch result {
+        case .success:
+            components.path = "/success"
+\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20
+        case .failure(let error as NSError):
+            components.path = "/failure"
+            components.queryItems = ["errorDomain": error.domain,
+                                     "errorCode": String(error.code),
+                                     "errorDescription": error.localizedDescription].map { URLQueryItem(name: $0, value: $1) }
+        }''',
+        '''        // V3_SIDEBACKUP_CALLBACK_QUERY_V1: preserve the explicit host target
+        // and one-shot callback correlation on both success and failure. Remove
+        // old error keys rather than creating duplicate/ambiguous query values.
+        var callbackItems = (components.queryItems ?? []).filter {
+            !["errorDomain", "errorCode", "errorDescription"].contains($0.name)
+        }
+        switch result {
+        case .success:
+            components.path = "/success"
+        case .failure:
+            components.path = "/failure"
+            callbackItems += [URLQueryItem(name: "errorDomain", value: "SideBackup"),
+                              URLQueryItem(name: "errorCode", value: "1"),
+                              URLQueryItem(name: "errorDescription", value: "The backup or restore operation did not complete.")]
+        }
+        components.queryItems = callbackItems''')
+    text = replace(text,
+        '''debugLog(logger, "[SideBackup]: Attempting to open target SideStore app '\\(targetSideStoreBundleID)' via LSApplicationWorkspace with return URL: \\(responseURL.absoluteString)")''',
+        '''debugLog(logger, "[SideBackup]: Returning the correlated operation result to SideStore")''')
+    return text
+
+
+def headless_pipeline_persistence_contract(text):
+    """Require durable installed-app persistence after a successful mutation."""
+    marker = "V3_POST_MUTATION_PERSISTENCE_CONTRACT_V1"
+    if marker in text:
+        if (text.count(marker) != 1 or
+                "V3MutationPersistencePolicy.persistResult" not in text or
+                "Failed to save InstalledApp to database. \\(error.localizedDescription)" in text):
+            raise SystemExit("v3 service: pipeline persistence contract is partial")
+        return text
+
+    old = '''            do {
+                try await dbContext.perform {
+                    let hasChanges = dbContext.hasChanges
+                    if hasChanges {
+                        try dbContext.save()
+                    }
+                    debugLog("[AppManager] performOperation: Context changes were saved for installedApp: \\(bundleID)")
+                }
+            } catch {
+                debugLog("[AppManager] perform(): Failed to save InstalledApp to database. \\(error.localizedDescription)")
+            }
+'''
+    new = '''            // V3_POST_MUTATION_PERSISTENCE_CONTRACT_V1: the device mutation may
+            // already have happened. A failed durable commit is a non-retryable
+            // persistence outcome, never operation success. Do not log native error text.
+            try await dbContext.perform {
+                let hasChanges = dbContext.hasChanges
+                try V3MutationPersistencePolicy.persistResult(hasChanges: hasChanges) {
+                    try dbContext.save()
+                }
+                debugLog("[AppManager] performOperation: InstalledApp result persistence confirmed for \\(bundleID)")
+            }
+'''
+    if text.count(old) != 1:
+        raise SystemExit("v3 service: PipelineRunner persistence callsite changed")
+    return text.replace(old, new, 1)
+
+
+V3_CERTIFICATE_SERIAL_LOG_MARKER = "V3_CERTIFICATE_SERIAL_LOG_REDACTION_V1"
+V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS = (
+    "serialNumber", "serialHex", "serialNumDecimal", "installedAppSerial",
+    "overrideCertSerial", "activeCertSerial", "targetSigningCertSerial",
+    "portalCertificateSerials", "mainBundleCertSerial",
+)
+
+
+def contains_certificate_serial_log_identifier(call):
+    folded = call.casefold()
+    return any(identifier.casefold() in folded
+               for identifier in V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS)
+
+
+def _swift_log_call_ranges(text):
+    """Return complete debugLog/verboseLog calls, including interpolated strings."""
+    pattern = re.compile(r"(?<![A-Za-z0-9_.])(?:self\.)?(?:debugLog|verboseLog)\s*\(")
+    ranges = []
+    for match in pattern.finditer(text):
+        # The match includes the first string quote so Swift triple strings and
+        # nested quoted values inside string interpolation are lexed correctly.
+        opening = text.find("(", match.start(), match.end())
+        if opening < 0:
+            continue
+        stack = [("code", 1, False)]  # mode, delimiter depth, triple-string flag
+        index = opening + 1
+        while index < len(text) and stack:
+            mode, depth, triple = stack[-1]
+            if mode == "string":
+                if triple and text.startswith('"""', index):
+                    stack.pop()
+                    index += 3
+                    continue
+                if not triple and text[index] == '"':
+                    stack.pop()
+                    index += 1
+                    continue
+                if text[index] == "\\":
+                    if index + 1 < len(text) and text[index + 1] == "(":
+                        stack.append(("interpolation", 1, False))
+                        index += 2
+                    else:
+                        index += min(2, len(text) - index)
+                    continue
+                index += 1
+                continue
+
+            # Code context: either the call argument or Swift string interpolation.
+            if text.startswith("//", index):
+                newline = text.find("\n", index + 2)
+                index = len(text) if newline < 0 else newline + 1
+                continue
+            if text.startswith("/*", index):
+                comment_depth = 1
+                index += 2
+                while index < len(text) and comment_depth:
+                    if text.startswith("/*", index):
+                        comment_depth += 1
+                        index += 2
+                    elif text.startswith("*/", index):
+                        comment_depth -= 1
+                        index += 2
+                    else:
+                        index += 1
+                continue
+            if text.startswith('"""', index):
+                stack.append(("string", 0, True))
+                index += 3
+                continue
+            if text[index] == '"':
+                stack.append(("string", 0, False))
+                index += 1
+                continue
+            if mode == "interpolation":
+                if text[index] == "(":
+                    stack[-1] = (mode, depth + 1, False)
+                elif text[index] == ")":
+                    if depth == 1:
+                        stack.pop()
+                    else:
+                        stack[-1] = (mode, depth - 1, False)
+                index += 1
+                continue
+            if text[index] == "(":
+                stack[-1] = (mode, depth + 1, False)
+            elif text[index] == ")":
+                if depth == 1:
+                    ranges.append((match.start(), index + 1, text[match.start():index + 1]))
+                    break
+                stack[-1] = (mode, depth - 1, False)
+            index += 1
+    return ranges
+
+
+def headless_certificate_serial_log_redaction(text, owner):
+    """Replace certificate-serial-bearing backend log calls with safe summaries."""
+    if V3_CERTIFICATE_SERIAL_LOG_MARKER in text:
+        calls = [value for _, _, value in _swift_log_call_ranges(text)]
+        if any(contains_certificate_serial_log_identifier(call) for call in calls):
+            raise SystemExit(f"v3 service: certificate serial logging remains in {owner}")
+        return text
+
+    replacements = []
+    for start, end, call in _swift_log_call_ranges(text):
+        if not contains_certificate_serial_log_identifier(call):
+            continue
+        prefix = "self." if call.startswith("self.") else ""
+        logger = "verboseLog" if "verboseLog" in call[:call.index("(")] else "debugLog"
+        replacements.append((start, end,
+            f'{prefix}{logger}("[{owner}] Certificate identity details omitted.")'))
+    if not replacements:
+        raise SystemExit(f"v3 service: no certificate serial log anchors found in {owner}")
+    for start, end, replacement in reversed(replacements):
+        text = text[:start] + replacement + text[end:]
+    text = "// " + V3_CERTIFICATE_SERIAL_LOG_MARKER + ": certificate serials are password-equivalent and never logged.\n" + text
+    calls = [value for _, _, value in _swift_log_call_ranges(text)]
+    if any(contains_certificate_serial_log_identifier(call) for call in calls):
+        raise SystemExit(f"v3 service: certificate serial redaction was incomplete in {owner}")
+    return text
+
+
+def headless_code_sign_validator_privacy(text):
+    """Keep upstream decisions intact without logging personal signing facts."""
+    marker = "V3_HOST_SIGNING_VALIDATOR_QUIET_V1"
+    if marker in text:
+        if _swift_log_call_ranges(text):
+            raise SystemExit("v3 service: quiet CodeSignValidator contains log calls")
+        if "observedRunningCertificate: ALTX509Certificate? = nil" not in text or \
+                "observedRunningCertificate ?? CertificateManager.shared.getSigningCertificate" not in text:
+            raise SystemExit("v3 service: quiet CodeSignValidator observation adapter is partial")
+        return text
+    calls = _swift_log_call_ranges(text)
+    if not calls:
+        raise SystemExit("v3 service: CodeSignValidator log anchors changed")
+    for start, end, _ in reversed(calls):
+        text = text[:start] + "/* Local signing details are intentionally not logged. */" + text[end:]
+    text = replace(text,
+        "        runningProfile: ALTProvisioningProfile?,\n",
+        "        runningProfile: ALTProvisioningProfile?,\n"
+        "        observedRunningCertificate: ALTX509Certificate? = nil,\n")
+    text = replace(text,
+        "let runningCert = CertificateManager.shared.getSigningCertificate(at: Bundle.Info.activeBundleURL)",
+        "let runningCert = observedRunningCertificate ?? CertificateManager.shared.getSigningCertificate(at: Bundle.Info.activeBundleURL)")
+    return "// " + marker + "\n" + text
+
+
+def headless_connection_config(text):
+    marker = "V3_HEADLESS_CONNECTION_CONFIG_MOVED_V1"
+    replacement = "// " + marker + ": transport settings now live in Core/DeviceApi/ConnectionConfig.swift.\n"
+    if marker in text:
+        if any(value in text for value in ("import SwiftUI", "ObservableObject", "@Published", "enum ActiveState")):
+            raise SystemExit("v3 service: retired connection UI model still contains presentation state")
+        return text
+    return replacement
+
+
+def headless_minimuxer_connection_binding(text):
+    return replace(text,
+        "getConnectionMode: { config.useLocalVPN ? .localVPN : .remoteServer }",
+        "getConnectionMode: { config.connectionMode }")
+
+
+def headless_app_intents(text, relative):
+    if relative.endswith("RefreshAllAppsIntent.swift"):
+        text = headless_intent_error_privacy(text)
+    marker = "V3_HEADLESS_INSTALL_IPA_INTENT_REMOVED_V1"
+    if marker in text:
+        if "InstallIPAIntent" in text:
+            raise SystemExit(f"v3 service: legacy IPA shortcut remains in {relative}")
+        if relative.endswith("RefreshAllAppsIntent.swift") and (
+                "V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1" not in text or
+                "V3RefreshIntentStartPolicy.create" not in text or
+                "classify: V3HeadlessPairingFailure.tagIfInvalidPairing" not in text or
+                "AppManager.shared.backgroundRefresh" not in text or
+                "try? AppManager.shared.backgroundRefresh" in text or
+                "throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)" not in text or
+                "IntentError(V3HeadlessPairingFailure.tagIfInvalidPairing(error))" not in text or
+                "ProgressReportingIntent" not in text or "operationActor" not in text or
+                "openAppWhenRun = true" not in text or
+                "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" in text):
+            raise SystemExit("v3 service: SideStore's scheduled backend adapter is missing or bypassed")
+        return text
+    if relative.endswith("RefreshAllAppsIntent.swift"):
+        start_marker = "@available(iOS 17.0, tvOS 17.0, *)\nstruct InstallIPAIntent: AppIntent, ProgressReportingIntent"
+        end_marker = "@available(iOS 17.0, tvOS 17.0, *)\nextension RefreshAllAppsIntent"
+        if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+            raise SystemExit("v3 service: InstallIPAIntent adapter changed")
+        start = text.index(start_marker)
+        end = text.index(end_marker, start)
+        text = text[:start] + "// " + marker + ": IPA installation is host-owned.\n\n" + text[end:]
+        if "struct InstallIPAIntent" in text or "AppManager.shared.install(.url" in text:
+            raise SystemExit("v3 service: legacy IPA installation shortcut removal is partial")
+        text = replace(text,
+            "try await withCheckedThrowingContinuation { continuation in",
+            "try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in")
+        text = replace(text,
+            "let operation = try? AppManager.shared.backgroundRefresh(installedApps, presentsNotifications: self.presentsNotifications) { (result) in",
+            "let operation = V3RefreshIntentStartPolicy.create({\n"
+            "                try AppManager.shared.backgroundRefresh(installedApps, presentsNotifications: self.presentsNotifications) { (result) in")
+        nil_guard = (
+            "            }\n"
+            "            \n"
+            "            guard let operation else {\n"
+            "                debugLog(\"[RefreshAllAppsIntent] backgroundRefresh instance is nil\")\n"
+            "                return \n"
+            "            }"
+        )
+        resumed_guard = """            }
+            }, continuation: continuation,
+                classify: V3HeadlessPairingFailure.tagIfInvalidPairing)
+            guard let operation else { return }"""
+        text = replace(text, nil_guard, resumed_guard)
+        text = replace(text,
+            "                        guard case let .failure(error) = result else { continue }\n                        throw error",
+            "                        guard case let .failure(error) = result else { continue }\n                        throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)")
+        text = replace(text, "let intentError = IntentError(error)",
+            "let intentError = IntentError(V3HeadlessPairingFailure.tagIfInvalidPairing(error))")
+        title = '    static var title: LocalizedStringResource = "Refresh All Apps"\n'
+        if text.count(title) != 1:
+            raise SystemExit("v3 service: Refresh All title anchor changed")
+        text = text.replace(title, title + "    static var openAppWhenRun = true\n", 1)
+        backend_marker = "V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1"
+        backend_anchor = "@available(iOS 17.0, tvOS 17.0, *)\nextension RefreshAllAppsIntent\n{"
+        if text.count(backend_anchor) != 1:
+            raise SystemExit("v3 service: SideStore refresh backend adapter changed")
+        text = text.replace(backend_anchor,
+            backend_anchor + "\n    // " + backend_marker + ": this guest action runs the canonical SideStore refresh pipeline.", 1)
+        if ("AppManager.shared.backgroundRefresh" not in text or
+                "V3RefreshIntentStartPolicy.create" not in text or
+                "classify: V3HeadlessPairingFailure.tagIfInvalidPairing" not in text or
+                "try? AppManager.shared.backgroundRefresh" in text or
+                "throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)" not in text or
+                "IntentError(V3HeadlessPairingFailure.tagIfInvalidPairing(error))" not in text or
+                "DatabaseManager.shared.start()" not in text or
+                "ProgressReportingIntent" not in text or "operationActor" not in text or
+                "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" in text or
+                "openAppWhenRun = true" not in text):
+            raise SystemExit("v3 service: SideStore refresh backend adapter was removed or redirected")
+        return text
+    if relative.endswith("AppShortcuts.swift"):
+        start_marker = "        AppShortcut(intent: InstallIPAIntent(),"
+        end_marker = "                    systemImageName: \"square.and.arrow.down\")"
+        if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+            raise SystemExit("v3 service: InstallIPAIntent shortcut anchor changed")
+        start = text.index(start_marker)
+        end = text.index(end_marker, start) + len(end_marker)
+        text = text[:start] + "        // " + marker + ": the install flow is owned by LiveContainer.\n" + text[end:]
+        if "InstallIPAIntent" in text:
+            raise SystemExit("v3 service: legacy IPA shortcut reference remains")
+        return text
+    raise SystemExit(f"v3 service: unsupported App Intent adapter source {relative}")
+
+
+def headless_widget_refresh_intent(text):
+    marker = "V3_SHORTCUT_WIDGET_BACKEND_FORWARD_V1"
+    if marker in text:
+        if ("ProgressReportingIntent" not in text or
+                "RefreshAllAppsIntent(presentsNotifications: true)" not in text or
+                "throw error" not in text or
+                'debugLog("Failed to refresh apps via widget. \\(error)")' in text):
+            raise SystemExit("v3 service: widget no longer forwards through the SideStore backend")
+        return text
+    if ("ProgressReportingIntent" not in text or
+            "RefreshAllAppsIntent(presentsNotifications: true)" not in text):
+        raise SystemExit("v3 service: widget backend adapter changed")
+    text = replace(text, "import AppIntents\n", "import AppIntents\n// " + marker + ": retain the upstream guest-to-backend adapter.\n")
+    text = replace(text,
+        r'''        catch
+        {
+            debugLog("Failed to refresh apps via widget. \(error)")
+        }
+''',
+        '''        catch
+        {
+            // V3_WIDGET_REFRESH_FAILURE_PRIVACY_V1: never log a raw provider error.
+            debugLog("[V3_WIDGET_REFRESH] failed")
+            throw error
+        }
+''')
+    if ('debugLog("Failed to refresh apps via widget. \\(error)")' in text or
+            "throw error" not in text):
+        raise SystemExit("v3 service: widget refresh failure still logs raw error text or is swallowed")
+    return text
+
+
+def headless_app_intent_routing(text):
+    marker = "V3_HEADLESS_INTENT_ROUTING_REMOVED_V1"
+    if marker in text:
+        if "handlerFor intent: INIntent" in text or "import Intents" in text:
+            raise SystemExit("v3 service: legacy SideStore App Intent routing removal is partial")
+        return text
+    text = replace(text, "import Intents\n", "")
+    text = replace(text, "    private let intentHandler = IntentHandler()\n", "")
+    text = replace(text, "    private let viewAppIntentHandler = ViewAppIntentHandler()\n", "")
+    start_marker = "    #if !os(tvOS)\n    func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any?\n"
+    end_marker = "    #endif"
+    if text.count(start_marker) != 1:
+        raise SystemExit("v3 service: AppDelegate App Intent handler anchor changed")
+    start = text.index(start_marker)
+    end = text.index(end_marker, start) + len(end_marker)
+    text = text[:start] + "    // " + marker + ": LiveContainer declares the host-owned intents.\n" + text[end:]
+    return text
+
+
+def headless_background_fetch(text):
+    text = replace(text, "import AVFoundation\n", "")
+    text = replace(text, "        self.prepareForBackgroundFetch()\n", "")
+    preparation_start = text.index("    private func prepareForBackgroundFetch()")
+    preparation_end = text.index(
+        "    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken",
+        preparation_start)
+    text = text[:preparation_start] + text[preparation_end:]
+    start = text.index("    func application(_ application: UIApplication, didReceiveRemoteNotification")
+    end = text.index("\nprivate extension AppDelegate\n{\n    func fetchSources(", start)
+    replacement = '''    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void)
+    {
+        // V3_HEADLESS_SERVICE_V1: refresh scheduling belongs to LiveContainer.
+        completionHandler(.noData)
+    }
+
+    func application(_ application: UIApplication, performFetchWithCompletionHandler backgroundFetchCompletionHandler: @escaping (UIBackgroundFetchResult) -> Void)
+    {
+        // The embedded backend is invoked by the host scheduler, not by a
+        // second SideStore background-refresh engine.
+        backgroundFetchCompletionHandler(.noData)
+    }
+}
+'''
+    text = text[:start] + replacement + text[end:]
+    extension_start = text.index("\nprivate extension AppDelegate\n{\n    func fetchSources(")
+    extension_end = text.index("\nprivate extension AppDelegate {\n    func setupCrashHandler()", extension_start)
+    return text[:extension_start] + text[extension_end:]
+
+
+def replace(text, old, new):
+    if text.count(old) != 1:
+        raise SystemExit(f"v3 service: expected exactly one anchor {old[:100]!r}, found {text.count(old)}")
+    return text.replace(old, new, 1)
+
+
+def apply_embedded_credential_snapshot_patch(text, transform_name):
+    script = Path(__file__).with_name("patch_embedded_keychain.py")
+    spec = importlib.util.spec_from_file_location("v3_embedded_keychain_patch", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return getattr(module, transform_name)(text)
+
+
+def patch_sign_in_operation(text):
+    marker = "V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1"
+    if marker in text:
+        required = (
+            "V3_AUTHENTICATION_PHASE_EVIDENCE_V1",
+            "v3AuthenticationPhase(.appleAuthentication)",
+            "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
+            "V3_TYPED_ACCOUNT_DIAGNOSTICS_V1",
+            "diagnosticError.portalSessionRejected",
+            "V3_ACCOUNT_ACTIVATION_PERSISTENCE_V1",
+            "v3AccountOperationFailure(error, step: .credentialCommit)",
+            "throw v3AccountOperationFailure(error, step: .activateAccount)",
+            "V3AccountDatabaseRecovery.begin(previous:",
+            "v3ReconcileAccountDatabaseStorage()",
+            "context.rollback()",
+            "AuthManager.shared.v3ReplaceSession(session)",
+            "V3AuthIdentityBindingPolicy.hasUsableSession(",
+            "v3ForceProvisioningRetry: Bool",
+            "V3_PROVISIONING_REAUTHENTICATION_V1",
+            "v3RequireFullProvisioning: Bool",
+            "v3RequireInteractiveCredentials: Bool",
+            "!self.v3RequireInteractiveCredentials && self.v3ReauthenticateAppleID == nil",
+            "v3ValidateReauthenticationIdentity",
+            "v3DidCompleteProvisioning",
+            "V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn",
+            "V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials",
+            "V3ProvisioningResumeUnavailableError()",
+            "session.anisetteData = try await self.getAnisetteData()",
+            "handleSignInResult(.success(silentResult))",
+            "V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry",
+            "if self.isCancelled || error is CancellationError || v3ClassifyAuthError(error) == nil",
+            "if self.v3ForceProvisioningRetry {",
+            "V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1",
+            "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
+            "Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)",
+            "v3CachedSessionMatchesCurrentRoute",
+            "currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()",
+        )
+        if text.count(marker) != 1 or any(value not in text for value in required):
+            raise SystemExit("v3 service: provisioning retry SignInOperation patch is partial")
+        failure_start = text.index("V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1")
+        failure_end = text.index("try? await self.finalizeAuthentication", failure_start)
+        destructive = ("AuthManager.shared.signOut()", "Keychain.shared.clearSignInInfo",
+                       "CertificateManager.shared.clearActiveCertificate",
+                       "DatabaseManager.shared.deactivateActiveAccountAndTeam")
+        if any(value in text[failure_start:failure_end] for value in destructive):
+            raise SystemExit("v3 service: failed authentication still clears account state")
+        return text
+
+    text = replace(text,
+        "    let skipCertificateProvisioning: Bool\n",
+        "    let skipCertificateProvisioning: Bool\n"
+        "    // V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1\n"
+        "    let v3ForceProvisioningRetry: Bool\n"
+        "    // V3_PROVISIONING_REAUTHENTICATION_V1\n"
+        "    let v3RequireFullProvisioning: Bool\n"
+        "    // V3_EXPLICIT_SIGNIN_CREDENTIALS_V1: manual sign-in never replays saved credentials.\n"
+        "    let v3RequireInteractiveCredentials: Bool\n"
+        "    let v3ReauthenticateAppleID: String?\n"
+        "    let v3ReauthenticationIdentityStamp: String?\n"
+        "    private(set) var v3DidCompleteProvisioning = false\n")
+    text = replace(text,
+        "        skipCertificateProvisioning: Bool = false\n",
+        "        skipCertificateProvisioning: Bool = false,\n"
+        "        v3ForceProvisioningRetry: Bool = false,\n"
+        "        v3RequireFullProvisioning: Bool = false,\n"
+        "        v3RequireInteractiveCredentials: Bool = false,\n"
+        "        v3ReauthenticateAppleID: String? = nil,\n"
+        "        v3ReauthenticationIdentityStamp: String? = nil\n")
+    text = replace(text,
+        "        self.skipCertificateProvisioning = skipCertificateProvisioning\n",
+        "        self.skipCertificateProvisioning = skipCertificateProvisioning\n"
+        "        self.v3ForceProvisioningRetry = v3ForceProvisioningRetry\n"
+        "        self.v3RequireFullProvisioning = v3RequireFullProvisioning\n"
+        "        self.v3RequireInteractiveCredentials = v3RequireInteractiveCredentials\n"
+        "        self.v3ReauthenticateAppleID = v3ReauthenticateAppleID\n"
+        "        self.v3ReauthenticationIdentityStamp = v3ReauthenticationIdentityStamp\n")
+    text = replace(text,
+        "            if var session = AuthManager.shared.session,\n",
+        "            if self.v3ForceProvisioningRetry {\n"
+        "                let identityAtStart = AuthManager.shared.v3IdentityStamp\n"
+        "                let generationAtStart = AuthManager.shared.v3IdentityGeneration\n"
+        "                let credentials = AuthManager.shared.authenticationSnapshot\n"
+        "                guard AuthManager.shared.v3IdentityIsStable,\n"
+        "                      var session = AuthManager.shared.session,\n"
+        "                      let team = AuthManager.shared.team,\n"
+        "                      let account = team.account,\n"
+        "                      let currentAppleID = credentials?.appleIDEmailAddress,\n"
+        "                      currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ==\n"
+        "                        account.appleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),\n"
+        "                      V3AuthIdentityBindingPolicy.hasUsableSession(\n"
+        "                        credentialRoutePresent: credentials?.isAuthenticated == true,\n"
+        "                        dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,\n"
+        "                        sessionDSID: session.dsid, sessionXcodeToken: session.authToken,\n"
+        "                        generationBefore: generationAtStart, generationAfter: AuthManager.shared.v3IdentityGeneration) else {\n"
+        "                    throw V3ProvisioningResumeUnavailableError()\n"
+        "                }\n"
+        "                session.anisetteData = try await self.getAnisetteData()\n"
+        "                let currentCredentials = AuthManager.shared.authenticationSnapshot\n"
+        "                guard V3AuthReadStampPolicy.mayReturn(capturedStamp: identityAtStart,\n"
+        "                        currentStamp: AuthManager.shared.v3IdentityStamp,\n"
+        "                        stable: AuthManager.shared.v3IdentityIsStable),\n"
+        "                      V3AuthIdentityBindingPolicy.sameCredentialRoute(\n"
+        "                        appleIDBefore: credentials?.appleIDEmailAddress,\n"
+        "                        appleIDAfter: currentCredentials?.appleIDEmailAddress,\n"
+        "                        dsidBefore: credentials?.appleIDAdsid, dsidAfter: currentCredentials?.appleIDAdsid,\n"
+        "                        tokenBefore: credentials?.appleIDXcodeToken, tokenAfter: currentCredentials?.appleIDXcodeToken),\n"
+        "                      V3AuthIdentityBindingPolicy.hasUsableSession(\n"
+        "                        credentialRoutePresent: currentCredentials?.isAuthenticated == true,\n"
+        "                        dsid: currentCredentials?.appleIDAdsid, xcodeToken: currentCredentials?.appleIDXcodeToken,\n"
+        "                        sessionDSID: session.dsid, sessionXcodeToken: session.authToken,\n"
+        "                        generationBefore: generationAtStart, generationAfter: AuthManager.shared.v3IdentityGeneration) else {\n"
+        "                    throw V3ProvisioningResumeUnavailableError()\n"
+        "                }\n"
+        "                guard AuthManager.shared.v3CachedSessionMatchesCurrentRoute(session) else {\n"
+        "                    throw V3ProvisioningResumeUnavailableError()\n"
+        "                }\n"
+        "                AuthManager.shared.v3ReplaceSession(session)\n"
+        "                authResult = try await self.provisioningLoop(account: account, session: session,\n"
+        "                    reportProgress: { [weak self] progress in self?.setProgress(progress) })\n"
+        "            } else if V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn(\n"
+        "                forceProvisioningRetry: self.v3ForceProvisioningRetry,\n"
+        "                requireFullProvisioning: self.v3RequireFullProvisioning),\n"
+        "               !self.v3RequireInteractiveCredentials,\n"
+        "               var session = AuthManager.shared.session,\n")
+    text = replace(text,
+        "               var session = AuthManager.shared.session,\n"
+        "               let team = AuthManager.shared.team,\n",
+        "               var session = AuthManager.shared.session,\n"
+        "               AuthManager.shared.v3CachedSessionMatchesCurrentRoute(session),\n"
+        "               let team = AuthManager.shared.team,\n")
+    text = replace(text,
+        "        let (account, session) = if let silentResult = try await self.silentSignIn() {\n"
+        "            silentResult\n"
+        "        } else {\n"
+        "            try await self.authenticationLoop()\n"
+        "        }\n",
+        "        // Explicit credentials own this attempt; saved routes remain available to background callers.\n"
+        "        let silentResult = !self.v3RequireInteractiveCredentials && self.v3ReauthenticateAppleID == nil\n"
+        "            ? try await self.silentSignIn() : nil\n"
+        "        let (account, session) = if let silentResult {\n"
+        "            silentResult\n"
+        "        } else if V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials(\n"
+        "            forceProvisioningRetry: self.v3ForceProvisioningRetry) {\n"
+        "            try await self.authenticationLoop()\n"
+        "        } else {\n"
+        "            throw V3ProvisioningResumeUnavailableError()\n"
+        "        }\n"
+        "        if let silentResult {\n"
+        "            await self.signInHandler.handleSignInResult(.success(silentResult))\n"
+        "        }\n")
+    text = replace(text,
+        "        while true {\n"
+        "            let (appleID, password) = try await handler.credentials()\n",
+        "        var retryCredentials: (String, String)?\n"
+        "        while true {\n"
+        "            let credentials: (String, String)\n"
+        "            if let retry = retryCredentials {\n"
+        "                credentials = retry\n"
+        "                retryCredentials = nil\n"
+        "            } else {\n"
+        "                credentials = try await handler.credentials()\n"
+        "            }\n"
+        "            let (appleID, password) = credentials\n")
+    text = replace(text,
+        "            } catch {\n"
+        "                self.debugLog(\"[SignInOperation] authenticationLoop: Attempt failed with error: \\(error)\")\n",
+        "            } catch {\n"
+        "                if error is V3ProvisioningReauthenticationIdentityError { throw error }\n"
+        "                if self.isCancelled || error is CancellationError || v3ClassifyAuthError(error) == nil {\n"
+        "                    throw OperationError.cancelled\n"
+        "                }\n"
+        "                self.debugLog(\"[V3_AUTH] attempt_failed\")\n")
+    text = replace(text,
+        "                await handler.handleSignInResult(.failure(error))\n",
+        "                await handler.handleSignInResult(.failure(error))\n"
+        "                // A local commit failure must reconcile, never replay Apple login.\n"
+        "                if let local = error as? V3AccountOperationError, local.credentialCommit { throw local }\n"
+        "                if v3ClassifyAuthError(error)?.rawValue == \"anisetteIdentityStateInvalid\" { throw error }\n"
+        "                if V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry(\n"
+        "                    authFailureKind: v3ClassifyAuthError(error)?.rawValue) {\n"
+        "                    retryCredentials = (appleID, password)\n"
+        "                }\n")
+    text = replace(text,
+        "            if !AuthManager.shared.hasStoredPassword &&\n"
+        "               !AuthManager.shared.hasStoredXcodeToken\n"
+        "            {\n"
+        "                AuthManager.shared.signOut()\n"
+        "            }\n",
+        "            // V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1: explicit user Sign Out\n"
+        "            // owns account/keychain destruction; failed attempts are non-destructive.\n")
+    text = replace(text,
+        "        AuthManager.shared.adsid = session.dsid\n"
+        "        AuthManager.shared.xcodeToken = session.authToken\n"
+        "        AuthManager.shared.currentAppleID = appleID\n"
+        "        AuthManager.shared.password = password\n",
+        "        // V3_AUTH_CREDENTIAL_TRANSACTION_V1: commit the complete credential route\n"
+        "        // and readiness marker together after exact read-back verification.\n"
+        "        AuthManager.shared.v3BeginIdentityTransition()\n"
+        "        defer { AuthManager.shared.v3CompleteIdentityTransition() }\n"
+        "        do {\n"
+        "            try Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)\n"
+        "        } catch {\n"
+        "            throw v3AccountOperationFailure(error, step: .credentialCommit)\n"
+        "        }\n"
+        "        AuthManager.shared.session = session\n"
+        )
+    text = replace(text,
+        "        AuthManager.shared.session = session\n\n"
+        "        let authResult = try await self.provisioningLoop(",
+        "        AuthManager.shared.v3ReplaceSession(session)\n\n"
+        "        let authResult = try await self.provisioningLoop(")
+    text = replace(text,
+        "            try await self.finalizeAuthentication(result: .success(authResult))\n",
+        "            guard AuthManager.shared.v3CachedSessionMatchesCurrentRoute(authResult.session) else {\n"
+        "                throw V3ProvisioningResumeUnavailableError()\n"
+        "            }\n"
+        "            try await self.finalizeAuthentication(result: .success(authResult))\n")
+    text = replace(text,
+        "        let (account, session) = try await AuthManager.shared.signIn(\n",
+        "        try self.v3ValidateReauthenticationIdentity(submittedAppleID: appleID)\n"
+        "        let (account, session) = try await AuthManager.shared.signIn(\n")
+    text = replace(text,
+        "        self.appleIDEmailAddress = appleID\n",
+        "        try self.v3ValidateReauthenticationIdentity(submittedAppleID: appleID)\n"
+        "        self.appleIDEmailAddress = appleID\n")
+    text = replace(text,
+        "        // V3_AUTH_CREDENTIAL_TRANSACTION_V1: commit the complete credential route\n",
+        "        if self.isCancelled || Task.isCancelled { throw OperationError.cancelled }\n"
+        "        try self.v3ValidateReauthenticationIdentity(submittedAppleID: appleID, returnedAppleID: account.appleID, returnedDSID: session.dsid)\n"
+        "        // V3_AUTH_CREDENTIAL_TRANSACTION_V1: commit the complete credential route\n")
+    text = replace(text,
+        "                return SignInResult(\n",
+        "                self.v3DidCompleteProvisioning = !self.skipDeviceRegistration &&\n"
+        "                    !self.skipCertificateProvisioning && resolvedCertificate != nil\n"
+        "                return SignInResult(\n")
+    text = replace(text,
+        "    private func signIn(appleID: String, password: String)",
+        "    private func v3ValidateReauthenticationIdentity(submittedAppleID: String, returnedAppleID: String? = nil, returnedDSID: String? = nil) throws {\n"
+        "        guard let expectedOwner = self.v3ReauthenticateAppleID else { return }\n"
+        "        let credentials = AuthManager.shared.authenticationSnapshot\n"
+        "        guard let stamp = self.v3ReauthenticationIdentityStamp,\n"
+        "              V3ProvisioningReauthenticationIdentityPolicy.mayAuthenticate(\n"
+        "                expectedOwner: expectedOwner, submittedOwner: submittedAppleID,\n"
+        "                currentOwner: credentials?.appleIDEmailAddress, capturedStamp: stamp,\n"
+        "                currentStamp: AuthManager.shared.v3IdentityStamp,\n"
+        "                identityStable: AuthManager.shared.v3IdentityIsStable),\n"
+        "              returnedAppleID == nil || V3AuthIdentityBindingPolicy.mayUseTeam(\n"
+        "                sessionOwner: expectedOwner, teamOwner: returnedAppleID),\n"
+        "              returnedDSID == nil || returnedDSID == credentials?.appleIDAdsid else {\n"
+        "            throw V3ProvisioningReauthenticationIdentityError()\n"
+        "        }\n"
+        "    }\n\n"
+        "    private func signIn(appleID: String, password: String)")
+    text = replace(text,
+        "        try await AnisetteProvider.fetch(handler: self.anisetteServerHandler)\n",
+        "        // V3_AUTHENTICATION_PHASE_EVIDENCE_V1\n"
+        "        try await v3AuthenticationPhase(.anisetteFetch) {\n"
+        "            try await AnisetteProvider.fetch(handler: self.anisetteServerHandler)\n"
+        "        }\n")
+    text = replace(text,
+        "        let (account, session) = try await AuthManager.shared.signIn(\n",
+        "        let (account, session) = try await v3AuthenticationPhase(.appleAuthentication) {\n"
+        "            try await AuthManager.shared.signIn(\n")
+    text = replace(text,
+        "                try await handler.verificationCode(for: request)\n"
+        "            }\n        )\n",
+        "                try await handler.verificationCode(for: request)\n"
+        "            }\n        )\n        }\n")
+    return patch_sign_in_diagnostics(text)
+
+
+def patch_sign_in_diagnostics(text):
+    """Typed operation boundaries, terminal credential commit, verified activation."""
+    text = replace(text,
+        '                self.debugLog("[SignInOperation] Saved password authentication failed: \\(error)")\n',
+        '                if error is V3AccountOperationError { throw error }\n'
+        '                self.debugLog("[SignInOperation] Saved password authentication failed: \\(error)")\n')
+    text = replace(text,
+        "        var isDeviceRegistered = false\n",
+        "        var isDeviceRegistered = false\n"
+        "        // V3_TYPED_ACCOUNT_DIAGNOSTICS_V1: owned stage, never provider text.\n"
+        "        var diagnosticStep: CombinedFailure.SourceStep = .fetchTeams\n")
+    boundaries = (
+        ("                    let team = try await self.fetchTeam(for: account, session: session)", "fetchTeams"),
+        ("                    try await self.saveTeamAndAccount(team)", "saveAccount"),
+        ("                        let device = try await self.registerCurrentDevice(for: team, session: session)", "registerDevice"),
+    )
+    for anchor, step in boundaries:
+        indent = anchor[:len(anchor) - len(anchor.lstrip())]
+        text = replace(text, anchor + "\n", indent + "diagnosticStep = ." + step + "\n" + anchor + "\n")
+    text = replace(text,
+        "                        let certificate = try await self.fetchCertificate(for: team, session: session)\n"
+        "                        try CertificateManager.shared.setActiveCertificate(certificate)\n"
+        "                        resolvedCertificate = certificate\n",
+        "                        // Retain the obtained certificate across local save retries.\n"
+        "                        if resolvedCertificate == nil {\n"
+        "                            diagnosticStep = .fetchCertificate\n"
+        "                            resolvedCertificate = try await self.fetchCertificate(for: team, session: session)\n"
+        "                        }\n"
+        "                        if let certificate = resolvedCertificate {\n"
+        "                            diagnosticStep = .activateCertificate\n"
+        "                            try CertificateManager.shared.setActiveCertificate(certificate)\n"
+        "                        }\n")
+    text = replace(text,
+        "                let decision = await self.signInHandler.resolveProvisioningError(error)\n",
+        "                let diagnosticError = v3AccountOperationFailure(error, step: diagnosticStep)\n"
+        "                let decision = await self.signInHandler.resolveProvisioningError(diagnosticError)\n")
+    text = replace(text,
+        '                    self.debugLog("[SignInOperation] finalizeAuthentication: error occured when performing cleanup: \\(error)")\n',
+        '                    // V3_ACCOUNT_ACTIVATION_PERSISTENCE_V1: never publish activation after a failed save.\n'
+        '                    throw v3AccountOperationFailure(error, step: .activateAccount)\n')
+    text = replace(text,
+        '                        self.debugLog("[SignInOperation] User cancelled in provisioningLoop")\n'
+        '                        throw OperationError.cancelled\n',
+        '                        self.debugLog("[SignInOperation] User cancelled in provisioningLoop")\n'
+        '                        if diagnosticError.requiresReconciliation || diagnosticError.portalSessionRejected { throw diagnosticError }\n'
+        '                        throw OperationError.cancelled\n')
+    # Roll back only the operation-owned context, so unsaved active flags cannot
+    # leak into the next snapshot or be committed by a later unrelated save.
+    start = text.index("    private func saveTeamAndAccount(")
+    end = text.index("    private func validateCodeSign(", start)
+    body = text[start:end]
+    body = replace(body,
+        "        try await context.perform {\n",
+        "        let intended = [\"account:\" + (altTeam.account?.identifier ?? altTeam.identifier),\n"
+        "                        \"team:\" + altTeam.identifier].sorted()\n"
+        "        do {\n"
+        "            if makeActive {\n"
+        "                let previous = try await v3AccountDatabaseSnapshot()\n"
+        "                try V3AccountDatabaseRecovery.begin(previous: previous, intended: intended)\n"
+        "            }\n"
+        "            try await context.perform {\n")
+    body = replace(body,
+        "            try context.save()\n        }\n    }\n",
+        "            try context.save()\n"
+        "            }\n"
+        "            if makeActive {\n"
+        "                let observed = try await v3AccountDatabaseSnapshot()\n"
+        "                guard observed == intended else {\n"
+        "                    throw NSError(domain: \"LiveContainerRefresh.Configuration\", code: 1011)\n"
+        "                }\n"
+        "                try V3AccountDatabaseRecovery.reconcile(observed: observed)\n"
+        "            }\n"
+        "        } catch {\n"
+        "            await context.perform { context.rollback() }\n"
+        "            if makeActive {\n"
+        "                do { try await v3ReconcileAccountDatabaseStorage() }\n"
+        "                catch { throw V3AccountDatabaseOutcomeUnknownError() }\n"
+        "            }\n"
+        "            throw error\n"
+        "        }\n    }\n")
+    # Publish the derived defaults only after the database transaction commits.
+    defaults_start = body.index("                let isSparseRestorePatched")
+    defaults_end = body.index("\n            }", defaults_start)
+    defaults = body[defaults_start:defaults_end]
+    body = body[:defaults_start] + body[defaults_end:]
+    # Moving this block makes the upstream whitespace-only separator a new
+    # diff line. Normalize only that relocated separator, not upstream source.
+    body = replace(body, "\n            }\n            \n            try context.save()\n",
+                         "\n            }\n\n            try context.save()\n")
+    body = replace(body, "            try context.save()\n",
+        "            try context.save()\n            if makeActive {\n" + defaults + "\n            }\n")
+    return text[:start] + body + text[end:]
+
+
+def patch_auth_identity_generation(text):
+    marker = "V3_AUTH_IDENTITY_GENERATION_V1"
+    if marker in text:
+        if ("v3IdentityGeneration" not in text or
+                "v3BeginIdentityTransition()" not in text or
+                "v3CompleteIdentityTransition()" not in text or
+                "v3IdentityStamp" not in text or
+                "V3AuthIdentityStampState" not in text or
+                "v3IdentityStampState.snapshot" not in text or
+                "V3AuthSessionCoalescerKey.value(for: identityAtStart.stamp)" not in text or
+                "v3InstallSessionIfCurrent" not in text or
+                "v3CachedSessionMatchesCurrentRoute" not in text):
+            raise SystemExit("v3 service: auth identity generation patch is partial")
+        return text
+    text = replace(text, "    private init() {}\n", "    private init() {}\n\n"
+        "    // " + marker + ": one AuthManager-owned process stamp and transition gate.\n"
+        "    private let v3IdentityStampState = V3AuthIdentityStampState()\n"
+        "    var v3IdentityGeneration: UInt64 {\n"
+        "        v3IdentityStampState.snapshot.generation\n"
+        "    }\n"
+        "    var v3IdentityStamp: String {\n"
+        "        v3IdentityStampState.snapshot.stamp\n"
+        "    }\n"
+        "    var v3IdentityIsStable: Bool {\n"
+        "        v3IdentityStampState.snapshot.stable\n"
+        "    }\n"
+        "    func v3BeginIdentityTransition() {\n"
+        "        v3IdentityStampState.beginTransition()\n"
+        "    }\n"
+        "    func v3CompleteIdentityTransition() {\n"
+        "        v3IdentityStampState.completeTransition()\n"
+        "    }\n"
+        "    func v3ReplaceSession(_ session: ALTAppleAPISession?) {\n"
+        "        v3BeginIdentityTransition()\n"
+        "        defer { v3CompleteIdentityTransition() }\n"
+        "        self.session = session\n"
+        "    }\n"
+        "    func v3InstallSessionIfCurrent(_ session: ALTAppleAPISession, capturedStamp: String) -> Bool {\n"
+        "        v3IdentityStampState.runIfCurrent(capturedStamp) { self.session = session }\n"
+        "    }\n"
+        "    func v3CachedSessionMatchesCurrentRoute(_ session: ALTAppleAPISession?) -> Bool {\n"
+        "        let identityAtStart = v3IdentityStampState.snapshot\n"
+        "        guard identityAtStart.stable, let session,\n"
+        "              let credentials = authenticationSnapshot else { return false }\n"
+        "        let identityAfterRead = v3IdentityStampState.snapshot\n"
+        "        return V3AuthReadStampPolicy.mayReturn(capturedStamp: identityAtStart.stamp,\n"
+        "                  currentStamp: identityAfterRead.stamp, stable: identityAfterRead.stable) &&\n"
+        "            V3AuthIdentityBindingPolicy.hasUsableSession(\n"
+        "                credentialRoutePresent: credentials.isAuthenticated,\n"
+        "                dsid: credentials.appleIDAdsid, xcodeToken: credentials.appleIDXcodeToken,\n"
+        "                sessionDSID: session.dsid, sessionXcodeToken: session.authToken,\n"
+        "                generationBefore: identityAtStart.generation,\n"
+        "                generationAfter: identityAfterRead.generation)\n"
+        "    }\n"
+        "    func v3AdvanceIdentityGeneration() {\n"
+        "        v3IdentityStampState.advanceGeneration()\n"
+        "    }\n")
+    text = replace(text, "    ) {\n        self.session = nil\n", "    ) {\n"
+        "        self.v3BeginIdentityTransition()\n"
+        "        defer { self.v3CompleteIdentityTransition() }\n"
+        "        self.session = nil\n")
+    text = replace(text,
+        '        return try await TaskChainCoalescer.shared.coalesce(key: "apple_auth_session") {\n',
+        "        let identityAtStart = v3IdentityStampState.snapshot\n"
+        "        guard identityAtStart.stable else { throw OperationError.notAuthenticated }\n"
+        "        return try await TaskChainCoalescer.shared.coalesce(\n"
+        "            key: V3AuthSessionCoalescerKey.value(for: identityAtStart.stamp)) {\n")
+    text = replace(text,
+        "            let xcodeVersion = await AnisetteConfigManager.shared.resolvedXcodeVersion()\n",
+        "            let xcodeVersion = await AnisetteConfigManager.shared.resolvedXcodeVersion()\n"
+        "            guard self.v3IdentityIsStable &&\n"
+        "                  self.v3IdentityStamp == identityAtStart.stamp else {\n"
+        "                throw OperationError.notAuthenticated\n"
+        "            }\n")
+    text = replace(text,
+        "            guard self.v3IdentityIsStable &&\n"
+        "                  self.v3IdentityStamp == identityAtStart.stamp else {\n"
+        "                throw OperationError.notAuthenticated\n"
+        "            }\n",
+        "            let credentialSnapshotAfter: LCEmbeddedAuthenticationSnapshot?\n"
+        "            do { credentialSnapshotAfter = try Keychain.shared.authenticationSnapshot() }\n"
+        "            catch { throw Keychain.shared.embeddedAuthenticationFailure(error) }\n"
+        "            guard self.v3IdentityIsStable,\n"
+        "                  self.v3IdentityStamp == identityAtStart.stamp,\n"
+        "                  credentialSnapshotAfter?.appleIDAdsid == adsid,\n"
+        "                  credentialSnapshotAfter?.appleIDXcodeToken == xcodeToken else {\n"
+        "                throw OperationError.notAuthenticated\n"
+        "            }\n")
+    text = replace(text,
+        "            self.session = session\n"
+        "            return session\n",
+        "            guard self.v3InstallSessionIfCurrent(session, capturedStamp: identityAtStart.stamp) else {\n"
+        "                throw OperationError.notAuthenticated\n"
+        "            }\n"
+        "            return session\n")
+    for old, new in (
+        ("set { Keychain.shared.appleIDEmailAddress = newValue }",
+         "set { self.v3BeginIdentityTransition(); defer { self.v3CompleteIdentityTransition() }; Keychain.shared.appleIDEmailAddress = newValue }"),
+        ("set { Keychain.shared.appleIDPassword = newValue }",
+         "set { self.v3BeginIdentityTransition(); defer { self.v3CompleteIdentityTransition() }; Keychain.shared.appleIDPassword = newValue }"),
+        ("set { Keychain.shared.appleIDAdsid = newValue }",
+         "set { self.v3BeginIdentityTransition(); defer { self.v3CompleteIdentityTransition() }; Keychain.shared.appleIDAdsid = newValue }"),
+        ("set { Keychain.shared.appleIDXcodeToken = newValue }",
+         "set { self.v3BeginIdentityTransition(); defer { self.v3CompleteIdentityTransition() }; Keychain.shared.appleIDXcodeToken = newValue }"),
+    ):
+        if old not in text and new not in text:
+            raise SystemExit("v3 service: credential setter generation anchor changed")
+        if old in text:
+            text = replace(text, old, new)
+    return text
+
+
+def patch_developer_portal_proxy(text):
+    marker = "V3_AUTH_IDENTITY_BOUND_DEVELOPER_PORTAL_V1"
+    if marker in text:
+        required = ("getBoundSession()", "getBoundTeam(_:context:)",
+                    "mayFetchTeams(sessionOwner:", "mayUseTeam(sessionOwner:",
+                    "fetchTeams(for account: ALTAccount)", "team.account?.appleID",
+                    "databaseOwnershipSnapshot(for: team.identifier)",
+                    "activeTeam(in: context)", "activeAccount(in: context)",
+                    "setQueryGenerationFrom(.current)", "import CoreData")
+        if any(value not in text for value in required):
+            raise SystemExit("v3 service: DeveloperPortalProxy identity binding patch is partial")
+        return text
+    old = '''    private func getSession() async throws -> ALTAppleAPISession {
+        try await AuthManager.shared.getAuthenticatedSession()
+    }
+
+    private func getTeam(_ team: ALTTeam? = nil) async throws -> ALTTeam {
+        if let team { return team }
+        return try await AuthManager.shared.getAuthenticatedTeam()
+    }'''
+    new = '''    // V3_AUTH_IDENTITY_BOUND_DEVELOPER_PORTAL_V1
+    private struct BoundSession {
+        let session: ALTAppleAPISession
+        let appleID: String
+        let generation: UInt64
+        let identityStamp: String
+    }
+
+    private func getBoundSession() async throws -> BoundSession {
+        let auth = AuthManager.shared
+        guard auth.v3IdentityIsStable else { throw OperationError.notAuthenticated }
+        let generation = auth.v3IdentityGeneration
+        let identityStamp = auth.v3IdentityStamp
+        let credentialsBefore = auth.authenticationSnapshot
+        let session = try await auth.getAuthenticatedSession()
+        let credentials = auth.authenticationSnapshot
+        guard V3AuthIdentityBindingPolicy.hasUsableSession(
+            credentialRoutePresent: credentials?.isAuthenticated == true,
+            dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,
+            sessionDSID: session.dsid, sessionXcodeToken: session.authToken,
+            generationBefore: generation,
+            generationAfter: auth.v3IdentityGeneration),
+              V3AuthIdentityBindingPolicy.sameCredentialRoute(
+                appleIDBefore: credentialsBefore?.appleIDEmailAddress,
+                appleIDAfter: credentials?.appleIDEmailAddress,
+                dsidBefore: credentialsBefore?.appleIDAdsid, dsidAfter: credentials?.appleIDAdsid,
+                tokenBefore: credentialsBefore?.appleIDXcodeToken, tokenAfter: credentials?.appleIDXcodeToken),
+              V3AuthIdentityBindingPolicy.mayDispatch(generationBefore: generation,
+                generationAfter: auth.v3IdentityGeneration, cancelled: Task.isCancelled),
+              auth.v3IdentityIsStable, identityStamp == auth.v3IdentityStamp,
+              let appleID = credentials?.appleIDEmailAddress else {
+            throw OperationError.notAuthenticated
+        }
+        return BoundSession(session: session, appleID: appleID, generation: generation,
+            identityStamp: identityStamp)
+    }
+
+    private func verifyCurrent(_ context: BoundSession) throws {
+        let auth = AuthManager.shared
+        let credentials = auth.authenticationSnapshot
+        guard V3AuthReadStampPolicy.mayReturn(capturedStamp: context.identityStamp,
+              currentStamp: auth.v3IdentityStamp, stable: auth.v3IdentityIsStable),
+              context.generation == auth.v3IdentityGeneration,
+              V3AuthIdentityBindingPolicy.mayDispatch(generationBefore: context.generation,
+                generationAfter: auth.v3IdentityGeneration, cancelled: Task.isCancelled),
+              V3AuthIdentityBindingPolicy.hasUsableSession(
+                credentialRoutePresent: credentials?.isAuthenticated == true,
+                dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,
+                sessionDSID: context.session.dsid, sessionXcodeToken: context.session.authToken,
+                generationBefore: context.generation,
+                generationAfter: auth.v3IdentityGeneration),
+              V3AuthIdentityBindingPolicy.mayUseTeam(
+                sessionOwner: context.appleID, teamOwner: credentials?.appleIDEmailAddress) else {
+            throw OperationError.notAuthenticated
+        }
+    }
+
+    private func awaitBound<T>(_ context: BoundSession,
+                               operation: () async throws -> T) async throws -> T {
+        try verifyCurrent(context)
+        let value = try await operation()
+        try verifyCurrent(context)
+        return value
+    }
+
+    private struct DatabaseTeamOwnershipSnapshot: Sendable {
+        let teamOwners: [String]
+        let activeTeamIdentifier: String?
+        let activeAccountOwner: String?
+    }
+
+    private func databaseOwnershipSnapshot(for identifier: String) async throws -> DatabaseTeamOwnershipSnapshot {
+        try await DatabaseManager.shared.persistentContainer.performBackgroundTask { context in
+            // Pin SQLite reads to one generation. In-memory Core Data stores
+            // do not support query generations, but this closure still reads
+            // every ownership fact on the same private context queue.
+            if context.persistentStoreCoordinator?.persistentStores.contains(
+                where: { $0.type == NSSQLiteStoreType }) == true {
+                try context.setQueryGenerationFrom(.current)
+            }
+            let request = NSFetchRequest<Team>(entityName: "Team")
+            request.predicate = NSPredicate(format: "%K == %@", #keyPath(Team.identifier), identifier)
+            let matches = try context.fetch(request)
+            let owners = Set(matches.compactMap { $0.account?.appleID }
+                .compactMap(V3AuthIdentityBindingPolicy.normalizedOwner)).sorted()
+            let activeTeamIdentifier = DatabaseManager.shared.activeTeam(in: context)?.identifier
+            let activeAccountOwner = DatabaseManager.shared.activeAccount(in: context)?.appleID
+            return DatabaseTeamOwnershipSnapshot(teamOwners: owners,
+                activeTeamIdentifier: activeTeamIdentifier, activeAccountOwner: activeAccountOwner)
+        }
+    }
+
+    private func owner(for team: ALTTeam, context: BoundSession) async throws -> String? {
+        let directOwner = V3AuthIdentityBindingPolicy.normalizedOwner(team.account?.appleID)
+        // SideSign's fetchTeams(for:session:) binds each returned ALTTeam to
+        // the requested ALTAccount. Trust that explicit owner; a prior DB row
+        // with the same team identifier may belong to a different account.
+        if let directOwner { return directOwner }
+        let databaseSnapshot = try await databaseOwnershipSnapshot(for: team.identifier)
+        return V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
+            storedTeamOwners: databaseSnapshot.teamOwners,
+            activeTeamIdentifier: databaseSnapshot.activeTeamIdentifier,
+            requestedTeamIdentifier: team.identifier,
+            activeAccountOwner: databaseSnapshot.activeAccountOwner,
+            sessionOwner: context.appleID)
+    }
+
+    private func getBoundTeam(_ team: ALTTeam? = nil, context: BoundSession) async throws -> ALTTeam {
+        let resolved: ALTTeam
+        if let team { resolved = team }
+        else { resolved = try await AuthManager.shared.getAuthenticatedTeam() }
+        let owner = try await owner(for: resolved, context: context)
+        try verifyCurrent(context)
+        guard V3AuthIdentityBindingPolicy.mayDispatchTeamRequest(
+            sessionOwner: context.appleID, teamOwner: owner,
+            generationBefore: context.generation,
+            generationAfter: AuthManager.shared.v3IdentityGeneration,
+            cancelled: Task.isCancelled) else {
+            throw OperationError.notAuthenticated
+        }
+        return resolved
+    }
+'''
+    if text.count(old) != 1:
+        raise SystemExit("v3 service: DeveloperPortalProxy session/team helper anchors changed")
+    text = text.replace(old, new, 1)
+    old_fetch = '''    public func fetchTeams(for account: ALTAccount) async throws -> [ALTTeam] {
+        let session = try await self.getSession()
+        return try await ALTAppleAPI.shared.fetchTeams(for: account, session: session)
+    }'''
+    new_fetch = '''    public func fetchTeams(for account: ALTAccount) async throws -> [ALTTeam] {
+        let context = try await self.getBoundSession()
+        try self.verifyCurrent(context)
+        guard V3AuthIdentityBindingPolicy.mayFetchTeams(sessionOwner: context.appleID,
+            requestedOwner: account.appleID, generationBefore: context.generation,
+            generationAfter: AuthManager.shared.v3IdentityGeneration,
+            cancelled: Task.isCancelled) else {
+            throw OperationError.notAuthenticated
+        }
+        let teams = try await self.awaitBound(context) {
+            try await ALTAppleAPI.shared.fetchTeams(for: account, session: context.session)
+        }
+        try self.verifyCurrent(context)
+        return teams
+    }'''
+    if text.count(old_fetch) != 1:
+        raise SystemExit("v3 service: DeveloperPortalProxy fetchTeams anchor changed")
+    text = text.replace(old_fetch, new_fetch, 1)
+    # All team-scoped entry points now resolve the team against the same
+    # captured token/owner epoch and recheck immediately before network use.
+    text = text.replace("let session = try await self.getSession()\n        let team = try await self.getTeam(team)",
+        "let context = try await self.getBoundSession()\n        let session = context.session\n        let team = try await self.getBoundTeam(team, context: context)")
+    if "getSession()" in text or "getTeam(team)" in text:
+        raise SystemExit("v3 service: unbound DeveloperPortalProxy call path remains")
+    # Every portal response is checked again after its await. This is a syntax-
+    # balanced call wrapper so multiline argument lists remain intact. Limit it
+    # to the team-scoped base proxy: the auth-bootstrap subclass has no bound
+    # session yet and cannot access the base class's private awaitBound helper.
+    bootstrap_marker = "class DeveloperPortalProxyWithAuth: DeveloperPortalProxy {"
+    if text.count(bootstrap_marker) != 1:
+        raise SystemExit("v3 service: DeveloperPortalProxy auth-bootstrap boundary changed")
+    text, auth_bootstrap = text.split(bootstrap_marker, 1)
+    needle = "try await ALTAppleAPI.shared."
+    offset = 0
+    wrapped = []
+    while True:
+        start = text.find(needle, offset)
+        if start < 0:
+            wrapped.append(text[offset:])
+            break
+        wrapped.append(text[offset:start])
+        open_paren = text.find("(", start + len(needle))
+        if open_paren < 0:
+            raise SystemExit("v3 service: unmatched portal API call")
+        depth = 0
+        end = open_paren
+        while end < len(text):
+            if text[end] == "(": depth += 1
+            elif text[end] == ")":
+                depth -= 1
+                if depth == 0:
+                    end += 1
+                    break
+            end += 1
+        if depth != 0:
+            raise SystemExit("v3 service: unmatched portal API call")
+        call = text[start:end]
+        # Decorate only errors from the actual upstream portal invocation, after
+        # existing account/session/team admission. No request or retry changes.
+        method = text[start + len(needle):open_paren].strip()
+        portal_steps = {
+            "fetchAppIDs": "appIDLookup", "addAppID": "appIDRegistration",
+            "updateAppID": "appIDCapabilitiesUpdate", "fetchAppGroups": "appGroupLookup",
+            "addAppGroup": "appGroupRegistration", "assign": "appGroupAssignment",
+            "downloadProvisioningProfile": "provisioningProfileRetrieval",
+            "createProvisioningProfile": "provisioningProfileCreation",
+            "updateProvisioningProfile": "provisioningProfileUpdate",
+        }
+        if method in portal_steps:
+            args = "teamID: team.identifier, generation: context.generation"
+            if method == "addAppID": args += ", bundleID: bundleIdentifier"
+            elif method in {"updateAppID", "assign", "createProvisioningProfile"}:
+                args += ", bundleID: appID.bundleIdentifier"
+            elif method == "downloadProvisioningProfile" and "for: appID" in call:
+                args += ", bundleID: appID.bundleIdentifier"
+            if method == "updateAppID":
+                args += ", features: Dictionary(uniqueKeysWithValues: appID.features.map { ($0.key.rawValue, $0.value) })"
+            if method == "assign": args += ", groupCount: groups.count"
+            elif method == "addAppGroup": args += ", groupCount: 1, groupID: groupIdentifier"
+            if method == "downloadProvisioningProfile":
+                args += ', profileMode: ' + ('isTeamProfile ? "team" : "manual"' if "for: appID" in call else '"manual"')
+            elif method in {"createProvisioningProfile", "updateProvisioningProfile"}:
+                args += ', profileMode: "manual"'
+            call = ('try await lcPortalSigningRequest(sourceStep: "' + portal_steps[method] +
+                    '", facts: lcPortalSigningContext(' + args + ')) { ' + call + ' }')
+        wrapped.append("try await self.awaitBound(context) { " + call + " }")
+        offset = end
+    text = "".join(wrapped) + bootstrap_marker + auth_bootstrap
+    text = replace(text, "@preconcurrency import UIKit\n", "@preconcurrency import UIKit\nimport CoreData\n")
+    return text
+
+
+def verify_canonical_jitless_certificate_importer(live):
+    settings_path = live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
+    settings = settings_path.read_text(encoding="utf-8")
+    if "V3_CANONICAL_JITLESS_ROUTE_V1" not in settings:
+        raise SystemExit(
+            "v3 service: patch the unified shell before the headless service; "
+            "the canonical JIT-Less certificate importer is missing")
+    signature = "    func importCertificateFromSideStore() async {"
+    end_signature = "    private func v3CompleteSideStoreCertificateImport"
+    if settings.count(signature) != 1 or settings.count(end_signature) != 1:
+        raise SystemExit("v3 service: canonical JIT-Less certificate importer anchor changed")
+    start = settings.index(signature)
+    end = settings.index(end_signature, start)
+    importer = settings[start:end]
+    required = (
+        "V3CertificateImportOwnership.begin()",
+        "V3CertificateImportOwnership.isActive(requestID)",
+        "V3CertificateImportOwnership.cancel(requestID)",
+        "V3_SERVICE_CERTIFICATE_EXPORT_V1",
+        'operation: "certExportActive"',
+        'Set(reply.keys) == Set(["data", "password", "teamIdentifier", "identitySHA256"])',
+        "data.count <= 1_048_576",
+        "password.utf8.count <= 512",
+        "LCUtils.getCertTeamId(withKeyData: data, password: password) == team",
+        'operation: "healthSnapshot"',
+        'current["certificateIdentitySHA256"] as? String == fingerprint',
+        "v3CompleteSideStoreCertificateImport(certificateData: data, password: password,",
+        "Embedded SideStore is unavailable in this LiveContainer build.",
+    )
+    if any(token not in importer for token in required):
+        raise SystemExit("v3 service: canonical JIT-Less certificate importer is incomplete")
+    if "storeScheme" in importer or "UIApplication.shared.open(url)" in importer:
+        raise SystemExit("v3 service: canonical JIT-Less importer still launches a second app")
+    if any(token in importer for token in ("SecItemCopyMatching", "sharedKeychainAccessGroup", "kSecAttrAccessGroup")):
+        raise SystemExit("v3 service: canonical JIT-Less importer still reads a host Keychain group")
+
+
+def patch(live, side):
+    roots = (live, side)
+    for root, pin in zip(roots, PINS):
+        actual = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+        if actual != pin:
+            raise SystemExit(f"v3 service: unpinned input {actual}; expected {pin}")
+    manifest = live / ".v3-command-patch.json"
+    template_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in TEMPLATES.glob("v3_*.swift")}
+    group_policy_template = TEMPLATES / "LCAppGroupSelectionPolicy.h"
+    template_hashes[group_policy_template.name] = hashlib.sha256(group_policy_template.read_bytes()).hexdigest()
+    group_rules_template = TEMPLATES / "LCAppGroupIdentityRules.h"
+    template_hashes[group_rules_template.name] = hashlib.sha256(group_rules_template.read_bytes()).hexdigest()
+    template_hashes[BACKEND_CONNECTION_CONFIG_MANIFEST_KEY] = hashlib.sha256(
+        (HEADLESS_BACKEND_CONNECTION_CONFIG + "\n").encode("utf-8")).hexdigest()
+    anisette_ui_source = (side / HEADLESS_ANISETTE_UI_SOURCE).read_text(encoding="utf-8")
+    headless_models = headless_anisette_models(anisette_ui_source)
+    template_hashes[HEADLESS_ANISETTE_MODELS_MANIFEST_KEY] = hashlib.sha256(
+        headless_models.encode("utf-8")).hexdigest()
+    if manifest.exists():
+        previous = json.loads(manifest.read_text())
+        previous_version = previous.get("patchVersion")
+        if previous_version != PATCH_VERSION:
+            raise SystemExit(
+                f"v3 service: prepared patch version {previous_version!r} cannot be migrated safely to v{PATCH_VERSION}; "
+                "discard generated work directories and rebuild from the exact pinned sources")
+        for index, relative, digest in previous["files"]:
+            if hashlib.sha256((roots[index] / relative).read_bytes()).hexdigest() != digest:
+                raise SystemExit(f"v3 service: previously patched file drifted: {relative}")
+        if previous.get("templates") != template_hashes:
+            raise SystemExit("v3 service: template changed; apply to fresh pinned sources")
+        return
+
+    # The unified-shell patch owns the JIT-Less certificate import route and
+    # removes its legacy storeScheme deep-link fallback. Require that composed
+    # route here instead of editing an anchor that the shell intentionally
+    # removed.
+    verify_canonical_jitless_certificate_importer(live)
+
+    changes = {}
+    def edit(root, relative, transform):
+        path = root / relative
+        changes[path] = transform(changes.get(path, path.read_text(encoding="utf-8")))
+
+    changes[live / "LiveContainer/LCAppGroupSelectionPolicy.h"] = group_policy_template.read_text(encoding="utf-8")
+    changes[live / "LiveContainer/LCAppGroupIdentityRules.h"] = group_rules_template.read_text(encoding="utf-8")
+
+    def lifecycle(s):
+        s = replace(s, "struct LCTabView: View {", "struct V3ApplicationRoot<Content: View>: View {\n    let content: Content")
+        start = s.index("        TabView(selection: $sharedModel.selectedTab) {")
+        end = s.index("        .downloadAlert", start)
+        s = s[:start] + "        content\n" + s[end:]
+        return headless_lc_tab_view(s)
+    edit(live, "LiveContainerSwiftUI/Views/LCTabView.swift", lifecycle)
+
+    edit(live, "SideStoreSupport/XPCServer.h", lambda s: replace(s, "@protocol RefreshClient\n", '''@protocol RefreshClient
+// V3_COMMAND_PATCH_V1: primitive NSData only; the service validates its schema.
+- (void)v3Execute:(NSData* _Nonnull)request reply:(void (^ _Nonnull)(NSData* _Nonnull))reply NS_SWIFT_NAME(v3Execute(_:reply:));
+'''))
+    edit(live, "SideStoreSupport/XPCClient.m", lambda s: replace(s, "@implementation SideStoreClient", '''@protocol V3CommandService
++ (void)execute:(NSData *)request reply:(void (^)(NSData *))reply;
+@end
+
+@implementation SideStoreClient
+- (void)v3Execute:(NSData *)request reply:(void (^)(NSData *))reply {
+    Class<V3CommandService> service = (Class<V3CommandService>)NSClassFromString(@"V3SideStoreService");
+    if (service && [(id)service respondsToSelector:@selector(execute:reply:)]) {
+        [service execute:request reply:reply];
+    } else {
+        reply([NSData data]);
+    }
+}
+'''))
+    def host(s):
+        # Shared startup/refresh responsibilities are installed by the combined startup adapter.
+        return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
+            (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + \
+            (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
+    edit(live, "SideStoreSupport/SideStore.swift", host)
+    # The shared combined-startup adapter owns structured refresh error/result encoding.
+    edit(side, "AltStore/AppDelegate.swift", headless_sidestore_app_delegate)
+    edit(side, "SideStore/AppBootManager.swift", headless_app_boot_manager)
+    edit(side, "SideStore/Core/JIT/SideJITManager.swift", headless_sidejit_manager)
+    edit(side, "SideStore/Core/Pairing/PairingFileManager.swift", headless_pairing_file_manager)
+    edit(side, "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
+         headless_clear_cache_operation)
+    edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
+    edit(side, "SideStore/Core/Auth/AuthManager.swift",
+         lambda source: patch_auth_identity_generation(
+             apply_embedded_credential_snapshot_patch(source, "patch_auth_manager")))
+    edit(side, "SideStore/Core/Auth/DeveloperPortalProxy.swift", patch_developer_portal_proxy)
+    edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager)
+    edit(side, "SideStore/Core/Operations/PipelineRunner.swift",
+         headless_pipeline_persistence_contract)
+    edit(side, "SideStore/Core/Certificates/CodeSignValidator.swift", headless_code_sign_validator_privacy)
+    edit(side, "SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift",
+         headless_backup_operation)
+    edit(side, "SideBackup/SideBackupApp.swift", headless_sidebackup_response)
+    certificate_serial_log_files = (
+        ("SideStore/Core/Certificates/CertificateManager.swift", "CertificateManager"),
+        ("SideStore/Core/Certificates/OCSPValidator.swift", "OCSPValidator"),
+        ("SideStore/Core/Operations/PipelineOperations/VerifyCertificateOperation.swift", "VerifyCertificateOperation"),
+        ("SideStore/Core/Operations/PipelineOperations/UpdateAppCertificateOperation.swift", "UpdateAppCertificateOperation"),
+    )
+    for relative, owner in certificate_serial_log_files:
+        edit(side, relative, lambda source, owner=owner:
+             headless_certificate_serial_log_redaction(source, owner))
+    edit(side, "AltStore/Core/Model/RefreshAttempt.swift", headless_refresh_attempt_error_privacy)
+    edit(side, "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
+         headless_featured_sort_startup)
+    edit(side, "SideStore/Handlers/PipelineHandler.swift", headless_pipeline_handler)
+    edit(side, "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
+         headless_connection_config)
+    edit(side, "SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
+         headless_minimuxer_connection_binding)
+    backend_connection_config = side / "SideStore/Core/DeviceApi/ConnectionConfig.swift"
+    if backend_connection_config.exists():
+        raise SystemExit("v3 service: backend ConnectionConfig destination already exists")
+    changes[backend_connection_config] = HEADLESS_BACKEND_CONNECTION_CONFIG + "\n"
+    anisette_models_path = side / HEADLESS_ANISETTE_MODELS_SOURCE
+    if anisette_models_path.exists():
+        raise SystemExit("v3 service: generated Anisette model destination already exists")
+    changes[anisette_models_path] = headless_models
+    edit(side, "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+         lambda s: headless_app_intents(s, "RefreshAllAppsIntent.swift"))
+    edit(side, "AltStore/Intents/App Intents/AppShortcuts.swift",
+         lambda s: headless_app_intents(s, "AppShortcuts.swift"))
+    edit(side, "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
+         headless_widget_refresh_intent)
+    edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+         patch_sign_in_operation)
+    edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+         lambda source: headless_certificate_serial_log_redaction(source, "SignInOperation"))
+    edit(side, "AltStore/Info.plist", headless_info)
+    edit(side, "AltStore.xcodeproj/project.pbxproj", headless_project)
+    edit(side, "SideStore/Core/Logging/SideStoreLogging.swift", headless_safe_log_format)
+    edit(side, "AltStore/AppDelegate.swift",
+         lambda s: redact_external_url_logs(s, "AltStore/AppDelegate.swift"))
+    edit(side, "AltStore/SceneDelegate.swift",
+         lambda s: redact_external_url_logs(s, "AltStore/SceneDelegate.swift"))
+    edit(side, "SideStore/DeepLinks/URLHandler.swift",
+         lambda s: redact_external_url_logs(s, "SideStore/DeepLinks/URLHandler.swift"))
+    def remove_headless_ui_package_pins(text):
+        resolved = json.loads(text)
+        pins = resolved.get("pins")
+        if not isinstance(pins, list):
+            raise SystemExit("v3 service: SideStore package lock has no pin list")
+        removed_identities = {"starscream", "markdownkit", "nuke"}
+        filtered = [pin for pin in pins if pin.get("identity") not in removed_identities]
+        removed = len(pins) - len(filtered)
+        if removed == 0 and not any(pin.get("identity") in removed_identities for pin in pins):
+            return text
+        if removed != len(removed_identities):
+            raise SystemExit("v3 service: expected exactly one pin for each removed legacy UI package")
+        resolved["pins"] = filtered
+        return json.dumps(resolved, indent=2) + "\n"
+    edit(side, "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+         remove_headless_ui_package_pins)
+    edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
+        "        NavigationView {\n            ScrollView {", "        NavigationView {\n            ScrollView {\n                V3InstalledAppsSection(query: searchContext.debouncedQuery)"))
+    edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
+        '            .navigationTitle("lc.appList.myApps".loc)\n            .toolbar {',
+        '            .navigationTitle("My Apps")\n            .toolbar {'))
+    edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
+        '''                                Button("lc.appList.installFromIpa".loc, systemImage: "doc.badge.plus", action: {
+                                    choosingIPA = true
+                                })''', '''                                V3InstallButton()
+                                Button("Add to LiveContainer", systemImage: "doc.badge.plus", action: {
+                                    choosingIPA = true
+                                })'''))
+    edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(replace(s,
+        '''        if appFound == nil && bundleId == "builtinSideStore" {
+            appFound = LCAppModel(appInfo: BuiltInSideStoreAppInfo.shared)
+        }''', '''        if bundleId == "builtinSideStore" {
+            sharedModel.selectedTab = .settings
+            return
+        }'''), '''            UserDefaults.standard.setValue(url.absoluteString, forKey: "launchAppUrlScheme")
+            LCUtils.openSideStore(delegate: self)''', '''            sharedModel.selectedTab = .sources'''))
+    edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s:
+         s.replace('ForEach(filteredApps, id: \\.self)', 'ForEach(filteredApps, id: \\.v3Identity)')
+          .replace('ForEach(filteredHiddenApps, id: \\.self)', 'ForEach(filteredHiddenApps, id: \\.v3Identity)'))
+    edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
+        "            Form {", "            Form {\n                V3AccountSettings()"))
+    def multi_lc(s):
+        s = replace(s, "struct LCMultiLCManagementView : View, InstallAnotherLCButtonDelegate {",
+            "struct LCMultiLCManagementView : View, InstallAnotherLCButtonDelegate {\n    @EnvironmentObject private var v3Status: V3SideStoreStatusStore")
+        start = s.index("                let launchURLStr = packedIpaUrl.absoluteString")
+        end = s.index("\n                return", start)
+        old = s[start:end]
+        if "LCUtils.openSideStore(urlStr: launchURLStr)" not in old:
+            raise SystemExit("v3 multi-instance install route changed")
+        return s[:start] + '                v3Status.stageSharedIPA(packedIpaUrl, title: "Install " + name)' + s[end:]
+    edit(live, "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift", multi_lc)
+    edit(live, "ShareExtension/ShareExtensionViewModel.swift", lambda s: replace(s,
+        '        sharedDefaults?.set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")',
+        '        // V3_COMMAND_PATCH_V1: always open the unified host for installation.\n        sharedDefaults?.removeObject(forKey: "LCLaunchExtensionBundleID")'))
+    edit(live, "LaunchAppExtension/LaunchAppExtension.swift", lambda s: replace(s,
+        '            lcSharedDefaults.set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")',
+        '            // V3_COMMAND_PATCH_V1: the host routes SideStore links through its service.\n            lcSharedDefaults.removeObject(forKey: "LCLaunchExtensionBundleID")'))
+    def guest_jit(s):
+        s = replace(s, "import LocalAuthentication", "import LocalAuthentication\nimport SideStoreSupport")
+        start = s.index('            onServerMessage?("JIT acquisition will continue in SideStore.")')
+        end = s.index("\n        }\n        return false", start)
+        if 'await UIApplication.shared.open(launchURL)' not in s[start:end]:
+            raise SystemExit("v3 guest JIT route changed")
+        return s[:start] + '''            onServerMessage?("Requesting JIT from the SideStore service.")
+            do {
+                let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
+                guard let apps = snapshot["installedApps"] as? [[String: Any]],
+                      let host = apps.first(where: { $0["isHost"] as? Bool == true }),
+                      let identifier = host["identifier"] as? String else {
+                    onServerMessage?("The host is not in SideStore's library. Check Account and Signing.")
+                    return false
+                }
+                _ = try await V3ServiceBridge.shared.request(operation: "jit", target: identifier)
+                onServerMessage?("SideStore completed the JIT request.")
+            } catch { onServerMessage?(error.localizedDescription) }''' + s[end:]
+    edit(live, "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift",
+         lambda s: headless_open_sidestore_helper(guest_jit(s)))
+    edit(live, "LiveContainer/LCBootstrap.m", lambda s: replace(s,
+        '    if([lcUserDefaults boolForKey:@"LCOpenSideStore"] || [selectedApp isEqualToString:@"builtinSideStore"]) {',
+        '''    // V3_COMMAND_PATCH_V1: upgrade old startup selection into unified navigation.
+    // The dedicated LiveProcess service still boots SideStore normally.
+    if (!isLiveProcess && sideStoreExist &&
+        ([lcUserDefaults boolForKey:@"LCOpenSideStore"] || [selectedApp isEqualToString:@"builtinSideStore"])) {
+        if (launchUrl.length) [lcUserDefaults setObject:launchUrl forKey:@"V3PendingSideStoreURL"];
+        [lcUserDefaults setBool:NO forKey:@"LCOpenSideStore"];
+        [lcUserDefaults removeObjectForKey:@"selected"];
+        [lcUserDefaults removeObjectForKey:@"selectedContainer"];
+        selectedApp = nil;
+        selectedContainer = nil;
+        launchUrl = nil;
+    }
+    if([lcUserDefaults boolForKey:@"LCOpenSideStore"] || [selectedApp isEqualToString:@"builtinSideStore"]) {'''))
+    # Anchor on the Form root, not on the first Section: the refresh settings
+    # screen may insert its own leading section, and an anchor that assumes a
+    # particular neighbour breaks the whole build when that changes.
+    edit(live, "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift", lambda s: replace(s,
+        '        Form {\n', '        Form {\n            V3TargetedRefreshSection()\n'))
+    edit(live, "LiveContainerSwiftUI/App/AppDelegate.swift", lambda s: replace(replace(s,
+        '    private static func record(source: String, result: String, detail: String = "") {',
+        '    static func record(source: String, result: String, detail: String = "") {'),
+        '        // LC_REFRESH_HOST_V2', '''        NotificationCenter.default.addObserver(forName: Notification.Name("V3TargetedRefreshResult"), object: nil, queue: .main) { notification in
+            let result = notification.userInfo?["result"] as? String ?? "unknown"
+            let detail = notification.userInfo?["detail"] as? String ?? ""
+            Task { @MainActor in LiveContainerAutoRefreshScheduler.record(source: "manual_selected_app", result: result, detail: detail) }
+        }
+        // LC_REFRESH_HOST_V2'''))
+    # A service-owned blank presenter replaces the legacy tab controller. Auth and
+    # operation confirmation controllers render remotely within the host sheet.
+    def scene_delegate(s):
+        cast = '        guard let _ = (scene as? UIWindowScene) else { return }\n'
+        cast_marker = "V3_HEADLESS_SCENE_WINDOW_CAST_REMOVED_V1"
+        if cast_marker in s:
+            if "scene as? UIWindowScene" in s or "windowScene" in s:
+                raise SystemExit("v3 service: SceneDelegate no-op window cast remains")
+        else:
+            if s.count(cast) != 1:
+                raise SystemExit("v3 service: SceneDelegate no-op window cast changed")
+            s = replace(s, cast, "        // " + cast_marker + ": service scenes have no window setup.\n")
+        return headless_scene_open(redact_external_url_logs(s, "AltStore/SceneDelegate.swift"))
+    edit(side, "AltStore/SceneDelegate.swift", scene_delegate)
+    edit(side, "SideStore/DeepLinks/URLHandler.swift", headless_url_handler)
+
+    def delete_uninstall_evidence(s):
+        marker = "V3_DELETE_NATIVE_SUCCESS_EVIDENCE_V1"
+        if marker in s:
+            if s.count(marker) != 1 or "recordNativeUninstallSucceeded" not in s:
+                raise SystemExit("v3 service: delete uninstall evidence patch is partial")
+            return s
+        return replace(s,
+            "        try await removeApp(resignedBundleIdentifier)\n",
+            "        try await removeApp(resignedBundleIdentifier)\n"
+            "        // V3_DELETE_NATIVE_SUCCESS_EVIDENCE_V1: native uninstall succeeded; the service still verifies library absence.\n"
+            "        if let handler = self.context.handler as? V3HeadlessPipelineHandler {\n"
+            "            await handler.recordNativeUninstallSucceeded()\n"
+            "        }\n",
+            )
+    edit(side, "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
+         delete_uninstall_evidence)
+
+    # Attach a remote scene to the existing service process, never a second DB owner.
+    edit(live, "MultitaskSupport/AppSceneViewController.h", lambda s: replace(s,
+        "- (void)setBackgroundNotificationEnabled:(bool)enabled;",
+        "- (instancetype)initWithServicePID:(int)pid delegate:(id<AppSceneViewControllerDelegate>)delegate;\n- (void)setBackgroundNotificationEnabled:(bool)enabled;"))
+    edit(live, "MultitaskSupport/AppSceneViewController.m", lambda s: replace(s,
+        "- (void)setUpAppPresenter {", '''// V3_COMMAND_PATCH_V1: the service owns process lifetime; this owns presentation only.
+- (instancetype)initWithServicePID:(int)pid delegate:(id<AppSceneViewControllerDelegate>)delegate {
+    self = [super initWithNibName:nil bundle:nil];
+    if (self) {
+        self.delegate = delegate;
+        self.pid = pid;
+        self.bundleId = @"builtinSideStore";
+        self.dataUUID = @"v3-service";
+        self.scaleRatio = 1.0;
+        UIKitFixesInit();
+        dispatch_async(dispatch_get_main_queue(), ^{ [self setUpAppPresenter]; });
+    }
+    return self;
+}
+
+- (void)setUpAppPresenter {''').replace("[center removeObserver:self.extension", "if (self.extension) [center removeObserver:self.extension"))
+    def scene_hooks(s):
+        if s.count("UIKitFixesInit();") != 2:
+            raise SystemExit("v3 guest/service UIKit initialization anchors changed")
+        s = s.replace("UIKitFixesInit();", "V3InitializeUIKitFixes();")
+        return replace(s, "@implementation AppSceneViewController", '''// Both guest and service scenes share one swizzle installation for the host process.
+static void V3InitializeUIKitFixes(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ UIKitFixesInit(); });
+}
+
+@implementation AppSceneViewController''')
+    edit(live, "MultitaskSupport/AppSceneViewController.m", scene_hooks)
+    def forward_selected_app_group(s):
+        s = replace(s, '#import "LCSharedUtils.h"',
+            '#import "LCSharedUtils.h"\n#import "../LiveContainer/LCAppGroupSelectionPolicy.h"')
+        return replace(s,
+            '        @"lcHomePath": NSHomeDirectory(),\n    }.mutableCopy;\n',
+            '        @"lcHomePath": NSHomeDirectory(),\n    }.mutableCopy;\n'
+            '    NSString *hostGroupID = LCValidatedAppGroupID([LCSharedUtils appGroupID], ^BOOL(NSString *groupID) {\n'
+            '        return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:groupID] != nil;\n'
+            '    });\n'
+            '    if (hostGroupID) [userInfo setObject:hostGroupID forKey:@"lcAppGroupID"];\n')
+    edit(live, "MultitaskSupport/AppSceneViewController.m", forward_selected_app_group)
+    def apply_inherited_app_group(s):
+        s = replace(s, '#import "../SideStoreSupport/XPCServer.h"',
+            '#import "../SideStoreSupport/XPCServer.h"\n#import "../LiveContainer/LCAppGroupSelectionPolicy.h"\n#import "../LiveContainer/FoundationPrivate.h"\n#import <CommonCrypto/CommonDigest.h>')
+        return replace(s,
+            '    NSUserDefaults *lcUserDefaults = NSUserDefaults.standardUserDefaults;\n',
+            '    NSUserDefaults *lcUserDefaults = NSUserDefaults.standardUserDefaults;\n'
+            '    NSString *inheritedGroupID = LCValidatedAppGroupID(appInfo[@"lcAppGroupID"], ^BOOL(NSString *groupID) {\n'
+            '        return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:groupID] != nil;\n'
+            '    });\n'
+            '    // Probe the extension process signature, not the framework Info.plist.\n'
+            '    // Retain only group digests; no identifier or container path is logged.\n'
+            f'    unsetenv("{RUNTIME_APP_GROUP_ENV_KEY}");\n'
+            '    unsetenv("LC_V3_SIGNED_APP_GROUP_DIGESTS");\n'
+            '    if (inheritedGroupID) {\n'
+            f'        setenv("{RUNTIME_APP_GROUP_ENV_KEY}", inheritedGroupID.UTF8String, 1);\n'
+            '        void *task = SecTaskCreateFromSelf(NULL);\n'
+            '        if (task) {\n'
+            '            CFErrorRef entitlementError = NULL;\n'
+            '            CFTypeRef groups = SecTaskCopyValueForEntitlement(task,\n'
+            '                CFSTR("com.apple.security.application-groups"), &entitlementError);\n'
+            '            CFRelease(task);\n'
+            '            if (groups && CFGetTypeID(groups) == CFArrayGetTypeID()) {\n'
+            '                NSMutableArray<NSString *> *digests = [NSMutableArray array];\n'
+            '                for (id value in (__bridge NSArray *)groups) {\n'
+            '                    if (![value isKindOfClass:NSString.class]) continue;\n'
+            '                    NSData *bytes = [(NSString *)value dataUsingEncoding:NSUTF8StringEncoding];\n'
+            '                    unsigned char digest[CC_SHA256_DIGEST_LENGTH];\n'
+            '                    CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);\n'
+            '                    NSMutableString *hex = [NSMutableString stringWithCapacity:64];\n'
+            '                    for (NSUInteger index = 0; index < CC_SHA256_DIGEST_LENGTH; index++) {\n'
+            '                        [hex appendFormat:@"%02x", digest[index]];\n'
+            '                    }\n'
+            '                    [digests addObject:hex];\n'
+            '                }\n'
+            '                setenv("LC_V3_SIGNED_APP_GROUP_DIGESTS",\n'
+            '                    [digests componentsJoinedByString:@","].UTF8String, 1);\n'
+            '            }\n'
+            '            if (groups) CFRelease(groups);\n'
+            '            if (entitlementError) CFRelease(entitlementError);\n'
+            '        }\n'
+            '    }\n'
+            '    if (inheritedGroupID) {\n'
+            '        [lcUserDefaults setObject:inheritedGroupID forKey:@"LCInheritedAppGroupID"];\n'
+            '    } else {\n'
+            '        [lcUserDefaults removeObjectForKey:@"LCInheritedAppGroupID"];\n'
+            '    }\n')
+    edit(live, "LiveProcess/main.m", apply_inherited_app_group)
+    def honor_inherited_app_group(s):
+        s = replace(s, '#import "LCSharedUtils.h"',
+            '#import "LCSharedUtils.h"\n#import "LCAppGroupSelectionPolicy.h"')
+        return replace(s,
+            '    dispatch_once(&once, ^{\n        NSArray* possibleAppGroups = @[',
+            '    dispatch_once(&once, ^{\n'
+            '        NSString *inherited = LCValidatedAppGroupID(\n'
+            '            [NSUserDefaults.standardUserDefaults objectForKey:@"LCInheritedAppGroupID"],\n'
+            '            ^BOOL(NSString *groupID) {\n'
+            '                return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:groupID] != nil;\n'
+            '            });\n'
+            '        if (inherited) { appGroupID = inherited; return; }\n'
+            '        NSArray* possibleAppGroups = @[')
+    edit(live, "LiveContainer/LCSharedUtils.m", honor_inherited_app_group)
+    records = []
+    for path, content in changes.items():
+        encoded = content.encode("utf-8")
+        index = 0 if live in path.parents else 1
+        records.append([index, str(path.relative_to(roots[index])).replace("\\", "/"), hashlib.sha256(encoded).hexdigest()])
+    # Validate all anchors before writing anything.
+    for path, content in changes.items():
+        path.write_bytes(content.encode("utf-8"))
+    manifest.write_text(json.dumps({"patchVersion": PATCH_VERSION, "pins": PINS,
+                                    "templates": template_hashes, "files": records}, indent=2) + "\n")
+
+
+def verify_sign_in_operation(side, pinned_ref):
+    relative = "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
+    source = subprocess.check_output(
+        ["git", "-C", str(side), "show", f"{pinned_ref}:{relative}"],
+        text=True, encoding="utf-8")
+    expected = patch_sign_in_operation(source)
+    expected = apply_embedded_credential_snapshot_patch(expected, "patch_sign_in_operation")
+    expected = headless_certificate_serial_log_redaction(expected, "SignInOperation")
+    actual = (side / relative).read_text(encoding="utf-8")
+    if actual != expected:
+        raise SystemExit("v3 service: SignInOperation differs from the exact generated pinned patch")
+
+
+def verify_headless_ui_adapters(side, pinned_ref):
+    adapters = (
+        ("AltStore/AppDelegate.swift", headless_sidestore_app_delegate),
+        ("SideStore/Core/Auth/AuthManager.swift",
+         lambda source: patch_auth_identity_generation(
+             apply_embedded_credential_snapshot_patch(headless_auth_manager(source), "patch_auth_manager"))),
+        ("SideStore/Core/Auth/DeveloperPortalProxy.swift", patch_developer_portal_proxy),
+        ("AltStore/Managing Apps/AppManager.swift", headless_app_manager),
+        ("AltStore/Core/Model/RefreshAttempt.swift", headless_refresh_attempt_error_privacy),
+        ("AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+         lambda source: headless_app_intents(source, "RefreshAllAppsIntent.swift")),
+        ("SideStore/AppBootManager.swift", headless_app_boot_manager),
+        ("SideStore/Core/JIT/SideJITManager.swift", headless_sidejit_manager),
+        ("SideStore/Core/Pairing/PairingFileManager.swift", headless_pairing_file_manager),
+        ("SideStore/Handlers/PipelineHandler.swift", headless_pipeline_handler),
+        ("SideStore/Core/Certificates/CodeSignValidator.swift", headless_code_sign_validator_privacy),
+        ("SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift", headless_backup_operation),
+        ("SideBackup/SideBackupApp.swift", headless_sidebackup_response),
+        ("SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
+         headless_clear_cache_operation),
+        ("SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift", headless_connection_config),
+        ("SideStore/Core/DeviceApi/MinimuxerWrapper.swift", headless_minimuxer_connection_binding),
+    )
+    for relative, transform in adapters:
+        source = subprocess.check_output(
+            ["git", "-C", str(side), "show", f"{pinned_ref}:{relative}"],
+            text=True, encoding="utf-8")
+        expected = transform(source)
+        if relative == "AltStore/AppDelegate.swift":
+            expected = replace(expected,
+                '                debugLog("Started DatabaseManager.")\n',
+                '                debugLog("Started DatabaseManager.")\n'
+                '                // V3_SIDESTORE_STATUS_SNAPSHOT_V1: retired in favor of live XPC reads.\n')
+            expected = redact_external_url_logs(expected, relative)
+        actual = (side / relative).read_text(encoding="utf-8")
+        if actual != expected:
+            raise SystemExit(f"v3 service: {relative} differs from its exact pinned headless UI patch")
+    backend_config = side / "SideStore/Core/DeviceApi/ConnectionConfig.swift"
+    if not backend_config.is_file() or backend_config.read_text(encoding="utf-8") != HEADLESS_BACKEND_CONNECTION_CONFIG + "\n":
+        raise SystemExit("v3 service: backend ConnectionConfig differs from the generated headless transport model")
+    verify_headless_anisette_models(side, pinned_ref)
+
+
+def verify_headless_anisette_models(side, pinned_ref):
+    source = subprocess.check_output(
+        ["git", "-C", str(side), "show", f"{pinned_ref}:{HEADLESS_ANISETTE_UI_SOURCE}"],
+        text=True, encoding="utf-8")
+    expected = headless_anisette_models(source)
+    generated = side / HEADLESS_ANISETTE_MODELS_SOURCE
+    if not generated.is_file() or generated.read_text(encoding="utf-8") != expected:
+        raise SystemExit("v3 service: Anisette backend models differ from their byte-faithful pinned declarations")
+
+    project = (side / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+    exception_anchor = 'A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {'
+    if project.count(exception_anchor) != 1:
+        raise SystemExit("v3 service: AltStore synchronized source exclusion anchor changed")
+    exception_start = project.index(exception_anchor)
+    member_start = project.index("membershipExceptions = (", exception_start)
+    member_end = project.index(");", member_start)
+    members = project[member_start:member_end]
+    excluded_view = '"Settings/AnisetteServerList.swift"' in members
+    if not excluded_view:
+        raise SystemExit("v3 service: Anisette SwiftUI view remains in the SideStore target")
+    if '"Settings/SettingsViewController.swift"' not in members:
+        raise SystemExit("v3 service: retained SettingsViewController still depends on the Anisette SwiftUI view")
+    if '"Settings/AnisetteServerModels.swift"' in members:
+        raise SystemExit("v3 service: generated Anisette backend models are excluded from the SideStore target")
+    side_target_sources = '''fileSystemSynchronizedGroups = (
+				A8EEC3482F4B0D8600F2436D /* Shared */,
+				A8EEC8412F4B146A00F2436D /* AltStore */,
+				A8EECF2A2F4B195000F2436D /* SideStore */,
+			);'''
+    if side_target_sources not in project:
+        raise SystemExit("v3 service: SideStore target no longer includes the AltStore synchronized source group")
+
+    callers = subprocess.check_output(
+        ["git", "-C", str(side), "grep", "-n", "-E", "AnisetteServersView|AnisetteViewModel",
+         pinned_ref, "--", "*.swift"], text=True, encoding="utf-8")
+    caller_paths = {line.split(":", 2)[1] for line in callers.splitlines()}
+    if caller_paths != {HEADLESS_ANISETTE_UI_SOURCE, "AltStore/Settings/SettingsViewController.swift"}:
+        raise SystemExit("v3 service: retained SideStore caller still references the Anisette SwiftUI view")
+
+    data_references = subprocess.check_output(
+        ["git", "-C", str(side), "grep", "-n", "-E", "AnisetteServerData",
+         pinned_ref, "--", "*.swift"], text=True, encoding="utf-8")
+    data_paths = {line.split(":", 2)[1] for line in data_references.splitlines()}
+    if data_paths != {HEADLESS_ANISETTE_UI_SOURCE, "SideStore/Core/Anisette/AnisetteServersManager.swift"}:
+        raise SystemExit("v3 service: pinned AnisetteServerData references changed")
+    if "import SideSign" not in expected or "let oda: ODAValue?" not in expected:
+        raise SystemExit("v3 service: generated Anisette models lost the pinned ODAValue dependency")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 4 and sys.argv[1] == "--verify-sign-in-operation":
+        verify_sign_in_operation(Path(sys.argv[2]).resolve(), sys.argv[3])
+        print("pinned SignInOperation patch verified")
+    elif len(sys.argv) == 4 and sys.argv[1] == "--verify-headless-ui-adapters":
+        verify_headless_ui_adapters(Path(sys.argv[2]).resolve(), sys.argv[3])
+        print("pinned headless auth/UI adapter patches verified")
+    else:
+        if len(sys.argv) != 3:
+            raise SystemExit("usage: patch_v3_service.py LIVE_CONTAINER SIDE_STORE")
+        patch(*(Path(arg).resolve() for arg in sys.argv[1:]))
+        print("v3 command patch applied and verified")

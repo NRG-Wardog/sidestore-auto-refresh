@@ -1,0 +1,36 @@
+{
+  "command": [
+    "xcodebuild",
+    "-resolvePackageDependencies",
+    "-project",
+    "/Users/runner/work/LiveContainer/LiveContainer/production-work/sources/SideStore/AltStore.xcodeproj",
+    "-scheme",
+    "SideStore",
+    "-clonedSourcePackagesDirPath",
+    "/Users/runner/work/LiveContainer/LiveContainer/production-work/results/sidestore-packages",
+    "-derivedDataPath",
+    "/Users/runner/work/LiveContainer/LiveContainer/production-work/results/sidestore-derived",
+    "-disablePackageRepositoryCache"
+  ],
+  "evidence_sha256": {
+    "resolution_after": "d2884bdf70ad36fc112394cca8cb8d566affb7a6fe0e9cd3fb9518df5c3b9076",
+    "resolution_before": "75ffdbb23481eed06e3d46210f24f2eb95a633dc55ece83a4295dc1e261f0c96",
+    "resolver_log": "18a339a09d43afff50921580e94d848f1709d25045eb2d6a1ca43da6c60debd4"
+  },
+  "lock_sha256": "d2884bdf70ad36fc112394cca8cb8d566affb7a6fe0e9cd3fb9518df5c3b9076",
+  "origin_hash": {
+    "present": true,
+    "value": "c9e3c6042136849ac21835264cf5aece849ed3e487b36b9242a3ab0b5fcf6d17"
+  },
+  "owner": "SideStore",
+  "purpose": "diagnostic_xcode_resolution",
+  "resolver_tested_commit": "0198bf408cf9ebf3a5f642e9790f3fc3ca215d9d",
+  "resolver_tested_tree": "5f60facd78ac002007184d7e2dab99b7c727a7f0",
+  "run_attempt": 1,
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37780905390",
+  "schema_version": 1,
+  "toolchain": {
+    "swift": "swift-driver version: 1.148.6 Apple Swift version 6.3.1 (swiftlang-6.3.1.1.2 clang-2100.0.123.102)",
+    "xcode": "Xcode 26.4.1\nBuild version 17E202"
+  }
+}

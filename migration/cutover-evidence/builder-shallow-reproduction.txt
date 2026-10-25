@@ -1,0 +1,56 @@
+test_different_archive_is_rejected (test_maintained_sources.BuildAttributionTests.test_different_archive_is_rejected) ... ok
+test_different_generated_header_is_rejected (test_maintained_sources.BuildAttributionTests.test_different_generated_header_is_rejected) ... ok
+test_exact_archive_header_and_module_staging_pass (test_maintained_sources.BuildAttributionTests.test_exact_archive_header_and_module_staging_pass) ... ok
+test_wrong_platform_and_escaped_slice_are_rejected (test_maintained_sources.BuildAttributionTests.test_wrong_platform_and_escaped_slice_are_rejected) ... ok
+test_assume_unchanged_cannot_hide_source_mutation (test_maintained_sources.GitInputsTests.test_assume_unchanged_cannot_hide_source_mutation) ... ok
+test_canonical_symlink_root_is_a_legitimate_checkout (test_maintained_sources.GitInputsTests.test_canonical_symlink_root_is_a_legitimate_checkout) ... ok
+test_core_worktree_cannot_hide_untracked_compiler_input (test_maintained_sources.GitInputsTests.test_core_worktree_cannot_hide_untracked_compiler_input) ... ok
+test_directory_substitution_fails (test_maintained_sources.GitInputsTests.test_directory_substitution_fails) ... ok
+test_exact_source_tree_passes_without_changing_any_bytes (test_maintained_sources.GitInputsTests.test_exact_source_tree_passes_without_changing_any_bytes) ... ok
+test_genuine_submodule_gitfile_is_supported (test_maintained_sources.GitInputsTests.test_genuine_submodule_gitfile_is_supported) ... ok
+test_linked_worktree_gitfile_is_supported (test_maintained_sources.GitInputsTests.test_linked_worktree_gitfile_is_supported) ... ok
+test_missing_child_repository_cannot_resolve_to_parent (test_maintained_sources.GitInputsTests.test_missing_child_repository_cannot_resolve_to_parent) ... ok
+test_only_explicit_build_outputs_are_tolerated_after_build (test_maintained_sources.GitInputsTests.test_only_explicit_build_outputs_are_tolerated_after_build) ... ok
+test_shallow_owner_is_rejected_even_at_checkpoint (test_maintained_sources.GitInputsTests.test_shallow_owner_is_rejected_even_at_checkpoint) ... ok
+test_staged_changes_are_rejected_even_when_working_bytes_restored (test_maintained_sources.GitInputsTests.test_staged_changes_are_rejected_even_when_working_bytes_restored) ... ok
+test_untracked_and_ignored_sources_fail (test_maintained_sources.GitInputsTests.test_untracked_and_ignored_sources_fail) ... ok
+test_wrong_commit_and_mode_fail (test_maintained_sources.GitInputsTests.test_wrong_commit_and_mode_fail) ... ok
+test_all_seven_actual_dependency_revisions_pass (test_maintained_sources.MaintainedArtifactProvenanceTests.test_all_seven_actual_dependency_revisions_pass) ... ok
+test_legacy_evidence_keeps_legacy_compatibility (test_maintained_sources.MaintainedArtifactProvenanceTests.test_legacy_evidence_keeps_legacy_compatibility) ... ok
+test_maintained_evidence_cannot_enter_legacy_verification (test_maintained_sources.MaintainedArtifactProvenanceTests.test_maintained_evidence_cannot_enter_legacy_verification) ... ok
+test_missing_actual_anisette_revision_fails (test_maintained_sources.MaintainedArtifactProvenanceTests.test_missing_actual_anisette_revision_fails) ... ok
+test_old_upstream_or_wrong_actual_anisette_revision_fails (test_maintained_sources.MaintainedArtifactProvenanceTests.test_old_upstream_or_wrong_actual_anisette_revision_fails) ... ok
+test_rehashed_intended_map_cannot_bless_actual_owner_drift (test_maintained_sources.MaintainedArtifactProvenanceTests.test_rehashed_intended_map_cannot_bless_actual_owner_drift) ... ok
+test_complete_exact_policy_is_accepted (test_maintained_sources.PinPolicyTests.test_complete_exact_policy_is_accepted) ... ok
+test_floating_missing_and_fake_pending_values_are_rejected (test_maintained_sources.PinPolicyTests.test_floating_missing_and_fake_pending_values_are_rejected) ... ok
+test_missing_extra_and_duplicate_owners_fail (test_maintained_sources.PinPolicyTests.test_missing_extra_and_duplicate_owners_fail) ... ok
+test_owner_repository_and_contract_substitution_rejected (test_maintained_sources.PinPolicyTests.test_owner_repository_and_contract_substitution_rejected) ... ok
+test_pending_production_inputs_fail_before_acquisition (test_maintained_sources.PinPolicyTests.test_pending_production_inputs_fail_before_acquisition) ... ok
+test_complete_effective_graph_passes (test_maintained_sources.ResolverAttributionTests.test_complete_effective_graph_passes) ... ok
+test_dirty_actual_remote_fails (test_maintained_sources.ResolverAttributionTests.test_dirty_actual_remote_fails) ... ok
+test_escaped_remote_checkout_fails (test_maintained_sources.ResolverAttributionTests.test_escaped_remote_checkout_fails) ... ok
+test_remote_substitution_and_floating_revision_fail (test_maintained_sources.ResolverAttributionTests.test_remote_substitution_and_floating_revision_fail) ... ok
+test_wrong_local_package_and_missing_package_fail (test_maintained_sources.ResolverAttributionTests.test_wrong_local_package_and_missing_package_fail) ... ok
+test_archived_workflow_is_exact_baseline (test_maintained_sources.WorkflowTests.test_archived_workflow_is_exact_baseline) ... fatal: path '.github/workflows/livecontainer-build.yml' exists on disk, but not in '141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee'
+ERROR
+test_registry_bytes_are_reviewed_anchor (test_maintained_sources.WorkflowTests.test_registry_bytes_are_reviewed_anchor) ... ok
+test_release_path_has_no_runtime_patch_invocations (test_maintained_sources.WorkflowTests.test_release_path_has_no_runtime_patch_invocations) ... ok
+
+======================================================================
+ERROR: test_archived_workflow_is_exact_baseline (test_maintained_sources.WorkflowTests.test_archived_workflow_is_exact_baseline)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/cutover-depth-one-ayjwidri/builder/migration/tests/test_maintained_sources.py", line 325, in test_archived_workflow_is_exact_baseline
+    old = subprocess.check_output(['git', '-C', str(ROOT), 'show', gate.BASELINE + ':.github/workflows/livecontainer-build.yml'])
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/subprocess.py", line 466, in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['git', '-C', '/tmp/cutover-depth-one-ayjwidri/builder', 'show', '141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee:.github/workflows/livecontainer-build.yml']' returned non-zero exit status 128.
+
+----------------------------------------------------------------------
+Ran 36 tests in 0.483s
+
+FAILED (errors=1)

@@ -145,7 +145,9 @@ print("Self-refresh reconciliation behavior PASS")
                     self.assertEqual(current[path], data, path)
             background = (root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift").read_text(encoding="utf-8")
             self.assertIn("hasPasswordCredentials || hasTokenCredentials || hasReusableSession", background)
-            self.assertIn("persistAutomaticRefreshVerification(results: results)", background)
+            self.assertIn("persistAutomaticRefreshVerification(results: results,", background)
+            self.assertIn("attemptedAppIDs: apps.map { $0.bundleIdentifier }", background)
+            self.assertIn("CombinedRefreshTargetPolicy.plan", background)
             self.assertIn("group?.cancel()", background)
             for line in background.splitlines():
                 if 'debugLog("[AUTO_REFRESH]' in line:

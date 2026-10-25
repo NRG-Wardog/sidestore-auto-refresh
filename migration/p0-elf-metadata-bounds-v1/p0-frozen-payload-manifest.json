@@ -1,0 +1,140 @@
+{
+  "status": "PUBLISHED_P0_RUNTIME_INPUTS_RECONSTRUCTED_SS_REVIEWED",
+  "files": [
+    {
+      "group": "AnisetteKit",
+      "path": "Native/Loader/android_tls_runtime.h",
+      "mode": "100644",
+      "sha256": "51c6c123d78b2d53f70e1720c8bf8aa934cbdb149a66df0a6763b6614f4fda07",
+      "git_blob": "1a084e8314f94eb30a1591b6fc0112616d29ea87",
+      "bytes": 1889
+    },
+    {
+      "group": "AnisetteKit",
+      "path": "Native/Loader/elf_loader_emulator.cpp",
+      "mode": "100644",
+      "sha256": "6e2635c91bf5cbf4eb9cb7af586344d6641b80fcb31910892b60690dccc506ca",
+      "git_blob": "34c03938361d4ea061bbad9947773d1cf132f399",
+      "bytes": 54996
+    },
+    {
+      "group": "AnisetteKit",
+      "path": "Native/Loader/elf_loader_emulator.h",
+      "mode": "100644",
+      "sha256": "9d100b0fe5f0f3ee0293e0151b1884dd98147648415d7d4ead39c3b935ec4172",
+      "git_blob": "74b09597dfd7ec1bb5306aca1d5793296866233d",
+      "bytes": 3801
+    },
+    {
+      "group": "AnisetteKit",
+      "path": "Native/anisette_core_uc.cpp",
+      "mode": "100644",
+      "sha256": "bd26de69de7c6a88f812ad1627f05b741c5407d5f21f9519bfdd1f2386230644",
+      "git_blob": "356bdee84457095157bde1e2c6d12b86aebc7750",
+      "bytes": 47013
+    },
+    {
+      "group": "SideSign",
+      "path": "Sources/DeveloperPortal/Certificates.swift",
+      "mode": "100644",
+      "sha256": "6e5afc992b3632c47394161149ccdf9d78684a76a50e455707c03e1f1193aaeb",
+      "git_blob": "432316f293ca57b1be446b45f05b5ec9c9882f93",
+      "bytes": 7033
+    },
+    {
+      "group": "SideStore",
+      "path": "AltStore/AppDelegate.swift",
+      "mode": "100644",
+      "sha256": "b1a39a4764f2de8d346740e938e59af7a9ef846924fe1622a140c0b6075f24c4",
+      "git_blob": "39837ddd0295eba32d1c8689da05b40451a7fd0b",
+      "bytes": 869819
+    },
+    {
+      "group": "SideStore",
+      "path": "AltStore/Core/Components/Keychain.swift",
+      "mode": "100644",
+      "sha256": "81c362a03323ca9c658a34b5b2883b2af3bacc81d8be079c04a0dfcdf3bf8584",
+      "git_blob": "877f7405c6d5091c23e091c6d1f880deeb6cc29b",
+      "bytes": 114791
+    },
+    {
+      "group": "SideStore",
+      "path": "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+      "mode": "100644",
+      "sha256": "82273ec98095d8355824e99f568943048359d8456f60adb8c8f78d80fc5fb0f9",
+      "git_blob": "a34f2e52aedb33d4fdd32bb90bfb847107be0931",
+      "bytes": 30969
+    },
+    {
+      "group": "SideStore",
+      "path": "SideStore/Core/Certificates/CertificateManager.swift",
+      "mode": "100644",
+      "sha256": "d846b7ef3541a6d4f03ba94db202c851a5ddedd7de3e2552b3ce8f10d0068ebc",
+      "git_blob": "875ec6c18737ad99f571bee2b4c3df5a923577cc",
+      "bytes": 20577
+    },
+    {
+      "group": "SideStore",
+      "path": "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+      "mode": "100644",
+      "sha256": "8f2defd0ec7c484d73f2f196e8e57af8cc07664c030b3e29559c95b784feb5cb",
+      "git_blob": "339b42c06a8cd836bc1fb018af108430eabe1476",
+      "bytes": 43955
+    },
+    {
+      "group": "LiveContainer",
+      "path": "LiveContainer/Tweaks/Dead10ccFix.m",
+      "mode": "100644",
+      "sha256": "82ea26ff8f5f7da419899883647795b32bbdcc57218a2506626ba940f669bb6a",
+      "git_blob": "9f18e656aba3860d4bfbb3614a4f0527f164694c",
+      "bytes": 10577
+    },
+    {
+      "group": "LiveContainer",
+      "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+      "mode": "100644",
+      "sha256": "7f9efe5881898bad6e8e2182c0095166b62f8b251dbb36b313d6876067df56be",
+      "git_blob": "f6a16cf997048f93b27be1eba39382f448273f54",
+      "bytes": 878306
+    },
+    {
+      "group": "LiveContainer",
+      "path": "SideStoreSupport/SideStore.swift",
+      "mode": "100644",
+      "sha256": "0140bf162538bb3f6d009a94aff7f5fad20cd284a730bb2328933eae7171120a",
+      "git_blob": "9dd8a3d197ae15c7f0f81010ec1be1c1fc75fc46",
+      "bytes": 584811
+    }
+  ],
+  "owner_identities": {
+    "AnisetteKit": {
+      "commit": "0dfcc89aa93411d84f7c50beb3c75599af89e852",
+      "tree": "d1112813f8ea5fa93c076eb016442778b9eb29f9"
+    },
+    "SideSign": {
+      "commit": "081994b142c781f9a32bbddfa7277f305b20447b",
+      "tree": "83ab480b1195f1cfdb8bd4fe4b2e446bdd647545"
+    },
+    "SideStore": {
+      "commit": "c9dc71e5e4a48963ca7f73b0aba6eb8a5975295d",
+      "tree": "9a4c37c0f482c03898a9bb8db3d2e0f68643e53d"
+    },
+    "LiveContainer": {
+      "commit": "00546cec351adad1fa1cad5590da4f06e612db8f",
+      "tree": "c8b298d549ff5e72221533c5e4b946d67ec2cc97"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+    }
+  },
+  "native_phase2_executed": false
+}

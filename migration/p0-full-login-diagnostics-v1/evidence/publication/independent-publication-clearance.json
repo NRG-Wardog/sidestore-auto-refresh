@@ -1,0 +1,48 @@
+{
+  "all_tracked_entries": 658,
+  "authenticated_receipt_sha256": {
+    "independent-published-commit-api.json": "db8ae38ba818156cbb367344dcdb4c72b5c168e242698908586e089740b2efbf",
+    "independent-published-ref-api.json": "89c953356d3a8803fb19573aac8151a54a9fdcd30b804bd68023591c2b821a5d"
+  },
+  "branch": "validation/p0-login-trace-app-lock-20261019",
+  "capture_review_sha256": "6e32d813acd065586a0841ca3c3f241b41c9f338085b55ae04ad65ee63e7c2cd",
+  "capture_run_id": 39229204851,
+  "commit": "d507f9e417f12c262b4d7e717c84d4a244c8e625",
+  "compiled_final_commit": false,
+  "device_login_proven": false,
+  "equivalence": {
+    "changes": {
+      "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": {
+        "after": {
+          "git_object": "3867aab14eaa661b8c9c526be9c473cb645a609c",
+          "mode": "100644",
+          "sha256": "e97604f913903659539663f09176a20ee9ca5fe06188a41ff38f54257d076d08",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "f8e64c3570ddd856da53c4741bd8afdcdd255a91",
+          "mode": "100644",
+          "sha256": "b3dc185eaf06254e079170681b0ea528b95d8355513e296e60aa0e469c341764",
+          "type": "blob"
+        }
+      }
+    },
+    "compiled_final_commit": false,
+    "equivalence": "all tracked inputs identical except exact observed app lock",
+    "final_commit": "d507f9e417f12c262b4d7e717c84d4a244c8e625",
+    "final_tree": "829d5e86ae2365b2870d268e77735f11f16944fb",
+    "lock_sha256": "e97604f913903659539663f09176a20ee9ca5fe06188a41ff38f54257d076d08",
+    "tested_commit": "dc29ce0d79a299f32a340c460e1d61e8190e320c"
+  },
+  "guest_execution": false,
+  "local_tree_review_sha256": "16dc41befe8de07afeafb1a1ca030e86ea667506b1208e069adba7d220dae16b",
+  "next_boundary": "new independently reviewed builder admission bound to exact current evidence and final source graph",
+  "production_ready": false,
+  "raw_commit_sha256": "bd507b2dc88f7e74ff42a3da292f4dca96793656da2215a60e09a607da2ff441",
+  "release_eligible": false,
+  "repository": "NRG-Wardog/SideStore",
+  "schema_version": 1,
+  "single_parent": "dc29ce0d79a299f32a340c460e1d61e8190e320c",
+  "status": "AUTHENTICATED_FINAL_LOCK_CHILD_EQUIVALENCE_PASSED",
+  "tree": "829d5e86ae2365b2870d268e77735f11f16944fb"
+}

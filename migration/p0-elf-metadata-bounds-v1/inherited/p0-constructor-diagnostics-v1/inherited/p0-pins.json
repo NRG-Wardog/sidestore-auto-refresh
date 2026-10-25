@@ -1,0 +1,100 @@
+{
+  "contract_registry_sha256": "a0708470a065fca111a0fb5ec301bd2b1faac34b2835e848f2184d6df339b4bf",
+  "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "native_validation": {
+    "approved_inputs_sha256": "4cdb6dc081a61c15797d36b33af9e0bd58a850d1fa5f47513ee1b6ed8544af1f",
+    "artifact_id": 11715190532,
+    "artifact_sha256": "b1a257be6c3bca075850894c1434d71d4d27b2c20020dce01702d90acb975f0a",
+    "evidence_index_sha256": "fb06a709d02aa6c9fbc9bbc1e23521ee976191b0ea744c84794388a5b5d0a07a",
+    "host_commit": "5a255a7b52bfa0351d1a5a2a934be90df985d138",
+    "host_tree": "54abf7869190d6a6653567461a5bbd61e74dd165",
+    "readiness_scope": "eligible_for_gated_full_build",
+    "review_sha256": "34d12b14364d4db4ed24ee80bf206332d383c27e958b497d6f5cd1c9d28cc6dc",
+    "run_attempt": 1,
+    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/38171788421",
+    "source_basis": "p0-abi-tls-certificate-lifecycle-v1",
+    "tested_children": {
+      "SideSign": {},
+      "SideStore": {
+        "Dependencies/SideSign": "081994b142c781f9a32bbddfa7277f305b20447b",
+        "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+      }
+    },
+    "tested_owners": {
+      "AnisetteKit": {
+        "commit": "0dfcc89aa93411d84f7c50beb3c75599af89e852",
+        "tree": "d1112813f8ea5fa93c076eb016442778b9eb29f9"
+      },
+      "LiveContainer": {
+        "commit": "00546cec351adad1fa1cad5590da4f06e612db8f",
+        "tree": "c8b298d549ff5e72221533c5e4b946d67ec2cc97"
+      },
+      "SideSign": {
+        "commit": "081994b142c781f9a32bbddfa7277f305b20447b",
+        "tree": "83ab480b1195f1cfdb8bd4fe4b2e446bdd647545"
+      },
+      "SideStore": {
+        "commit": "c9dc71e5e4a48963ca7f73b0aba6eb8a5975295d",
+        "tree": "9a4c37c0f482c03898a9bb8db3d2e0f68643e53d"
+      },
+      "idevice": {
+        "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+        "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+      },
+      "jktcp": {
+        "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+        "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+      },
+      "minimuxer": {
+        "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+        "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+      }
+    }
+  },
+  "owners": {
+    "AnisetteKit": {
+      "commit": "0dfcc89aa93411d84f7c50beb3c75599af89e852",
+      "path": "work/AnisetteKit",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d"
+    },
+    "LiveContainer": {
+      "commit": "00546cec351adad1fa1cad5590da4f06e612db8f",
+      "path": "work/LiveContainer",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69"
+    },
+    "SideSign": {
+      "commit": "081994b142c781f9a32bbddfa7277f305b20447b",
+      "path": "work/EmbeddedSideStore/Dependencies/SideSign",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0"
+    },
+    "SideStore": {
+      "commit": "0e6a626ae97401fb671ee12ae88e4f364fc2a31c",
+      "path": "work/EmbeddedSideStore",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "path": "idevice",
+      "repository": "https://github.com/NRG-Wardog/idevice.git",
+      "source_checkpoint": "803f9368e6b27a43d8a9f22dc0ec281c87883113"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "path": "jktcp",
+      "repository": "https://github.com/NRG-Wardog/jktcp.git",
+      "source_checkpoint": "32c0210f286b4fd16efe05be4f57167a9d94459b"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "path": "work/EmbeddedSideStore/Dependencies/minimuxer",
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "source_checkpoint": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+    }
+  },
+  "schema_version": 1,
+  "source_basis": "p0-abi-tls-certificate-lifecycle-v1"
+}

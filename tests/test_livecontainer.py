@@ -17,7 +17,33 @@ SPEC.loader.exec_module(patch)
 def fixture(root: Path) -> None:
     for directory in ("SideStoreSupport", "LiveContainerSwiftUI/App", "LiveContainerSwiftUI/Views/Settings", "LiveContainer.xcodeproj", "LiveContainer"):
         (root / directory).mkdir(parents=True)
-    (root / "SideStoreSupport/SideStore.swift").write_text("import Foundation\n\nclass RefreshHandler: NSObject, RefreshServer {\n}\n")
+    (root / "SideStoreSupport/SideStore.swift").write_text('''import Foundation
+
+@available(iOS 17.0, *)
+func performIntentRefresh(identifier: String, mangledTypeName: String, intentProgress: Progress) async throws {
+    intentProgress.totalUnitCount = 100
+    if UserDefaults.isSideStore() {
+        try await SideStoreIntentCaller.shared.callRefreshIntent(mangledTypeName: mangledTypeName)
+    } else {
+        RefreshHandler.shared.progress = intentProgress
+        try await RefreshHandler.shared.startRefresh(identifier: identifier, mangledName: mangledTypeName)
+    }
+}
+
+let priorIntentResult = .result(dialog: "All apps have been refreshed.")
+
+public struct RefreshAllAppsWidgetIntent {
+    public static var title: LocalizedStringResource { "Refresh Apps via Widget" }
+    public func perform() async throws -> some IntentResult { return .result() }
+}
+
+public struct RefreshAllAppsIntent {
+    public static var title: LocalizedStringResource = "Refresh All Apps"
+}
+
+class RefreshHandler: NSObject, RefreshServer {
+}
+''')
     (root / "LiveContainerSwiftUI/App/AppDelegate.swift").write_text(
         "import UIKit\nimport SwiftUI\nimport Intents\n\n@objc class AppDelegate: UIResponder, UIApplicationDelegate {\n"
         "    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? ) -> Bool {\n"
@@ -38,8 +64,9 @@ def fixture(root: Path) -> None:
 
 
 def apply(root: Path) -> None:
-    for operation in (patch.patch_support, patch.patch_host_delegate, patch.patch_host_info,
-                      patch.patch_project, patch.patch_alarm_provider, patch.patch_settings):
+    for operation in (patch.patch_support, patch.patch_host_delegate, patch.patch_shared_app_group,
+                      patch.patch_host_info, patch.patch_project, patch.patch_alarm_provider,
+                      patch.patch_settings):
         operation(root)
     patch.verify(root)
 
@@ -51,6 +78,22 @@ class LiveContainerPatchTests(unittest.TestCase):
             fixture(root)
             apply(root)
             first = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            support = (root / "SideStoreSupport/SideStore.swift").read_text()
+            helper = support[support.index("func performIntentRefresh("):support.index("class RefreshHandler")]
+            self.assertIn("V3ShortcutRefreshRequest.make()", helper)
+            self.assertIn('Notification.Name("LiveContainerAutoRefreshRunNow")', helper)
+            self.assertNotIn("RefreshHandler.shared.startRefresh(identifier: identifier", helper)
+            self.assertIn("Refresh All was requested in LiveContainer", support)
+            self.assertNotIn("All apps have been refreshed.", support)
+            widget_start = support.index("public struct RefreshAllAppsWidgetIntent")
+            main_start = support.index("public struct RefreshAllAppsIntent", widget_start)
+            widget_intent = support[widget_start:main_start]
+            self.assertIn('return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")', widget_intent)
+            self.assertEqual(support.count("public static var openAppWhenRun = true"), 2)
+            delegate = (root / "LiveContainerSwiftUI/App/AppDelegate.swift").read_text()
+            self.assertIn("V3ShortcutRefreshRequest(userInfo: notification.userInfo)", delegate)
+            self.assertIn("guard let request = V3ShortcutRefreshRequest(userInfo: notification.userInfo) else", delegate)
+            self.assertIn("RUN_NOW_REJECTED reason=invalid_request_identity", delegate)
             apply(root)
             self.assertEqual(first, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
             info = plistlib.loads((root / "LiveContainer/Info.plist").read_bytes())
@@ -62,9 +105,9 @@ class LiveContainerPatchTests(unittest.TestCase):
     def test_templates_have_no_python_double_escaping(self):
         self.assertNotIn(r'\\(', patch.HOST_SCHEDULER)
         self.assertNotIn('?? \\"com.kdt.livecontainer', patch.HOST_SCHEDULER)
-        self.assertIn('16SideStoreSupport20RefreshAllAppsIntentV', patch.BRIDGE)
+        self.assertIn('9SideStore20RefreshAllAppsIntentV', patch.BRIDGE)
         self.assertIn('identifier: "RefreshAllIntent"', patch.BRIDGE)
-        self.assertNotIn('9SideStore20RefreshAllAppsIntentV', patch.BRIDGE)
+        self.assertNotIn('16SideStoreSupport20RefreshAllAppsIntentV', patch.BRIDGE)
         self.assertIn('LiveContainerRefreshTaskIdentifiers.resolve', patch.HOST_SCHEDULER)
         self.assertNotIn('Bundle.main.bundleIdentifier ??', patch.HOST_SCHEDULER)
 
@@ -142,6 +185,9 @@ print("POLICY_TESTS_PASSED")
 
     def test_notification_and_completion_contract(self):
         self.assertIn("await requestNotificationPermission()", patch.HOST_SCHEDULER)
+        self.assertIn("requestNotificationPermissionFromUserAction", patch.HOST_SCHEDULER)
+        self.assertIn("authorizationStatus == .denied", patch.HOST_SCHEDULER)
+        self.assertIn("UIApplication.openSettingsURLString", patch.HOST_SCHEDULER)
         self.assertIn("gate.claim()", patch.HOST_SCHEDULER)
         self.assertIn("try Task.checkCancellation()", patch.HOST_SCHEDULER)
         self.assertIn("UNTimeIntervalNotificationTrigger", patch.HOST_SCHEDULER)

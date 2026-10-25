@@ -1,0 +1,424 @@
+#!/usr/bin/env python3
+"""Execute generated production layout components on real iOS simulators.
+
+This is a bounded rendering harness, not a signed product or on-device claim.
+Dependencies controlling app data and action routing are isolated from production
+guest execution. Baseline success REQUIRES a measured geometry/visibility failure.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import platform
+import plistlib
+import re
+import shutil
+import signal
+import tempfile
+import subprocess
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+BASELINE = "7d8ae12905f8baa6e0ecc4dbdd3f25e2aa0e43fa"
+GRID = "scripts/templates/livecontainer_grid_app_cell.swift"
+V3_BASELINE = "9d1eed7992694aa0fb9a18742255c21c95b0e697"
+
+
+COMMAND_LOG: Path | None = None
+
+
+def record_command(event: dict) -> None:
+    if COMMAND_LOG is not None:
+        with COMMAND_LOG.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(event, sort_keys=True) + "\n")
+
+
+def capture(*args: str, timeout: float = 300) -> bytes:
+    """Bound the entire child process group, including inherited output handles."""
+    print("Running: " + " ".join(args), flush=True)
+    started = time.monotonic()
+    record_command({"event": "start", "argv": args, "timeoutSeconds": timeout})
+    # A regular file cannot keep communicate() waiting when a grandchild owns
+    # the output pipe after its parent has been killed (notably xcrun/swiftc).
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(list(args), stdout=output, stderr=errors,
+                                   start_new_session=True)
+        timed_out = False
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=10)
+        output.seek(0)
+        data = output.read()
+        errors.seek(0)
+        diagnostics = errors.read()
+    elapsed = time.monotonic() - started
+    record_command({"event": "timeout" if timed_out else "finish", "argv": args,
+                    "elapsedSeconds": elapsed, "returncode": process.returncode})
+    if data:
+        print(data.decode(errors="replace"), end="", flush=True)
+    if diagnostics:
+        print(diagnostics.decode(errors="replace"), end="", flush=True)
+    if timed_out:
+        raise RuntimeError(f"Rendering harness command exceeded its {timeout}-second bound: {args[0]}")
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, args, output=data, stderr=diagnostics)
+    return data
+
+
+def command(*args: str, timeout: float = 300) -> str:
+    return capture(*args, timeout=timeout).decode().strip()
+
+
+def wait_for_simulator_boot(device: str) -> None:
+    # First-boot data migration exceeded five minutes on the standard Intel
+    # runner. Keep this special allowance bounded and limited to bootstatus.
+    command("xcrun", "simctl", "bootstatus", device, "-b", timeout=600)
+
+
+def available_devices() -> list[tuple[str, str, str]]:
+    result = json.loads(command("xcrun", "simctl", "list", "devices", "available", "--json"))
+    runtimes = json.loads(command("xcrun", "simctl", "list", "runtimes", "--json"))["runtimes"]
+    supported = sorted((item for item in runtimes if item.get("isAvailable") and ".iOS-" in item["identifier"]),
+                       key=lambda item: tuple(int(part) for part in item["version"].split(".")))
+    if not supported:
+        raise RuntimeError("No available iOS simulator runtime; rendering was not validated")
+    # The oldest actually installed runtime is exercised. Do not imply iOS 15 was
+    # executed merely because compilation supports that deployment target.
+    runtime = supported[0]
+    devices = result["devices"].get(runtime["identifier"], [])
+    selected = []
+    for kind, needle in (("phone", "iPhone"), ("tablet", "iPad")):
+        candidates = [device for device in devices if needle in device["name"] and device.get("isAvailable")]
+        if not candidates:
+            raise RuntimeError(f"No available {kind} simulator for oldest runtime {runtime['version']}")
+        # Larger tablets accommodate logical window widths through 1024 points.
+        candidates.sort(key=lambda item: ("13-inch" not in item["name"], "Pro" not in item["name"], item["name"]))
+        selected.append((kind, candidates[0]["udid"], runtime["version"]))
+    return selected
+
+
+# Both this layout harness and the nested XCTest harness use the same exact
+# production localization closure and compiled-resource validation.
+import sys
+sys.path.insert(0, str(ROOT / "scripts"))
+import rendering_localization as localization
+LOCALIZATION_SOURCES = localization.LOCALIZATION_SOURCES
+LOCALIZATION_CATALOG = localization.LOCALIZATION_CATALOG
+LOCALIZATION_LANGUAGES = localization.LOCALIZATION_LANGUAGES
+LOCALIZATION_KEYS = localization.LOCALIZATION_KEYS
+localization_sources = localization.localization_sources
+
+
+def compile_localization(bundle: Path, live: Path) -> dict[str, str]:
+    return localization.compile_localization(bundle, live, command)
+
+
+def build_app(output: Path, live: Path, baseline: bool, fallback: bool = False) -> tuple[Path, str, dict]:
+    name = "baseline" if baseline else ("fallback-contract" if fallback else "corrected")
+    build = output / name
+    build.mkdir(parents=True, exist_ok=True)
+    bundle = build / "Issue25Rendering.app"
+    bundle.mkdir(exist_ok=True)
+    bundle_id = "org.sidestore.layout.fixture." + name
+    grid = build / "LCGridAppCell.swift"
+    if baseline:
+        data = capture("git", "-C", str(ROOT), "show", BASELINE + ":" + GRID)
+        grid.write_bytes(data)
+    else:
+        shutil.copyfile(live / "LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift", grid)
+    original_grid_hash = hashlib.sha256(grid.read_bytes()).hexdigest()
+    if fallback:
+        text, count = re.subn(r"    @available\(iOS 16\.0, \*\)\n    func sizeThatFits\([^\n]+\n        uiViewController\.fittingSize\(width: proposal\.width\)\n    }\n", "", grid.read_text())
+        if count != 1:
+            raise RuntimeError("Cannot isolate the iOS15 intrinsic/preferred-size path: Grid sizeThatFits anchor drift")
+        grid.write_text(text)
+    relative_sources = [
+        "LiveContainerSwiftUI/Models/AppLayoutStyle.swift",
+        "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBanner.swift",
+        "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerView.swift",
+    ]
+    sources = [live / relative for relative in relative_sources]
+    localized = localization_sources(live, sources + [grid])
+    sources += localized
+    sources += [grid, ROOT / "tests/fixtures/issue25_rendering_dependencies.swift", ROOT / "tests/fixtures/issue25_rendering_harness.swift"]
+    hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
+    hashes["original-production-grid"] = original_grid_hash
+    sdk = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
+    architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
+    flags = [] if baseline else ["-D", "CORRECTED_GRID", "-D", "CORRECTED_BANNER"]
+    if localized:
+        flags += ["-D", "PRODUCTION_LOCALIZATION"]
+        hashes.update(compile_localization(bundle, live))
+    command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
+            "-target", architecture + "-apple-ios15.0-simulator", "-g", "-Onone", *flags,
+            *map(str, sources), "-o", str(bundle / "Issue25Rendering"))
+    info = {
+        "CFBundleExecutable": "Issue25Rendering", "CFBundleIdentifier": bundle_id,
+        "CFBundleName": "Issue25 Rendering", "CFBundlePackageType": "APPL",
+        "CFBundleVersion": "1", "CFBundleShortVersionString": "1.0", "MinimumOSVersion": "15.0",
+        "LSRequiresIPhoneOS": True, "UIDeviceFamily": [1, 2],
+        "UILaunchScreen": {}, "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"],
+    }
+    (bundle / "Info.plist").write_bytes(plistlib.dumps(info))
+    command("codesign", "--force", "--sign", "-", str(bundle))
+    return bundle, bundle_id, hashes
+
+
+def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, str, dict]:
+    build = output / "v3-native"
+    build.mkdir(parents=True, exist_ok=True)
+    if source is None:
+        candidate = ROOT / "scripts/templates/v3_unified_shell.swift"
+        text = candidate.read_text() if candidate.exists() else capture(
+            "git", "-C", str(ROOT), "show", V3_BASELINE + ":scripts/templates/v3_unified_shell.swift").decode()
+    else:
+        text = source.read_text()
+    start = text.index("struct V3InstalledAppsSection: View {")
+    end = text.index("struct V3AppActions: View {", start)
+    section = text[start:end]
+    anchor = ".contextMenu { V3AppActions(app: app) }"
+    if section.count(anchor) != 1:
+        raise RuntimeError("V3 native renderer instrumentation anchor drift; review real section before proceeding")
+    instrumented = "import SwiftUI\n" + section.replace(anchor, anchor + ".background(FixtureGeometryProbe(id: app.identifier))")
+    generated = build / "V3InstalledAppsSection.swift"
+    generated.write_text(instrumented)
+    header_start = text.index("struct V3HomeServiceHeader: View {")
+    header_end = text.index("private struct V3HomeView: View {", header_start)
+    header = text[header_start:header_end]
+    label_anchor = ("                        .fixedSize(horizontal: false, vertical: true)\n"
+                    "                } icon:")
+    if header.count(label_anchor) != 1:
+        raise RuntimeError("Reload Status label probe anchor drift; inspect generated Home header")
+    header = header.replace(label_anchor,
+        "                        .fixedSize(horizontal: false, vertical: true)\n"
+        "                        .background(FixtureGeometryProbe(id: \"reload-label\"))\n"
+        "                } icon:", 1)
+    generated_header = build / "V3HomeServiceHeader.swift"
+    # The Home header renders the shared semantic status model, so the real
+    # production definitions are emitted alongside it rather than a stub. The
+    # layout evidence is only meaningful if it renders the shipped types. The
+    # model normally lives in the behavioral primitives, which are concatenated
+    # into the generated shell, so both sources are tried.
+    severity_model = ""
+    tint_model = ""
+    for candidate in (text, (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")):
+        if "enum V3StatusSeverity: String, Equatable, CaseIterable {" not in candidate:
+            continue
+        severity_start = candidate.index("enum V3StatusSeverity: String, Equatable, CaseIterable {")
+        severity_end = candidate.index("\n}\n", candidate.index(
+            "static func connectionState(", severity_start)) + len("\n}\n")
+        severity_model = candidate[severity_start:severity_end]
+        break
+    for candidate in (text, (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")):
+        if "extension V3StatusPresentation {" not in candidate:
+            continue
+        tint_start = candidate.index("extension V3StatusPresentation {")
+        tint_end = candidate.index("\n}\n", tint_start) + len("\n}\n")
+        tint_model = candidate[tint_start:tint_end]
+        break
+    if not severity_model or not tint_model:
+        raise RuntimeError("Semantic status model not found for the Reload Status layout probe")
+    generated_header.write_text("import SwiftUI\n" + severity_model + "\n" + tint_model + "\n" + header)
+    sources = [live / "LiveContainerSwiftUI/Models/AppLayoutStyle.swift", generated, generated_header,
+               ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift"]
+    localized = localization_sources(live, sources)
+    sources += localized
+    hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
+    hashes["original-V3InstalledAppsSection"] = hashlib.sha256(section.encode()).hexdigest()
+    hashes["original-V3HomeServiceHeader"] = hashlib.sha256(text[header_start:header_end].encode()).hexdigest()
+    bundle = build / "Issue25Rendering.app"
+    bundle.mkdir(exist_ok=True)
+    bundle_id = "org.sidestore.layout.fixture.v3native"
+    if localized:
+        hashes.update(compile_localization(bundle, live))
+    sdk = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
+    architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
+    command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
+            "-target", architecture + "-apple-ios15.0-simulator", "-g", "-Onone",
+            *map(str, sources), "-o", str(bundle / "Issue25Rendering"))
+    info = {"CFBundleExecutable": "Issue25Rendering", "CFBundleIdentifier": bundle_id,
+            "CFBundleName": "V3 Native Rendering", "CFBundlePackageType": "APPL", "CFBundleVersion": "1",
+            "CFBundleShortVersionString": "1.0", "MinimumOSVersion": "15.0", "LSRequiresIPhoneOS": True,
+            "UIDeviceFamily": [1, 2], "UILaunchScreen": {}}
+    (bundle / "Info.plist").write_bytes(plistlib.dumps(info))
+    command("codesign", "--force", "--sign", "-", str(bundle))
+    return bundle, bundle_id, hashes
+
+
+def execute(bundle: Path, bundle_id: str, kind: str, device: str, output: Path, baseline: bool, cold: bool, mode: str | None = None) -> dict:
+    phase = "cold" if cold else "suite"
+    command("xcrun", "simctl", "terminate", device, bundle_id) if cold else None
+    if not cold:
+        command("xcrun", "simctl", "install", device, str(bundle))
+    data_root = Path(command("xcrun", "simctl", "get_app_container", device, bundle_id, "data"))
+    report_path = data_root / "Documents" / f"{kind}-{phase}.json"
+    if report_path.exists():
+        # Exact fixture-owned stale result only; no app/user data is reset.
+        report_path.unlink()
+    args = ["--tablet"] if kind == "tablet" else []
+    if baseline:
+        args.append("--baseline")
+    if cold:
+        args.append("--cold")
+    if mode == "fallback-contract":
+        args.append("--fallback")
+    if mode == "diagnostic":
+        args.append("--diagnostic")
+    command("xcrun", "simctl", "launch", device, bundle_id, *args)
+    deadline = time.monotonic() + 180
+    while not report_path.exists() and time.monotonic() < deadline:
+        time.sleep(0.5)
+    if not report_path.exists():
+        raise RuntimeError(f"Simulator rendering did not produce {kind}/{phase} evidence within 180 seconds")
+    report = json.loads(report_path.read_text())
+    destination = output / (mode or ("baseline" if baseline else "corrected"))
+    destination.mkdir(parents=True, exist_ok=True)
+    for path in (data_root / "Documents").iterdir():
+        if path.name.startswith(kind + "-") and path.suffix in (".png", ".json"):
+            shutil.copyfile(path, destination / path.name)
+    print(json.dumps({"mode": report["mode"], "deviceClass": kind, "phase": phase,
+                      "passed": report["passed"], "failures": report["failures"]}), flush=True)
+    return report
+
+
+def main() -> None:
+    global COMMAND_LOG
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--livecontainer", type=Path, required=True, help="Already patched generated LiveContainer checkout")
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--v3-source", type=Path, help="Generated v3 shell source; otherwise current template or immutable v3 baseline is used")
+    parser.add_argument("--skip-v3-native", action="store_true", help="Scope final v2 package evidence to its own renderers")
+    parser.add_argument("--require-p0-signin", action="store_true",
+                        help="Require native P0 sign-in XCTest interactions/screenshots on the same booted devices")
+    parser.add_argument("--diagnostic-only", action="store_true", help="Inspect corrected phone Grid/labels equations only; NOT full rendering validation")
+    args = parser.parse_args()
+    if args.skip_v3_native and args.v3_source:
+        parser.error("--skip-v3-native and --v3-source are mutually exclusive")
+    if args.require_p0_signin and (not args.v3_source or args.skip_v3_native or args.diagnostic_only):
+        parser.error("--require-p0-signin requires --v3-source and the complete legacy suite")
+    output = args.output.resolve()
+    if output.exists() and any(output.iterdir()):
+        parser.error("--output must be a fresh evidence directory; previous-run evidence is not overwritten or reused")
+    output.mkdir(parents=True, exist_ok=True)
+    COMMAND_LOG = output / "command-diagnostics.jsonl"
+    if platform.system() != "Darwin":
+        raise SystemExit("This executable rendering suite requires macOS with Xcode and iOS simulators")
+    if args.diagnostic_only:
+        bundle, bundle_id, hashes = build_app(output, args.livecontainer.resolve(), False)
+        kind, device, runtime = available_devices()[0]
+        state = json.loads(command("xcrun", "simctl", "list", "devices", "--json"))
+        booted = any(item["udid"] == device and item["state"] == "Booted" for group in state["devices"].values() for item in group)
+        if not booted:
+            command("xcrun", "simctl", "boot", device)
+        wait_for_simulator_boot(device)
+        report = execute(bundle, bundle_id, kind, device, output, False, False, mode="diagnostic")
+        metadata = {"schemaVersion": 1, "fullSuiteValidated": False, "diagnosticOnly": True,
+                    "builderCommit": command("git", "-C", str(ROOT), "rev-parse", "HEAD"), "ciRun": os.environ.get("GITHUB_RUN_ID"),
+                    "sourceSHA256": hashes, "runtime": runtime, "passed": report["passed"]}
+        (output / "diagnostic-verification.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+        if not booted:
+            command("xcrun", "simctl", "shutdown", device)
+        if not report["passed"]:
+            raise SystemExit("Diagnostic checker reported violations; this run is not full-suite validation")
+        return
+    legacy_build_started = time.monotonic()
+    print("Legacy layout build phase start", flush=True)
+    builds = {baseline: build_app(output, args.livecontainer.resolve(), baseline) for baseline in (True, False)}
+    native_build = None if args.skip_v3_native else build_v3_app(output, args.livecontainer.resolve(), args.v3_source)
+    fallback_build = build_app(output, args.livecontainer.resolve(), False, fallback=True)
+    print(f"Legacy layout build phase finished in {time.monotonic() - legacy_build_started:.1f}s", flush=True)
+    p0 = None
+    p0_build = None
+    p0_preparation_failure = None
+    if args.require_p0_signin:
+        spec = importlib.util.spec_from_file_location("p0_signin_rendering", ROOT / "scripts/run_p0_signin_rendering.py")
+        p0 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(p0)
+        p0_build_started = time.monotonic()
+        print("Required sign-in UI build phase start", flush=True)
+        try:
+            p0_build = p0.prepare(output, args.v3_source.resolve(), command)
+        except Exception as error:
+            # Preserve every legacy measurement even if the new UI build fails.
+            # This records a required gate failure, never an optional exclusion.
+            p0_preparation_failure = str(error)
+            print("Required P0 sign-in UI preparation failed: " + str(error), flush=True)
+        print(f"Required sign-in UI build phase finished in {time.monotonic() - p0_build_started:.1f}s", flush=True)
+    reports = []
+    p0_reports = []
+    devices = available_devices()
+    try:
+        for kind, device, runtime in devices:
+            legacy_device_started = time.monotonic()
+            print(f"Legacy layout {kind} phase start", flush=True)
+            state = json.loads(command("xcrun", "simctl", "list", "devices", "--json"))
+            booted = any(item["udid"] == device and item["state"] == "Booted" for group in state["devices"].values() for item in group)
+            if not booted:
+                command("xcrun", "simctl", "boot", device)
+            wait_for_simulator_boot(device)
+            for baseline in (True, False):
+                bundle, bundle_id, _ = builds[baseline]
+                reports.append(execute(bundle, bundle_id, kind, device, output, baseline, False))
+                if not baseline:
+                    reports.append(execute(bundle, bundle_id, kind, device, output, False, True))
+            if native_build:
+                bundle, bundle_id, _ = native_build
+                for cold in (False, True):
+                    reports.append(execute(bundle, bundle_id, kind, device, output, False, cold, mode="v3-native"))
+            bundle, bundle_id, _ = fallback_build
+            for cold in (False, True):
+                reports.append(execute(bundle, bundle_id, kind, device, output, False, cold, mode="fallback-contract"))
+            print(f"Legacy layout {kind} phase finished in {time.monotonic() - legacy_device_started:.1f}s", flush=True)
+            if p0_build:
+                p0_device_started = time.monotonic()
+                print(f"Required sign-in UI {kind} phase start", flush=True)
+                try:
+                    p0_reports.append(p0.execute(p0_build, kind, device, output, command))
+                except Exception as error:
+                    report = {"mode": "p0-signin", "deviceClass": kind,
+                              "passed": False, "failures": [str(error)], "reportCount": 0}
+                    p0_reports.append(report)
+                    (output / "p0-signin" / (kind + "-verification.json")).write_text(
+                        json.dumps(report, indent=2, sort_keys=True) + "\n")
+                    print("Required P0 sign-in UI execution failed: " + str(error), flush=True)
+                print(f"Required sign-in UI {kind} phase finished in {time.monotonic() - p0_device_started:.1f}s", flush=True)
+            if not booted:
+                command("xcrun", "simctl", "shutdown", device)
+    finally:
+        hashes = {"baseline": builds[True][2], "corrected": builds[False][2], "fallback-contract": fallback_build[2]}
+        if native_build:
+            hashes["v3-native"] = native_build[2]
+        metadata = {
+            "schemaVersion": 1, "builderCommit": command("git", "-C", str(ROOT), "rev-parse", "HEAD"),
+            "productLine": "v2" if args.skip_v3_native else ("v3" if args.v3_source else "cross-product rendering harness"),
+            "ciRun": os.environ.get("GITHUB_RUN_ID"), "baselineBuilderCommit": BASELINE,
+            "sourceSHA256": hashes,
+            "simulatorRuntimes": sorted(set(runtime for _, _, runtime in devices)),
+            "passed": len(reports) == (14 if native_build else 10) and all(report["passed"] for report in reports)
+                and (not args.require_p0_signin or
+                     len(p0_reports) == 2 and all(report["passed"] for report in p0_reports)),
+            "reportCount": len(reports), "physicalDeviceExecution": False,
+        }
+        if args.require_p0_signin:
+            metadata["p0SignIn"] = {"required": True, "reportCount": len(p0_reports),
+                "passed": len(p0_reports) == 2 and all(report["passed"] for report in p0_reports),
+                "preparationFailure": p0_preparation_failure,
+                "sourceSHA256": p0_build["sourceSHA256"] if p0_build else {},
+                "caseCount": sum(report["reportCount"] for report in p0_reports)}
+        (output / "rendering-verification.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+    if not metadata["passed"]:
+        raise SystemExit("Issue25 simulator rendering regression failed; inspect measured JSON, not only build/markers")
+
+
+if __name__ == "__main__":
+    main()

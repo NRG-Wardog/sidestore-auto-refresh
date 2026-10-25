@@ -1,11 +1,34 @@
 // Test doubles for the OS APIs. These verify our Swift types and coordinator
 // behavior, NOT iOS delivery, transport, signing, or physical-device execution.
 import Foundation
+
+/// A macOS runner has no App Group entitlement, so the real container lookup
+/// reports every group unavailable and the scheduler would correctly refuse to
+/// run anything. This answers the same question with a real directory, so the
+/// harness exercises the shared-store path the app actually takes on device.
+final class HarnessContainerFileManager: FileManager {
+    static var roots: [String: URL] = [:]
+    static func install() {
+        V3SharedAppGroup.containerFileManager = HarnessContainerFileManager()
+    }
+    override func containerURL(forSecurityApplicationGroupIdentifier identifier: String) -> URL? {
+        if let existing = HarnessContainerFileManager.roots[identifier] { return existing }
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("v3-harness-store-\(getpid())", isDirectory: true)
+            .appendingPathComponent(identifier.replacingOccurrences(of: "/", with: "_"),
+                                    isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        HarnessContainerFileManager.roots[identifier] = root
+        return root
+    }
+}
 @MainActor enum LiveContainerNetworkPreflight {
     static var error: Error?
     static var checks = 0
-    static func check(allowForegroundActivation: Bool) async throws {
+    static var runIDs: [String] = []
+    static func check(allowForegroundActivation: Bool, runID: String) async throws {
         checks += 1
+        runIDs.append(runID)
         if let error { throw error }
     }
     static func consumePendingReturn() -> Bool { false }
@@ -31,6 +54,12 @@ class BGTaskScheduler {
     }
     func cancel(taskRequestWithIdentifier identifier: String) {}
 }
+@MainActor class UIApplication {
+    static let shared = UIApplication()
+    static let openSettingsURLString = "app-settings:"
+    var openedURLs: [URL] = []
+    func open(_ url: URL) async -> Bool { openedURLs.append(url); return true }
+}
 enum UNAuthorizationStatus { case notDetermined, denied, authorized, provisional }
 struct UNAuthorizationOptions: OptionSet {
     let rawValue: Int
@@ -38,20 +67,26 @@ struct UNAuthorizationOptions: OptionSet {
 }
 struct UNNotificationSettings { var authorizationStatus: UNAuthorizationStatus = .authorized }
 struct UNNotificationSound { static let `default` = Self() }
-class UNMutableNotificationContent { var title = ""; var body = ""; var sound: UNNotificationSound? }
+class UNMutableNotificationContent { var title = ""; var body = ""; var sound: UNNotificationSound?; var userInfo: [AnyHashable: Any] = [:] }
 class UNTimeIntervalNotificationTrigger { init(timeInterval: TimeInterval, repeats: Bool) {} }
 class UNNotificationRequest {
     let identifier: String; let content: UNMutableNotificationContent
     init(identifier: String, content: UNMutableNotificationContent, trigger: UNTimeIntervalNotificationTrigger?) { self.identifier = identifier; self.content = content }
 }
-class UNUserNotificationCenter {
+@MainActor class UNUserNotificationCenter {
     static let shared = UNUserNotificationCenter()
     static func current() -> UNUserNotificationCenter { shared }
     var requests: [UNNotificationRequest] = []
-    func notificationSettings() async -> UNNotificationSettings { UNNotificationSettings() }
+    var settings = UNNotificationSettings()
+    var onAdd: (@MainActor (UNNotificationRequest) -> Void)?
+    func notificationSettings() async -> UNNotificationSettings { settings }
     func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool { true }
     func getNotificationSettings(_ completion: (UNNotificationSettings) -> Void) { completion(UNNotificationSettings()) }
-    func add(_ request: UNNotificationRequest, withCompletionHandler completion: ((Error?) -> Void)? = nil) { requests.append(request); completion?(nil) }
+    func add(_ request: UNNotificationRequest, withCompletionHandler completion: ((Error?) -> Void)? = nil) {
+        requests.append(request)
+        onAdd?(request)
+        completion?(nil)
+    }
     func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {}
 }
 class FakeAppInfo { func bundlePath() -> String? { nil }; func bundleIdentifier() -> String { "test.guest" } }
@@ -64,12 +99,36 @@ enum LiveContainerRefreshBridge {
     static var calls = 0
     static var fails = false
     static var incomplete = false
-    static func refreshAllApps() async throws {
+    static var uncertain = false
+    static var resultFailure: CombinedFailure.Stage?
+    static var resultRetryable: Bool?
+    static var staleFailure = false
+    static var malformedFailure = false
+    static func refreshAllApps(runID: UUID) async throws {
         calls += 1
+        if uncertain {
+            LiveContainerAutoRefreshScheduler.defaults.set(UUID().uuidString, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
+            throw NSError(domain: "test.refresh", code: 42, userInfo: [NSLocalizedDescriptionKey: "completion timed out"])
+        }
         if fails { throw NSError(domain: "test.refresh", code: 42, userInfo: [NSLocalizedDescriptionKey: "transport failed"]) }
         let defaults = LiveContainerAutoRefreshScheduler.defaults
-        defaults.set(["run_id": defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? "",
+        if let stage = resultFailure {
+            let run = defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID")!
+            var wire = CombinedFailure(operation: "refresh", stage: stage, id: staleFailure ? UUID().uuidString : run,
+                underlying: NSError(domain: "DeviceGatewayError", code: 77), retryable: resultRetryable).wire
+            if malformedFailure { wire["stage"] = "SECRET_TOKEN" }
+            defaults.set(["version": 2, "schema": "LiveContainerRefreshManifestV2",
+                          "run_id": run, "requested_ids": ["spotify"], "expected_ids": ["spotify"],
+                          "skipped_ids": [], "results": [
+                ["bundle_id": "spotify", "success": false, "failure": wire, "error": "SECRET_TOKEN private-server-response"] as [String: Any]]],
+                forKey: "liveContainerAutoRefreshVerification")
+            return
+        }
+        defaults.set(["version": 2, "schema": "LiveContainerRefreshManifestV2",
+                      "run_id": defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? "",
+                      "requested_ids": incomplete ? ["spotify", "other"] : ["spotify"],
                       "expected_ids": incomplete ? ["spotify", "other"] : ["spotify"],
+                      "skipped_ids": [],
                       "results": [["bundle_id": "spotify", "success": true]]],
                      forKey: "liveContainerAutoRefreshVerification")
     }

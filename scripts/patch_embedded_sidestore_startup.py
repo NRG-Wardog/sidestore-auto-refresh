@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import sys
 
+from patch_cf_bundle_scan import patch_bootstrap as patch_cf_bundle_bootstrap
+
 
 MARKER = "EMBEDDED_SIDESTORE_STARTUP_FIX_V1"
 
@@ -51,12 +53,76 @@ def patch_hooks(path: Path) -> None:
         "\n    \n\n}\n#pragma clang diagnostic pop\n",
         "\n"
         "        NSBundle *hostBundle = NSUserDefaults.lcMainBundle;\n"
-        "        NSLog(@\"[SIDESTORE_STARTUP] EMBEDDED_SIDESTORE_STARTUP_FIX_V1 hooks_installed host_bundle=%@ host_path=%@ app_group=%@\",\n"
-        "              hostBundle.bundleIdentifier, hostBundle.bundlePath, LCSharedUtils.appGroupID);\n"
+        "        NSLog(@\"[SIDESTORE_STARTUP] EMBEDDED_SIDESTORE_STARTUP_FIX_V1 hooks_installed host_bundle=%@ app_group_resolved=%d\",\n"
+        "              hostBundle.bundleIdentifier, LCSharedUtils.appGroupPath != nil);\n"
         "    });\n"
         "}\n"
         "#pragma clang diagnostic pop\n",
         "idempotent hook completion",
+    )
+    path.write_text(text, encoding="utf-8")
+
+
+def remove_non_live_sidestore_ui_hooks(path: Path) -> None:
+    """Drop SideStore-only UI affordances from the embedded support framework."""
+    marker = "REMOVE_NON_LIVE_SIDESTORE_UI_V1"
+    text = path.read_text(encoding="utf-8")
+    if marker in text:
+        return
+
+    text = replace_once(
+        text,
+        "#import <sys/sysctl.h>\n",
+        "",
+        "UI version overlay sysctl import",
+    )
+    text = replace_once(text, "@import UIKit;\n", "", "SideStore UI import")
+    text = replace_once(
+        text,
+        "static NSMutableDictionary<NSString *, UIWindow *> *SSVersionWindows;\nstatic id SSSceneObserver;\n\n",
+        "",
+        "version overlay state",
+    )
+    text = replace_once(
+        text,
+        "@interface PassthroughWindow : UIWindow\n@end\n\n"
+        "@implementation PassthroughWindow\n\n"
+        "- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event\n"
+        "{\n"
+        "    return nil;\n"
+        "}\n\n"
+        "@end\n\n",
+        "",
+        "version overlay passthrough window",
+    )
+
+    ui_functions = re.compile(
+        r"(?ms)^void \(\*SideStoreMyAppsViewController_orig_viewDidload\).*?"
+        r"(?=^void installSideStoreHooks\(void\) \{)"
+    )
+    matches = list(ui_functions.finditer(text))
+    if len(matches) != 1:
+        raise ValueError(f"Expected one upstream anchor for SideStore UI hooks; found {len(matches)}")
+    match = matches[0]
+    text = text[:match.start()] + text[match.end():]
+
+    liveprocess_ui_branch = re.compile(
+        r"(?ms)^    if \(!NSUserDefaults\.isLiveProcess\) \{\n.*?^    \}\n"
+    )
+    matches = list(liveprocess_ui_branch.finditer(text))
+    if len(matches) != 1:
+        raise ValueError(
+            f"Expected one upstream anchor for non-LiveProcess SideStore UI branch; found {len(matches)}"
+        )
+    match = matches[0]
+    text = text[:match.start()] + text[match.end():]
+
+    text = replace_once(
+        text,
+        "void installSideStoreHooks(void) {\n",
+        "void installSideStoreHooks(void) {\n"
+        "    // REMOVE_NON_LIVE_SIDESTORE_UI_V1: LiveContainer owns product UI.\n",
+        "non-LiveProcess UI removal marker",
     )
     path.write_text(text, encoding="utf-8")
 
@@ -101,6 +167,27 @@ def patch_bootstrap(path: Path) -> None:
 def patch_database(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     if MARKER in text:
+        return
+    if "private func performStart() async throws" in text:
+        # Preserve upstream's coalesced async start, migration and preparation.
+        text = replace_once(text,
+            "        try await self.persistentContainer.loadPersistentStores()",
+            '''        // EMBEDDED_SIDESTORE_STARTUP_FIX_V1: retry preparation without reattaching SQLite.
+        if self.persistentContainer.persistentStoreCoordinator.persistentStores.isEmpty {
+            try await self.persistentContainer.loadPersistentStores()
+        } else {
+            debugLog("[SIDESTORE_STARTUP] reusing_attached_persistent_store_after_startup_failure")
+        }''', "async database retry")
+        text = replace_once(text,
+            "            guard let localAppBundle = ALTApplication(fileURL: Bundle.Info.activeBundleURL) else { return }",
+            '''            guard let localAppBundle = ALTApplication(fileURL: Bundle.Info.activeBundleURL) else {
+                throw ALTError.invalidApp(reason: "Unable to read the active LiveContainer application bundle.")
+            }''', "async bundle failure")
+        text = replace_once(text,
+            "                throw ALTError(.invalidApp)",
+            '                throw ALTError.invalidApp(reason: "The active LiveContainer bundle has no readable provisioning profile.")',
+            "async profile failure")
+        path.write_text(text, encoding="utf-8")
         return
     old = '''                case .success:
                     self.persistentContainer.loadPersistentStores { (description, error) in
@@ -152,18 +239,23 @@ def patch_database(path: Path) -> None:
     new = '''                let activeBundle = Bundle.Info.activeBundle
                 let activeBundleURL = Bundle.Info.activeBundleURL
                 let profileURL = activeBundle.provisioningProfileURL
-                let requestedAppGroup = Bundle.main.altstoreAppGroup ?? "nil"
-                let appGroupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: requestedAppGroup)
-                debugLog("[SIDESTORE_STARTUP] EMBEDDED_SIDESTORE_STARTUP_FIX_V1 main_bundle=\\(Bundle.main.bundleIdentifier ?? "nil") active_bundle=\\(activeBundle.bundleIdentifier ?? "nil") active_path=\\(activeBundleURL.path) store_bundle=\\(Bundle.Info.storeAppBundleIdentifier) app_bundle=\\(Bundle.Info.appbundleIdentifier) profile_path=\\(profileURL.path) profile_exists=\\(FileManager.default.fileExists(atPath: profileURL.path)) app_group=\\(requestedAppGroup) app_group_path=\\(appGroupURL?.path ?? "nil")")
+                // V3_RUNTIME_SHARED_APP_GROUP_DIAGNOSTIC_V1: report whether the
+                // one runtime App Group resolves, not whether this bundle's
+                // packaged declaration happens to be entitled. After a
+                // re-sign the packaged name can be absent while the group the
+                // host selected works, and the old check reported a working
+                // build as broken. The identifier itself is never logged.
+                let runtimeAppGroup = V3SharedAppGroup.runtimeIdentity()
+                debugLog("[SIDESTORE_STARTUP] EMBEDDED_SIDESTORE_STARTUP_FIX_V1 main_bundle=\\(Bundle.main.bundleIdentifier ?? "nil") active_bundle=\\(activeBundle.bundleIdentifier ?? "nil") store_bundle=\\(Bundle.Info.storeAppBundleIdentifier) app_bundle=\\(Bundle.Info.appbundleIdentifier) profile_exists=\\(FileManager.default.fileExists(atPath: profileURL.path)) app_group_resolved=\\(runtimeAppGroup != nil) app_group_source=\\(runtimeAppGroup?.source.rawValue ?? "none")")
 
                 guard let localAppBundle = ALTApplication(fileURL: activeBundleURL) else {
-                    completionHandler(.failure(ALTError.invalidApp(reason: "Unable to read the active LiveContainer application bundle at \\(activeBundleURL.path).")))
+                    completionHandler(.failure(ALTError.invalidApp(reason: "Unable to read the active LiveContainer application bundle.")))
                     return
                 }
 
                 #if !targetEnvironment(simulator)
                 guard localAppBundle.provisioningProfile != nil else {
-                    completionHandler(.failure(ALTError.invalidApp(reason: "The active LiveContainer bundle has no readable provisioning profile at \\(profileURL.path).")))
+                    completionHandler(.failure(ALTError.invalidApp(reason: "The active LiveContainer bundle has no readable provisioning profile.")))
                     return
                 }
                 #endif
@@ -173,28 +265,22 @@ def patch_database(path: Path) -> None:
 
 
 def patch(live_root: Path, sidestore_root: Path) -> None:
+    patch_cf_bundle_bootstrap(live_root / "LiveContainer" / "LCBootstrap.m")
     patch_hooks(live_root / "SideStoreSupport" / "SideStoreHooks.m")
-    patch_return_button(live_root / "SideStoreSupport" / "SideStoreHooks.m")
+    remove_non_live_sidestore_ui_hooks(live_root / "SideStoreSupport" / "SideStoreHooks.m")
     patch_auth_storage(sidestore_root / "SideStore" / "Core" / "Auth" / "AuthManager.swift")
     patch_bootstrap(live_root / "LiveContainer" / "LCBootstrap.m")
     patch_database(sidestore_root / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift")
 
 
-def patch_return_button(path: Path) -> None:
-    text = path.read_text(encoding="utf-8")
-    if "SS_RETURN_BUTTON_V1" in text:
-        return
-    text = replace_once(text,
-        "    NSMutableArray* oldToolBarItems = [self.navigationItem.leftBarButtonItems mutableCopy];",
-        '    // SS_RETURN_BUTTON_V1: messaging a nil array silently drops the button.\n'
-        '    escapeItem.accessibilityLabel = @"Return to LiveContainer";\n'
-        '    NSMutableArray* oldToolBarItems = [self.navigationItem.leftBarButtonItems mutableCopy] ?: [NSMutableArray array];',
-        "return button array")
-    path.write_text(text, encoding="utf-8")
-
-
 def patch_auth_storage(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
+    if "private var portalProxy: DeveloperPortalProxyWithAuth" in text:
+        # ff25922 owns token/session/configuration behavior. Leave it byte-identical.
+        if ('coalesce(key: "apple_auth_session")' not in text and
+                "V3AuthSessionCoalescerKey.value(for: identityAtStart.stamp)" not in text):
+            raise ValueError("Unexpected upstream AuthManager implementation")
+        return
     if "AUTH_STORAGE_READBACK_V1" in text:
         return
     for key, label in (("appleIDEmailAddress", "AppleID email"),

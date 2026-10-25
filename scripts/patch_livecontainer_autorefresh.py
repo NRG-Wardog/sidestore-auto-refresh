@@ -16,6 +16,7 @@ import sys
 TASK_ID = "com.kdt.livecontainer.sidestore.automatic-refresh"
 MARKER = "[LIVE_CONTAINER_REFRESH] REGISTER_PASS"
 TEMPLATES = Path(__file__).resolve().parent / "templates"
+SHARED_APP_GROUP_FILE = "LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift"
 
 
 def template(name: str) -> str:
@@ -26,23 +27,24 @@ HOST_SCHEDULER = template("livecontainer_refresh_policy.swift") + "\n" + templat
 ALARM_PROVIDER = template("livecontainer_refresh_alarm.swift")
 SETTINGS_VIEW = template("livecontainer_refresh_settings.swift")
 BRIDGE = r'''
-// LC_REFRESH_BRIDGE_V2_BEGIN
-/// Use the action identity present in the combined package's intent metadata.
+// LC_REFRESH_BRIDGE_V3_BEGIN
+/// Dispatch the canonical SideStore guest refresh intent from the host scheduler.
 public enum LiveContainerRefreshBridge {
-    public static func refreshAllApps() async throws {
+    public static func refreshAllApps(runID: UUID) async throws {
         guard #available(iOS 17.0, *) else {
             throw NSError(domain: "LiveContainerRefresh.UnsupportedOS", code: 17,
                 userInfo: [NSLocalizedDescriptionKey: "The embedded automatic refresh bridge requires iOS 17 or later."])
         }
         try Task.checkCancellation()
-        try await RefreshHandler.shared.startRefresh(
+        try await RefreshHandler.shared.startScheduledRefresh(
             identifier: "RefreshAllIntent",
-            mangledName: "16SideStoreSupport20RefreshAllAppsIntentV"
+            mangledName: "9SideStore20RefreshAllAppsIntentV",
+            runID: runID.uuidString
         )
         try Task.checkCancellation()
     }
 }
-// LC_REFRESH_BRIDGE_V2_END
+// LC_REFRESH_BRIDGE_V3_END
 '''
 
 
@@ -60,11 +62,68 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 def patch_support(root: Path) -> None:
     path = root / "SideStoreSupport/SideStore.swift"
     text = path.read_text(encoding="utf-8")
-    if "LC_REFRESH_BRIDGE_V2_BEGIN" in text:
+    intent_marker = "LC_REFRESH_INTENT_TO_HOST_SCHEDULER_V1"
+    if intent_marker not in text:
+        old_intent = '''@available(iOS 17.0, *)
+func performIntentRefresh(identifier: String, mangledTypeName: String, intentProgress: Progress) async throws {
+    intentProgress.totalUnitCount = 100
+    if UserDefaults.isSideStore() {
+        try await SideStoreIntentCaller.shared.callRefreshIntent(mangledTypeName: mangledTypeName)
+    } else {
+        RefreshHandler.shared.progress = intentProgress
+        try await RefreshHandler.shared.startRefresh(identifier: identifier, mangledName: mangledTypeName)
+    }
+}'''
+        new_intent = '''@available(iOS 17.0, *)
+func performIntentRefresh(identifier: String, mangledTypeName: String, intentProgress: Progress) async throws {
+    // LC_REFRESH_INTENT_TO_HOST_SCHEDULER_V1: a host shortcut requests work from
+    // the host scheduler. Only the scheduler launches the SideStore refresh engine.
+    _ = intentProgress
+    if UserDefaults.isSideStore() {
+        try await SideStoreIntentCaller.shared.callRefreshIntent(mangledTypeName: mangledTypeName)
+        return
+    }
+    try Task.checkCancellation()
+    let request = V3ShortcutRefreshRequest.make()
+    NotificationCenter.default.post(
+        name: Notification.Name("LiveContainerAutoRefreshRunNow"),
+        object: nil, userInfo: request.userInfo)
+}'''
+        text = replace_once(text, old_intent, new_intent, "route host AppIntent through scheduler")
+    elif ("V3ShortcutRefreshRequest.make()" not in text or
+          'Notification.Name("LiveContainerAutoRefreshRunNow")' not in text or
+          "RefreshHandler.shared.startRefresh(identifier: identifier" in text):
+        die("host AppIntent is not routed through the shared scheduler")
+    if 'dialog: "All apps have been refreshed."' in text:
+        text = replace_once(text, 'dialog: "All apps have been refreshed."',
+            'dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result."',
+            "truthful host AppIntent completion copy")
+    widget_start = text.index("public struct RefreshAllAppsWidgetIntent")
+    main_start = text.index("public struct RefreshAllAppsIntent", widget_start)
+    handler_start = text.index("class RefreshHandler:", main_start)
+    widget_intent = text[widget_start:main_start]
+    main_intent = text[main_start:handler_start]
+    requested_dialog = 'return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")'
+    if "return .result()" in widget_intent:
+        widget_intent = replace_once(widget_intent, "return .result()", requested_dialog,
+                                     "truthful widget AppIntent request completion copy")
+        text = text[:widget_start] + widget_intent + text[main_start:]
+    elif requested_dialog not in widget_intent:
+        die("widget AppIntent does not distinguish request submission from refresh completion")
+    widget_title = '    public static var title: LocalizedStringResource { "Refresh Apps via Widget" }\n'
+    main_title = '    public static var title: LocalizedStringResource = "Refresh All Apps"\n'
+    if "public static var openAppWhenRun = true" not in widget_intent:
+        text = replace_once(text, widget_title,
+            widget_title + "    // LC_REFRESH_HOST_INTENT_FOREGROUND_V1: widget requests must execute in the host app.\n"
+            "    public static var openAppWhenRun = true\n", "foreground widget intent")
+    if "public static var openAppWhenRun = true" not in main_intent:
+        text = replace_once(text, main_title,
+            main_title + "    public static var openAppWhenRun = true\n", "foreground refresh intent")
+    if "LC_REFRESH_BRIDGE_V3_BEGIN" in text:
         if BRIDGE.strip() not in text:
             die("outdated bridge template: reapply to the pinned clean source")
         return
-    if "public enum LiveContainerRefreshBridge" in text:
+    if "LC_REFRESH_BRIDGE_V2_BEGIN" in text or "public enum LiveContainerRefreshBridge" in text:
         die("legacy bridge already patched: reapply to the pinned clean source")
     text = replace_once(text, "\nclass RefreshHandler: NSObject, RefreshServer {",
                         BRIDGE + "\nclass RefreshHandler: NSObject, RefreshServer {", "refresh bridge insertion")
@@ -115,14 +174,25 @@ def patch_host_delegate(root: Path) -> None:
     startup = '''        application.shortcutItems = nil
         // LC_REFRESH_HOST_V2
         UNUserNotificationCenter.current().delegate = self
+        // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the host owns the App Group
+        // selection. Publish it before any shared refresh state is touched, so
+        // the embedded service, which cannot see LiveContainer's Objective-C
+        // helper, resolves the identical group instead of a packaged name.
+        V3SharedAppGroup.publishRuntimeGroup(LCSharedUtils.appGroupID())
         LiveContainerAutoRefreshScheduler.register()
         LiveContainerAutoRefreshScheduler.recoverAfterLaunchOrResume()
         LiveContainerAutoRefreshScheduler.schedule()
         NotificationCenter.default.addObserver(forName: Notification.Name("LiveContainerAutoRefreshScheduleChanged"), object: nil, queue: .main) { _ in
             Task { @MainActor in LiveContainerAutoRefreshScheduler.scheduleChanged() }
         }
-        NotificationCenter.default.addObserver(forName: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil, queue: .main) { _ in
-            Task { @MainActor in LiveContainerAutoRefreshScheduler.runNow() }
+        NotificationCenter.default.addObserver(forName: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil, queue: .main) { notification in
+            guard let request = V3ShortcutRefreshRequest(userInfo: notification.userInfo) else {
+                NSLog("[V3_REFRESH] RUN_NOW_REJECTED reason=invalid_request_identity")
+                return
+            }
+            let requestID = request.requestID
+            let origin = request.origin
+            Task { @MainActor in LiveContainerAutoRefreshScheduler.runNow(requestID: requestID, origin: origin) }
         }
         NotificationCenter.default.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in LiveContainerAutoRefreshScheduler.recoverAfterLaunchOrResume() }
@@ -204,9 +274,27 @@ def patch_settings(root: Path) -> None:
     (path.parent / "LCEmbeddedSideStoreRefreshView.swift").write_text(SETTINGS_VIEW, encoding="utf-8")
 
 
+def patch_shared_app_group(root: Path) -> None:
+    """Install the one runtime App Group identity as its own host source file.
+
+    The LiveContainerSwiftUI target uses synchronized file-system groups, so a
+    dedicated file is the only way to define the identity exactly once for the
+    host module: the scheduler, the refresh settings screen, the unified shell
+    and the app delegate all consume it, and duplicating it inside any one of
+    those files would be a redeclaration in the same module.
+    """
+    path = root / SHARED_APP_GROUP_FILE
+    expected = template("v3_shared_app_group.swift")
+    if path.exists() and path.read_text(encoding="utf-8") != expected:
+        die("outdated shared App Group template: reapply to the pinned clean source")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(expected, encoding="utf-8")
+
+
 def verify(root: Path) -> None:
     delegate = (root / "LiveContainerSwiftUI/App/AppDelegate.swift").read_text(encoding="utf-8")
     support = (root / "SideStoreSupport/SideStore.swift").read_text(encoding="utf-8")
+    shared_group = (root / SHARED_APP_GROUP_FILE).read_text(encoding="utf-8")
     info = plistlib.loads((root / "LiveContainer/Info.plist").read_bytes())
     for identifier in (TASK_ID, TASK_ID + ".watchdog"):
         if identifier not in info.get("BGTaskSchedulerPermittedIdentifiers", []):
@@ -214,17 +302,63 @@ def verify(root: Path) -> None:
     if not {"processing", "fetch"}.issubset(info.get("UIBackgroundModes", [])):
         die("both processing and fetch background modes are required")
     for marker in (MARKER, "LiveContainerRefreshTaskIdentifiers.resolve", "LiveContainerRefreshCompletionGate",
-                   "verifyRefreshManifest", "HOST_REFRESH_VERIFIED", "MISSED_BACKGROUND_REFRESH", "UNUserNotificationCenterDelegate"):
+                   "verifyRefreshManifest", "HOST_REFRESH_VERIFIED", "MISSED_BACKGROUND_REFRESH", "UNUserNotificationCenterDelegate",
+                   "V3SharedAppGroup.publishRuntimeGroup(LCSharedUtils.appGroupID())"):
         if marker not in delegate:
             die(f"generated host missing {marker}")
+    if "enum V3SharedAppGroup {" not in shared_group or "enum V3SharedRefreshStore {" not in shared_group:
+        die("the host shared App Group identity was not installed")
+    if shared_group.count("enum V3SharedAppGroup {") != 1:
+        die("the host shared App Group identity is declared more than once")
+    if shared_group != template("v3_shared_app_group.swift"):
+        die("the installed host shared App Group identity is not the current template")
+    # The quarantine store must never be an App Group suite: a quarantined write
+    # that landed in the real group would look like a successful shared write.
+    quarantine = shared_group[shared_group.index("static func quarantinedUserDefaults()"):]
+    end = quarantine.find("\n    }\n")
+    if end < 0:
+        die("the quarantined read store declaration could not be located")
+    self_line = quarantine[:end]
+    if "com.kdt.livecontainer.v3.quarantined-shared-store" not in self_line:
+        die("the quarantined read store must use a private suite name")
+    if "group." in self_line:
+        die("the quarantined read store must never open an App Group suite")
+    if "throws -> UserDefaults {" not in shared_group or "case sharedStore" not in shared_group:
+        die("an unavailable shared store must be a typed recoverable failure")
+    if "V3ShortcutRefreshRequest(userInfo: notification.userInfo)" not in delegate:
+        die("host refresh observer does not validate the request handoff")
+    if "guard let request = V3ShortcutRefreshRequest(userInfo: notification.userInfo) else" not in delegate:
+        die("host refresh observer does not reject malformed requests before scheduler admission")
     if BRIDGE.strip() not in support:
         die("combined intent bridge does not match the packaged metadata contract")
+    helper_start = support.index("func performIntentRefresh(")
+    helper_end = support.index("\n}\n", helper_start) + len("\n}\n")
+    intent_helper = support[helper_start:helper_end]
+    for required in ("LC_REFRESH_INTENT_TO_HOST_SCHEDULER_V1", "V3ShortcutRefreshRequest.make()",
+                     'Notification.Name("LiveContainerAutoRefreshRunNow")', "request.userInfo"):
+        if required not in intent_helper:
+            die(f"host AppIntent scheduler adapter missing {required}")
+    if "RefreshHandler.shared.startRefresh(identifier: identifier" in intent_helper:
+        die("host AppIntent still bypasses the shared scheduler")
+    if 'dialog: "All apps have been refreshed."' in support:
+        die("host AppIntent still reports completion before the scheduler run")
+    widget_start = support.index("public struct RefreshAllAppsWidgetIntent")
+    main_start = support.index("public struct RefreshAllAppsIntent", widget_start)
+    handler_start = support.index("class RefreshHandler:", main_start)
+    widget_intent = support[widget_start:main_start]
+    if "public static var openAppWhenRun = true" not in widget_intent:
+        die("host widget AppIntent is not configured to execute in LiveContainer")
+    if 'return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")' not in widget_intent:
+        die("host widget AppIntent reports success without directing the user to the scheduler result")
+    if "public static var openAppWhenRun = true" not in support[main_start:handler_start]:
+        die("host Refresh All AppIntent is not configured to execute in LiveContainer")
     if r'\\(' in HOST_SCHEDULER:
         die("Swift interpolation was double-escaped in a plain Swift template")
     compiler = shutil.which("swiftc")
     if compiler:
         for relative in ("LiveContainerSwiftUI/App/AppDelegate.swift", "LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift",
-                         "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift", "SideStoreSupport/SideStore.swift"):
+                         "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift", "SideStoreSupport/SideStore.swift",
+                         SHARED_APP_GROUP_FILE):
             subprocess.run([compiler, "-frontend", "-parse", str(root / relative)], check=True)
         client = root / "SideStoreSupport/SideStoreClient.swift"
         if client.exists():
@@ -239,6 +373,7 @@ def main() -> None:
         die(f"not a LiveContainer checkout: {root}")
     patch_support(root)
     patch_host_delegate(root)
+    patch_shared_app_group(root)
     patch_host_info(root)
     patch_project(root)
     patch_alarm_provider(root)

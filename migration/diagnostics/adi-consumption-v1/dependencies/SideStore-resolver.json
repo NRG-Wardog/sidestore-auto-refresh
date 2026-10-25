@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "owner": "SideStore",
+  "purpose": "diagnostic_xcode_resolution",
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37752053172",
+  "run_attempt": 1,
+  "resolver_tested_commit": "3f0f1e40ac37e1b02f8c375743a46b3ce9ff3a8d",
+  "resolver_tested_tree": "51cca412801e5236ac76c66440b0d8cea9e163f5",
+  "lock_sha256": "75ffdbb23481eed06e3d46210f24f2eb95a633dc55ece83a4295dc1e261f0c96",
+  "origin_hash": {
+    "present": true,
+    "value": "c9e3c6042136849ac21835264cf5aece849ed3e487b36b9242a3ab0b5fcf6d17"
+  },
+  "toolchain": {
+    "xcode": "Xcode 26.4.1\nBuild version 17E202",
+    "swift": "swift-driver version: 1.148.6 Apple Swift version 6.3.1 (swiftlang-6.3.1.1.2 clang-2100.0.123.102)"
+  },
+  "command": [
+    "xcodebuild",
+    "-resolvePackageDependencies",
+    "-project",
+    "/Users/runner/work/LiveContainer/LiveContainer/production-work/sources/SideStore/AltStore.xcodeproj",
+    "-scheme",
+    "SideStore",
+    "-clonedSourcePackagesDirPath",
+    "/Users/runner/work/LiveContainer/LiveContainer/production-work/results/sidestore-packages",
+    "-derivedDataPath",
+    "/Users/runner/work/LiveContainer/LiveContainer/production-work/results/sidestore-derived",
+    "-disablePackageRepositoryCache"
+  ],
+  "evidence_sha256": {
+    "resolver_log": "5bab01da89ea89f559fcd19a8d8e1e9b8b6777be9be23b04c88cf00b490640d0",
+    "resolution_before": "c64b26be42dadcef04caed3134fef55784cae10fc9d196acdf24ee83d82cad7f",
+    "resolution_after": "75ffdbb23481eed06e3d46210f24f2eb95a633dc55ece83a4295dc1e261f0c96"
+  }
+}

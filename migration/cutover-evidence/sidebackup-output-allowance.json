@@ -1,0 +1,27 @@
+{
+  "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71",
+  "classification": "build-only output allowance; no runtime edits",
+  "allowed_after_build_only": [
+    "build/sidebackup.xcarchive/",
+    "build/SideBackup.ipa"
+  ],
+  "no_tracked_file_exception": true,
+  "other_build_or_swiftpm_inputs_rejected": true,
+  "frozen_build_sources_sha256": {
+    "Makefile": "39c5ca7ccca829bcf98da32230b14088c702261fdf9352cd6c234c27489c1b5d",
+    "AltStore.xcodeproj/project.pbxproj": "0a21d1c86d22c16af2d877b571fccc674f5a110cc0ccf9bd4bc6204d511ee33f"
+  },
+  "normal_tests": {
+    "total": 40,
+    "passed": 40,
+    "skipped": 0,
+    "failed": 0
+  },
+  "optimized_tests": {
+    "total": 40,
+    "passed": 40,
+    "skipped": 0,
+    "failed": 0
+  },
+  "native_Xcode_execution": false
+}

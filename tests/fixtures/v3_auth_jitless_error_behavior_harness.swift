@@ -1,0 +1,188 @@
+import Foundation
+
+@main
+struct V3AuthJITLessErrorBehaviorHarness {
+    static func main() {
+        var previous: [String: Any]?
+        let invalidCredentials: [String: Any] = ["kind": "invalidCredentials", "code": "invalidCredentials"]
+        let firstPrompt: [String: Any] = [
+            "state": "awaitingPrompt",
+            "prompt": ["kind": "credentials"],
+            "previousFailure": invalidCredentials
+        ]
+        previous = V3AuthPromptFailurePolicy.applying(reply: firstPrompt, current: previous)
+        precondition(V3AuthPromptFailurePolicy.isVisible(previous, promptKind: "credentials"))
+        let nextPrompt: [String: Any] = ["state": "awaitingPrompt", "prompt": ["kind": "credentials"]]
+        previous = V3AuthPromptFailurePolicy.applying(reply: nextPrompt, current: previous)
+        precondition(previous?["kind"] as? String == "invalidCredentials")
+        precondition(V3AuthPromptFailurePolicy.clearingAfterSubmission(previous, promptKind: "credentials") == nil)
+        precondition(V3AuthPromptFailurePolicy.clearingOnDismiss(previous) == nil)
+        precondition(!V3AuthPromptFailurePolicy.isVisible(previous, promptKind: "twoFactor"))
+
+        precondition(V3AuthTerminalPolicy.resolve(authenticationSucceeded: true,
+            authoritativeAccountMatches: false, provisioningFailed: true, cancelled: false)
+            == "authenticatedProvisioningIncomplete")
+        precondition(V3AuthTerminalPolicy.resolve(authenticationSucceeded: false,
+            authoritativeAccountMatches: true, provisioningFailed: false, cancelled: true)
+            == "authenticatedProvisioningIncomplete")
+        precondition(!V3AuthAttemptAuthenticationPolicy.confirms(
+            authenticationCallbackSeen: false, submittedAppleID: "dev@example.com",
+            activeAppleID: "dev@example.com", accountAppleIDAtStart: "dev@example.com"),
+            "a pre-existing active account does not prove re-authentication succeeded")
+        precondition(V3AuthAttemptAuthenticationPolicy.confirms(
+            authenticationCallbackSeen: false, submittedAppleID: "new@example.com",
+            activeAppleID: "new@example.com", accountAppleIDAtStart: "old@example.com"),
+            "a newly active submitted account is evidence of successful authentication")
+        precondition(V3AuthAttemptAuthenticationPolicy.confirms(
+            authenticationCallbackSeen: true, submittedAppleID: "dev@example.com",
+            activeAppleID: nil, accountAppleIDAtStart: "dev@example.com"),
+            "the attempt's typed success callback is authoritative even for the same account")
+        precondition(V3AuthTerminalPolicy.resolve(authenticationSucceeded: false,
+            authoritativeAccountMatches: false, provisioningFailed: false, cancelled: true) == "cancelled")
+
+        let sessionID = UUID().uuidString
+        precondition(V3AuthSessionResponsePolicy.mayRespond(
+            terminalIsEmpty: true, cancellationRequested: false, promptMatches: true))
+        precondition(!V3AuthSessionResponsePolicy.mayRespond(
+            terminalIsEmpty: true, cancellationRequested: true, promptMatches: true),
+            "a late 2FA answer must not resume a cancelled authentication prompt")
+        precondition(V3AuthSessionResponsePolicy.mayApplyReply(
+            currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: false,
+            submittedPromptID: "prompt-A", currentPromptID: "prompt-A"))
+        precondition(!V3AuthSessionResponsePolicy.mayApplyReply(
+            currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: true,
+            submittedPromptID: "prompt-A", currentPromptID: "prompt-A"),
+            "a late authRespond reply must not replace the authCancel terminal result")
+        precondition(!V3AuthSessionResponsePolicy.mayApplyReply(
+            currentSessionID: UUID().uuidString, replySessionID: sessionID, cancellationInProgress: false),
+            "a response from an earlier auth session must be ignored")
+        precondition(!V3AuthSessionResponsePolicy.mayApplyReply(
+            currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: false,
+            submittedPromptID: "prompt-A", currentPromptID: "prompt-B"),
+            "a late answer for prompt A must not replace a newer prompt B in the same session")
+        precondition(!V3AuthPromptSubmissionPolicy.mayShowFailure(
+            currentSessionID: sessionID, submittedSessionID: sessionID,
+            currentPromptID: "prompt-B", submittedPromptID: "prompt-A",
+            cancellationInProgress: false),
+            "a delayed error for prompt A must not overwrite prompt B")
+        precondition(!V3AuthPromptSubmissionPolicy.mayShowFailure(
+            currentSessionID: sessionID, submittedSessionID: sessionID,
+            currentPromptID: nil, submittedPromptID: "prompt-A",
+            cancellationInProgress: false),
+            "a delayed prompt error must not overwrite a terminal timeout")
+        precondition(V3AuthPromptSubmissionPolicy.mayShowFailure(
+            currentSessionID: sessionID, submittedSessionID: sessionID,
+            currentPromptID: "prompt-A", submittedPromptID: "prompt-A",
+            cancellationInProgress: false),
+            "the current prompt may show its own submission error")
+        precondition(V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
+            replySessionID: sessionID, cancellationInProgress: false, currentRevision: 1,
+            replyRevision: 2, currentPromptID: "prompt-A", replyPromptID: "prompt-A"),
+            "the immediate reply to answering prompt A may still show A at a newer revision")
+        precondition(V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
+            replySessionID: sessionID, cancellationInProgress: false, currentRevision: 2,
+            replyRevision: 3, currentPromptID: "prompt-A", replyPromptID: "prompt-B"),
+            "a new prompt B may appear without another user-answer count change")
+        precondition(!V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
+            replySessionID: sessionID, cancellationInProgress: false, currentRevision: 3,
+            replyRevision: 1, currentPromptID: "prompt-B", replyPromptID: "prompt-A"),
+            "an in-flight earlier poll must not roll the same auth session back to prompt A")
+        precondition(V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
+            replySessionID: sessionID, cancellationInProgress: false, currentRevision: 3,
+            replyRevision: 4, currentPromptID: "prompt-B", replyPromptID: nil),
+            "a newer terminal verification result may clear the prompt")
+        let beginRaceID = UUID().uuidString
+        var beginCancellation = V3AuthStartCancellationRegistry()
+        precondition(beginCancellation.cancelBeforeStart(beginRaceID),
+            "cancellation before authBegin reaches SideStore must record the client-owned session")
+        precondition(beginCancellation.contains(beginRaceID))
+        precondition(beginCancellation.consume(beginRaceID),
+            "late authBegin must consume the cancellation and create only a cancelled terminal session")
+        precondition(!beginCancellation.consume(beginRaceID))
+        precondition(V3AuthSessionResponsePolicy.mayAcceptStartedSession(
+            expectedSessionID: beginRaceID, replySessionID: beginRaceID,
+            currentSessionID: beginRaceID, cancellationInProgress: false))
+        precondition(!V3AuthSessionResponsePolicy.mayAcceptStartedSession(
+            expectedSessionID: beginRaceID, replySessionID: beginRaceID,
+            currentSessionID: beginRaceID, cancellationInProgress: true),
+            "a late begin/retry reply after cancel must not resume polling or replace visible cancellation")
+        precondition(V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: beginRaceID,
+            activeSessionID: beginRaceID, cancellationRequested: false, terminalIsEmpty: true))
+        precondition(!V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: beginRaceID,
+            activeSessionID: beginRaceID, cancellationRequested: true, terminalIsEmpty: true),
+            "cancellation while a replacement waits for the previous auth task must suppress launch")
+        precondition(!V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: beginRaceID,
+            activeSessionID: UUID().uuidString, cancellationRequested: false, terminalIsEmpty: true),
+            "a newer auth begin must supersede the older suspended begin")
+        precondition(!V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: beginRaceID,
+            activeSessionID: beginRaceID, cancellationRequested: false,
+            terminalIsEmpty: true, requestCancelled: true),
+            "a superseding auth begin whose XPC request timed out must not launch after the old task unwinds")
+
+        precondition(V3TwoFactorStep.afterDeliveryChoice("trustedDevice", phoneCount: 0) == .deliveryRequested)
+        precondition(V3TwoFactorStep.afterDelivery("trustedDevice") == .enterVerificationCode)
+        precondition(V3TwoFactorStep.afterDeliveryChoice("sms", phoneCount: 2) == .choosePhoneNumber)
+        precondition(V3TwoFactorStep.afterDeliveryChoice("voice", phoneCount: 1) == .deliveryRequested)
+        precondition(V3TwoFactorStep.afterVerification(accepted: false) == .enterVerificationCode)
+        precondition(V3TwoFactorStep.afterVerification(accepted: true) == .completed)
+        precondition(V3TwoFactorStep.afterChangeMethod == .chooseDeliveryMethod)
+
+        precondition(V3JITLessReadinessPolicy.evaluate(osMajor: 25, hasCopy: false,
+            activeCertificateExists: false, identitiesMatch: nil, validationStatus: nil,
+            validationFailed: false) == .notRequired)
+        precondition(V3JITLessReadinessPolicy.evaluate(osMajor: 26, hasCopy: false,
+            activeCertificateExists: true, activeCertificateStatus: "valid", identitiesMatch: nil,
+            validationStatus: nil, validationFailed: false) == .setupRequired)
+        // V3_JITLESS_CERT_DISTINCTION_V1: "no active SideStore certificate" is
+        // its own state, no longer collapsed into an undifferentiated unknown.
+        precondition(V3JITLessReadinessPolicy.evaluate(osMajor: 26, hasCopy: false,
+            activeCertificateExists: false, identitiesMatch: nil, validationStatus: nil,
+            validationFailed: false) == .activeCertificateMissing)
+        precondition(V3JITLessReadinessPolicy.evaluate(osMajor: 26, hasCopy: true,
+            activeCertificateExists: true, activeCertificateStatus: "valid", identitiesMatch: false,
+            validationStatus: 0, validationFailed: false) == .certificateMismatch)
+        precondition(V3JITLessReadinessPolicy.evaluate(osMajor: 26, hasCopy: true,
+            activeCertificateExists: true, activeCertificateStatus: "valid", identitiesMatch: true,
+            validationStatus: 0, validationFailed: false) == .ready)
+        precondition(V3JITLessReadinessPolicy.evaluate(osMajor: 26, hasCopy: true,
+            activeCertificateExists: true, activeCertificateStatus: "valid", identitiesMatch: false,
+            validationStatus: 1, validationFailed: false) == .revoked)
+        precondition(V3JITLessReadinessPolicy.evaluate(osMajor: 26, hasCopy: true,
+            activeCertificateExists: true, activeCertificateStatus: "revoked", identitiesMatch: false,
+            validationStatus: 0, validationFailed: false) == .activeCertificateRevoked)
+        precondition(V3JITLessReadinessPolicy.evaluate(osMajor: 26, hasCopy: true,
+            activeCertificateExists: true, activeCertificateStatus: "expired", identitiesMatch: false,
+            validationStatus: 0, validationFailed: false) == .activeCertificateExpired)
+        precondition(V3JITLessReadinessPolicy.evaluate(osMajor: 26, hasCopy: true,
+            activeCertificateExists: true, activeCertificateStatus: "unknown", identitiesMatch: nil,
+            validationStatus: 0, validationFailed: false) == .unknown)
+        precondition(!V3JITLessReadinessPolicy.evaluate(osMajor: 26, hasCopy: false,
+            activeCertificateExists: true, activeCertificateStatus: "valid", identitiesMatch: nil,
+            validationStatus: nil, validationFailed: false).isReady)
+        // A stale copy is outstanding work, and a ready state is not.
+        precondition(!V3JITLessPresentation.present(.certificateMismatch).isOutstandingSetupTask == false)
+        precondition(!V3JITLessPresentation.present(.ready).isOutstandingSetupTask)
+        precondition(V3JITLessPresentation.present(.ready).severity == .completed)
+
+        let sourceNetwork = CombinedFailure(operation: "source", stage: .source, id: UUID().uuidString,
+            retryable: true, safeCause: .sourceNetworkFailure, sourceStep: .sourceDownload)
+        let badManifest = CombinedFailure(operation: "source", stage: .source, id: UUID().uuidString,
+            retryable: false, safeCause: .sourceInvalidManifest, sourceStep: .manifestParsing)
+        let catalog = CombinedFailure(operation: "catalog", stage: .catalog, id: UUID().uuidString,
+            retryable: false, safeCause: .catalogUnavailable, sourceStep: .catalogRead)
+        let pairing = CombinedFailure(operation: "refresh", stage: .pairing, code: .notReady,
+            id: UUID().uuidString, retryable: false, safeCause: .pairingRequired)
+        precondition(sourceNetwork.safeMessage.contains("source could not be downloaded"))
+        precondition(badManifest.safeMessage.contains("valid source"))
+        precondition(catalog.safeMessage.contains("saved catalog"))
+        precondition(pairing.safeMessage == "A pairing file is required before this device can be refreshed.\n" + pairing.diagnosticLabel)
+        precondition(pairing.recovery == "Add the pairing file, then retry the refresh.")
+
+        var attempt = V3RefreshAllAttemptState()
+        let requestID = UUID().uuidString
+        attempt.begin(requestID: requestID)
+        attempt.failBeforeStart(message: pairing.safeMessage)
+        precondition(attempt.phase == .failed && attempt.runID.isEmpty && attempt.isTerminal)
+        print("V3_AUTH_2FA_JITLESS_AND_ERROR_BEHAVIOR_PASS")
+    }
+}

@@ -1,0 +1,735 @@
+"""Regression coverage for the v3 USER-FEEDBACK / OPERATION-STATE audit.
+
+Every user-triggered asynchronous or mutating action must acknowledge,
+show working state, reach a visible terminal result, guard duplicates,
+and reload authoritative state. No silent dismissals, no dead Retry
+buttons, no raw numeric error codes as user messages.
+"""
+import re
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
+RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
+
+
+def shell():
+    return SHELL.read_text(encoding="utf-8")
+
+
+def runtime():
+    return RUNTIME.read_text(encoding="utf-8")
+
+
+def operation_sheet():
+    text = shell()
+    start = text.index("struct V3OperationSheet")
+    end = text.index("struct V3PromptSection", start)
+    return text[start:end]
+
+
+def status_store():
+    text = shell()
+    start = text.index("final class V3SideStoreStatusStore")
+    end = text.index("struct V3SideStoreApp", start)
+    return text[start:end]
+
+
+class SheetLifecycleTests(unittest.TestCase):
+    def test_failure_recovery_dismiss_route_lives_on_cover_owner(self):
+        text = shell()
+        cover = text[text.index(".fullScreenCover(item: $status.presentation"):]
+        cover = cover[:cover.index(".sheet(isPresented: $status.signInPresented")]
+        self.assertIn("status.operationCoverDidDismiss()", cover)
+        self.assertIn("operationSheetDidDismiss()", cover)
+        self.assertLess(text.index("private func operationSheetDidDismiss"),
+                        text.index("struct V3RefreshAllButton"))
+        route = text[text.index("private func operationSheetDidDismiss"):text.index("private func dispatchURL")]
+        for destination in ("signIn", "certificates", "ipa", "setup", "connection"):
+            self.assertIn('case "' + destination + '"', route)
+
+    def test_terminal_install_cover_swipe_does_not_send_redundant_cancel(self):
+        sheet = operation_sheet()
+        dismissal = sheet[sheet.index(".onDisappear {"):]
+        self.assertIn("let wasTerminal = attempt.isTerminal", dismissal)
+        self.assertIn("V3OperationCoverDismissalPolicy.mustConfirmBackendStop", dismissal)
+        self.assertIn("mustConfirmCancel ? attempt.supersede() : nil", dismissal)
+        self.assertIn('let terminalOutcome = wasTerminal &&', dismissal)
+
+    def test_success_stays_visible_until_done(self):
+        sheet = operation_sheet()
+        apply = sheet[sheet.index("private func apply"):]
+        completed = apply[apply.index('case "completed":'):]
+        completed = completed[:completed.index("case ", 10)]
+        self.assertIn("applyCompletionSettlement", completed)
+        self.assertNotIn("dismiss()", completed)
+        settlement = sheet[sheet.index("private func applyCompletionSettlement("):]
+        settlement = settlement[:settlement.index("private func answerPrompt(")]
+        self.assertIn("completed successfully", settlement)
+        self.assertIn("completedAwaitingBackendSettlement", settlement)
+
+    def test_retry_cancels_and_awaits_the_old_session(self):
+        sheet = operation_sheet()
+        retry = sheet[sheet.index("private func retry()"):sheet.index("private func cancelAttempt()")]
+        self.assertIn("attempt.supersede()", retry)
+        self.assertIn('operation: "opCancel"', retry)
+        self.assertIn("await oldTask?.value", retry)
+        self.assertIn("attempt.begin()", retry)
+        self.assertIn("attempt.transitionInFlight", sheet)
+
+    def test_broad_backend_phase_before_pipeline_reports_a_step(self):
+        runtime_source = runtime()
+        self.assertIn('"phase": V3OperationPhase.working.rawValue', runtime_source)
+        self.assertIn('"phaseLabel": V3OperationPhase.working.label', runtime_source)
+
+    def test_operation_phase_and_progress_use_backend_values_with_ui_clamp(self):
+        sheet = operation_sheet()
+        runtime_source = runtime()
+        self.assertIn('"phase": phase.rawValue, "phaseLabel": phase.label', runtime_source)
+        self.assertIn("session.phase.recordPipelineStep(step, downloadUsesNetwork: downloadUsesNetwork)", runtime_source)
+        self.assertIn("setPhase(sessionID: sessionID, phase: .downloadingIPA)", runtime_source)
+        self.assertIn("V3NormalizedProgress.clamp(progress)", runtime_source)
+        self.assertIn("operationPhase = V3OperationPhase(rawValue: rawPhase) ?? .working", sheet)
+        self.assertIn("operationPhase.label", sheet)
+        self.assertIn("V3NormalizedProgress.displayValue(progress, state: state)", sheet)
+        self.assertIn('Text("Progress")', sheet)
+        self.assertIn('Text(hasProgress || state == "completed" ?', sheet)
+        apply = sheet[sheet.index("private func apply"):]
+        completed = apply[apply.index('case "completed":'):]
+        completed = completed[:completed.index('case "cancelled":')]
+        self.assertIn("progress = 1", completed)
+
+    def test_cancelled_is_terminal_and_visible(self):
+        sheet = operation_sheet()
+        apply = sheet[sheet.index("private func apply"):]
+        cancelled = apply[apply.index('case "cancelled"'):]
+        cancelled = cancelled[:cancelled.index("case ", 10)]
+        self.assertIn("message =", cancelled)
+        self.assertNotIn("dismiss()", cancelled)
+
+    def test_single_opstart_driver(self):
+        sheet = operation_sheet()
+        self.assertEqual(sheet.count('operation: "opStart"'), 1)
+
+
+class InstallStateMachineTests(unittest.TestCase):
+    def test_root_picker_lifecycle_and_single_reusable_operation_cover(self):
+        text = shell()
+        fn = text[text.index("func stageSharedIPA"):]
+        fn = fn[:fn.index("struct V3SideStoreApp")]
+        self.assertIn("V3IPAStaging.stage", fn)
+        self.assertIn("installAttempt.staged", fn)
+        self.assertIn("drainInstallPresentation(trigger:", fn)
+        self.assertNotIn("asyncAfter", text)
+        self.assertIn("V3InstallPickerPresenter(status: status)", text)
+        self.assertIn("anchor.present(documentPicker, animated: true)", text)
+        self.assertIn(".fullScreenCover(item: $status.presentation", text)
+        self.assertNotIn(".sheet(isPresented: pickerBinding", text)
+        self.assertIn("func resetInstallUI(attemptID: UUID", text)
+        self.assertIn("func retryInstallCancellation()", text)
+        acknowledge = text[text.index("private func acknowledgeAndDismiss"):text.index("private func openRecoveryDestination")]
+        self.assertLess(acknowledge.index("status.resetInstallUI"), acknowledge.index("status.reload()"))
+
+    def test_install_button_routes_every_tap_through_exact_reason_logging(self):
+        text = shell()
+        view = text[text.index("struct V3InstallButton"):]
+        view = view[:view.index("\n}\n") + 3]
+        self.assertIn("status.beginInstallPicker()", view)
+        store = status_store()
+        self.assertIn('NSLog("[V3_INSTALL_UI] tap")', store)
+        self.assertIn('tap_rejected reason=presentation_active', store)
+        self.assertIn('tap_rejected reason=attempt_not_idle phase=%@', store)
+
+    def test_extension_prompt_uses_all_target_extensions_and_skips_only_empty_targets(self):
+        source = runtime()
+        start = source.index("func selectAppExtensionsToRemove")
+        end = source.index("func resolveUnsupportediOSVersion", start)
+        method = source[start:end]
+        self.assertIn("V3ExtensionRemovalPromptPolicy.decide", method)
+        self.assertIn("whenEmpty: .keepAll(useMainProfile: false)", method)
+        self.assertIn("targetExtensions: appBundle.appExtensions", method)
+        self.assertIn("let sorted = appBundle.appExtensions.sorted", method)
+        self.assertNotIn("excessExtensions: excessExtensions", method)
+        self.assertIn("case .keepAllMainProfile: return .keepAll(useMainProfile: true)", method)
+        self.assertLess(method.index("V3ExtensionRemovalPromptPolicy.decide"), method.index("self.ask"))
+
+
+class StoreFeedbackTests(unittest.TestCase):
+    def test_mutations_accept_snapshot_and_release_the_activity_first(self):
+        store = status_store()
+        # V3_LOAD_ACTIVITY_OWNERSHIP_V1: the five service mutations now share one
+        # named helper, so the activity they own is opened and closed in exactly
+        # one place and cannot drift per operation.
+        helper = store[store.index("private func runMutation("):]
+        helper = helper[:helper.index("\n    func signOut()")]
+        code = "\n".join(line for line in helper.splitlines()
+                         if not line.strip().startswith("//"))
+        for operation in ("signOut", "syncAppIDs", "clearCache", "refreshSources", "jit"):
+            self.assertIn(f'runMutation("{operation}"', store, operation)
+        self.assertIn("let snapshot = try await V3ServiceBridge.shared.request(operation: operation, target: target)", code)
+        self.assertIn("accept(snapshot)", code)
+        self.assertIn("beginMutation()", code)
+        self.assertIn("finishMutation()", code)
+        self.assertLess(code.index("accept(snapshot)"), code.index("finishMutation()"))
+        self.assertIn("statusReplyMayApply(snapshot)", store)
+        resolve_index = code.index("V3SignOutOutcomePolicy.resolve(")
+        self.assertLess(resolve_index, code.index("finishMutation()", resolve_index))
+        # The busy state is released before the trailing reload, so the reload
+        # is not suppressed by the store's own guard.
+        self.assertLess(code.index("finishMutation()"), code.index("reload()"))
+
+    def test_each_activity_is_closed_by_its_own_ender(self):
+        store = status_store()
+        # Two activities, two enders. The previous single finishLoading() could
+        # not tell them apart, which is how a mutation released a caller that was
+        # waiting for a snapshot.
+        self.assertIn("private func finishSnapshot(outcome: V3ReloadOutcome, generation: UInt64) {", store)
+        self.assertIn("private func finishMutation() {", store)
+        self.assertIn("private func beginMutation() {", store)
+        snapshot_end = store[store.index("private func finishSnapshot("):]
+        snapshot_end = snapshot_end[:snapshot_end.index("\n    }\n")]
+        mutation_end = store[store.index("private func finishMutation()"):]
+        mutation_end = mutation_end[:mutation_end.index("\n    }\n")]
+        self.assertIn("snapshotWaiters", snapshot_end)
+        self.assertIn("continuation.resume", snapshot_end)
+        self.assertNotIn("continuation.resume", mutation_end)
+        self.assertNotIn("snapshotWaiters", mutation_end)
+        # Neither may clear the busy flag anywhere else.
+        body = store[store.index("final class V3SideStoreStatusStore"):]
+        self.assertIn("if externalMutationCount > 0 {", snapshot_end)
+        self.assertIn("if externalMutationCount > 0 {", mutation_end)
+        self.assertIn("coordinatedMutationActive = false", mutation_end)
+        for claim in ("private func startSnapshot(manual: Bool)", "private func beginMutation()"):
+            block = store[store.index(claim):]
+            block = block[:block.index("\n    }")]
+            self.assertIn("loading = true", block,
+                          "the busy flag is set only where an activity is claimed")
+
+    def test_terminal_notices(self):
+        store = status_store()
+        self.assertIn('"Signed out successfully."', store)
+        self.assertIn('"App IDs synced."', store)
+        self.assertIn('"Download cache cleared."', store)
+        self.assertIn('"Sources updated."', store)
+        self.assertIn('"JIT enabled."', store)
+        self.assertIn("@Published var notice", store)
+
+    def test_notice_alert_exists(self):
+        self.assertIn("status.notice", shell())
+
+    def test_sign_out_requires_authentication_or_saved_local_state(self):
+        text = shell()
+        view = text[text.index("struct V3AccountSettings"):]
+        view = view[:view.index('Section("Device")')]
+        # Sign-In Status remains authentication-gated. Sign Out uses the
+        # snapshot's saved account/team/certificate state so an unreadable
+        # credential does not hide explicit cleanup.
+        self.assertEqual(view.count("if !status.needsSignIn {"), 1)
+        self.assertIn("if identityPresentation.showSignOut", view)
+        self.assertIn("V3AccountSessionPresentationPolicy.resolve", view)
+
+    def test_no_duplicate_sign_in_actions(self):
+        text = shell()
+        view = text[text.index("struct V3AccountSettings"):]
+        view = view[:view.index('Section("Device")')]
+        self.assertNotIn("Sign In / Re-authenticate", view)
+        self.assertIn('"Sign-In Status"', view)
+        status_link = view[view.index('"Sign-In Status"') - 700:view.index('"Sign-In Status"') + 100]
+        self.assertIn("needsSignIn", status_link)
+
+    def test_install_cancel_keeps_unknown_backend_session_and_staged_file(self):
+        text = shell()
+        start = text.index("func retryInstallCancellation()")
+        end = text.index("func cleanupStagedIPA", start)
+        retry = text[start:end]
+        self.assertIn("V3OperationCancellationOutcomePolicy.terminalState", retry)
+        self.assertIn("backendSettled: V3ServiceBridge.strictBool(reply[\"backendSettled\"])", retry)
+        self.assertLess(retry.index("guard let terminalState"), retry.index("installAttempt.recordTerminal"))
+        self.assertLess(retry.index("guard let terminalState"),
+                        retry.index("cleanupStagedIPA(token, allowLocalFallback: true)"))
+        self.assertIn("The IPA and operation session were kept", retry)
+
+    def test_malformed_outcome_unknown_wire_field_fails_closed_everywhere(self):
+        text = shell()
+        self.assertNotIn('V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true', text)
+        self.assertIn('V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"])', text)
+
+    def test_delete_missing_callback_completion_is_bounded_and_evidence_based(self):
+        text = runtime()
+        start = text.index("private func deleteAndReconcile(")
+        end = text.index("private func authoritativeLibraryContains(", start)
+        delete = text[start:end]
+        self.assertIn("authoritativeLibraryContains(bundleIdentifier: bundleIdentifier)", delete)
+        self.assertIn("V3DeleteReconciliationPolicy.mayPublishVerifiedDeleteCompletion", delete)
+        self.assertIn('"verifiedDeleteCompletion": true', delete)
+        self.assertIn('"sourceStep": "native_uninstall+authoritative_library_absence"', delete)
+        completed_start = delete.index("case .completed?:")
+        completed_end = delete.index("case .outcomeUnknown?:", completed_start)
+        completed = delete[completed_start:completed_end]
+        self.assertIn("callback=pending backend_ownership=retained", completed)
+        self.assertIn("try await Task.sleep", completed)
+        self.assertNotIn("group.cancel()", completed)
+
+    def test_delete_cancel_ignores_stale_working_poll_and_retains_uncertain_session(self):
+        text = shell()
+        apply_start = text.index("private func apply(_ reply: [String: Any], generation: UUID, sessionID: String)")
+        apply_end = text.index("private func applyCompletionSettlement(", apply_start)
+        apply = text[apply_start:apply_end]
+        cancel_start = text.index("private func cancelAttempt()")
+        cancel_end = text.index("private func acknowledgeAndDismiss()", cancel_start)
+        cancel = text[cancel_start:cancel_end]
+        self.assertIn("V3OperationCancellationReplyPolicy.shouldApplyPollState", apply)
+        self.assertIn("V3OperationCancellationOutcomePolicy.shouldClearSessionHandle", cancel)
+        self.assertIn("uncertainSessionID = oldSession", cancel)
+        self.assertIn("if let settledCancellationAcknowledgement", cancel)
+
+
+class ProvisioningClassificationTests(unittest.TestCase):
+    CASES = ("unknown", "invalidParameters", "incorrectCredentials", "noTeams",
+             "appSpecificPasswordRequired", "invalidDeviceID",
+             "deviceAlreadyRegistered", "invalidCertificateRequest",
+             "certificateDoesNotExist", "invalidAppIDName",
+             "invalidBundleIdentifier", "bundleIdentifierUnavailable",
+             "appIDDoesNotExist", "maximumAppIDLimitReached", "invalidAppGroup",
+             "appGroupDoesNotExist", "invalidProvisioningProfileIdentifier",
+             "provisioningProfileDoesNotExist",
+             "requiresTwoFactorAuthentication", "userCancelled",
+             "incorrectVerificationCode", "authenticationHandshakeFailed",
+             "invalidAnisetteData", "tooManyCertificates", "tooManyAttempts",
+             "accountRepairRequired", "invalid2FAResponse")
+
+    def guidance(self):
+        text = runtime()
+        fn = text[text.index("func v3ProvisioningGuidance"):]
+        fn = fn[:fn.index("\n}\n") + 3]
+        return fn
+
+    def test_every_case_handled_explicitly(self):
+        fn = self.guidance()
+        for case in self.CASES:
+            self.assertIn("case .%s" % case, fn, case)
+        self.assertIn("@unknown default", fn)
+
+    def test_no_numeric_code_classification(self):
+        text = runtime()
+        start = text.index("func resolveProvisioningError")
+        # The resolver itself must not format domain/code into user text;
+        # numeric codes live only in askProvisioningRetry's technical field.
+        resolver = text[start:text.index("private func askProvisioningRetry", start)]
+        self.assertNotIn("Provisioning reported an issue (", resolver)
+        self.assertNotIn("native.domain", resolver)
+        self.assertNotIn("native.code", resolver)
+
+    def test_cancellation_never_prompts(self):
+        text = runtime()
+        fn = text[text.index("func resolveProvisioningError"):]
+        fn = fn[:fn.index("private func askProvisioningRetry")]
+        self.assertIn("if error is CancellationError { return .cancel }", fn)
+        self.assertIn("case .userCancelled = portal { return .cancel }", fn)
+
+    def test_key_messages(self):
+        fn = self.guidance()
+        self.assertIn("Apple did not accept the Apple ID or password.", fn)
+        self.assertIn("Apple requires an app-specific password for this authentication path.", fn)
+        self.assertIn("No Apple Developer team is available", fn)
+        self.assertIn("already registered with the selected developer team", fn)
+        self.assertIn("reached its development certificate limit", fn)
+        self.assertIn("reached its App ID limit", fn)
+        self.assertIn("temporarily limiting", fn)
+        self.assertIn("Valid Anisette data could not be obtained.", fn)
+        self.assertIn("requires attention on this account", fn)
+        self.assertIn("verification code was not accepted", fn)
+        self.assertIn("Two-factor authentication is required", fn)
+
+    def test_no_password_guidance_for_provisioning(self):
+        # #31 stays intact: provisioning failures must not be collapsed into
+        # wrong-password guidance unless the typed error proves credentials.
+        fn = self.guidance()
+        self.assertNotIn("Wrong password", fn)
+        self.assertNotIn("Check the Apple ID and password", fn)
+
+    def test_technical_details_travel_separately(self):
+        text = runtime()
+        fn = text[text.index("private func askProvisioningRetry"):]
+        fn = fn[:fn.index("\n    }\n") + 6]
+        self.assertIn("CombinedFailure.provisioningRetryTechnicalDetails(", fn)
+        self.assertNotIn("native.domain", fn)
+        self.assertNotIn("native.code", fn)
+        self.assertIn('"technical"', fn)
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        helper = failure[failure.index("public static func provisioningRetryTechnicalDetails"):]
+        helper = helper[:helper.index("\n    }\n") + 6]
+        self.assertIn("safeDiagnosticUnderlying", helper)
+        self.assertIn("area=provisioning", helper)
+        self.assertIn("correlation=", helper)
+
+
+class PromptTechnicalTests(unittest.TestCase):
+    def test_technical_field_renders_as_caption_not_input(self):
+        text = shell()
+        section = text[text.index("struct V3PromptSection"):]
+        section = section[:section.index("final class V3AuthStore")]
+        self.assertIn('"technical"', section)
+        self.assertIn("Technical details", section)
+        self.assertIn("Copy Details", section)
+
+    def test_technical_value_is_selectable(self):
+        text = shell()
+        self.assertIn(".textSelection(.enabled)", text)
+
+    def test_operation_prompt_preserves_typed_failure_and_blocks_unsafe_resubmission(self):
+        sheet = operation_sheet()
+        catch = sheet[sheet.index("private func answerPrompt(id:"):sheet.index("private func addSourceAndRetry")]
+        self.assertIn("V3OperationPromptFailureDetails(failure)", catch)
+        self.assertIn("promptFailure.failure.whatHappened", catch)
+        self.assertIn("promptFailure.failure.recommendedAction", catch)
+        self.assertIn("promptFailure.failure.technical", catch)
+        self.assertIn("promptResponseBlocked = promptFailure.blocksResubmission", catch)
+        self.assertNotIn("Check the connection, then try once more", catch)
+        self.assertIn("isSubmissionBlocked: promptResponseBlocked", sheet)
+
+
+class SourcesFeedbackTests(unittest.TestCase):
+    def test_add_busy_and_success(self):
+        text = shell()
+        behavior = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertIn("addBusy", text)
+        self.assertIn("Adding Source...", text)
+        self.assertIn("V3SourceAddPersistencePolicy.confirmationMessage(result)", text)
+        self.assertIn('return "Source added."', behavior)
+        self.assertIn('return "Source already added."', behavior)
+        self.assertNotIn('notice = "Source added."', text)
+
+    def test_source_add_retry_failure_keeps_what_happened_recovery_and_diagnostics_separate(self):
+        sheet = operation_sheet()
+        catch = sheet[sheet.index("private func addSourceAndRetry(id:"):sheet.index("private func retry()")]
+        self.assertIn("sourceAddFailure = details", catch)
+        self.assertIn("retryBlocked = true", catch)
+        self.assertIn("message = details.whatHappened", catch)
+        self.assertIn("whatToDo = details.recommendedAction", catch)
+        self.assertIn("technicalDetails = details.technical", catch)
+        self.assertIn("sourceAddRetryBlocked", sheet)
+        self.assertIn("retryability unknown", sheet)
+        self.assertIn('case "sources": return "Open Sources"', sheet)
+        self.assertIn('case "sources": sharedModel.selectedTab = .sources', shell())
+        self.assertIn('case "sources": return "Open Sources"', sheet)
+        self.assertIn('case "sources": sharedModel.selectedTab = .sources', shell())
+
+    def test_remove_busy_and_success(self):
+        text = shell()
+        self.assertIn("removeBusy", text)
+        self.assertIn("Removing source...", text)
+        self.assertIn("Source removed.", text)
+
+
+class CertificatesFeedbackTests(unittest.TestCase):
+    def test_mutations_have_busy_disabled_success(self):
+        text = shell()
+        view = text[text.index("struct V3CertificatesView"):]
+        view = view[:view.index("struct V3DeveloperServicesView")]
+        create_policy = text[text.index("enum V3CertificateCreatePresentation"):text.index("struct V3CertificateRow")]
+        self.assertIn("Working...", view)
+        self.assertIn("Loading Portal Certificates...", view)
+        self.assertIn("Active certificate updated.", view)
+        self.assertIn("Certificate deleted.", view)
+        self.assertIn("Certificate revoked.", view)
+        self.assertIn('return "Certificate created and saved."', create_policy)
+        self.assertIn("local signing copy could not be verified", create_policy)
+        self.assertIn("before creating another certificate", create_policy)
+        self.assertNotIn("Certificate requested.", view)
+        self.assertIn(".disabled(!busy.isEmpty)", view)
+
+
+class SettingsRollbackTests(unittest.TestCase):
+    def test_all_setting_types_reload_authoritative_and_guard_stale_failures(self):
+        text = shell()
+        store = text[text.index("final class V3SettingsStore"):]
+        store = store[:store.index("struct V3ToggleRow")]
+        for kind in ("bool", "string", "int"):
+            self.assertIn(f'type: "{kind}"', store)
+            self.assertIn(f'type: "{kind}", generation: generation', store)
+        self.assertIn("writeGenerations.begin(key)", store)
+        self.assertIn("writeGenerations.isCurrent(generation, for: key)", store)
+        self.assertIn('request(operation: "settingsGet")', store)
+        self.assertIn("private var writeGenerations = V3SettingsWriteGeneration()", store)
+
+    def test_bool_row_rolls_back_toggle(self):
+        text = shell()
+        row = text[text.index("struct V3BoolSettingRow"):]
+        row = row[:row.index("private struct V3StatusStoreKey")]
+        self.assertIn("writeGenerations.begin(key)", row)
+        self.assertIn('request(operation: "settingsGet")', row)
+        self.assertNotIn("value = !newValue", row)
+
+
+class CopyFeedbackTests(unittest.TestCase):
+    def test_copy_buttons_confirm(self):
+        self.assertGreaterEqual(shell().count('"Copied"'), 3)
+
+
+class ReloadLabelTests(unittest.TestCase):
+    def test_reload_status_is_visible_text(self):
+        text = shell()
+        start = text.index("struct V3HomeServiceHeader")
+        end = text.index("private struct V3HomeView", start)
+        header = text[start:end]
+        # V3_RELOAD_STATUS_VISIBILITY_V1: the button names the action it is
+        # currently performing, so a reload is never a silent no-op.
+        self.assertIn('Text(isLoading ? "Reloading Status..." : "Reload Status")', header)
+        self.assertIn('.lineLimit(1)', header)
+        self.assertIn('.minimumScaleFactor(0.8)', header)
+        self.assertIn('.fixedSize(horizontal: false, vertical: true)', header)
+        self.assertIn('.accessibilityHint("Reloads the latest SideStore connection and account status.', header)
+        # Loading is visible, and the last update time is exposed.
+        self.assertIn("if isLoading {", header)
+        self.assertIn("ProgressView()", header)
+        self.assertIn("if let updatedAt {", header)
+        self.assertIn('Text("Updated " + updatedAt.formatted', header)
+        # State is never communicated by colour alone.
+        self.assertIn("Label(statusPresentation.title, systemImage: statusPresentation.icon)", header)
+        # The semantic name is exposed to assistive technology too.
+        self.assertIn("statusPresentation.severityName", header)
+        # The old ordering let a green "Active & Connected" win over a reload.
+        self.assertNotIn('isConnected ? "Active & Connected"', header)
+
+    def test_layout_renderer_ships_the_real_status_model(self):
+        # The Reload Status layout probe compiles V3HomeServiceHeader standalone.
+        # If the shared semantic status model is not emitted with it, the probe
+        # cannot build and the layout evidence is lost.
+        renderer = (ROOT / "scripts/run_issue25_rendering.py").read_text(encoding="utf-8")
+        self.assertIn("enum V3StatusSeverity: String, Equatable, CaseIterable {", renderer)
+        self.assertIn("extension V3StatusPresentation {", renderer)
+        self.assertIn('"import SwiftUI\\n" + severity_model + "\\n" + tint_model + "\\n" + header', renderer)
+        # The model is resolved from the shell or the primitives, and a missing
+        # model fails loudly rather than silently rendering a stub.
+        self.assertIn("v3_behavioral_primitives.swift", renderer)
+        self.assertIn("Semantic status model not found for the Reload Status layout probe", renderer)
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn("extension V3StatusPresentation {", shell)
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertIn("enum V3StatusSeverity", primitives)
+        self.assertIn("struct V3StatusPresentation", primitives)
+
+    def test_simulator_harness_renders_reload_status_on_narrow_phone_and_tablet(self):
+        renderer = (ROOT / "scripts/run_issue25_rendering.py").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")
+        self.assertIn('"reload-status-phone-width-320"', harness)
+        self.assertIn('"reload-status-tablet-width-1024"', harness)
+        self.assertIn('"reload-status-accessibility-phone-width-320"', harness)
+        self.assertIn("reload-label", renderer)
+        self.assertIn("generated_header", renderer)
+        self.assertIn('V3HomeServiceHeader(isConnected: true', harness)
+
+
+class RefreshAllFeedbackTests(unittest.TestCase):
+    def test_refresh_all_reads_scheduler_state_and_keeps_terminal_visible(self):
+        text = shell()
+        start = text.index("struct V3RefreshAllButton")
+        end = text.index("struct V3InstallButton", start)
+        view = text[start:end]
+        for state in ("Starting Refresh...", "Refreshing...", "Verifying...", "completed", "failed"):
+            self.assertIn(state, view)
+        self.assertIn("attempt.markDidNotStart()", view)
+        self.assertIn('liveContainerAutoRefreshRunLedger', view)
+        self.assertIn("V3RefreshAllAttemptState.record", view)
+        self.assertIn("attempt.observe(record, schedulerHealth: health, activeRunID: activeRun)", view)
+        self.assertNotIn("active.isEmpty", view)
+        self.assertNotIn('liveContainerAutoRefreshVerification', view)
+        self.assertIn('Button("Dismiss")', view)
+        self.assertIn('Button(copied ? "Copied" : "Copy Diagnostics")', view)
+        self.assertIn(".disabled(isBusy || isTerminal || !activeRun.isEmpty", view)
+        self.assertNotIn("%", view)
+
+
+class MiscBusyStateTests(unittest.TestCase):
+    def test_dev_reload_disabled_while_loading(self):
+        text = shell()
+        view = text[text.index("struct V3DeveloperServicesView"):]
+        view = view[:view.index("struct V3FilePicker")]
+        self.assertIn("Loading Developer Data...", view)
+        self.assertIn("V3DeveloperDataActionAvailabilityPolicy.isEnabled(", view)
+        self.assertIn("authenticated: status.authenticated, isLoading: loading || status.loading", view)
+
+    def test_health_recheck_busy(self):
+        text = shell()
+        view = text[text.index("struct V3HealthView"):]
+        view = view[:view.index("struct V3BackupsView")]
+        self.assertIn("Checking...", view)
+        self.assertIn('Button(reloadQueue.isChecking ? "Checking..." : "Re-check")', view)
+        self.assertIn(".disabled(reloadQueue.isChecking)", view)
+
+    def test_anisette_remote_busy_and_notice(self):
+        text = shell()
+        view = text[text.index("struct V3AnisetteView"):]
+        view = view[:view.index("struct V3SideSignView")]
+        self.assertIn("remoteBusy", view)
+        self.assertIn("synced.", view)
+        self.assertIn("reset.", view)
+
+    def test_sidesign_busy_and_notice(self):
+        text = shell()
+        view = text[text.index("struct V3SideSignView"):]
+        view = view[:view.index("struct V3CustomizationsView")]
+        self.assertIn("Saving...", view)
+        self.assertIn("saved.", view)
+        self.assertIn("reset.", view)
+        self.assertIn("imported.", view)
+        self.assertIn(".disabled(busy)", view)
+
+    def test_backups_busy(self):
+        text = shell()
+        view = text[text.index("struct V3BackupsView"):]
+        view = view[:view.index("struct V3SideJITView")]
+        self.assertIn("Exporting...", view)
+        self.assertIn("Importing...", view)
+
+
+class SafeFailureCopyTests(unittest.TestCase):
+    def test_untyped_error_diagnostics_sidejit_and_anisette_cancellation_are_safe(self):
+        side_jit = shell()[shell().index("struct V3SideJITView"):]
+        side_jit = side_jit[:side_jit.index("struct V3ReleaseTrackHostView")]
+        self.assertIn("ping = V3SideJITReachabilityFeedback.unreachable", side_jit)
+        self.assertNotIn("error.localizedDescription", side_jit)
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        retry_start = runtime.index("private func askProvisioningRetry(")
+        retry_end = runtime.index("\n    func resolvePostAuth()", retry_start)
+        retry_prompt = runtime[retry_start:retry_end]
+        self.assertIn("CombinedFailure.provisioningRetryTechnicalDetails(", retry_prompt)
+        self.assertNotIn("native.domain", retry_prompt)
+        self.assertNotIn("native.code", retry_prompt)
+
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; executable safe-copy harness runs in macOS CI")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_safe_failure_copy_harness.swift").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "main.swift"
+            executable = Path(temporary) / "safe-failure-copy"
+            source.write_text("import Foundation\n" + wire + "\n" + failure + "\n" + primitives + "\n" + harness,
+                              encoding="utf-8")
+            compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_SAFE_FAILURE_COPY_PASS", result.stdout)
+
+
+class AccountSessionRecoveryTests(unittest.TestCase):
+    def test_saved_unverified_account_keeps_signin_and_explicit_signout(self):
+        source = shell()
+        view = source[source.index("struct V3AccountSettings"):]
+        view = view[:view.index("struct V3BoolSettingRow")]
+        self.assertIn("V3AccountSessionPresentationPolicy.resolve", view)
+        self.assertIn("identityPresentation.showSignIn", view)
+        self.assertIn("identityPresentation.showSavedAppleID", view)
+        self.assertIn("identityPresentation.showUnverifiedSavedState", view)
+        self.assertIn("identityPresentation.showRetainedCertificateGuidance", view)
+        self.assertIn("identityPresentation.showSignOut", view)
+        self.assertIn('Label("Saved account state is not verified"', view)
+        self.assertIn('V3SignInLink(title: "Sign In with Apple ID")', view)
+        self.assertIn("Sign Out does not remove signing certificates", view)
+        self.assertIn('Button("Open Certificates")', view)
+        self.assertIn("activeAccountPresent: status.activeAccountPresent", view)
+        self.assertIn("activeTeamPresent: status.activeTeamPresent", view)
+        self.assertIn("activeCertificatePresent: status.activeCertificatePresent", view)
+        sign_out_action = view[view.index("if identityPresentation.showSignOut"):]
+        self.assertIn('Label("Sign Out"', sign_out_action)
+        self.assertIn("status.signOut()", sign_out_action)
+        self.assertIn("V3DeveloperDataActionAvailabilityPolicy.isEnabled(", view)
+
+        store = shell()[shell().index("final class V3SideStoreStatusStore"):]
+        store = store[:store.index("private func rejectForUnresolvedRecovery")]
+        for fact in ("activeAccountPresent", "activeTeamPresent", "activeCertificatePresent"):
+            self.assertIn(f'{fact} = V3ServiceBridge.strictBool(snapshot["{fact}"]) ?? false', store)
+
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; executable account-state harness runs in macOS CI")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_account_session_presentation_harness.swift").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "main.swift"
+            executable = Path(temporary) / "account-session-presentation"
+            source.write_text("import Foundation\n" + wire + "\n" + failure + "\n" + primitives + "\n" + harness,
+                              encoding="utf-8")
+            compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_ACCOUNT_SESSION_PRESENTATION_PASS", result.stdout)
+
+    def test_service_snapshot_exports_typed_local_signing_state_facts(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        snapshot = service[service.index("private func snapshot() throws -> [String: Any]"):]
+        for field, expression in (
+            ("activeAccountPresent", "activeAccount != nil"),
+            ("activeTeamPresent", "team != nil"),
+            ("activeCertificatePresent", "activeCertificate != nil"),
+        ):
+            self.assertIn(f'"{field}": {expression}', snapshot)
+
+
+class DeveloperDataAvailabilityTests(unittest.TestCase):
+    def test_every_sync_app_id_callsite_uses_auth_and_loading_policy(self):
+        text = shell()
+        callsites = list(re.finditer(r"status\.syncAppIDs\(\)", text))
+        self.assertEqual(len(callsites), 2, "update this audit when Sync App IDs gains a new entry point")
+        boundary_tokens = ("\n            Button", "\n                Button", "\n            link(", "\n        }")
+        for callsite in callsites:
+            tail = text[callsite.end():]
+            disabled = tail.find(".disabled(")
+            boundaries = [tail.find(token) for token in boundary_tokens]
+            boundaries = [position for position in boundaries if position >= 0]
+            boundary = min(boundaries) if boundaries else len(tail)
+            self.assertGreaterEqual(disabled, 0, "every Sync App IDs button needs an explicit gate")
+            self.assertLess(disabled, boundary, "availability gate must belong to this button")
+            gate = tail[disabled:disabled + 220]
+            self.assertIn("V3DeveloperDataActionAvailabilityPolicy.isEnabled(", gate)
+            self.assertIn("authenticated: status.authenticated", gate)
+            self.assertIn("isLoading:", gate)
+
+    def test_developer_data_reload_never_requests_without_authentication(self):
+        text = shell()
+        view = text[text.index("struct V3DeveloperServicesView"):]
+        view = view[:view.index("struct V3FilePicker")]
+        reload = view[view.index("private func reload() async"):]
+        request = reload.index("async let teamsReply")
+        auth_guard = reload.index("guard status.authenticated else")
+        self.assertLess(auth_guard, request)
+        self.assertIn("loading = false", reload[auth_guard:request])
+        self.assertIn(".onChange(of: status.authenticated)", view)
+
+    def test_availability_policy_executes_auth_and_busy_invariants(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; executable developer-action policy runs in macOS CI")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_developer_data_availability_harness.swift").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "main.swift"
+            executable = Path(temporary) / "developer-data-availability"
+            source.write_text("import Foundation\n" + wire + "\n" + failure + "\n" + primitives + "\n" + harness,
+                              encoding="utf-8")
+            compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_DEVELOPER_DATA_AVAILABILITY_PASS", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

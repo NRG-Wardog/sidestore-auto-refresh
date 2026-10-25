@@ -394,9 +394,9 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
     text = replace_once(
         text,
         r"""    public func setDeviceEndpointIp(_ ip: String?) {
-        debugLog("[IdeviceGateway] setDeviceEndpointIp(\(ip ?? "nil")) called")
+        debugLog("[IdeviceGateway] setDeviceEndpointIp called")
         guard self.deviceEndpointIp != ip else {
-            debugLog("[IdeviceGateway] setDeviceEndpointIp: IP is already \(ip ?? "nil"), skipping invalidation")
+            debugLog("[IdeviceGateway] setDeviceEndpointIp unchanged; skipping invalidation")
             return
         }
         self.deviceEndpointIp = ip
@@ -419,9 +419,9 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
         ),
         r"""    public func setDeviceEndpointIp(_ ip: String?) {
         ffiQueue.sync {
-            debugLog("[IdeviceGateway] setDeviceEndpointIp(\(ip ?? "nil")) called")
+            debugLog("[IdeviceGateway] setDeviceEndpointIp called")
             guard self.deviceEndpointIp != ip else {
-                debugLog("[IdeviceGateway] setDeviceEndpointIp: IP is already \(ip ?? "nil"), skipping invalidation")
+                debugLog("[IdeviceGateway] setDeviceEndpointIp unchanged; skipping invalidation")
                 return
             }
             self.deviceEndpointIp = ip
@@ -461,7 +461,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
             throw IdeviceGatewayError(.invalidPairingFile, reason: "Lockdown pairing data is unavailable")
         }
 
-        debugLog("[SIDESTORE_COREDEVICE] TRANSPORT_CREATE_START endpoint=\(endpoint) port=62078")
+        debugLog("[SIDESTORE_COREDEVICE] TRANSPORT_CREATE_START endpoint_selected=yes port=62078")
         var providerPairing: OpaquePointer? = nil
         let parseError = data.withUnsafeBytes { bytes in
             idevice_pairing_file_from_bytes(
@@ -505,12 +505,18 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
             let subCode = tunnelError.pointee.sub_code
             idevice_error_free(tunnelError)
             releaseTransport()
-            debugLog("[SIDESTORE_COREDEVICE] TRANSPORT_CREATE_FAIL code=\(code) subcode=\(subCode) error=\(message)")
+            debugLog("[SIDESTORE_COREDEVICE] TRANSPORT_CREATE_FAIL stage=cdTunnel code=\(code) subcode=\(subCode)")
             throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice tunnel failed: \(message)")
         }
-        guard adapter != nil, handshake != nil, tunnel_heartbeat_is_active() else {
+        guard adapter != nil, handshake != nil else {
             releaseTransport()
+            debugLog("[SIDESTORE_COREDEVICE] TRANSPORT_CREATE_FAIL reason=incomplete_handles")
             throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice tunnel returned incomplete handles")
+        }
+        guard tunnel_heartbeat_is_active() else {
+            releaseTransport()
+            debugLog("[SIDESTORE_COREDEVICE] HEARTBEAT_FAIL")
+            throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice heartbeat is inactive")
         }
         debugLog("[SIDESTORE_COREDEVICE] TRANSPORT_CREATE_PASS")
     }
@@ -539,7 +545,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
                        for line in ensure_coredevice[body_start:closing].splitlines(keepends=True))
         ensure_coredevice = (ensure_coredevice[:body_start] + "        do {\n" + body + r'''        } catch {
             releaseTransport()
-            debugLog("[SIDESTORE_COREDEVICE] selected_transport=FAILED_NO_VALID_TRANSPORT reason=\(error.localizedDescription)")
+            debugLog("[SIDESTORE_COREDEVICE] selected_transport=FAILED_NO_VALID_TRANSPORT stage=coreDevice result=failed")
             throw error
         }
 ''' + ensure_coredevice[closing:])
@@ -575,11 +581,132 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
     )
     pairing_condition = "pairingFileType == .rppairing" if modern else "isRPPairing"
     rsd_condition = "pairingFileType == .rppairing || usesCoreDevice" if modern else "isRPPairing || pairingFileType == .lockdown"
-    text = replace_once(text, f"        if {pairing_condition} {{\n            do {{", f"        if {rsd_condition} {{\n            do {{", "fetch UDID over RSD")
+
+    sync_fetch_start = "    private func syncFetchUDID() throws -> String? {\n"
+    sync_fetch_end = "\n    private func syncGetLockdownValue(key: String) throws -> String? {\n"
+    new_sync_fetch = f"""    private func syncFetchUDID() throws -> String? {{
+        debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_START mode=\\(pairingFileType)")
+        try verifyInitialized()
+        if {rsd_condition} {{
+            do {{
+                verboseLog("[IdeviceGateway] fetchUDID() calling ensureRPConnection()")
+                try ensureRPConnection()
+            }} catch {{
+                debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=transport result=failed")
+                throw error
+            }}
+            guard let adapter = adapter, let handshake = handshake else {{
+                debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=transport reason=incomplete_handles")
+                throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice transport returned incomplete handles")
+            }}
+            var lockdownClient: OpaquePointer? = nil
+            verboseLog("[IdeviceGateway] fetchUDID() connecting lockdownd_connect_rsd")
+            var connectErr = lockdownd_connect_rsd(adapter, handshake, &lockdownClient)
+            if let firstErr = connectErr {{
+                let firstCode = firstErr.pointee.code
+                let firstSubCode = firstErr.pointee.sub_code
+                debugLog("[SIDESTORE_COREDEVICE] LOCKDOWN_CONNECT_FAIL code=\\(firstCode) subcode=\\(firstSubCode) action=retry")
+                idevice_error_free(firstErr)
+                invalidateConnection()
+
+                do {{
+                    try ensureRPConnection()
+                    guard let freshAdapter = self.adapter, let freshHandshake = self.handshake else {{
+                        debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=transport reason=retry_incomplete_handles")
+                        throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice transport returned incomplete handles on retry")
+                    }}
+                    connectErr = lockdownd_connect_rsd(freshAdapter, freshHandshake, &lockdownClient)
+                    if let secondErr = connectErr {{
+                        let code = secondErr.pointee.code
+                        let subCode = secondErr.pointee.sub_code
+                        let msg = getErrorMessage(from: secondErr)
+                        idevice_error_free(secondErr)
+                        invalidateConnection()
+                        debugLog("[SIDESTORE_COREDEVICE] LOCKDOWN_CONNECT_FAIL code=\\(code) subcode=\\(subCode)")
+                        debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=rsd_service code=\\(code)")
+                        throw IdeviceGatewayError(.serviceError, reason: "Lockdownd RSD connection failed (code \\(code)): \\(msg)")
+                    }}
+                }} catch {{
+                    debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=rsd_service result=failed")
+                    throw error
+                }}
+            }}
+            guard let client = lockdownClient else {{
+                debugLog("[SIDESTORE_COREDEVICE] LOCKDOWN_CONNECT_FAIL reason=nil_client")
+                throw IdeviceGatewayError(.serviceError, reason: "Lockdownd client is nil after connect")
+            }}
+            defer {{ lockdownd_client_free(client) }}
+
+            var plistVal: plist_t? = nil
+            verboseLog("[IdeviceGateway] fetchUDID() calling lockdownd_get_value for UniqueDeviceID")
+            let valErr = lockdownd_get_value(client, "UniqueDeviceID", nil, &plistVal)
+            if let valErr = valErr {{
+                let code = valErr.pointee.code
+                let subCode = valErr.pointee.sub_code
+                let msg = getErrorMessage(from: valErr)
+                safeFreeError(valErr)
+                debugLog("[SIDESTORE_COREDEVICE] UNIQUE_DEVICE_ID_QUERY_FAIL code=\\(code) subcode=\\(subCode)")
+                throw IdeviceGatewayError(.serviceError, reason: "Querying UniqueDeviceID failed (lc_native_code=\\(code)): \\(msg)")
+            }}
+            guard let plistVal = plistVal else {{
+                debugLog("[SIDESTORE_COREDEVICE] UNIQUE_DEVICE_ID_QUERY_FAIL reason=nil_plist")
+                throw IdeviceGatewayError(.serviceError, reason: "UniqueDeviceID plist value is nil")
+            }}
+            defer {{
+                safeFreePlist(plistVal)
+            }}
+            guard let udid = getRustPlistString(plistVal), !udid.isEmpty else {{
+                debugLog("[SIDESTORE_COREDEVICE] UNIQUE_DEVICE_ID_QUERY_FAIL reason=empty_udid")
+                throw IdeviceGatewayError(.serviceError, reason: "UniqueDeviceID string is empty")
+            }}
+            debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_PASS")
+            return udid
+        }} else {{
+            var conn: OpaquePointer? = nil
+            let err = idevice_usbmuxd_new_default_connection(0, &conn)
+            if let err = err {{
+                let code = err.pointee.code
+                let msg = self.getErrorMessage(from: err)
+                idevice_error_free(err)
+                debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=usbmuxd code=\\(code)")
+                throw IdeviceGatewayError(.connectionFailed, reason: "usbmuxd connection failed (code \\(code)): \\(msg)")
+            }}
+
+            guard let conn = conn else {{
+                throw IdeviceGatewayError(.connectionFailed, reason: "usbmuxd connection returned nil")
+            }}
+            defer {{ idevice_usbmuxd_connection_free(conn) }}
+            var devices: UnsafeMutablePointer<OpaquePointer?>? = nil
+            var count: Int32 = 0
+            let devErr = idevice_usbmuxd_get_devices(conn, &devices, &count)
+            if let devErr = devErr {{
+                let code = devErr.pointee.code
+                let msg = self.getErrorMessage(from: devErr)
+                idevice_error_free(devErr)
+                debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=usbmuxd_devices code=\\(code)")
+                throw IdeviceGatewayError(.serviceError, reason: "usbmuxd get_devices failed (code \\(code)): \\(msg)")
+            }}
+
+            var udidResult: String? = nil
+            if count > 0, let devicesPtr = devices, let firstDev = devicesPtr.pointee {{
+                defer {{ idevice_usbmuxd_device_list_free(devices, count) }}
+                if let udidPtr = idevice_usbmuxd_device_get_udid(firstDev) {{
+                    udidResult = String(cString: udidPtr)
+                    idevice_string_free(udidPtr)
+                }}
+            }}
+            guard let udidResult, !udidResult.isEmpty else {{
+                throw IdeviceGatewayError(.noConnection, reason: "No device UDID found on usbmuxd")
+            }}
+            debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_PASS")
+            return udidResult
+        }}
+    }}"""
+    text = replace_region(text, sync_fetch_start, sync_fetch_end, new_sync_fetch + "\n", "structured fetchUDID error propagation")
     text = replace_once(text, f"        if {pairing_condition} {{\n            try mountPersonalizedDdiRsd", f"        if {rsd_condition} {{\n            try mountPersonalizedDdiRsd", "DDI over RSD")
 
     new_stage = r'''    private func syncYeetAppAfc(bundleId: String, ipaBytes: Data) throws {
-        debugLog("[SELF_REFRESH] AFC_CONNECT_START bundle_id=\(bundleId)")
+        debugLog("[SELF_REFRESH] AFC_CONNECT_START")
         try verifyInitialized()
         try performWithEitherService(
             connectRP: afc_client_connect_rsd,
@@ -595,7 +722,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
 
             let path = "\(bundleDir)/app.ipa"
             var fileHandle: OpaquePointer? = nil
-            debugLog("[SELF_REFRESH] AFC_FILE_OPEN_START path=\(path)")
+            debugLog("[SELF_REFRESH] AFC_FILE_OPEN_START")
             let openError = path.withCString {
                 afc_file_open(client, $0, AfcFopenMode(rawValue: 4), &fileHandle)
             }
@@ -635,7 +762,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
                     if let writeError {
                         let message = getErrorMessage(from: writeError)
                         idevice_error_free(writeError)
-                        debugLog("[SELF_REFRESH] AFC_WRITE_FAIL chunk_index=\(chunkIndex) elapsed_ms=\(elapsedMs) error=\(message)")
+                        debugLog("[SELF_REFRESH] AFC_WRITE_FAIL chunk_index=\(chunkIndex) elapsed_ms=\(elapsedMs) failure_class=afcWrite")
                         throw IdeviceGatewayError(.serviceError, reason: "AFC write failed at offset \(offset): \(message)")
                     }
                     // A nil FFI result means write_entire completed the full requested slice.
@@ -664,7 +791,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
                     reason: "Staged IPA size mismatch: expected \(ipaBytes.count), got \(stagedSize)"
                 )
             }
-            debugLog("[SELF_REFRESH] SIDESTORE_STAGE_PASS bundle_id=\(bundleId) bytes=\(stagedSize)")
+            debugLog("[SELF_REFRESH] SIDESTORE_STAGE_PASS bytes=\(stagedSize)")
         }
     }
 
@@ -678,7 +805,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
     )
 
     new_install = r'''    private func verifyInstalledBundle(client: OpaquePointer, bundleId: String) throws {
-        debugLog("[SELF_REFRESH] POST_INSTALL_BROWSE_START bundle_id=\(bundleId)")
+        debugLog("[SELF_REFRESH] POST_INSTALL_BROWSE_START")
         var result: UnsafeMutableRawPointer? = nil
         var count = 0
         // Free-account signing can rewrite an app ID with the team suffix.
@@ -718,12 +845,12 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
         guard let matchedIdentifier else {
             throw IdeviceGatewayError(.serviceError, reason: "Installed bundle was not found: \(bundleId)")
         }
-        debugLog("[SELF_REFRESH] INSTALLED_APP_LOOKUP_PASS requested_bundle_id=\(bundleId) installed_bundle_id=\(matchedIdentifier) version=\(matchedVersion ?? "unknown")")
-        debugLog("[SELF_REFRESH] SIDESTORE_POST_INSTALL_VERIFY_PASS bundle_id=\(matchedIdentifier)")
+        debugLog("[SELF_REFRESH] INSTALLED_APP_LOOKUP_PASS")
+        debugLog("[SELF_REFRESH] SIDESTORE_POST_INSTALL_VERIFY_PASS")
     }
 
     private func syncInstallIpa(bundleId: String) throws {
-        debugLog("[SELF_REFRESH] INSTALL_PROXY_CONNECT_START bundle_id=\(bundleId)")
+        debugLog("[SELF_REFRESH] INSTALL_PROXY_CONNECT_START")
         try verifyInitialized()
         try performWithEitherService(
             connectRP: installation_proxy_connect_rsd,
@@ -733,7 +860,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
         ) { client in
             debugLog("[SELF_REFRESH] INSTALL_PROXY_CONNECT_PASS")
             let path = "PublicStaging/\(bundleId)/app.ipa"
-            debugLog("[SELF_REFRESH] SIDESTORE_INSTALL_REQUEST_START path=\(path)")
+            debugLog("[SELF_REFRESH] SIDESTORE_INSTALL_REQUEST_START")
             let installError = path.withCString { installation_proxy_install(client, $0, nil) }
             if let installError {
                 let message = getErrorMessage(from: installError)
@@ -741,8 +868,8 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
                 throw IdeviceGatewayError(.serviceError, reason: "IPA install failed: \(message)")
             }
             // installation_proxy_install waits for the terminal Complete status.
-            debugLog("[SELF_REFRESH] SIDESTORE_INSTALL_REQUEST_PASS bundle_id=\(bundleId)")
-            debugLog("[SELF_REFRESH] SIDESTORE_INSTALL_COMPLETE bundle_id=\(bundleId)")
+            debugLog("[SELF_REFRESH] SIDESTORE_INSTALL_REQUEST_PASS")
+            debugLog("[SELF_REFRESH] SIDESTORE_INSTALL_COMPLETE")
             try verifyInstalledBundle(client: client, bundleId: bundleId)
         }
     }
@@ -763,7 +890,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
             "        // Free-account signing can rewrite an app ID with the team suffix.\n"
             "        // Browse all installed apps so verification checks the signed ID too.\n",
             "        // Exact signed identity for raw bundles; legacy prefix matching for IPA only.\n",
-        ).replace("SIDESTORE_POST_INSTALL_VERIFY_PASS bundle_id=", "SIDESTORE_POST_INSTALL_VERIFY_PASS installed_presence_only=true bundle_id=")
+        ).replace("SIDESTORE_POST_INSTALL_VERIFY_PASS bundle_id=", "SIDESTORE_POST_INSTALL_VERIFY_PASS installed_presence_only=true")
     text = replace_region(
         text,
         "    private func syncInstallIpa(bundleId: String) throws {",
@@ -832,7 +959,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
             text,
             '            debugLog("[IdeviceGateway] sendAppBundleAfc() uploaded',
             '            stagedBundleIdentities[bundleId] = (appName: appURL.lastPathComponent, signedIdentifier: signedIdentifier)\n'
-            '            debugLog("[SELF_REFRESH] SIDESTORE_STAGE_PASS bundle_id=\\(bundleId) format=app")\n'
+            '            debugLog("[SELF_REFRESH] SIDESTORE_STAGE_PASS format=app")\n'
             '            debugLog("[IdeviceGateway] sendAppBundleAfc() uploaded',
             "bundle staging completion",
         )
@@ -841,7 +968,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
             '                debugLog("[IdeviceGateway] installAppBundle() installation_proxy_install succeeded")',
             '                debugLog("[IdeviceGateway] installAppBundle() installation_proxy_install succeeded")\n'
             '                stagedBundleIdentities.removeValue(forKey: bundleId)\n'
-            '                debugLog("[SELF_REFRESH] SIDESTORE_INSTALL_COMPLETE bundle_id=\\(bundleId) format=app")\n'
+            '                debugLog("[SELF_REFRESH] SIDESTORE_INSTALL_COMPLETE format=app")\n'
             '                try verifyInstalledBundle(client: client, bundleId: stagedIdentity.signedIdentifier)',
             "bundle installed presence verification",
         )
@@ -990,6 +1117,8 @@ def verify_gateway(text: str) -> None:
         "SIDESTORE_POST_INSTALL_VERIFY_PASS",
         "idevice_plist_array_free(applications, UInt(count))",
         "idevice_plist_array_free(plistArray, UInt(outLen))",
+        "[SIDESTORE_COREDEVICE] FETCH_UDID_START",
+        "[SIDESTORE_COREDEVICE] FETCH_UDID_PASS",
     ]
     missing = [needle for needle in required if needle not in text]
     if missing:
@@ -1024,9 +1153,9 @@ def patch_sign_marker(sidestore: Path) -> None:
         #endif
 
         if appBundle.isAltStoreApp {
-            self.debugLog("[SELF_REFRESH] SIDESTORE_SIGN_PASS bundle_id=\\(resignedAppBundle.bundleIdentifier)")
+            self.debugLog("[SELF_REFRESH] SIDESTORE_SIGN_PASS")
         }
-        self.debugLog("[ResignAppOperation] Resigned app \\(self.context.bundleIdentifier) to \\(resignedAppBundle.bundleIdentifier).")
+        self.debugLog("[ResignAppOperation] Signing completed.")
 """,
             "SideStore signing marker",
         )

@@ -1,0 +1,52 @@
+{
+  "AnisetteKit": {
+    "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+    "gitlinks_unpopulated": {},
+    "origin": {
+      "kind": "direct",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git"
+    },
+    "status": "",
+    "tracked_entries": 52,
+    "tree": "734664d759b9e99caa09089905e6a240b149548d"
+  },
+  "LiveContainer": {
+    "commit": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
+    "gitlinks_unpopulated": {
+      "OpenSSL": "623c84da314e85363236507ca38a4bde65df21c3",
+      "litehook": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55"
+    },
+    "origin": {
+      "kind": "direct",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git"
+    },
+    "status": "",
+    "tracked_entries": 311,
+    "tree": "e8014dd771c25c4a05dc76ab0aa304a233642a83"
+  },
+  "SideSign": {
+    "commit": "770b991b1dbc269ad19dd18b8b2e8252b665af9b",
+    "gitlinks_unpopulated": {},
+    "origin": {
+      "kind": "direct",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git"
+    },
+    "status": " M Package.resolved\n",
+    "tracked_entries": 72,
+    "tree": "2931630bc76fdbccd54a8829d078d54422e3483c"
+  },
+  "SideStore": {
+    "commit": "85bf45f65a9c2835c18d2c8e2e9c618177c95b54",
+    "gitlinks_unpopulated": {
+      "Dependencies/SideSign": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
+      "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+    },
+    "origin": {
+      "kind": "direct",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git"
+    },
+    "status": "",
+    "tracked_entries": 658,
+    "tree": "79d9ce079df8ca08f8d50d05afff50653f5493e6"
+  }
+}

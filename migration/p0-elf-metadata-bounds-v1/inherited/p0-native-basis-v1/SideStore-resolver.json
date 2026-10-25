@@ -1,0 +1,23 @@
+{
+  "anisette_commit": "0dfcc89aa93411d84f7c50beb3c75599af89e852",
+  "approved_inputs_sha256": "4cdb6dc081a61c15797d36b33af9e0bd58a850d1fa5f47513ee1b6ed8544af1f",
+  "artifact_id": 11715190532,
+  "artifact_sha256": "b1a257be6c3bca075850894c1434d71d4d27b2c20020dce01702d90acb975f0a",
+  "evidence_index_sha256": "fb06a709d02aa6c9fbc9bbc1e23521ee976191b0ea744c84794388a5b5d0a07a",
+  "host_commit": "5a255a7b52bfa0351d1a5a2a934be90df985d138",
+  "host_tree": "54abf7869190d6a6653567461a5bbd61e74dd165",
+  "lock_before_sha256": "d2884bdf70ad36fc112394cca8cb8d566affb7a6fe0e9cd3fb9518df5c3b9076",
+  "lock_sha256": "822ab8897375eb5352cc158d311ea0d722f57974246cf4a038885f1a88ae2461",
+  "origin_hash": {
+    "present": true,
+    "value": "f4d776f176c4df8b791013ad0642ccd6c31da823bfe1caf41299b54d3c2637ad"
+  },
+  "owner": "SideStore",
+  "purpose": "independently_reviewed_p0_swiftpm_resolution",
+  "resolver_tested_commit": "c9dc71e5e4a48963ca7f73b0aba6eb8a5975295d",
+  "resolver_tested_tree": "9a4c37c0f482c03898a9bb8db3d2e0f68643e53d",
+  "run_attempt": 1,
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/38171788421",
+  "source_basis": "p0-abi-tls-certificate-lifecycle-v1",
+  "status": "CAPTURED_FOR_REVIEW"
+}

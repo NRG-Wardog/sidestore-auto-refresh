@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -53,6 +54,11 @@ def copy_source(src: Path, dst: Path) -> None:
         ignore_dangling_symlinks=True,
         ignore=shutil.ignore_patterns(".git", ".build", "build", "*.xcframework", "*.ipa"),
     )
+    if (src / "LiveContainerSwiftUI").is_dir():
+        # The patch only reads revision metadata. Reuse the pinned fixture's
+        # object database without copying it or mutating its working tree.
+        git_dir = subprocess.check_output(["git", "-C", str(src), "rev-parse", "--absolute-git-dir"], text=True).strip()
+        (dst / ".git").write_text("gitdir: " + git_dir + "\n", encoding="utf-8")
 
 
 class AppLayoutPatchTests(unittest.TestCase):
@@ -181,6 +187,65 @@ class AppLayoutPatchTests(unittest.TestCase):
         self.assertIn('appLayoutStyle = newValue', patch_script)
         self.assertIn('showAppLabels = newValue', patch_script)
 
+    def test_livecontainer_replay_rejects_generated_grid_drift(self):
+        source = resolve_lc_source()
+        if not source:
+            self.skipTest("LiveContainer source unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "LiveContainer"
+            copy_source(source, target)
+            first = subprocess.run([sys.executable, str(PATCH_SCRIPT), str(target)], capture_output=True, text=True)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            grid = target / "LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift"
+            grid.write_text(grid.read_text(encoding="utf-8") + "\n// Unexpected downstream mutation\n", encoding="utf-8")
+            changed = grid.read_bytes()
+            replay = subprocess.run([sys.executable, str(PATCH_SCRIPT), str(target)], capture_output=True, text=True)
+            self.assertNotEqual(replay.returncode, 0)
+            self.assertIn("replay drift", replay.stderr)
+            self.assertEqual(grid.read_bytes(), changed, "Replay must not erase unexpected downstream changes")
+
+    def test_livecontainer_failed_patch_is_transactional(self):
+        source = resolve_lc_source()
+        if not source:
+            self.skipTest("LiveContainer source unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "LiveContainer"
+            copy_source(source, target)
+            controller = target / "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerViewController.swift"
+            controller.write_text(controller.read_text(encoding="utf-8").replace("traitCollection: traitCollection", "traitCollection: unexpectedTraits"), encoding="utf-8")
+            before = {p.relative_to(target): p.read_bytes() for p in target.rglob("*.swift")}
+            failed = subprocess.run([sys.executable, str(PATCH_SCRIPT), str(target)], capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("compact controller sizing", failed.stderr)
+            after = {p.relative_to(target): p.read_bytes() for p in target.rglob("*.swift")}
+            self.assertEqual(before, after, "A late anchor mismatch must not partially apply layout changes")
+
+    def test_livecontainer_unversioned_input_is_rejected(self):
+        source = resolve_lc_source()
+        if not source:
+            self.skipTest("LiveContainer source unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "LiveContainer"
+            copy_source(source, target)
+            (target / ".git").unlink()
+            failed = subprocess.run([sys.executable, str(PATCH_SCRIPT), str(target)], capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("requires a versioned checkout", failed.stderr)
+            self.assertFalse((target / "LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift").exists())
+
+    def test_livecontainer_wrong_revision_is_rejected(self):
+        source = resolve_lc_source()
+        if not source:
+            self.skipTest("LiveContainer source unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "LiveContainer"
+            copy_source(source, target)
+            wrong_git = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "--absolute-git-dir"], text=True).strip()
+            (target / ".git").write_text("gitdir: " + wrong_git + "\n", encoding="utf-8")
+            failed = subprocess.run([sys.executable, str(PATCH_SCRIPT), str(target)], capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("revision mismatch", failed.stderr)
+
     def test_accessibility_label_preserved_when_labels_hidden(self):
         # The UIKit grid control exposes the app name even when visual labels are hidden.
         grid_cell_template = (ROOT / "scripts" / "templates" / "livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
@@ -206,6 +271,69 @@ class AppLayoutPatchTests(unittest.TestCase):
                 banner_view = banner_file.read_text(encoding="utf-8")
                 self.assertIn("self.accessibilityLabel = values.name", banner_view)
                 self.assertIn("self.accessibilityView?.accessibilityLabel", banner_view)
+
+    def test_grid_explicit_size_category_reaches_creation_and_update(self):
+        text = (ROOT / "scripts/templates/livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
+        self.assertIn(r"@Environment(\.sizeCategory) private var sizeCategory", text)
+        for method in ("makeUIViewController", "updateUIViewController"):
+            with self.subTest(method=method):
+                body = text.split(f"func {method}(", 1)[1].split("\n    }", 1)[0]
+                self.assertIn("sizeCategory: Self.uiContentSizeCategory(sizeCategory)", body)
+        controller = text.split("final class LCGridAppCellViewController:", 1)[1].split("private final class LCGridAppCellView:", 1)[0]
+        initializer = controller.split("    init(", 1)[1].split("\n    }", 1)[0]
+        self.assertIn("sizeCategory: UIContentSizeCategory)", initializer)
+        self.assertIn("gridView = LCGridAppCellView(sizeCategory: sizeCategory)", initializer)
+        self.assertRegex(initializer, r"update\(model: configuration\.model,[^\n]+sizeCategory: sizeCategory\)")
+        update = controller.split("    func update(", 1)[1].split("\n    }", 1)[0]
+        self.assertIn("sizeCategory: UIContentSizeCategory)", update)
+        self.assertRegex(update, r"gridView\.update\(model: model,[^\n]+sizeCategory: sizeCategory\)")
+        self.assertLess(update.index("gridView.update("), update.index("preferredContentSize = fittingSize(width: nil)"))
+        self.assertIn("height: gridView.intrinsicContentSize.height", controller)
+
+    def test_grid_stored_category_is_the_only_font_scaling_authority(self):
+        text = (ROOT / "scripts/templates/livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
+        view = text.split("private final class LCGridAppCellView:", 1)[1]
+        self.assertIn("private var sizeCategory: UIContentSizeCategory", view)
+        initializer = view.split("    init(sizeCategory: UIContentSizeCategory)", 1)[1].split("\n    }", 1)[0]
+        update = view.split("    func update(", 1)[1].split("\n    }", 1)[0]
+        for name, body in (("creation", initializer), ("update", update)):
+            with self.subTest(path=name):
+                self.assertLess(body.index("self.sizeCategory = sizeCategory"), body.index("updateMetrics()"))
+        self.assertIn("sizeCategory: UIContentSizeCategory)", update)
+        metrics = view.split("    private func updateMetrics() {", 1)[1].split("\n    }", 1)[0]
+        self.assertIn("UITraitCollection(preferredContentSizeCategory: sizeCategory)", metrics)
+        self.assertIn("UIFontMetrics(forTextStyle: .caption1).scaledFont(", metrics)
+        self.assertIn("compatibleWith: traits)", metrics)
+        self.assertLess(metrics.index("titleLabel.font ="), metrics.index("invalidateIntrinsicContentSize()"))
+        self.assertIn("setNeedsLayout()", metrics)
+        self.assertEqual(text.count("titleLabel.font ="), 1)
+        self.assertIn("titleLabel.adjustsFontForContentSizeCategory = false", view)
+        self.assertNotIn("titleLabel.adjustsFontForContentSizeCategory = true", text)
+        self.assertNotIn("traitCollectionDidChange", text)
+        self.assertNotIn(".traitCollection", text)
+        self.assertNotIn("updateMetrics(for:", text)
+        self.assertIn("titleLabel.isHidden ? 0 : Self.labelSpacing + ceil(titleLabel.font.lineHeight * 2)", view)
+        self.assertIn("height: Self.topInset + iconSide + labelHeight + Self.bottomInset", view)
+
+    def test_grid_size_category_bridge_covers_all_dynamic_type_sizes(self):
+        text = (ROOT / "scripts/templates/livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
+        for category in (
+            "extraSmall", "small", "medium", "large", "extraLarge", "extraExtraLarge", "extraExtraExtraLarge",
+            "accessibilityMedium", "accessibilityLarge", "accessibilityExtraLarge",
+            "accessibilityExtraExtraLarge", "accessibilityExtraExtraExtraLarge",
+        ):
+            with self.subTest(category=category):
+                self.assertIn(f"case .{category}: return .{category}", text)
+        self.assertIn("@unknown default: return .large", text)
+
+    def test_grid_fallback_harness_size_that_fits_anchor_is_preserved(self):
+        text = (ROOT / "scripts/templates/livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
+        pattern = r"    @available\(iOS 16\.0, \*\)\n    func sizeThatFits\([^\n]+\n        uiViewController\.fittingSize\(width: proposal\.width\)\n    }\n"
+        fallback, count = re.subn(pattern, "", text)
+        self.assertEqual(count, 1)
+        self.assertNotIn("func sizeThatFits(", fallback)
+        self.assertIn("preferredContentSize = fittingSize(width: nil)", fallback)
+        self.assertIn("height: gridView.intrinsicContentSize.height", fallback)
 
     def test_safety_boundary_presentation_only(self):
         lc_source = resolve_lc_source()

@@ -1,0 +1,73 @@
+{
+  "contract_registry_sha256": "542f353477293d1e46899db0f8704b19386d98be84c0c34ab101af2270942c9f",
+  "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "native_validation": {
+    "fresh_composed_capture_sha256": "94c20e606e9ef06b559df8fbf304e0e74a6b876597a352ea8b77387aa64b0f30",
+    "inherited_p0_review_sha256": "d9612e716a535a12b5e2d9fcb0adeb3dfbc3b25f6d824efda4b50d426f5a3df4",
+    "parent_ui_basis_sha256": "fb94bd9e845aa55ea05bc5a785998b58f43098af46d4999deda1679e683f57d2",
+    "readiness_scope": "eligible_for_gated_full_build",
+    "review_sha256": "ceb365632e7e7baa8a8926f2606ea44eaa5caccd058257d4b71d98e4f73729a0",
+    "scope": "Exact composed Release simulator compilation, compiled localization/plural/permission resources, and five native initializer consumer tests",
+    "source_basis": "p2-composed-host-v1",
+    "tested_owners": {
+      "AnisetteKit": {
+        "commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+        "tree": "0df50020ddd774a5b7ab941944501f1ecd591a4a"
+      },
+      "LiveContainer": {
+        "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+        "tree": "4b973e2bbf482953e298c41c7a7227cb60b30718"
+      },
+      "SideStore": {
+        "commit": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+        "tree": "c58017caf7e392e238f47a5e0fa9511fa6f74ca0"
+      }
+    }
+  },
+  "owners": {
+    "AnisetteKit": {
+      "commit": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+      "path": "work/AnisetteKit",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d"
+    },
+    "LiveContainer": {
+      "commit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+      "path": "work/LiveContainer",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69"
+    },
+    "SideSign": {
+      "commit": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
+      "path": "work/EmbeddedSideStore/Dependencies/SideSign",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0"
+    },
+    "SideStore": {
+      "commit": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+      "path": "work/EmbeddedSideStore",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "path": "idevice",
+      "repository": "https://github.com/NRG-Wardog/idevice.git",
+      "source_checkpoint": "803f9368e6b27a43d8a9f22dc0ec281c87883113"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "path": "jktcp",
+      "repository": "https://github.com/NRG-Wardog/jktcp.git",
+      "source_checkpoint": "32c0210f286b4fd16efe05be4f57167a9d94459b"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "path": "work/EmbeddedSideStore/Dependencies/minimuxer",
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "source_checkpoint": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+    }
+  },
+  "schema_version": 1,
+  "source_basis": "p2-composed-host-v1"
+}

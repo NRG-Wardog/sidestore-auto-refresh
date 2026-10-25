@@ -1,0 +1,356 @@
+{
+  "schema_version": 1,
+  "review_date_utc": "2026-10-05",
+  "builder_baseline": "54eb199044311193dc5a70d39f4c646218804336",
+  "scope": "Expected pinned inputs from read-only review; this is not the final built artifact manifest",
+  "native_build_status": "not_run_in_this_review",
+  "ipa_status": "not_created_in_this_review",
+  "device_acceptance": "not_run",
+  "repositories": [
+    {
+      "component": "LiveContainer",
+      "commit": "12377cf3b91d51739a33f14a302e5f522b238593",
+      "tree": "06c7c54047734a7e19ec260d04dc073a52a1c872",
+      "status": "read_only_identity_checked",
+      "runtime_test_status": "not_executed_in_security_review"
+    },
+    {
+      "component": "LiveContainer/litehook",
+      "commit": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55",
+      "tree": "62bc06a17a1c12d805aec1ada25910bfa9f89781",
+      "status": "read_only_identity_checked",
+      "runtime_test_status": "not_executed_in_security_review"
+    },
+    {
+      "component": "LiveContainer/OpenSSL",
+      "commit": "623c84da314e85363236507ca38a4bde65df21c3",
+      "tree": "21bc09387e7f91a46eb8bd26587ce1d052277801",
+      "status": "read_only_identity_checked",
+      "runtime_test_status": "not_executed_in_security_review"
+    },
+    {
+      "component": "SideStore",
+      "commit": "ff25922e5c13ccfafd83bda5092910d848ebd409",
+      "tree": "b015ff18eac594382beffd3780a231117573dc6b",
+      "status": "read_only_identity_checked",
+      "runtime_test_status": "not_executed_in_security_review"
+    },
+    {
+      "component": "SideStore/Dependencies/SideSign",
+      "commit": "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d",
+      "tree": "c0bf7a3b26a1c9fdfc7211c7bd46ace691cea32e",
+      "status": "read_only_identity_checked",
+      "runtime_test_status": "not_executed_in_security_review"
+    },
+    {
+      "component": "SideStore/Dependencies/minimuxer",
+      "commit": "98c3c79982f813878e922ab42f9545314a700f0c",
+      "tree": "08ddc99feea3619b91dce3ae6f246a86fc8e1f52",
+      "status": "read_only_identity_checked",
+      "runtime_test_status": "not_executed_in_security_review"
+    },
+    {
+      "component": "idevice",
+      "commit": "ebd7dadfc55d1c4facee3d11ecf5b28e20548b57",
+      "tree": "6faed6742496081789893e020d435480fd3f8a2f",
+      "status": "read_only_identity_checked",
+      "runtime_test_status": "not_executed_in_security_review"
+    },
+    {
+      "component": "jktcp",
+      "commit": "e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020",
+      "tree": "b8b037c3ff452c2af0682b85392bde69501f02d4",
+      "status": "read_only_identity_checked",
+      "runtime_test_status": "not_executed_in_security_review"
+    }
+  ],
+  "lockfiles": [
+    {
+      "path": "SideStore/AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+      "sha256": "92710a8c8d97cf6e241d6ebf1b72f5b77ea2eeaa5d7d29bfe4dcf9c659c2f2ee",
+      "status": "source_lockfile_read; final resolver state not observed",
+      "pins": [
+        {
+          "identity": "anisettekit",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/mahee96/AnisetteKit.git",
+          "state": {
+            "branch": "main",
+            "revision": "1f5a7e36553cc865b873f222b87a6486c0bcc7bf"
+          }
+        },
+        {
+          "identity": "codesignkit",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/mahee96/CodeSignKit.git",
+          "state": {
+            "branch": "main",
+            "revision": "d0c67710fda9a2646b9e829cb2cf443892728371"
+          }
+        },
+        {
+          "identity": "gsacryptokit",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/mahee96/GSACryptoKit.git",
+          "state": {
+            "branch": "main",
+            "revision": "eae2590eaf17fe98ce9c76b3ec2bd42b780eb123"
+          }
+        },
+        {
+          "identity": "keychainaccess",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/kishikawakatsumi/KeychainAccess",
+          "state": {
+            "branch": "master",
+            "revision": "e0c7eebc5a4465a3c4680764f26b7a61f567cdaf"
+          }
+        },
+        {
+          "identity": "libdeflate",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/SideStore/libdeflate",
+          "state": {
+            "branch": "master",
+            "revision": "da6c7dae03b78dc71af973664575e4209786fbfe"
+          }
+        },
+        {
+          "identity": "markdownkit",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/bmoliveira/MarkdownKit.git",
+          "state": {
+            "revision": "39ea7a3fc7e65bcafe55152592b834859be574a5",
+            "version": "1.7.3"
+          }
+        },
+        {
+          "identity": "nuke",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/kean/Nuke",
+          "state": {
+            "revision": "30f7a7e72e0607d304fbf69c799474bd5fb6d1ce",
+            "version": "13.2.0"
+          }
+        },
+        {
+          "identity": "remotepairingkit",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/mahee96/RemotePairingKit.git",
+          "state": {
+            "branch": "main",
+            "revision": "e3f70d16c0c551540a533a39d540e78e5b0a60a8"
+          }
+        },
+        {
+          "identity": "semanticversion",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/SwiftPackageIndex/SemanticVersion",
+          "state": {
+            "revision": "ea8eea9d89842a29af1b8e6c7677f1c86e72fa42",
+            "version": "0.4.0"
+          }
+        },
+        {
+          "identity": "starscream",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/daltoniam/Starscream",
+          "state": {
+            "revision": "c6bfd1af48efcc9a9ad203665db12375ba6b145a",
+            "version": "4.0.8"
+          }
+        },
+        {
+          "identity": "swift-asn1",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/apple/swift-asn1.git",
+          "state": {
+            "revision": "9f542610331815e29cc3821d3b6f488db8715517",
+            "version": "1.6.0"
+          }
+        },
+        {
+          "identity": "swift-crypto",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/apple/swift-crypto.git",
+          "state": {
+            "revision": "bb4ba815dab96d4edc1e0b86d7b9acf9ff973a84",
+            "version": "4.3.1"
+          }
+        },
+        {
+          "identity": "zipfoundation",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/weichsel/ZIPFoundation.git",
+          "state": {
+            "revision": "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+            "version": "0.9.20"
+          }
+        }
+      ]
+    },
+    {
+      "path": "SideStore/Dependencies/SideSign/Package.resolved",
+      "sha256": "9c48eaa0f629442ab708f5cc4a638d0bf2955123fd74b6e3bb7fae6d16a41474",
+      "status": "source_lockfile_read; final resolver state not observed",
+      "pins": [
+        {
+          "identity": "anisettekit",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/mahee96/AnisetteKit.git",
+          "state": {
+            "branch": "main",
+            "revision": "1f5a7e36553cc865b873f222b87a6486c0bcc7bf"
+          }
+        },
+        {
+          "identity": "codesignkit",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/mahee96/CodeSignKit.git",
+          "state": {
+            "branch": "main",
+            "revision": "d0c67710fda9a2646b9e829cb2cf443892728371"
+          }
+        },
+        {
+          "identity": "gsacryptokit",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/mahee96/GSACryptoKit.git",
+          "state": {
+            "branch": "main",
+            "revision": "eae2590eaf17fe98ce9c76b3ec2bd42b780eb123"
+          }
+        },
+        {
+          "identity": "libdeflate",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/SideStore/libdeflate",
+          "state": {
+            "branch": "master",
+            "revision": "da6c7dae03b78dc71af973664575e4209786fbfe"
+          }
+        },
+        {
+          "identity": "swift-asn1",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/apple/swift-asn1.git",
+          "state": {
+            "revision": "9f542610331815e29cc3821d3b6f488db8715517",
+            "version": "1.6.0"
+          }
+        },
+        {
+          "identity": "swift-crypto",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/apple/swift-crypto.git",
+          "state": {
+            "revision": "bb4ba815dab96d4edc1e0b86d7b9acf9ff973a84",
+            "version": "4.3.1"
+          }
+        }
+      ]
+    },
+    {
+      "path": "SideStore/Dependencies/minimuxer/Package.resolved",
+      "sha256": "94a8fe219a78ae6e403d21d4bf8084e32599ff541b6c1d8eea7e0e5f499f1148",
+      "status": "source_lockfile_read; final resolver state not observed",
+      "pins": [
+        {
+          "identity": "remotepairingkit",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/mahee96/RemotePairingKit.git",
+          "state": {
+            "branch": "main",
+            "revision": "e3f70d16c0c551540a533a39d540e78e5b0a60a8"
+          }
+        },
+        {
+          "identity": "zipfoundation",
+          "kind": "remoteSourceControl",
+          "location": "https://github.com/weichsel/ZIPFoundation.git",
+          "state": {
+            "revision": "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+            "version": "0.9.20"
+          }
+        }
+      ]
+    },
+    {
+      "path": "idevice/Cargo.lock",
+      "sha256": "f6cb7304f4d9021380863c9931a7cf07e6b68fb0876eaf9157488977a5edc5df",
+      "status": "source_lockfile_read; final resolver state not observed"
+    },
+    {
+      "path": "idevice/idevice/Cargo.lock",
+      "sha256": "9fd8b040243b927fc891317023b592a8b3657451a79060483fc03847d61154ee",
+      "status": "source_lockfile_read; final resolver state not observed"
+    },
+    {
+      "path": "jktcp/Cargo.lock",
+      "sha256": "3d31b87650fd8b8ddb039e5ccc8293ec47098f20bf2bbcc1a9c473618806d046",
+      "status": "source_lockfile_read; final resolver state not observed"
+    }
+  ],
+  "declared_binary_downloads": [
+    {
+      "component": "EMProxy",
+      "url": "https://github.com/SideStore/em_proxy/releases/download/v0.9.3/EMProxy.xcframework.zip",
+      "declared_sha256": "3998789c38d09b55e488d46e31897affc7bbcb9c244d7a9d5b2d5cf6afd916c3",
+      "status": "declared_by_minimuxer; not_downloaded_in_review"
+    },
+    {
+      "component": "libimobiledevice",
+      "url": "https://github.com/SideStore/libimobiledevice-xcframework/releases/download/1.4.0-ss-0f88f7b/libimobiledevice.xcframework.zip",
+      "declared_sha256": "7ccbdd56b074807461fc43d2e32ba92f20df2501a6c14cf9f64a917e7f3fe6e7",
+      "status": "declared_by_DeviceGateway; not_downloaded_in_review"
+    },
+    {
+      "component": "OpenSSL",
+      "url": "https://github.com/krzyzanowskim/OpenSSL/releases/download/3.6.2000/OpenSSL.xcframework.zip",
+      "declared_sha256": "37846a8bd302cb2443eff47f1045ab844d0cd40bf82cc6159cfad9aa5c3eff9e",
+      "status": "declared_by_RemotePairingKit_CodeSignKit_GSACryptoKit; not_downloaded_in_review"
+    },
+    {
+      "component": "Unicorn",
+      "url": "https://github.com/mahee96/unicorn/releases/download/2.1.4-multiarch/Unicorn.xcframework.zip",
+      "declared_sha256": "4f61907db6aafc56fb3e336b524d742342312f498bb40739f1da55fb4a24614a",
+      "status": "declared_by_AnisetteKit; not_downloaded_in_review"
+    },
+    {
+      "component": "IDevice",
+      "url": "https://github.com/SideStore/idevice/releases/download/v0.1.66-ss-61c2704/idevice-xcframework-v0.1.66-ss-61c2704.zip",
+      "declared_sha256": "6f32b32ca43d3f28c145742da926cc279d312abd99abe55c79f875e2d6d5e162",
+      "status": "replaced_by_local_pinned_transport_build"
+    },
+    {
+      "component": "dylibify",
+      "url": "https://github.com/LiveContainer/dylibify/releases/download/1.0/dylibify",
+      "declared_sha256": null,
+      "status": "official_repository_and_release_API_404; unverified_asset; source_replacement_pending"
+    },
+    {
+      "component": "SideStore-nightly",
+      "url": "https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa",
+      "declared_sha256": null,
+      "status": "removed_by_builder_packaging_adapter; replaced_by_local_build"
+    }
+  ],
+  "mutable_tool_inputs": [
+    "actions/checkout@v4",
+    "actions/upload-artifact@v4",
+    "maxim-lobanov/setup-xcode@v1.6.0",
+    "GitHub macos-26 runner image",
+    "Xcode26.4 via setup-xcode",
+    "Homebrew ldid",
+    "Homebrew openssl@3",
+    "crates.io bindgen-cli0.72.1 --locked (existing command bypasses install)",
+    "rustup aarch64-apple-ios target for ambient toolchain"
+  ],
+  "reviewed_dylibify_source_candidate": {
+    "repository": "https://github.com/lgq2015/dylibify",
+    "commit": "5daf713df9fb07724510490c88aa8e00061be14a",
+    "tree": "1c4f323e269ba3834b28b0a1b0d17c09f96b6926",
+    "main_m_sha256": "0c30a8bd4088aa891eb172c5d3a3e185cc9d00572b60c7b29f30e08c6245acd8",
+    "status": "read_only_reviewed; existing defects identified; not executed; not proven equivalent to former release1.0"
+  }
+}

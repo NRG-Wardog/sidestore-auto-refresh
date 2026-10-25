@@ -14,13 +14,28 @@ spec = importlib.util.spec_from_file_location("automation", ROOT / "scripts/patc
 automation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(automation)
 SWIFTC = os.environ.get("SWIFTC") or shutil.which("swiftc")
-SOURCE = Path(os.environ.get("SIDESTORE_TEST_SOURCE", ROOT.parent / "SideStore-source-timepicker"))
+PINNED_SOURCE_ENV = os.environ.get("SIDESTORE_TEST_SOURCE") or os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+SOURCE = Path(PINNED_SOURCE_ENV) if PINNED_SOURCE_ENV else ROOT / ".audit/upstream/SideStore"
+# Frozen patch tests deliberately retain their historical upstream fixture pins.
+WORKFLOW = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text(encoding="utf-8")
+PINNED_SIDESTORE_REF = re.search(r"(?m)^  EMBEDDED_SIDESTORE_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
 FILES = ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
          automation.DATABASE_SOURCE,
          "AltStore/Managing Apps/AppManager.swift",
          "AltStore/Info.plist", "AltStore/Settings/SettingsViewController.swift",
          "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
          "SideStore/Utils/iostreams/ConsoleLog.swift"]
+
+
+def has_pinned_side_store_source() -> bool:
+    if not (SOURCE / FILES[0]).is_file():
+        return False
+    revision = subprocess.run(["git", "-C", str(SOURCE), "rev-parse", "HEAD"],
+                              capture_output=True, text=True)
+    matches = revision.returncode == 0 and revision.stdout.strip() == PINNED_SIDESTORE_REF
+    if PINNED_SOURCE_ENV and not matches:
+        raise AssertionError(f"explicit SideStore test source must be pinned to {PINNED_SIDESTORE_REF}")
+    return matches
 
 
 class AutomationTests(unittest.TestCase):
@@ -36,11 +51,12 @@ class AutomationTests(unittest.TestCase):
                 automation.patch_app_delegate(root)
             self.assertEqual(delegate.read_text(encoding="utf-8"), "unchanged")
 
-    @unittest.skipUnless((SOURCE / FILES[0]).is_file(), "Pinned SideStore checkout required")
+    @unittest.skipUnless(has_pinned_side_store_source(), "exact pinned SideStore checkout required")
     def test_database_start_matches_pinned_apis(self):
         sources = [SOURCE]
-        if os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE"):
-            sources.append(Path(os.environ["EMBEDDED_SIDESTORE_TEST_SOURCE"]))
+        embedded_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if embedded_source and Path(embedded_source).resolve() != SOURCE.resolve():
+            sources.append(Path(embedded_source))
         for source in sources:
             with self.subTest(source=str(source)), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -77,7 +93,7 @@ class AutomationTests(unittest.TestCase):
 '''
                 pending = "CheckedContinuation<Void, Never>" if modern else "(() -> Void)"
                 release = "pending?.resume()" if modern else "pending?()"
-                harness = r'''
+                harness = automation.SCHEDULE_MODEL + r'''
 import Foundation
 enum StartupError: Error { case failed }
 func debugLog(_ message: String) {}
@@ -98,10 +114,15 @@ final class State {
     var attempts = 0
     var began = 0
     var failure = ""
-    func finish(success: Bool, detail: String) {
+    var receivedTypedFailure = false
+    var terminalEvent: AutomaticRefreshEvent?
+    func finish(success: Bool, event: AutomaticRefreshEvent? = nil, detail: String = "",
+                failure: Error? = nil, cancelOperation: Bool = false) {
         guard !isFinished else { return }
         precondition(!success)
-        failure = detail
+        terminalEvent = event ?? (success ? .completed : .failed)
+        receivedTypedFailure = failure != nil
+        self.failure = detail
         isFinished = true
     }
 }
@@ -141,7 +162,9 @@ GENERATED_STARTUP
         let failed = State()
         delegate.start(state: failed)
         await waitFor { failed.isFinished }
-        precondition(failed.began == 0 && !failed.failure.isEmpty)
+        precondition(failed.began == 0 && failed.receivedTypedFailure &&
+                     failed.terminalEvent == .failed,
+                     "startup failure must reach the typed failure terminal path")
 
         DatabaseManager.shared = DatabaseManager()
         DatabaseManager.shared.suspend = true
@@ -176,19 +199,21 @@ GENERATED_STARTUP
         expressions = {}
         for name in ("hasPasswordCredentials", "hasTokenCredentials", "hasReusableSession"):
             expressions[name] = source.split("let " + name + " = ", 1)[1].splitlines()[0]
-        keys = ("auth.currentAppleID", "auth.hasStoredPassword", "auth.adsid",
-                "auth.hasStoredXcodeToken", "auth.session", "auth.team",
+        keys = ("credentials?.appleIDEmailAddress", "credentials?.appleIDPassword",
+                "credentials?.appleIDAdsid", "credentials?.appleIDXcodeToken", "auth.session", "auth.team",
                 "CertificateManager.shared.activeCertificate")
         def accepted(*present):
             for expression in expressions.values():
+                expression = expression.replace(
+                    "auth.v3CachedSessionMatchesCurrentRoute(auth.session)", "auth.session")
                 expression = expression.replace(" != nil", "")
                 for key in keys:
                     expression = expression.replace(key, str(key in present))
                 if eval(expression.replace("&&", " and "), {"__builtins__": {}}):
                     return True
             return False
-        self.assertTrue(accepted("auth.adsid", "auth.hasStoredXcodeToken"))
-        self.assertTrue(accepted("auth.currentAppleID", "auth.hasStoredPassword"))
+        self.assertTrue(accepted("credentials?.appleIDAdsid", "credentials?.appleIDXcodeToken"))
+        self.assertTrue(accepted("credentials?.appleIDEmailAddress", "credentials?.appleIDPassword"))
         self.assertTrue(accepted("auth.session", "auth.team", "CertificateManager.shared.activeCertificate"))
         self.assertFalse(accepted())
         self.assertFalse(accepted("auth.currentAppleID"))
@@ -364,6 +389,14 @@ print("Schedule date tests passed")
             self.assertIn("AutomaticRefreshSchedule.requestDate(after: Date(), replacePending: replacePending)", app_delegate)
             self.assertIn("request.earliestBeginDate = nextDate", app_delegate)
             self.assertIn("scheduled_utc=", app_delegate)
+            notification_source = background[
+                background.index("private func scheduleFinishedRefreshingNotification("):
+                background.index("private func saveRefreshAttempt(")]
+            self.assertIn("content.body = AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)",
+                          notification_source)
+            self.assertIn("NOTIFICATION_FAILURE failure_category=", notification_source)
+            self.assertNotIn("content.body = error.localizedDescription", notification_source)
+            self.assertNotIn("Failed to refresh apps in background. \\(error", notification_source)
             if SWIFTC:
                 for name in FILES:
                     if name.endswith(".swift"):
@@ -372,6 +405,7 @@ print("Schedule date tests passed")
                         self.assertEqual(result.returncode, 0, result.stderr)
                 self.check_scheduler(root)
                 self.check_history_and_lifecycle(root)
+                self.check_notification_failure_body(root)
                 self.check_manual_refresh_entry(root, section)
                 if platform.system() == "Darwin":
                     self.check_swiftui(root)
@@ -440,6 +474,48 @@ class Manager {
         self.assertEqual(result.returncode, 0, result.stderr)
         subprocess.run([str(executable)], check=True)
 
+    def check_notification_failure_body(self, root):
+        operation = (root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift").read_text(encoding="utf-8")
+        start = operation.index("private func scheduleFinishedRefreshingNotification(")
+        end = operation.index("private func saveRefreshAttempt(", start)
+        generated = operation[start:end]
+        self.assertIn("content.body = AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)", generated)
+        self.assertNotIn("content.body = error.localizedDescription", generated)
+        body_assignment = next(line.strip() for line in generated.splitlines()
+                               if "content.body = AutomaticRefreshFailureCategory.safeMessage" in line)
+        source = "import Foundation\n" + automation.SCHEDULE_MODEL + r'''
+final class NotificationContent { var body = "" }
+func notificationBody(_ error: Error) -> String {
+    let content = NotificationContent()
+    BODY_ASSIGNMENT
+    return content.body
+}
+@main struct Test {
+    static func main() {
+        let secret = "SIDESIGN_RAW_SECRET https://provider.invalid/?token=private"
+        let malicious = NSError(domain: "provider.private.invalid", code: 77,
+            userInfo: [NSLocalizedDescriptionKey: secret])
+        let body = notificationBody(malicious)
+        precondition(body == "The refresh failed; no safe underlying cause was available.")
+        precondition(!body.contains("SIDESIGN_RAW_SECRET") && !body.contains("provider.invalid") &&
+                     !body.contains("token=private"), "raw provider text must not reach the notification body")
+        let network = NSError(domain: NSURLErrorDomain, code: URLError.Code.networkConnectionLost.rawValue,
+            userInfo: [NSLocalizedDescriptionKey: secret])
+        precondition(notificationBody(network) == "The network connection failed during refresh.")
+        print("Generated refresh notification privacy PASS")
+    }
+}
+'''.replace("BODY_ASSIGNMENT", body_assignment)
+        path = root / "notification-privacy.swift"
+        path.write_text(source, encoding="utf-8")
+        executable = root / "notification-privacy-test"
+        compiled = subprocess.run([SWIFTC, "-parse-as-library", str(path), "-o", str(executable)],
+                                  capture_output=True, text=True, timeout=120)
+        self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+        result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Generated refresh notification privacy PASS", result.stdout)
+
     @unittest.skipUnless(SWIFTC, "Swift compiler required")
     def test_manual_history_results_and_migration(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -462,8 +538,23 @@ AutomaticRefreshHistory.finishManual(runID: UUID(), expected: ["a", "b"],
     results: ["a": Result<Int, Error>.success(1)], defaults: defaults)
 precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].event == .failed)
 AutomaticRefreshHistory.finishManual(runID: UUID(), expected: ["a", "b"],
-    results: ["a": Result<Int, Error>.success(1), "b": .failure(NSError(domain: "test", code: 1))], defaults: defaults)
+    results: ["a": Result<Int, Error>.success(1), "b": .failure(NSError(domain: "provider.invalid", code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "PROVIDER_SECRET raw server response https://private.invalid/?token=secret"]))], defaults: defaults)
 precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].event == .failed)
+let persisted = String(decoding: defaults.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
+precondition(!persisted.contains("PROVIDER_SECRET") && !persisted.contains("private.invalid") && !persisted.contains("token=secret"),
+             "provider error text must not be persisted in refresh history")
+precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].detail ==
+             AutomaticRefreshFailureCategory.unknown.historyMessage)
+let legacySecret = "LEGACY_PROVIDER_SECRET"
+let legacy = AutomaticRefreshHistoryEntry(id: UUID(), date: Date(), event: .failed,
+    runID: UUID(), detail: legacySecret, eligibleDate: nil, source: .manual)
+defaults.set(try JSONEncoder().encode([legacy]), forKey: AutomaticRefreshHistory.key)
+precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].detail ==
+             "The operation failed; no safe underlying cause was available." &&
+             !AutomaticRefreshHistory.load(defaults: defaults)[0].detail.contains(legacySecret))
+let migratedBytes = String(decoding: defaults.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
+precondition(!migratedBytes.contains(legacySecret), "legacy unsafe history must be scrubbed on read")
 AutomaticRefreshHistory.finishManual(runID: UUID(), expected: [],
     results: [String: Result<Int, Error>](), defaults: defaults)
 precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].event == .skipped)
@@ -603,13 +694,20 @@ final class BGProcessingTask {
     var results: [Bool] = []
     func setTaskCompleted(success: Bool) { results.append(success) }
 }
+final class CapturedLogs {
+    private let lock = NSLock()
+    private var storage = [String]()
+    func append(_ message: String) { lock.lock(); storage.append(message); lock.unlock() }
+    var all: String { lock.lock(); defer { lock.unlock() }; return storage.joined(separator: "\n") }
+}
+let capturedLogs = CapturedLogs()
 final class BackgroundRefreshAppsOperation {
     var cancelled = false
     var onCancel: (() -> Void)?
     func cancel() { cancelled = true; onCancel?() }
 }
 ''' + delegate[start:end] + r'''
-func debugLog(_ message: String) {}
+func debugLog(_ message: String) { capturedLogs.append(message) }
 extension UserDefaults {
     var isBackgroundRefreshEnabled: Bool {
         get { bool(forKey: "historyTestEnabled") }
@@ -650,7 +748,7 @@ defaults.set(Data("corrupt".utf8), forKey: AutomaticRefreshHistory.key)
 precondition(AutomaticRefreshHistory.load(defaults: defaults).isEmpty)
 let runID = UUID()
 AutomaticRefreshHistory.record(.started, runID: runID, detail: String(repeating: "x", count: 700), defaults: defaults)
-precondition(AutomaticRefreshHistory.load(defaults: defaults).first!.detail.count == 500)
+precondition(AutomaticRefreshHistory.load(defaults: defaults).first!.detail.isEmpty)
 AutomaticRefreshHistory.record(.expired, runID: runID, defaults: defaults)
 AutomaticRefreshHistory.record(.completed, runID: runID, defaults: defaults)
 precondition(AutomaticRefreshHistory.load(defaults: defaults).map(\.event) == [.expired, .started])
@@ -690,6 +788,50 @@ precondition(completeState.begin())
 DispatchQueue.concurrentPerform(iterations: 20) { _ in completeState.finish(success: true, detail: "Apps refreshed: 2") }
 precondition(completeTask.results == [true])
 precondition(AutomaticRefreshHistory.load().filter { $0.runID == completeState.runID && $0.event.isTerminal }.count == 1)
+
+// The production terminal logger/history writer must not retain or emit provider text.
+let secret = "PROVIDER_SECRET https://private.invalid/?password=raw"
+let malicious = NSError(domain: "provider.private.invalid", code: 91,
+    userInfo: [NSLocalizedDescriptionKey: secret])
+let failedTask = BGProcessingTask()
+private let failedState = AutomaticRefreshTaskState(task: failedTask)
+precondition(failedState.begin())
+failedState.finish(success: false, failure: malicious)
+let historyBytes = UserDefaults.standard.data(forKey: AutomaticRefreshHistory.key)!
+let historyText = String(decoding: historyBytes, as: UTF8.self)
+precondition(!historyText.contains("PROVIDER_SECRET") && !historyText.contains("private.invalid") && !historyText.contains("password=raw"),
+             "provider error text must not be persisted in AutomaticRefreshHistory")
+precondition(AutomaticRefreshHistory.load().first!.detail ==
+             AutomaticRefreshFailureCategory.unknown.historyMessage &&
+             !AutomaticRefreshHistory.load().first!.detail.contains("PROVIDER_SECRET"))
+precondition(!capturedLogs.all.contains("PROVIDER_SECRET") && !capturedLogs.all.contains("private.invalid") &&
+             !capturedLogs.all.contains("password=raw"), "raw provider error text must not enter debug logs")
+precondition(capturedLogs.all.contains("failure_category=unknown"),
+             "the safe error category should remain available in logs")
+
+let networkSecret = "NETWORK_PROVIDER_SECRET"
+let networkFailure = NSError(domain: NSURLErrorDomain, code: URLError.Code.networkConnectionLost.rawValue,
+    userInfo: [NSLocalizedDescriptionKey: networkSecret])
+AutomaticRefreshHistory.record(.failed, failure: networkFailure)
+precondition(AutomaticRefreshHistory.load().first!.detail ==
+             "The network connection failed during refresh.")
+precondition(AutomaticRefreshHistory.load().first!.detail ==
+             "The network connection failed during refresh.",
+             "a safe persisted category must remain stable across repeated reads")
+let networkHistory = String(decoding: UserDefaults.standard.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
+precondition(!networkHistory.contains(networkSecret), "typed safe categories must not preserve localized descriptions")
+let cancellation = NSError(domain: NSURLErrorDomain, code: URLError.Code.cancelled.rawValue,
+    userInfo: [NSLocalizedDescriptionKey: networkSecret])
+AutomaticRefreshHistory.record(.failed, failure: cancellation)
+precondition(AutomaticRefreshHistory.load().first!.detail == "The refresh was cancelled.")
+precondition(AutomaticRefreshHistory.load().first!.detail == "The refresh was cancelled.",
+             "the cancellation category must survive serialization and later reads")
+AutomaticRefreshHistory.record(.failed, detail: secret)
+let rawDetailHistory = String(decoding: UserDefaults.standard.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
+precondition(!rawDetailHistory.contains("PROVIDER_SECRET") && !rawDetailHistory.contains("private.invalid"),
+             "arbitrary caller detail must be rejected even when no Error value is supplied")
+precondition(AutomaticRefreshHistory.load().first!.detail ==
+             "The operation failed; no safe underlying cause was available.")
 // Actual handler: disabled launches never alert; real launches request an immediate alert.
 AutomaticRefreshHistory.clear()
 let observer = EventDelegate()

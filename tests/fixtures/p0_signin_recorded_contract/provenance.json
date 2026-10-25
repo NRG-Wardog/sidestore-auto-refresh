@@ -1,0 +1,405 @@
+{
+  "artifactRoot": "layout/layout-evidence/p0-signin",
+  "builderCommit": "d259819dc88a12a982d45a7995b7bc4428050bab",
+  "files": {
+    "phone-attachments/290CCB2C-EE54-4010-8C7A-E8C1635D12CE.json": {
+      "bytes": 1485,
+      "fixtureSHA256": "2d7385579f2b2b91dc453d8001f99b9a5021bc88d75b3b582adca07e566c955e",
+      "originalSHA256": "2d7385579f2b2b91dc453d8001f99b9a5021bc88d75b3b582adca07e566c955e",
+      "transformation": "none"
+    },
+    "phone-attachments/2ED240C3-252B-47E6-B44D-5920F3D79C7B.json": {
+      "bytes": 1536,
+      "fixtureSHA256": "df112dcc046956bb665793594b2b8b725c8051e5be301575f01b271a4c54f209",
+      "originalSHA256": "df112dcc046956bb665793594b2b8b725c8051e5be301575f01b271a4c54f209",
+      "transformation": "none"
+    },
+    "phone-attachments/59755845-9342-44CD-942A-B9F9F1D50E01.txt": {
+      "bytes": 150,
+      "fixtureSHA256": "813db41287f18001740764bec5964ea3d88623376a7ad4e0f87d48d667705990",
+      "originalSHA256": "67f39198d4c0a896c8534e5b2597ad5fb62cc7420877f973e8f818b51b0bc80c",
+      "transformation": "Retain only the two actual credential element/geometry/placeholder lines; remove process memory addresses and all value fields. No placeholder or label synthesized."
+    },
+    "phone-attachments/5B85CDBD-130C-4DA7-9F3E-C7BD12360800.png": {
+      "bytes": 186289,
+      "fixtureSHA256": "6b45032bb5a16d7c1b0dae615e9d81717750018c96470dfb24f27cb4c97ce7e4",
+      "originalSHA256": "6b45032bb5a16d7c1b0dae615e9d81717750018c96470dfb24f27cb4c97ce7e4",
+      "transformation": "none"
+    },
+    "phone-attachments/5D8E329B-BB59-4AF2-9157-3C3D72078EC1.png": {
+      "bytes": 198728,
+      "fixtureSHA256": "b04a9994b7e356f357495774675fe9c04381dbca837c3aecfb9a2a132be52996",
+      "originalSHA256": "b04a9994b7e356f357495774675fe9c04381dbca837c3aecfb9a2a132be52996",
+      "transformation": "none"
+    },
+    "phone-attachments/62170405-9407-408E-9135-9828631491BE.png": {
+      "bytes": 206351,
+      "fixtureSHA256": "0ff737fa14360411b86e1d5041c5eace9cfc3247a6f80e8b9819450b7ca69c63",
+      "originalSHA256": "0ff737fa14360411b86e1d5041c5eace9cfc3247a6f80e8b9819450b7ca69c63",
+      "transformation": "none"
+    },
+    "phone-attachments/71640E80-FE30-4A48-AF99-F80E5C980445.txt": {
+      "bytes": 150,
+      "fixtureSHA256": "b1b1f571da4ac433b56b97c0a25373f8b5f73be911af3058fe9e2e5534cf3766",
+      "originalSHA256": "86bf3801532f730339b7db10a7f9f7b76e8d08249eb1893786fda6ea1763c58c",
+      "transformation": "Retain only the two actual credential element/geometry/placeholder lines; remove process memory addresses and all value fields. No placeholder or label synthesized."
+    },
+    "phone-attachments/7ABE77A7-FDD7-49F1-B589-3B7986765565.png": {
+      "bytes": 164183,
+      "fixtureSHA256": "cfe34acd655a6c54fd11eadb3af4bc59195c672ccf757e3a29124f4f3c1fa120",
+      "originalSHA256": "cfe34acd655a6c54fd11eadb3af4bc59195c672ccf757e3a29124f4f3c1fa120",
+      "transformation": "none"
+    },
+    "phone-attachments/8283EBC6-F10F-4577-8030-B5EBF5C6C021.json": {
+      "bytes": 1512,
+      "fixtureSHA256": "e8dfe828d8ff875a2c9a2c6325a9a08cdfdda3edc56b20edd115d39ddd4e581c",
+      "originalSHA256": "e8dfe828d8ff875a2c9a2c6325a9a08cdfdda3edc56b20edd115d39ddd4e581c",
+      "transformation": "none"
+    },
+    "phone-attachments/84EC49DB-F47E-40F5-859F-B7007985E8A0.png": {
+      "bytes": 329514,
+      "fixtureSHA256": "dfd1b03fdd333115fc2ec07c910798e15a8b1b97c2d6c25bc14e1c1b1c157fa5",
+      "originalSHA256": "dfd1b03fdd333115fc2ec07c910798e15a8b1b97c2d6c25bc14e1c1b1c157fa5",
+      "transformation": "none"
+    },
+    "phone-attachments/86161337-1176-4090-911C-65110EBF29F8.png": {
+      "bytes": 149777,
+      "fixtureSHA256": "b584641bdd2d4904fdea1231a868d80597b7f405d4b41d9ffc0773f4df52e347",
+      "originalSHA256": "b584641bdd2d4904fdea1231a868d80597b7f405d4b41d9ffc0773f4df52e347",
+      "transformation": "none"
+    },
+    "phone-attachments/951557C2-CF71-4491-B6FE-F794F9FFA7D9.png": {
+      "bytes": 206351,
+      "fixtureSHA256": "0ff737fa14360411b86e1d5041c5eace9cfc3247a6f80e8b9819450b7ca69c63",
+      "originalSHA256": "0ff737fa14360411b86e1d5041c5eace9cfc3247a6f80e8b9819450b7ca69c63",
+      "transformation": "none"
+    },
+    "phone-attachments/B0F17624-5767-4009-B4FB-CAD3B3460648.txt": {
+      "bytes": 150,
+      "fixtureSHA256": "6a6744b37a89829e4e75f07b84a104808e68a1b31a662fb872692c43d83517f5",
+      "originalSHA256": "a873c3f6c3982d38e178f8bd5ad17bb1ab98e6b5e5ef6ef62493038315fedf90",
+      "transformation": "Retain only the two actual credential element/geometry/placeholder lines; remove process memory addresses and all value fields. No placeholder or label synthesized."
+    },
+    "phone-attachments/B4E74065-A026-4387-8AAB-EF3A582BB441.json": {
+      "bytes": 1479,
+      "fixtureSHA256": "5b58fe348f3a716e5d93c708f190817f796c9bdb5b18a296e041c9186d0acb08",
+      "originalSHA256": "5b58fe348f3a716e5d93c708f190817f796c9bdb5b18a296e041c9186d0acb08",
+      "transformation": "none"
+    },
+    "phone-attachments/B9F7ED0E-C4E5-4006-A62D-77BC351CBDF6.txt": {
+      "bytes": 150,
+      "fixtureSHA256": "6a6744b37a89829e4e75f07b84a104808e68a1b31a662fb872692c43d83517f5",
+      "originalSHA256": "34a7683fae106740733a10758498c7b7fd0772556350cce25fb6561ccdfeb727",
+      "transformation": "Retain only the two actual credential element/geometry/placeholder lines; remove process memory addresses and all value fields. No placeholder or label synthesized."
+    },
+    "phone-attachments/BBF76EBE-0306-4EB9-8BAE-B7F93D31AC5E.png": {
+      "bytes": 316418,
+      "fixtureSHA256": "476bbd1de3f6fd630f89ef3cb07c4270604c8f0d58e878449b456e120d6699b6",
+      "originalSHA256": "476bbd1de3f6fd630f89ef3cb07c4270604c8f0d58e878449b456e120d6699b6",
+      "transformation": "none"
+    },
+    "phone-attachments/C56498B2-7446-4AB8-AF07-1DF1FD76A3EF.png": {
+      "bytes": 186787,
+      "fixtureSHA256": "0a6bfcdbd153b99bced9e99e97854dc671cf8fa516cbfbd20b31731bbed8fdf1",
+      "originalSHA256": "0a6bfcdbd153b99bced9e99e97854dc671cf8fa516cbfbd20b31731bbed8fdf1",
+      "transformation": "none"
+    },
+    "phone-attachments/DB134D27-DE64-4E2A-8A79-DF39C6580123.png": {
+      "bytes": 263318,
+      "fixtureSHA256": "a9c7a00dce3225ece1a2c2e8919318875ff099eb770afe00c6ed155b14bc6071",
+      "originalSHA256": "a9c7a00dce3225ece1a2c2e8919318875ff099eb770afe00c6ed155b14bc6071",
+      "transformation": "none"
+    },
+    "phone-attachments/E2D2E205-7849-449C-AA76-A8631993BBEF.png": {
+      "bytes": 157611,
+      "fixtureSHA256": "bda4138e9ffcce36f702489ab8ab854f785ea0ffe27540a28cc8bc952d476b81",
+      "originalSHA256": "bda4138e9ffcce36f702489ab8ab854f785ea0ffe27540a28cc8bc952d476b81",
+      "transformation": "none"
+    },
+    "phone-attachments/FDBAFA1A-DE75-419D-804B-16BFE0BB5B95.png": {
+      "bytes": 278320,
+      "fixtureSHA256": "3df2c624004d27e8c22a94d0e6707c17dd089bb93fac0b13002b3231ba04a280",
+      "originalSHA256": "3df2c624004d27e8c22a94d0e6707c17dd089bb93fac0b13002b3231ba04a280",
+      "transformation": "none"
+    },
+    "phone-attachments/manifest.json": {
+      "bytes": 13106,
+      "fixtureSHA256": "6f2fd32a7e01b77be3e614519c6d8872bbef24acaaae93e655ad050769534224",
+      "originalSHA256": "1423cde919ee7b0ae96507e6bfc7e0b63db1b76ca3acef740ba2aceb4cb3e88d",
+      "transformation": "Replace simulator deviceId with the all-zero UUID; JSON keys sorted. All attachment rows preserved, including omitted diagnostic attachments."
+    },
+    "phone-verification.json": {
+      "bytes": 18515,
+      "fixtureSHA256": "7fb309b0775ce76acd73272da6bee340f9759fb0c6e30f9eacb3c38778522c37",
+      "originalSHA256": "7fb309b0775ce76acd73272da6bee340f9759fb0c6e30f9eacb3c38778522c37",
+      "transformation": "none"
+    },
+    "phone-xctest-summary.json": {
+      "bytes": 932,
+      "fixtureSHA256": "52b7d32a9229781eee6f8b0d87bd2bcaf64f52bfa4ab3f92b3718077e421e75f",
+      "originalSHA256": "4bb7d78a707fcba2f5d57844d06d2f9e3bbd0904cd1784e4462ed1e8772988a5",
+      "transformation": "Replace simulator deviceId with the all-zero UUID; JSON keys sorted. All summary fields preserved."
+    },
+    "project/Info.plist": {
+      "bytes": 1084,
+      "fixtureSHA256": "7a703daf27e2a14af8eec35e6fd361caa43d6ff272d100f8107b327bd30d6ae4",
+      "originalSHA256": "7a703daf27e2a14af8eec35e6fd361caa43d6ff272d100f8107b327bd30d6ae4",
+      "transformation": "none"
+    },
+    "project/project.pbxproj": {
+      "bytes": 9435,
+      "fixtureSHA256": "fe22a99294a8dc41cedddb53fb78fd638d626caa2b8f34ae05097ade2db7f335",
+      "originalSHA256": "fe22a99294a8dc41cedddb53fb78fd638d626caa2b8f34ae05097ade2db7f335",
+      "transformation": "none"
+    },
+    "project/xcshareddata/xcschemes/P0SignIn.xcscheme": {
+      "bytes": 1768,
+      "fixtureSHA256": "0981e8286465560dc17c18fc83005f0d9bc3181859271692085998a8c8335fb5",
+      "originalSHA256": "0981e8286465560dc17c18fc83005f0d9bc3181859271692085998a8c8335fb5",
+      "transformation": "none"
+    },
+    "source-identity.json": {
+      "bytes": 4728,
+      "fixtureSHA256": "7550e3464ae0a5c279cc4307b8f74a7fd046c660f30a333e2e60176e0cf6df63",
+      "originalSHA256": "7550e3464ae0a5c279cc4307b8f74a7fd046c660f30a333e2e60176e0cf6df63",
+      "transformation": "none"
+    },
+    "sources/CombinedFailure.swift": {
+      "bytes": 126744,
+      "fixtureSHA256": "118102df643c7586b538e0d5e5ba9cefc35011e3859eaf6d5367ef470832ab97",
+      "originalSHA256": "118102df643c7586b538e0d5e5ba9cefc35011e3859eaf6d5367ef470832ab97",
+      "transformation": "none"
+    },
+    "sources/V3AuthFailureDiagnosticsPolicy.swift": {
+      "bytes": 5324,
+      "fixtureSHA256": "275e5d9f818907c2471bf7345f58a90a4b743cf3d65bb08634b13a0ada8ebdfe",
+      "originalSHA256": "275e5d9f818907c2471bf7345f58a90a4b743cf3d65bb08634b13a0ada8ebdfe",
+      "transformation": "none"
+    },
+    "sources/V3AuthPromptFailurePolicy.swift": {
+      "bytes": 665,
+      "fixtureSHA256": "9fe4c1fdbd17004b3893935e2b2dee3d706d9118d785d5b02f69e8aa065d4f54",
+      "originalSHA256": "9fe4c1fdbd17004b3893935e2b2dee3d706d9118d785d5b02f69e8aa065d4f54",
+      "transformation": "none"
+    },
+    "sources/V3AuthRepairURLPolicy.swift": {
+      "bytes": 919,
+      "fixtureSHA256": "6402f21d7796c446457e0637230a33031933e595eefedf69928860e29ae8c549",
+      "originalSHA256": "6402f21d7796c446457e0637230a33031933e595eefedf69928860e29ae8c549",
+      "transformation": "none"
+    },
+    "sources/V3AuthStoreDiagnostics.swift": {
+      "bytes": 3931,
+      "fixtureSHA256": "e9806a2bb817dc62c8eabe04928028385494e18595453b38ee6a06417d9bdc3a",
+      "originalSHA256": "e9806a2bb817dc62c8eabe04928028385494e18595453b38ee6a06417d9bdc3a",
+      "transformation": "none"
+    },
+    "sources/V3MultiSelectPromptAnswerPolicy.swift": {
+      "bytes": 1103,
+      "fixtureSHA256": "ed0921ccae165a6a5b39f760270c0962a9f63cc3d7f478d092ec166f71b79803",
+      "originalSHA256": "ed0921ccae165a6a5b39f760270c0962a9f63cc3d7f478d092ec166f71b79803",
+      "transformation": "none"
+    },
+    "sources/V3PromptSection.swift": {
+      "bytes": 16520,
+      "fixtureSHA256": "8d68e19e060a507b112f31733799b86a0d39634212c06d242955ba5062ac8696",
+      "originalSHA256": "8d68e19e060a507b112f31733799b86a0d39634212c06d242955ba5062ac8696",
+      "transformation": "none"
+    },
+    "sources/V3ServiceBridge.swift": {
+      "bytes": 305,
+      "fixtureSHA256": "6083a55a55d882aea5f1498821990e645149e080bdca9f90b58bd046d819fa26",
+      "originalSHA256": "6083a55a55d882aea5f1498821990e645149e080bdca9f90b58bd046d819fa26",
+      "transformation": "none"
+    },
+    "sources/V3SignInView.production.txt": {
+      "bytes": 17864,
+      "fixtureSHA256": "a6f2fad17ceeb9a85adab86b5df0da1c6e44187e2c6f301c31b5c4cf34056d53",
+      "originalSHA256": "a6f2fad17ceeb9a85adab86b5df0da1c6e44187e2c6f301c31b5c4cf34056d53",
+      "transformation": "none"
+    },
+    "sources/V3SignInView.swift": {
+      "bytes": 3019,
+      "fixtureSHA256": "9200e9195587ff43385d07c2ed399aebf6ff0c3523296819f3995b65cafb284f",
+      "originalSHA256": "9200e9195587ff43385d07c2ed399aebf6ff0c3523296819f3995b65cafb284f",
+      "transformation": "none"
+    },
+    "sources/V3TwoFactorStep.swift": {
+      "bytes": 1278,
+      "fixtureSHA256": "1371ccb5d820a0cde4bdfb714fb22b8760d9b32577e640b68def6ad68aa96698",
+      "originalSHA256": "1371ccb5d820a0cde4bdfb714fb22b8760d9b32577e640b68def6ad68aa96698",
+      "transformation": "none"
+    },
+    "sources/V3WireContract.swift": {
+      "bytes": 826,
+      "fixtureSHA256": "c4944d22348c59275c290f5cf6edfbef455424b9eade1a75116c9d7855ad6e1d",
+      "originalSHA256": "c4944d22348c59275c290f5cf6edfbef455424b9eade1a75116c9d7855ad6e1d",
+      "transformation": "none"
+    },
+    "sources/p0_signin_app.swift": {
+      "bytes": 5653,
+      "fixtureSHA256": "44de6e2d7f5b0b0d8893c3a3778488e8e7afd1d36a43eaab9d2a44b48a47e317",
+      "originalSHA256": "44de6e2d7f5b0b0d8893c3a3778488e8e7afd1d36a43eaab9d2a44b48a47e317",
+      "transformation": "none"
+    },
+    "sources/p0_signin_ui_tests.swift": {
+      "bytes": 22672,
+      "fixtureSHA256": "4cbc28835d9f82616e949e4394392bedfa4205767f5fc4162b143252ba3f218c",
+      "originalSHA256": "4cbc28835d9f82616e949e4394392bedfa4205767f5fc4162b143252ba3f218c",
+      "transformation": "none"
+    },
+    "tablet-attachments/1836DF8E-0445-481E-9A26-30A73581E463.txt": {
+      "bytes": 150,
+      "fixtureSHA256": "de83eee918f71cba0be245658a43e24e503146f40a023bf6137ba8096bddcd17",
+      "originalSHA256": "8d4612206df37551c6528e870b5f99fa70d0b89548e1a88e3dd82f4eb1f9d39c",
+      "transformation": "Retain only the two actual credential element/geometry/placeholder lines; remove process memory addresses and all value fields. No placeholder or label synthesized."
+    },
+    "tablet-attachments/1B798BB6-B44D-492B-8E7B-B6EE66ED658A.png": {
+      "bytes": 167055,
+      "fixtureSHA256": "ac0208de75b785b157cc106f952d126c0853ebf6626d0c0dd92a1f0d106580c0",
+      "originalSHA256": "ac0208de75b785b157cc106f952d126c0853ebf6626d0c0dd92a1f0d106580c0",
+      "transformation": "none"
+    },
+    "tablet-attachments/2ECCBC9D-FDAA-469D-BE9E-2E07D499A86C.txt": {
+      "bytes": 150,
+      "fixtureSHA256": "92d2a4b549bf992676f9ac24069b3b28c5422f0d91665757ca0270710de8c1c5",
+      "originalSHA256": "675271249722d384698539a58abe7aea3ead7c02dd6534fe97c80b0778db564c",
+      "transformation": "Retain only the two actual credential element/geometry/placeholder lines; remove process memory addresses and all value fields. No placeholder or label synthesized."
+    },
+    "tablet-attachments/33FAF694-797F-4386-AC16-20F9C13DDB63.json": {
+      "bytes": 1441,
+      "fixtureSHA256": "3c69ee57cf865245c1216747fc6e7702ddf6f7e16171d68a901d35ee5a07a58e",
+      "originalSHA256": "3c69ee57cf865245c1216747fc6e7702ddf6f7e16171d68a901d35ee5a07a58e",
+      "transformation": "none"
+    },
+    "tablet-attachments/3708B058-924E-4C4F-B72C-57DABB24CDB7.png": {
+      "bytes": 161276,
+      "fixtureSHA256": "a84db1684f8714191b549a0b7457d86080caadcf1ab3b8b96108e2fead3d4d22",
+      "originalSHA256": "a84db1684f8714191b549a0b7457d86080caadcf1ab3b8b96108e2fead3d4d22",
+      "transformation": "none"
+    },
+    "tablet-attachments/41086FFA-38C5-48C1-BA7D-887ED9028F59.png": {
+      "bytes": 246515,
+      "fixtureSHA256": "7a9f0c914b302845e32438100af9b5f32827899eb1982c0260073b76cd762237",
+      "originalSHA256": "7a9f0c914b302845e32438100af9b5f32827899eb1982c0260073b76cd762237",
+      "transformation": "none"
+    },
+    "tablet-attachments/539A4DEB-C649-4D91-B239-0F690A794188.png": {
+      "bytes": 134913,
+      "fixtureSHA256": "caa40927118e993d23bbf78cc4319138b4800cc4d866aeafaa1fea1b15c86a16",
+      "originalSHA256": "caa40927118e993d23bbf78cc4319138b4800cc4d866aeafaa1fea1b15c86a16",
+      "transformation": "none"
+    },
+    "tablet-attachments/6E643CD3-2C3D-46A9-9512-0C0133BA22DA.json": {
+      "bytes": 1432,
+      "fixtureSHA256": "718390a3a2927acc4e606396b7b357873291703a9c20a2c841c2920dd73ab8d3",
+      "originalSHA256": "718390a3a2927acc4e606396b7b357873291703a9c20a2c841c2920dd73ab8d3",
+      "transformation": "none"
+    },
+    "tablet-attachments/9C55944F-8137-4B47-89EA-822DC2CF4608.png": {
+      "bytes": 162664,
+      "fixtureSHA256": "c7201a1c6b3dbfeeee39d45485b4c84e0701b0ea01269bbc3d508a771265f207",
+      "originalSHA256": "c7201a1c6b3dbfeeee39d45485b4c84e0701b0ea01269bbc3d508a771265f207",
+      "transformation": "none"
+    },
+    "tablet-attachments/A0C4C089-9573-44FD-BCCA-D1ED46EC91A0.png": {
+      "bytes": 290375,
+      "fixtureSHA256": "65b81c392ebf46414b42c7da1d620abc80c3de0484894386fa8458dddec5c26d",
+      "originalSHA256": "65b81c392ebf46414b42c7da1d620abc80c3de0484894386fa8458dddec5c26d",
+      "transformation": "none"
+    },
+    "tablet-attachments/A9F3BD65-2A30-48D2-95D8-518D28CF0EF3.png": {
+      "bytes": 290181,
+      "fixtureSHA256": "9e440b13172bd2bcc762b609d37b59f5c2a3f7398955727ad0e361664637b1d8",
+      "originalSHA256": "9e440b13172bd2bcc762b609d37b59f5c2a3f7398955727ad0e361664637b1d8",
+      "transformation": "none"
+    },
+    "tablet-attachments/AB36E130-F24D-42E8-A719-4043DB349D26.png": {
+      "bytes": 166631,
+      "fixtureSHA256": "f65071a11d6fe14b4ef006110358cf5d614dd0d4a26a434e24fd8ef21ecf9de7",
+      "originalSHA256": "f65071a11d6fe14b4ef006110358cf5d614dd0d4a26a434e24fd8ef21ecf9de7",
+      "transformation": "none"
+    },
+    "tablet-attachments/B5133C8F-550D-4F7A-BE77-4F79E4F9A6D8.json": {
+      "bytes": 1430,
+      "fixtureSHA256": "5b4991036ebfdbc8e01581294bcc19fada99559831131909d53d85b00df0b428",
+      "originalSHA256": "5b4991036ebfdbc8e01581294bcc19fada99559831131909d53d85b00df0b428",
+      "transformation": "none"
+    },
+    "tablet-attachments/B6EE1B6F-A2B3-44A9-BEE9-9B608D86E85B.txt": {
+      "bytes": 150,
+      "fixtureSHA256": "4ccd58b6c7bfd33d0b7238ca4a66a195e72401aac931a298ad27d704ee997627",
+      "originalSHA256": "e3ce093d7d422feb46b6d05b42f26f983b734a97aacd46de685c4ec08a575f7c",
+      "transformation": "Retain only the two actual credential element/geometry/placeholder lines; remove process memory addresses and all value fields. No placeholder or label synthesized."
+    },
+    "tablet-attachments/BAD92960-4020-434D-ACC8-790E2D36E91A.txt": {
+      "bytes": 150,
+      "fixtureSHA256": "ed4da6bc58ed37dab87923bae7561afd17b5b39fd712d150b240fa94fdb81874",
+      "originalSHA256": "d2aeaf6884149062f0a46e41f810c09c91c29f67ca1c796e2b2b705e2b362be6",
+      "transformation": "Retain only the two actual credential element/geometry/placeholder lines; remove process memory addresses and all value fields. No placeholder or label synthesized."
+    },
+    "tablet-attachments/BB6B6790-8147-4F4A-BF14-262AB721E96D.json": {
+      "bytes": 1444,
+      "fixtureSHA256": "0e833ec4005c416b89b439d59f649a8f1294811c62d7d516b19ad41d5af506cc",
+      "originalSHA256": "0e833ec4005c416b89b439d59f649a8f1294811c62d7d516b19ad41d5af506cc",
+      "transformation": "none"
+    },
+    "tablet-attachments/D3E3D522-C8A8-4DE1-8AC1-F8809353145E.png": {
+      "bytes": 290148,
+      "fixtureSHA256": "ddcbdb9eab7031e8dc010bf0c118294f8a0b04baecef658cfc4bfa9b2b2d2fba",
+      "originalSHA256": "ddcbdb9eab7031e8dc010bf0c118294f8a0b04baecef658cfc4bfa9b2b2d2fba",
+      "transformation": "none"
+    },
+    "tablet-attachments/E4C9A929-C4AD-4A41-8750-455147F00EB3.png": {
+      "bytes": 165309,
+      "fixtureSHA256": "4c9d44d25fb536e0f1e6739ded0e70d8f3f5e46f89e549d6f0421a15e49ec7b8",
+      "originalSHA256": "4c9d44d25fb536e0f1e6739ded0e70d8f3f5e46f89e549d6f0421a15e49ec7b8",
+      "transformation": "none"
+    },
+    "tablet-attachments/F53105E5-628B-4D8F-8E19-08B0E2C44938.png": {
+      "bytes": 245934,
+      "fixtureSHA256": "89654660adc2e8699c496c276881cd81a9d2f638d5c9cfedc73e263fe7d8091e",
+      "originalSHA256": "89654660adc2e8699c496c276881cd81a9d2f638d5c9cfedc73e263fe7d8091e",
+      "transformation": "none"
+    },
+    "tablet-attachments/F9484C1A-5742-4A02-A6CD-FAB8E6CA5460.png": {
+      "bytes": 215685,
+      "fixtureSHA256": "8aa2c6f17cca12ca3bbf9400a15d924354eeb8d347397c5a5d254654ba4f1426",
+      "originalSHA256": "8aa2c6f17cca12ca3bbf9400a15d924354eeb8d347397c5a5d254654ba4f1426",
+      "transformation": "none"
+    },
+    "tablet-attachments/manifest.json": {
+      "bytes": 13335,
+      "fixtureSHA256": "d40f37640d27f5deba9462edd9650bd3091fc79092137de5cbd3b99bec7c5f3d",
+      "originalSHA256": "122f971e643bc8aa998b3a6c101c887e0a96c0c9652d59867b7a4c6176c9bc0f",
+      "transformation": "Replace simulator deviceId with the all-zero UUID; JSON keys sorted. All attachment rows preserved, including omitted diagnostic attachments."
+    },
+    "tablet-verification.json": {
+      "bytes": 18267,
+      "fixtureSHA256": "cd07a25d14bbfae1770508a49cbc962b3a9afc35fee83c074881fad00ab35cf3",
+      "originalSHA256": "cd07a25d14bbfae1770508a49cbc962b3a9afc35fee83c074881fad00ab35cf3",
+      "transformation": "none"
+    },
+    "tablet-xctest-summary.json": {
+      "bytes": 948,
+      "fixtureSHA256": "584db2879c8b0b8fb31ea2caf31e413ce80b86f7bd5fb28c7c70ccad94ae75e0",
+      "originalSHA256": "ccb852a5b12e3159c7639c0b2a29826583f967c45006de77ed6e716f35b171e1",
+      "transformation": "Replace simulator deviceId with the all-zero UUID; JSON keys sorted. All summary fields preserved."
+    }
+  },
+  "omissions": [
+    "Diagnostic launch/teardown PNGs, terminal simulator PNGs, durable duplicate artifacts, xcresult bundles, video, build products, and unrelated legacy-layout evidence. Original manifest rows are retained even when these optional diagnostic bytes are omitted.",
+    "Hierarchy excerpts contain no entered values; runtime input was the synthetic p0-user@example.invalid / p0-synthetic-password test data recorded in the retained producer source."
+  ],
+  "recordedOutcome": {
+    "passed": false,
+    "requiredScreenshotCount": 24,
+    "verifierEmptyLabelFailures": 16,
+    "xctestPassedMethods": 8
+  },
+  "repository": "NRG-Wardog/sidestore-auto-refresh",
+  "retainedBytes": 5482233,
+  "runID": "37496696970",
+  "runURL": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/37496696970",
+  "schemaVersion": 1
+}

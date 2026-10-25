@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import SideStoreSupport
 
 // LC_REFRESH_HISTORY_STORE_V1_BEGIN
 /// Stable row identity is separate from display order: refresh events can be
@@ -67,18 +68,27 @@ enum LiveContainerRefreshHistoryStore {
 
 @MainActor
 struct LCEmbeddedSideStoreRefreshView: View {
-    private let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
+    // V3_RUNTIME_SHARED_REFRESH_STORE_V1: this screen renders the same keys the
+    // embedded service writes, so it binds to the one runtime App Group store
+    // rather than a fixed suite name. When that store is unavailable the screen
+    // says so instead of showing an empty schedule that looks disabled.
+    private let defaults = V3SharedRefreshStore.defaults
+    private var sharedStoreUnavailable: Bool { !V3SharedRefreshStore.isAvailable }
     @Environment(\.layoutDirection) private var layoutDirection
+    // V3_REFRESH_PREREQUISITE_POLICY_V1: nil-default key so a missing store hides
+    // the gate instead of trapping. An unknown pairing status never blocks.
+    @Environment(\.v3StatusStore) private var v3Status
     @State private var history: [LiveContainerRefreshHistoryEntry] = []
     @State private var isSelectingHistory = false
     @State private var selectedHistoryIDs: Set<String> = []
     @State private var showClearHistoryConfirmation = false
-    @AppStorage("liveContainerAutoRefreshLastError", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var lastError = ""
-    @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var healthState = "UNKNOWN"
-    @AppStorage("liveContainerAutoRefreshEnabled", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var enabled = false
-    @AppStorage("liveContainerAutoRefreshFrequency", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var frequency = "interval"
-    @AppStorage("liveContainerAutoRefreshWeekday", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var weekday = 2
-    @AppStorage("liveContainerAutoRefreshMinutes", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var minutes = 600
+    @AppStorage("liveContainerAutoRefreshUncertainMutationRunID", store: V3SharedRefreshStore.defaults) private var uncertainMutation = ""
+    @AppStorage("liveContainerAutoRefreshLastError", store: V3SharedRefreshStore.defaults) private var lastError = ""
+    @AppStorage("liveContainerAutoRefreshHealthState", store: V3SharedRefreshStore.defaults) private var healthState = "UNKNOWN"
+    @AppStorage("liveContainerAutoRefreshEnabled", store: V3SharedRefreshStore.defaults) private var enabled = false
+    @AppStorage("liveContainerAutoRefreshFrequency", store: V3SharedRefreshStore.defaults) private var frequency = "interval"
+    @AppStorage("liveContainerAutoRefreshWeekday", store: V3SharedRefreshStore.defaults) private var weekday = 2
+    @AppStorage("liveContainerAutoRefreshMinutes", store: V3SharedRefreshStore.defaults) private var minutes = 600
 
     private var time: Binding<Date> {
         Binding(get: {
@@ -92,6 +102,13 @@ struct LCEmbeddedSideStoreRefreshView: View {
 
     var body: some View {
         Form {
+            if sharedStoreUnavailable {
+                Section("Scheduled Refresh Unavailable") {
+                    Text(V3SharedRefreshStore.unavailableMessage).font(.footnote)
+                    Text("Relaunch LiveContainer after reinstalling or re-signing. Manual Refresh All still works.")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+            }
             Section("Status") {
                 Text("Auto Refresh: \(enabled ? "Enabled" : "Disabled")")
                 let strategy = defaults.string(forKey: "liveContainerAutoRefreshStrategy") ?? "foreground_recovery_only"
@@ -102,12 +119,29 @@ struct LCEmbeddedSideStoreRefreshView: View {
                 Text("Background execution remains best-effort. A scheduled request is not a completed refresh.")
                     .font(.caption).foregroundColor(.secondary)
                 if !lastError.isEmpty {
-                    Text(lastError).font(.caption).foregroundColor(.red)
+                    Text(V3DiagnosticPresentation.label(lastError, context: .refresh)).font(.caption).foregroundColor(.red)
+                    Button("Copy Refresh Diagnostics") { UIPasteboard.general.string = V3DiagnosticCopy.details(visibleMessage: V3DiagnosticPresentation.label(lastError, context: .refresh), technical: V3DiagnosticPresentation.label(lastError, context: .refresh)) }
+                }
+                if !uncertainMutation.isEmpty {
+                    Text("The previous refresh result is uncertain. Automatic retries are paused. Review app status and expiration before explicitly retrying." + "\nError ID: SS-VERIFY-D098")
+                        .font(.caption).foregroundColor(.orange)
                 }
             }
             Section {
                 Toggle("Scheduled refresh", isOn: Binding(get: { enabled }, set: { enabled = $0; notifyScheduleChanged() }))
+                    .disabled(sharedStoreUnavailable)
+                // V3_REFRESH_PREREQUISITE_POLICY_V1: manual refresh uses the same
+                // authoritative prerequisite contract as Home Refresh All, Setup
+                // Assistant Test Refresh, and targeted refresh. A known-missing
+                // pairing file is reported as such and no mutation is started.
+                if manualRefreshBlocked {
+                    Text("A pairing file is required before this device can be refreshed.")
+                        .font(.footnote)
+                    Text("Place or import a valid pairing file, then try again.")
+                        .font(.caption).foregroundColor(.secondary)
+                }
                 Button("Refresh SideStore now", action: notifyManualRefresh)
+                    .disabled(manualRefreshBlocked)
                 Picker("Frequency", selection: Binding(get: { frequency }, set: { frequency = $0; notifyScheduleChanged() })) {
                     Text("Every six hours").tag("interval")
                     Text("Daily").tag("daily")
@@ -243,8 +277,23 @@ struct LCEmbeddedSideStoreRefreshView: View {
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshScheduleChanged"), object: nil)
     }
 
+    // V3_REFRESH_PREREQUISITE_POLICY_V1: one policy, evaluated before the
+    // scheduler notification. A nil store (this view can be presented outside the
+    // inherited environment) is treated as unknown, which never blocks.
+    private var manualRefreshBlocked: Bool {
+        guard let status = v3Status else { return false }
+        return V3PairingPresentationPolicy.state(
+            statusConnected: status.connected, pairingStatus: status.pairing) == .unsatisfied
+    }
+
     private func notifyManualRefresh() {
-        NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil)
+        // Defence in depth: the button is already disabled, and this guard makes
+        // it impossible for any caller to post a mutation for a known-missing
+        // pairing file.
+        guard !manualRefreshBlocked else { return }
+        let requestID = UUID().uuidString
+        NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
+                                        userInfo: ["requestID": requestID, "origin": "refreshManager"])
     }
 
     private func deleteHistoryEntry(id: String) {

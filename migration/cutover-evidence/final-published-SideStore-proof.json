@@ -1,0 +1,35 @@
+{
+  "owner": "SideStore",
+  "status": "exact_dependency_transition_pass",
+  "checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71",
+  "commit": "dd4f0ca36e8ef1d858548f583c65842a8fc0ced3",
+  "unchanged_checkpoint_blobs": 631,
+  "dependency_files": [
+    ".gitmodules",
+    "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+  ],
+  "test_files": [
+    "tests/runtime_source/test_runtime_source.py"
+  ],
+  "unrelated_swiftpm_pins_preserved": 9,
+  "child_gitlinks": {
+    "Dependencies/SideSign": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+    "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+  },
+  "native_resolver_status": "passed_remote_iphoneos",
+  "ios_compilation": "PASS_ON_NATIVE_TESTED_GRAPH",
+  "native_tested_commit": "f6e9e0ed6c3f4d02e99a0dcff0660faa0e5372b8",
+  "native_tested_tree": "2f33f7caed7f6ef13522421446ade4d79d8f901e",
+  "native_tested_children": {
+    "Dependencies/SideSign": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+    "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+  },
+  "native_run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37702648560",
+  "native_validation_host_commit": "5fcff4214fc459b30b37843aaa2cf075232f52f2",
+  "native_artifact_sha256": "d8dd30c49648a5e2706edc185e9c1ce15c584075ce41e85cbde80ce4934cc75b",
+  "native_receipt_sha256": "82ca6fbfa1a51d28de31b38f42abc6b7d5f662da54e33b9e841f778cf053cfc4",
+  "readiness_scope": "eligible_for_gated_full_build",
+  "final_exact_ref_ipa_build_required": true,
+  "production_ready": true,
+  "runtime_behavior_changes": []
+}

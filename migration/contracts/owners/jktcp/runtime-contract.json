@@ -1,0 +1,69 @@
+{
+  "contract_set": "runtime-source-parity-141776ba.v1",
+  "format_version": 1,
+  "owner": "jktcp",
+  "provenance": {
+    "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+    "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs. Pinned Rust 1.98.1 rustfmt output is reviewed in rustfmt-1.98.1.json; historical preformat hashes remain in that receipt and the original generation inventory.",
+    "upstream_commit": "e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020",
+    "upstream_repository": "SideStore/jktcp"
+  },
+  "provides": [
+    {
+      "contract": "diagnostics",
+      "source_paths": [
+        "Cargo.toml",
+        "src/adapter.rs",
+        "src/handle.rs",
+        "src/lib.rs",
+        "src/stream.rs"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "jktcp-stream",
+      "source_paths": [
+        "Cargo.toml",
+        "src/adapter.rs",
+        "src/handle.rs",
+        "src/lib.rs",
+        "src/stream.rs"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "requires": [],
+  "sources": [
+    {
+      "basis": "SideStore/jktcp@e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020:Cargo.toml (unchanged upstream source)",
+      "mode": "100644",
+      "path": "Cargo.toml",
+      "sha256": "201602ea80f7d7f4316f7aa30119482f0331d6a5cb786cab1b56c5596f13673f"
+    },
+    {
+      "basis": "rustfmt-1.98.1.json:owners:jktcp:changed_files:src/adapter.rs (formatted from transport-generated-source-inventory.json:final_changes:jktcp:src/adapter.rs)",
+      "mode": "100644",
+      "path": "src/adapter.rs",
+      "sha256": "57a5f51ef060f13533d99e2820af68dbf4325358c20d52e0752db79c543a98d3"
+    },
+    {
+      "basis": "transport-generated-source-inventory.json:final_changes:jktcp:src/handle.rs",
+      "mode": "100644",
+      "path": "src/handle.rs",
+      "sha256": "66fbeef6afabcbf29bc16e37fc9c51761141d07fa1db4c0d112b09504a87f75c"
+    },
+    {
+      "basis": "SideStore/jktcp@e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020:src/lib.rs (unchanged upstream source)",
+      "mode": "100644",
+      "path": "src/lib.rs",
+      "sha256": "28b2c5efcbf0a4626f072f96df51322a12ea04d9c24e5ce882ea96c4660837cc"
+    },
+    {
+      "basis": "SideStore/jktcp@e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020:src/stream.rs (unchanged upstream source)",
+      "mode": "100644",
+      "path": "src/stream.rs",
+      "sha256": "ae4607aa71e3604af9b2191f838056f256de1e4b64113d8312a974a048e42d8c"
+    }
+  ],
+  "version": "1.0.1"
+}

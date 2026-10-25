@@ -787,16 +787,18 @@ The release promotes the verified preview.2 IPA without rebuilding or re-signing
 
 ## Build it yourself
 
-The current v6.0 build is defined in **NRG-Wardog/LiveContainer**, not by the older combined workflow on this repository's `main` branch.
+The current v6.0 native build is implemented in **NRG-Wardog/LiveContainer**. This repository's two manual build entries call its immutable maintained workflow. See [Maintained build and reviewed packaging](docs/MAINTAINED_BUILD.md) for the current entrypoints and the separate IPA admission step.
 
 1. Review the exact [native compile workflow](https://github.com/NRG-Wardog/LiveContainer/blob/177ac31e90499231191b25f761014c17d9f2ba7b/.github/workflows/native-app-compile.yml) at `177ac31e90499231191b25f761014c17d9f2ba7b` and its pinned source graph. Native build [40102842840](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40102842840) uses macOS 26, Xcode 26.4.1 and Rust 1.98.1.
 2. Review the exact [packaging workflow](https://github.com/NRG-Wardog/LiveContainer/blob/0403c859f943ffe4f17a048ac1309dd009f1f17b/.github/workflows/package-diagnostic.yml) at `0403c859f943ffe4f17a048ac1309dd009f1f17b` and package run [40104361491](https://github.com/NRG-Wardog/LiveContainer/actions/runs/40104361491). Packaging consumes the retained native artifacts with independently reviewed receipt and input hashes; it does not rebuild the apps.
 3. Preserve the immutable source revisions, workflow guards, toolchain and artifact bindings. These validation workflows are restricted to specific repository/branch identities, so simply forking and dispatching them unchanged is not a general v6.0 build recipe. A new build needs its own reviewed artifacts and evidence; it is not automatically byte-identical to the tested release package.
 4. For installation, sign the resulting IPA with your own Apple Account / Personal Team. Identify a public package by its recorded builder, exact release asset and checksum, not by the retained upstream bundle version.
 
-The older SAR workflows below remain available for their standalone/legacy targets; they do **not** reproduce the v6.0 package:
+The maintained entries below produce unsigned native application archives, not an installable IPA or a public release:
 
-[Legacy combined workflow](.github/workflows/livecontainer-build.yml) | [Standalone workflow](.github/workflows/build-current.yml)
+[Combined native workflow](.github/workflows/livecontainer-build.yml) | [SideStore shared-graph workflow](.github/workflows/build-current.yml)
+
+Historical validation sources and tests are preserved for review; their archived workflow definitions are not active build entrypoints. See [Validation history reconciliation](docs/VALIDATION_HISTORY_RECONCILIATION.md).
 
 ## Development checks
 

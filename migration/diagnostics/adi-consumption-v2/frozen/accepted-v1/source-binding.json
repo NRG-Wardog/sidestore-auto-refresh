@@ -1,0 +1,13 @@
+{
+  "declared_commit": "f9f23d980df363eb0f6eb5093b48e3639b03e137",
+  "format_version": 1,
+  "identity_basis": "Parent supplied accepted remote tuple; local integration commit has the exact same Git tree. All retained v1 bytes are read from that immutable local Git tree.",
+  "local_commit": "9409a2a965f367a81206bc8f393478f3370904ba",
+  "maintained_sources_path": "frozen/accepted-v1/maintained-sources.json",
+  "maintained_sources_sha256": "f13ad546638acad0e4d1a8cd87f8063c2f5144ff5b6ac296592f639454cddcc4",
+  "registry_path": "frozen/adi-consumption-v1/compatibility-registry.json",
+  "registry_sha256": "97c9d0b81e9b59c8271ae1155393b2fcb534dc97ea367095d3adfcde8a3783ad",
+  "repository": "NRG-Wardog/sidestore-auto-refresh",
+  "scope": "Historical accepted v1 source and receipts only; does not establish v2 dependency or native readiness.",
+  "tree": "13894777e9d77822f60436fd471be31e1961ba18"
+}

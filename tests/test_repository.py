@@ -19,11 +19,62 @@ REQUIRED_SCRIPTS = {
     "adapt_sidestore_070_pairing.py",
     "adapt_sidestore_070_signing.py",
 }
+LIVE_CONTAINER_SCRIPTS = {
+    "patch_native_error_presenters.py",
+    "patch_cf_bundle_scan.py",
+    "patch_lc_certificate_observation.py",
+    "patch_livecontainer_autorefresh.py",
+    "patch_embedded_sidestore_startup.py",
+    "patch_v3_unified_shell.py",
+    "patch_sidesign_2fa_state.py",
+    "patch_v3_service.py",
+    "patch_combined_refresh_contract.py",
+    "patch_embedded_keychain.py",
+    "patch_guest_return.py",
+    "patch_multitask_dock.py",
+    "patch_dead10cc_fix.py",
+    "patch_combined_refresh_contract.py",
+    "patch_combined_transport.py",
+    "patch_combined_service_startup.py",
+    "patch_refresh_result_bridge.py",
+    "patch_app_layout.py",
+    "patch_embedded_sidestore_startup.py",
+    "patch_local_idevice_package.py",
+    "patch_combined_service_startup.py",
+    "combined_build_evidence.py",
+    "run_issue25_rendering.py", "rendering_localization.py",
+    "run_p0_signin_rendering.py",
+    "run_p0_signin_preflight.py",
+    "select_livecontainer_lane.py",
+    "patch_app_layout.py",
+    "audit_ipa_signing.py",
+    "patch_guest_return.py",
+    "patch_combined_transport.py",
+    "patch_combined_service_startup.py",
+    "patch_refresh_result_bridge.py",
+    "patch_background_automation.py",
+    "patch_combined_refresh_contract.py",
+    "patch_embedded_sidestore_startup.py",
+    "patch_local_idevice_package.py",
+    "patch_v3_service.py",
+    "patch_combined_service_startup.py",
+    "combined_build_evidence.py",
+    "run_issue25_rendering.py",
+    "patch_app_layout.py",
+    "package_livecontainer_combined.py",
+    "audit_ipa_signing.py",
+    "patch_guest_return.py",
+    "patch_combined_transport.py",
+    "patch_refresh_result_bridge.py",
+    "patch_embedded_sidestore_startup.py",
+    "patch_local_idevice_package.py",
+}
 LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
 LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
 COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
 EMBEDDED_KEYCHAIN_SCRIPT = "patch_embedded_keychain.py"
 APP_LAYOUT_SCRIPT = "patch_app_layout.py"
+V3_UNIFIED_SHELL_SCRIPT = "patch_v3_unified_shell.py"
 
 _SENSITIVE_ARTIFACT_SUFFIXES = {".p12", ".pfx", ".der", ".pem", ".key"}
 _SENSITIVE_NAMES = re.compile(
@@ -65,20 +116,24 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue((ROOT / "README.md").is_file())
         self.assertTrue((ROOT / "LICENSE").is_file())
         self.assertTrue((ROOT / "CONTRIBUTING.md").is_file())
-        self.assertTrue((ROOT / "SECURITY.md").is_file())
         self.assertTrue((ROOT / "docs" / "VERIFICATION.md").is_file())
+        self.assertTrue((ROOT / "SECURITY.md").is_file())
         self.assertTrue(WORKFLOW.is_file())
         self.assertEqual(
             {path.name for path in SCRIPTS.glob("*.py")},
-            REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
-                                COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, 'audit_ipa_signing.py', 'patch_guest_return.py',
-                                'package_livecontainer_combined.py', 'patch_combined_transport.py', 'patch_refresh_result_bridge.py',
-                                APP_LAYOUT_SCRIPT},
+                REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
+                    "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "p0_maintained_sources.py", "p0_constructor_diagnostics.py", "p0_elf_metadata_bounds.py", "p0_cxx_allocation.py", "p2_composed_host.py", "p0_full_login_diagnostics.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py", "patch_transport_lockfiles.py"},
         )
 
-    def test_patch_scripts_parse_and_are_idempotent(self):
+    def test_patch_scripts_parse_and_contain_guard_markers(self):
+        """Syntax and guard-marker checks; actual repeat-application tests live beside patch fixtures.
+
+        Examples include test_automation, test_app_layout, test_embedded_keychain,
+        test_guest_return, test_sidesign_privacy, and test_v3_unified_shell.
+        """
         for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
-                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py", "patch_refresh_result_bridge.py", APP_LAYOUT_SCRIPT}:
+                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py", "patch_refresh_result_bridge.py", APP_LAYOUT_SCRIPT, V3_UNIFIED_SHELL_SCRIPT,
+                                        "patch_sidesign_2fa_state.py"}:
             path = SCRIPTS / name
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         self.assertIn(
@@ -101,15 +156,18 @@ class RepositoryTests(unittest.TestCase):
         self.assertNotRegex(workflow, r"builder/scripts/patch_v\d+")
         self.assertNotIn("build-v29-coredevice-self-refresh.yml", workflow)
         live_workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
-        self.assertIn("builder/scripts/" + LIVE_CONTAINER_STARTUP_SCRIPT, live_workflow)
-        self.assertIn("builder/scripts/" + COMBINED_REFRESH_SCRIPT, live_workflow)
-        self.assertIn("builder/scripts/patch_app_layout.py", live_workflow)
+        self.assertIn("builder/scripts/maintained_sources.py", live_workflow)
+        self.assertIn("builder/scripts/" + COMBINED_REFRESH_SCRIPT + " --verify-ipa", live_workflow)
         standalone_workflow = (ROOT / ".github/workflows/build-current.yml").read_text(encoding="utf-8")
         self.assertIn("builder/scripts/patch_app_layout.py", standalone_workflow)
         contract = (SCRIPTS / COMBINED_REFRESH_SCRIPT).read_text(encoding="utf-8")
         self.assertIn("from patch_embedded_keychain import patch as patch_shared_keychain", contract)
-        self.assertIn("patch_shared_keychain(Path(sys.argv[1]))", contract)
-        self.assertIn("[LC_KEYCHAIN] SHARED_GROUP_SELECTED", contract)
+        self.assertIn("patch_combined_cli(Path(sys.argv[1]))", contract)
+        self.assertIn("patch_shared_keychain(staged)", contract)
+        self.assertLess(contract.index("patch_shared_keychain(staged)"),
+                        contract.index("_patch_verified(staged)", contract.index("patch_shared_keychain(staged)")))
+        self.assertIn("[LC_KEYCHAIN] GROUP_SELECTED", contract)
+        self.assertIn("verify_keychain_selection_contract", contract)
 
     def test_upstream_ipsec_anchor_preserves_original_punctuation(self):
         source = (SCRIPTS / "patch_sidestore_integration.py").read_text(encoding="utf-8")

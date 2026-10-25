@@ -1,0 +1,19 @@
+{
+  "expected_tree": "1c54f163acfb8e5d18605aaa301a3d5ebd576505",
+  "files": [
+    {
+      "before_git_blob": "4381043502adbea1b4d8d3860f2ba5f5f83e7fa7",
+      "before_sha256": "053efa1197760643af52976e868287ad83508195ddf75629add99b83ca7c0347",
+      "bytes": 9066,
+      "git_blob": "580a9f5c6e82cfaa2237ee15a18b9c3e555881e7",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_loader_harness.cpp",
+      "sha256": "b15722a758ffc80324476823c854763ff3c98e3bce51a7c74e77fa453ea6b2e8"
+    }
+  ],
+  "guest_execution": false,
+  "parent": "8e195b0e5c90f30f5ab49f2a9315dfff8aeacfb2",
+  "parent_tree": "35f0d2669a20700cd2105f207897ee08d72ad5f7",
+  "repository": "NRG-Wardog/AnisetteKit",
+  "scope": "test-only host allocation fault containment and descriptor cleanup; production bytes unchanged"
+}

@@ -12,6 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from patch_combined_transport import POLICY, patch
+from patch_v3_service import PINS as V3_SOURCE_PINS
 from patch_sidestore_integration import patch_gateway
 
 
@@ -22,8 +23,14 @@ def source_root():
         ROOT.parent / "work/EmbeddedSideStore",
     ]
     for candidate in candidates:
-        if (candidate / "Dependencies/minimuxer/DeviceGateway/BaseDeviceGateway.swift").is_file():
+        if not (candidate / "Dependencies/minimuxer/DeviceGateway/BaseDeviceGateway.swift").is_file():
+            continue
+        revision = subprocess.run(["git", "-C", str(candidate), "rev-parse", "HEAD"],
+                                  capture_output=True, text=True)
+        if revision.returncode == 0 and revision.stdout.strip() == V3_SOURCE_PINS[1]:
             return candidate
+        if override:
+            raise AssertionError(f"Embedded SideStore source must be pinned to {V3_SOURCE_PINS[1]}")
     message = "Pinned modern SideStore source unavailable; set EMBEDDED_SIDESTORE_TEST_SOURCE"
     if override:
         raise AssertionError(message + f" (invalid path: {override})")
@@ -88,6 +95,22 @@ class SourceFixture(unittest.TestCase):
 
 
 class CombinedTransportTests(SourceFixture):
+    def test_upstream_ipv6_and_backend_cache_improvements_survive(self):
+        upstream = {name: self.read(name) for name in (
+            "Common/NetworkUtils.swift", "Sources/Services/UsbmuxdProxyServer.swift")}
+        before_api = self.read("Sources/MinimuxerApi.swift")
+        patch(self.mux)
+        for name, original in upstream.items():
+            self.assertEqual(self.read(name), original)
+        gateway = self.gateway.read_text(encoding="utf-8")
+        for method in ("withSockaddr", "syncHeartbeat"):
+            if "func " + method in self.original:
+                self.assertEqual(function(gateway, method), function(self.original, method))
+        api = self.read("Sources/MinimuxerApi.swift")
+        cache = "if let cached = cachedInstance, currentBackend == resolvedBackend"
+        self.assertLess(api.index(cache), api.index("currentBackend = resolvedBackend", api.index(cache)))
+        self.assertIn("cached.core.setDeviceProbeTimeout(resolvedTimeout)", before_api)
+
     def test_modern_gateway_double_application(self):
         patch_gateway(self.mux)
         first = snapshot(self.side)
@@ -184,7 +207,7 @@ class CombinedTransportTests(SourceFixture):
         self.assertIn("tunnel_create_usb(provider, &adapter, &handshake)", connection)
         self.assertRegex(connection, r'\} catch \{\s*releaseTransport\(\)\s*'
                          r'debugLog\("\[SIDESTORE_COREDEVICE\] selected_transport=FAILED_NO_VALID_TRANSPORT '
-                         r'reason=[^\n]+\)\s*throw error\s*\}\s*\}$')
+                         r'stage=coreDevice result=failed"\)\s*throw error\s*\}\s*\}$')
         self.assertNotIn("performWithTcpService", connection)
         route = function(text, "ensureRPConnection")
         self.assertRegex(route, r"if usesCoreDevice \{\s*try ensureCoreDeviceConnection\(\)\s*return\s*\}")
@@ -212,10 +235,11 @@ class CombinedTransportTests(SourceFixture):
         self.assertIn("if !gateway.hasActiveTransportBatch { return .success(false) }", impl)
         self.assertNotIn("no ipsec interface (required for lockdown", impl.lower())
         runner = (self.side / "SideStore/Core/Operations/PipelineRunner.swift").read_text(encoding="utf-8")
+        self.assertIn("V3HeadlessPairingFailure.tagIfInvalidPairing(error.asOperationError)", runner)
         begin = runner.index("await transportCore.beginTransportBatch()")
-        task = runner.index("try await Task.detached {", begin)
+        task = runner.index("do {", begin)
         readiness = runner.index("/* Minimuxer Readiness Check */", task)
-        end = runner.index("}.value", readiness)
+        end = runner.index("await transportCore.endTransportBatch()", readiness)
         self.assertLess(begin, task)
         self.assertLess(task, readiness)
         normal = runner.index("for operation in normalOperations {", readiness)
@@ -242,7 +266,9 @@ class CombinedTransportTests(SourceFixture):
                       runner[readiness:normal])
         self.assertEqual(runner.count("await transportCore.beginTransportBatch()"), 1)
         self.assertEqual(runner.count("await transportCore.endTransportBatch()"), 2)
-        self.assertRegex(runner[end:], r"(?s)\} catch \{\s*await transportCore.endTransportBatch\(\)\s*throw error\s*\}\s*await transportCore.endTransportBatch\(\)")
+        self.assertRegex(runner[end:], r"(?s)await transportCore.endTransportBatch\(\)\s*return group\s*\} catch \{\s*await transportCore.endTransportBatch\(\)\s*throw error")
+        self.assertIn("CellularRefreshManager.shared.isEnabled", runner[readiness:end])
+        self.assertIn("await MainActor.run", runner[host:end])
         gateway = self.gateway.read_text(encoding="utf-8")
         self.assertIn("self.batchCount += 1", function(gateway, "beginTransportBatch"))
         cleanup = function(gateway, "endTransportBatch")
@@ -431,21 +457,212 @@ for modern in [false, true] {
 
 
 class CombinedWorkflowTests(unittest.TestCase):
-    def test_local_binary_and_combined_patch_injected_before_build(self):
+    def test_release_installs_and_selects_exact_rust_before_format_gate(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        release = workflow.split('  source-and-host-build:\n', 1)[1]
+        self.assertIn('      RUSTUP_TOOLCHAIN: "1.98.1"\n', release.split('    steps:', 1)[0])
+        self.assertEqual(workflow.count('RUSTUP_TOOLCHAIN:'), 1)
+        title = '- name: Install pinned Rust toolchain before transport prerequisites\n'
+        self.assertLess(workflow.index(title), workflow.index(
+            '- name: Verify pinned transport format prerequisites before layout\n'))
+        block = release.split(title, 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('shell: bash', block)
+        self.assertNotIn('continue-on-error', block)
+        shell = block.split('        run: |\n', 1)[1].replace('          ', '')
+        for code in (0, 23):
+            for custom_home in (False, True):
+                with self.subTest(install_exit=code, custom_home=custom_home), \
+                        tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    env = dict(os.environ, RUSTUP_TOOLCHAIN='1.98.1', INSTALL_EXIT=str(code),
+                               HOME=str(root / 'home'), GITHUB_PATH=str(root / 'github-path'))
+                    env.pop('CARGO_HOME', None)
+                    if custom_home:
+                        env['CARGO_HOME'] = str(root / 'custom-cargo')
+                    stubs = '''rustup() { printf '%s\\n' "$*" > install-args; return "$INSTALL_EXIT"; }
+'''
+                    result = subprocess.run(['bash', '-c', stubs + shell + '\ntouch install-finished\n'],
+                        cwd=root, env=env, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    self.assertEqual((root / 'install-args').read_text().strip(),
+                                     'toolchain install 1.98.1 --profile minimal --component rustfmt')
+                    self.assertEqual((root / 'install-finished').exists(), code == 0)
+                    self.assertEqual((root / 'github-path').exists(), code == 0)
+                    if code == 0:
+                        expected = root / ('custom-cargo' if custom_home else 'home/.cargo') / 'bin'
+                        self.assertEqual((root / 'github-path').read_text().strip(), str(expected))
+
+    def test_later_build_tools_keep_release_rust_and_target_selection(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        block = workflow.split('- name: Install build tools\n', 1)[1].split('\n      - name:', 1)[0]
+        shell = block.split('        run: |\n', 1)[1].replace('          ', '')
+        stubs = '''ldid() { :; }
+bindgen() { echo 'bindgen stale-runner-version'; }
+cargo() { printf '%s|%s\\n' "$RUSTUP_TOOLCHAIN" "$*" >> tool-calls; }
+rustup() { printf '%s|%s\\n' "$RUSTUP_TOOLCHAIN" "$*" >> tool-calls; }
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            result = subprocess.run(['bash', '-c', stubs + shell], cwd=temporary,
+                env=dict(os.environ, RUSTUP_TOOLCHAIN='1.98.1'), capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(Path(temporary, 'tool-calls').read_text().splitlines(), [
+                '1.98.1|install --locked --force bindgen-cli --version 0.72.1',
+                '1.98.1|target add --toolchain 1.98.1 aarch64-apple-ios',
+            ])
+        # No later command may silently replace the release-job toolchain selection.
+        later = workflow.split('- name: Install build tools\n', 1)[1]
+        self.assertNotRegex(later, r'(?:rustup (?:default|override|update)|RUSTUP_TOOLCHAIN\s*=|cargo \+)')
+
+    def test_exact_format_prerequisites_gate_layout_once_and_preserve_proof(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        title = '- name: Verify pinned transport format prerequisites before layout\n'
+        block = workflow.split(title, 1)[1].split('\n      - name:', 1)[0]
+        self.assertLess(workflow.index(title), workflow.index('- name: Execute full layout regression'))
+        self.assertLess(block.index('maintained_sources.py verify'), block.index('cargo fmt --check'))
+        self.assertIn('--output artifacts/logs/transport-format-inputs.json', block)
+        self.assertIn('tee artifacts/logs/transport-format-prerequisites.log', block)
+        self.assertNotIn('continue-on-error', block)
+        for manifest in ('jktcp/Cargo.toml', 'idevice/ffi/Cargo.toml'):
+            self.assertEqual(workflow.count('cargo fmt --check --manifest-path ' + manifest), 1)
+        later = workflow.split('- name: Verify maintained CoreDevice transport sources', 1)[1]
+        self.assertIn('maintained_sources.py verify', later)
+        self.assertNotIn('cargo fmt', later)
+        shell = block[block.index('          {'):].replace('          ', '')
+        for drift, code in (('', 0), ('', 7), ('rustc', 1), ('cargo', 1), ('rustfmt', 1)):
+            with self.subTest(version_drift=drift, format_exit=code), tempfile.TemporaryDirectory() as temporary:
+                Path(temporary, 'artifacts/logs').mkdir(parents=True)
+                stubs = '''set -euo pipefail
+rustc() { if [[ "$DRIFT_TOOL" == rustc ]]; then echo 'rustc 1.99.0 (runner drift)'; else echo 'rustc 1.98.1 (48a229cea 2026-09-01)'; fi; }
+rustfmt() { if [[ "$DRIFT_TOOL" == rustfmt ]]; then echo 'rustfmt 1.10.0-stable (runner drift)'; else echo 'rustfmt 1.9.0-stable (48a229ceae 2026-09-01)'; fi; }
+cargo() { if [[ "$1" == --version ]]; then
+    if [[ "$DRIFT_TOOL" == cargo ]]; then echo 'cargo 1.99.0 (runner drift)'; else echo 'cargo 1.98.1 (797e8a9bc 2026-08-05)'; fi
+    else touch format-started; return "$FORMAT_EXIT"; fi; }
+'''
+                result = subprocess.run(['bash', '-c', stubs + shell + '\ntouch layout-started\n'],
+                    cwd=temporary, env=dict(os.environ, FORMAT_EXIT=str(code), DRIFT_TOOL=drift),
+                    capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, code)
+                self.assertEqual(Path(temporary, 'layout-started').exists(), code == 0)
+                self.assertEqual(Path(temporary, 'format-started').exists(), not drift)
+                self.assertTrue(Path(temporary, 'artifacts/logs/transport-format-prerequisites.log').is_file())
+
+    def test_matching_rust_reader_failure_blocks_framework_staging(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        block = workflow.split("- name: Build idevice for iOS\n", 1)[1].split("\n      - name:", 1)[0]
+        reader = block.index("python3 -B ../builder/scripts/verify_archive_symbols.py")
+        framework = block.index("xcodebuild -create-xcframework")
+        self.assertLess(reader, framework)
+        self.assertIn("../artifacts/dependencies/idevice-symbols", block)
+        self.assertIn("set -euo pipefail", block)
+        self.assertNotIn("|| true", block)
+        self.assertNotIn("xcrun nm", block)
+        self.assertNotIn("continue-on-error", block)
+        evidence = workflow.split("- name: Upload source-build evidence\n", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("if: always()", evidence)
+        self.assertIn("artifacts/dependencies", evidence)
+
+    def test_maintained_source_guards_run_before_native_builds(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        preparation = workflow.index("- name: Verify maintained host and authentication sources")
+        host = workflow.index("- name: Build unified host before transport compilation")
+        self.assertLess(preparation, host)
+        self.assertIn('maintained_sources.py verify', workflow[preparation:host])
+
+    def test_serial_native_and_full_rendering_both_gate_packaging(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        host = workflow.index("- name: Build unified host before transport compilation")
+        native = workflow.index("- name: Build embedded SideStore\n")
+        layout = workflow.index("- name: Execute full layout regression")
+        package = workflow.index("- name: Package and verify combined LiveContainer plus SideStore")
+        self.assertLess(host, native)
+        preparation = workflow.index("- name: Verify maintained host and authentication sources")
+        self.assertLess(preparation, layout)
+        self.assertLess(layout, host)
+        self.assertLess(layout, package)
+        native_block = workflow[native:].split("\n      - name:", 1)[0]
+        layout_block = workflow[layout:].split("\n      - name:", 1)[0]
+        self.assertIn('id: embedded_build', native_block)
+        self.assertIn('timeout-minutes: 40', native_block)
+        self.assertIn('timeout-minutes: 120', layout_block)
+        self.assertIn('timeout-minutes: 210', workflow[:native])
+        self.assertNotIn("if:", layout_block)  # Default success() requires source preparation.
+        self.assertNotIn("DerivedData", layout_block)
+        self.assertNotIn("Build/Products", layout_block)
+        self.assertEqual(workflow.count("- name: Execute full layout regression"), 1)
+        self.assertIn("--livecontainer work/LiveContainer", layout_block)
+        self.assertIn("--v3-source work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift", layout_block)
+        self.assertIn("--require-p0-signin --output artifacts/layout-evidence", layout_block)
+        self.assertIn("--v3-source", layout_block)
+        self.assertNotIn('native_pid', native_block + layout_block)
+        self.assertNotRegex(native_block + layout_block, r'(?m)^\s*\)\s*&\s*$')
+        for block in (native_block, layout_block):
+            self.assertIn('set -euo pipefail', block)
+            self.assertNotIn('continue-on-error', block)
+            self.assertNotIn('|| layout_status', block)
+            self.assertNotIn('--skip-v3-native', block)
+        package_block = workflow[package:].split("\n      - name:", 1)[0]
+        self.assertNotIn('if:', package_block)  # Default success() keeps both prior failures terminal.
+        self.assertNotIn('continue-on-error', package_block)
+
+    def test_native_and_layout_pipelines_propagate_failures(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        for title, command, variable in (
+                ('Build embedded SideStore', 'xcodebuild -project work/EmbeddedSideStore/', 'NATIVE_RESULT'),
+                ('Execute full layout regression', 'python3 builder/scripts/run_issue25_rendering.py', 'LAYOUT_RESULT')):
+            block = workflow.split('- name: ' + title + '\n', 1)[1].split('\n      - name:', 1)[0]
+            start = block.index(command)
+            pipe = block.index('2>&1 | tee ', start)
+            end = block.index('\n', pipe)
+            # Keep the shipped tee pipeline and shell flags. A successful tee
+            # must never hide either native compilation or layout failure.
+            pipeline = 'bash -c "exit $' + variable + '" ' + block[pipe:end]
+            for code in (0, 1):
+                with self.subTest(gate=title, result=code), tempfile.TemporaryDirectory() as temporary:
+                    Path(temporary, 'artifacts/logs').mkdir(parents=True)
+                    result = subprocess.run(['bash', '-c', 'set -euo pipefail\n' + pipeline],
+                        cwd=temporary, env=dict(os.environ, **{variable: str(code)}),
+                        capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode == 0, code == 0)
+
+    def test_canonical_certificate_checks_run_once_with_dependency_ready(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        dependency = workflow.index('- name: Install native certificate test dependency')
+        suite = workflow.index('- name: Run repository checks and historical patch regressions')
+        self.assertLess(dependency, suite)
+        self.assertIn('REQUIRE_LC_CERTIFICATE_NATIVE_TESTS: "1"', workflow)
+        self.assertNotIn('-p test_lc_certificate_observation.py', workflow)
+        self.assertIn('--timings-output artifacts/logs/repository-test-timings.json', workflow)
+
+    def test_maintained_authentication_graph_and_no_override(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        self.assertIn('merge-base --is-ancestor "$SIDESIGN_GSA_FIX" HEAD', workflow)
+        self.assertNotRegex(workflow, r"SideSign (?:checkout|cherry-pick)")
+        self.assertIn("maintained_sources.py acquire", workflow)
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+        self.assertNotIn("AuthFlowHandler", service + runtime)
+        self.assertNotIn("AuthenticatedOperationContext", service + runtime)
+        self.assertNotIn("presentingViewController", service + runtime)
+        self.assertNotIn("SideSignConfigurationView()", service + runtime)
+        self.assertIn("SignInOperation(context:", runtime)
+        self.assertIn("SignInHandler, AnisetteServerHandler", runtime)
+        self.assertIn("SideSignConfigManager.shared", runtime)
+
+    def test_local_binary_staged_without_runtime_rewrites_before_build(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
-        checks = workflow[workflow.index("- name: Run repository checks before patches"):]
+        checks = workflow[workflow.index("- name: Run repository checks and historical patch regressions"):]
         checks = checks.split("\n      - name:", 1)[0]
-        self.assertIn("EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore", checks)
-        self.assertIn("python3 -m unittest discover -s builder/tests -v", checks)
+        self.assertIn("EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/LegacySideStore", checks)
+        self.assertIn("builder/scripts/run_required_tests.py", checks)
+        self.assertIn("builder/scripts/required_test_skip_allowlist.json", checks)
+        self.assertIn('REQUIRE_SWIFT_070_CHECKS: "1"', checks)
         self.assertIn("MUX=work/EmbeddedSideStore/Dependencies/minimuxer", workflow)
         copy = workflow.index('cp -R idevice/swift/IDevice.xcframework "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"')
-        adapter = workflow.index('python3 builder/scripts/patch_combined_transport.py "$MUX"')
-        package = workflow.index('python3 builder/scripts/patch_local_idevice_package.py "$MUX"')
         build = workflow.index("xcodebuild -project work/EmbeddedSideStore")
-        self.assertLess(copy, adapter)
-        self.assertLess(adapter, package)
-        self.assertLess(package, build)
-        self.assertGreaterEqual(workflow.count('patch_combined_transport.py "$MUX"'), 2)
+        self.assertLess(copy, build)
+        self.assertNotIn('patch_combined_transport.py "$MUX"', workflow)
+        self.assertNotIn('patch_local_idevice_package.py "$MUX"', workflow)
+
 
 
 if __name__ == "__main__":

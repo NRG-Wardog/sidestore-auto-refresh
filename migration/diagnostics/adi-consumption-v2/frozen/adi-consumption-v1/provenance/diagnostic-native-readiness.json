@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "source_basis": "maintained-adi-consumption-v1",
+  "diagnostic_delta_sha256": "4d55fdeed931af02f9d44865c0c712695b471d8a101aa1643c3770484f158106",
+  "phase": "diagnostic_permanent_graph_iphoneos",
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37752053172",
+  "run_id": 37752053172,
+  "run_attempt": 1,
+  "validation_host_commit": "6ad6df119ebca63a58db39966e694e79b57ec923",
+  "validation_host_tree": "24fe1cd376122e291d39063f2a6249c16a70ac5b",
+  "artifact_id": 11539126136,
+  "artifact_zip_sha256": "5d058d7fd61f9d8d968fea02778efed9ba4a79e6e09cb17a418081ec394fb171",
+  "approved_inputs_sha256": "39577aacdbea7705053a835cc018d86f21ba8ce4ff96c5ff7160334211872fa4",
+  "tested_owners": {
+    "AnisetteKit": {
+      "commit": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+      "tree": "ca63e018a2ef7e3f0ba759860dfa5f5e6c854065"
+    },
+    "LiveContainer": {
+      "commit": "2a1d297ed94840b134a6ea5111065d228a51cf2b",
+      "tree": "3b34a80de19a31e61a6375e562fe03e69b63812b"
+    },
+    "SideSign": {
+      "commit": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
+      "tree": "27329eab36999128b046eabad7a175faf71b03b0"
+    },
+    "SideStore": {
+      "commit": "3f0f1e40ac37e1b02f8c375743a46b3ce9ff3a8d",
+      "tree": "51cca412801e5236ac76c66440b0d8cea9e163f5"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    }
+  },
+  "tested_children": {
+    "SideSign": {},
+    "SideStore": {
+      "Dependencies/SideSign": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
+      "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+    }
+  },
+  "locks": {
+    "SideSign": {
+      "sha256": "6dfda241326cf0af7b9b77978d3890b28d5205545fb65b6807d6706822a848fb",
+      "origin_hash": {
+        "present": true,
+        "value": "bb455ddecee6dd87515ad39430fb70884354ec92f5be4888e17f2fc71bbdc852"
+      }
+    },
+    "SideStore": {
+      "sha256": "75ffdbb23481eed06e3d46210f24f2eb95a633dc55ece83a4295dc1e261f0c96",
+      "origin_hash": {
+        "present": true,
+        "value": "c9e3c6042136849ac21835264cf5aece849ed3e487b36b9242a3ab0b5fcf6d17"
+      }
+    }
+  },
+  "native_builds": {
+    "LiveContainer": "PASS_UNSIGNED_RELEASE_IPHONEOS26.4",
+    "SideStore": "PASS_UNSIGNED_RELEASE_IPHONEOS26.4"
+  },
+  "readiness_scope": "eligible_for_gated_full_build",
+  "final_exact_ref_ipa_build_required": true,
+  "evidence_sha256": {
+    "provenance/production-phase-status.json": "9f05500479785367745689be6b7deb96c8b933b4b711da10cb6dca226e22135b",
+    "provenance/reviewed-production-inputs.json": "39577aacdbea7705053a835cc018d86f21ba8ce4ff96c5ff7160334211872fa4",
+    "provenance/reviewed-toolchain.json": "8397a85f1fe0ae25f3c808dd81befb0d8882a182fb4a8be723e744dbf6079800",
+    "provenance/Package.resolved.before": "c64b26be42dadcef04caed3134fef55784cae10fc9d196acdf24ee83d82cad7f",
+    "provenance/Package.resolved.after": "75ffdbb23481eed06e3d46210f24f2eb95a633dc55ece83a4295dc1e261f0c96",
+    "provenance/source-proof-before.json": "f6f9f66f2b1d714416c5987c28fdd0ca0f1fd603e06ea98bb69adf5c60855e07",
+    "provenance/source-proof-after-resolution.json": "705e51fa33c602b5e426da42535eaecb97fb44b4c8d0962fe4e660a79a6c4697",
+    "provenance/source-proof-after-build.json": "705e51fa33c602b5e426da42535eaecb97fb44b4c8d0962fe4e660a79a6c4697",
+    "provenance/resolution.json": "57fdb511e2a78214d45a24740723a31b0d15d7525774b49dbdd19a9846db6437",
+    "provenance/resolution-after-build.json": "b6b296fe0555b0b16a120ae7bf806690b25a52ace9c588a3fd7a5e1cb1e4195e",
+    "provenance/compiler-input-proof.json": "2d45010db4045a0c60a47d47ae6e6fdc16a8af6e173554acf712ed8f4526ab3b",
+    "provenance/generated-sources-proof.json": "50227f545a453b1a47882fc77cf3f4a8ce78bde7cee1a2fb658be52bd3a026a2",
+    "provenance/local-framework-before-build.json": "bf54efbbd014f25df3c76d455a66a6959afea8c53ccfdce9f5945199150e3e7c",
+    "provenance/local-framework-after-build.json": "bf54efbbd014f25df3c76d455a66a6959afea8c53ccfdce9f5945199150e3e7c",
+    "provenance/local-ffi-link-hashes.json": "e0ddb0a6b96ff22e126da8c2d1d9844dc980c1d254767d61ad7653f5ad50d1fe",
+    "provenance/binary-artifacts.json": "7b2e651c75174aac9aafa15f5d1e1a8613f8844260377b88cc84bf250f9d9a8d",
+    "logs/sidestore-production-build.exit-code.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "logs/livecontainer-production-build.exit-code.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "logs/sidestore-production-build.log": "b50c55f1ed7f40b93a6ff57d0f348894504c1513c69eb625719bdbe93f0cc7be",
+    "logs/livecontainer-production-build.log": "321ce2bfbc7c47fd5eb927e1e218014b27666b0b7d5e612b9bcfc676ac7dce2a",
+    "provenance/sidestore-native-tests.json": "cd3b59458085692d6c0ad85ca1894c8b8018f9f63aacfc26f113aa958ccd65c4",
+    "provenance/sidestore-historical-native-tests.json": "41ad6becb91f14128f7a47bc5b272df97e16f6b6b948486d57dab1e08ab5d6b7",
+    "provenance/sidestore-historical-source-before.json": "e50579aa786bfe8de5b4c0126bfe8c4df91e25268d31e226aa086e5af517224a",
+    "provenance/sidestore-historical-source-after.json": "e50579aa786bfe8de5b4c0126bfe8c4df91e25268d31e226aa086e5af517224a"
+  }
+}

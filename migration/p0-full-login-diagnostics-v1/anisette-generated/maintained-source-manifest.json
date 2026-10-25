@@ -1,0 +1,260 @@
+{
+  "anisettekit_revision": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+  "anisettekit_tree": "734664d759b9e99caa09089905e6a240b149548d",
+  "compiled_literal": "Checked OTP staging failed",
+  "contract_set": "runtime-p0-abi-tls-certificate-lifecycle.v1",
+  "dormant_native_symbol": "get_anisette_headers_isolated_uc",
+  "dormant_swift_api": "IsolatedAnisetteOTPProvider.getExistingHeaders",
+  "files": [
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/CONSTRUCTOR_DIAGNOSTICS.md",
+      "sha256": "09621ed49485a11bed5f10645012afd03c1e88aacee677edb9c4859a05a5c76c"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/CXX_ALLOCATION_REVIEW.md",
+      "sha256": "9fe95fc1f891f57127834eef438dc398ad23d347a8a14ff5fbc0cc5522fa414d"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:paths",
+      "mode": "100644",
+      "path": ".ci/native-tests/README.md",
+      "sha256": "7380f730896817cd6913a59b8f411b815ea4bf06560237fd1bdeedc2cdba72aa"
+    },
+    {
+      "basis": "source-inventory.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/android_tls_constructor.cpp",
+      "sha256": "e914d11f518e065f4ddf1be75b9af5543006b222e118ef7a3d5b9c5b7fa7c331"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/constructor_diagnostics.cpp",
+      "sha256": "c9e1018a438679080a38d1c2c8feeefbc66e3f3f4bc84347f97059b5aeca40b1"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/cxx_allocation_hook_unit.cpp",
+      "sha256": "0614c634f0d8ca648bde35fde4d55ec07f657becb8b2a5cd1d78a92d7a0f1c62"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/cxx_allocation_unit.cpp",
+      "sha256": "cbbe243428144a0584593246a4d4b92d00ee9807cff457404d8d3a18d491680c"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:paths",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/elf_metadata_bounds_unit.cpp",
+      "sha256": "bb4e7ec60202f6576f8013d0925c69c6ca4d8fca6061d93b233587efdb35487a"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp",
+      "sha256": "ae1036676aee82cbe470984002361e699ce44d1df5f6da63a1839cfeb3f3b490"
+    },
+    {
+      "basis": "reviewed-host-fixture-manifest.json:files; separate host-only regression expectation successor",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_loader_harness.cpp",
+      "sha256": "b15722a758ffc80324476823c854763ff3c98e3bce51a7c74e77fa453ea6b2e8"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_vm_double.h",
+      "sha256": "b749e0bfef24f37927d92d551ac6ab475aef2ac1769d0a20361d08b950f70641"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/run_tests.py",
+      "sha256": "cfbe2a36e87dbdd1b7aa011cb2e71571ab367c7dc862c9f124bb603fd659a1ce"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/test_android_tls_runtime.py",
+      "sha256": "8703b29d5dfd0d2f8af0a4ae7ec48454dcf973b1d257a16b6bafe65b0e905c5f"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/test_constructor_diagnostics.py",
+      "sha256": "2d33180d03e77e45befb8cca18c08adf7f37698ced54164fc3a0583acd16100e"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/test_constructor_diagnostics_driver.py",
+      "sha256": "1301567d4036731ff328898043601ff74f2acebb3f1c55847fc5ddfa2100c09c"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:changes",
+      "mode": "100644",
+      "path": ".ci/native-tests/test_cxx_allocation.py",
+      "sha256": "c0f2c97e40be67ac381792a9ebae60dbdb1363e0517741b1cbfa90f0d342d3d7"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:paths",
+      "mode": "100644",
+      "path": ".ci/native-tests/test_elf_metadata_bounds.py",
+      "sha256": "6a601417c24df2a267e3a782affcd1fefcd41b18301ed6073299be33e2b643ac"
+    },
+    {
+      "basis": "historical_provenance.manifest_path@767234eb704745ce915c0750eee2c31061ac4f78:files:Native/Loader/adi_consumption_debug.h",
+      "mode": "100644",
+      "path": "Native/Loader/adi_consumption_debug.h",
+      "sha256": "077b377c87b201893f83afbff5a4dd37e01354253f08045a3831adcb50022346"
+    },
+    {
+      "basis": "source-inventory.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Native/Loader/android_tls_runtime.h",
+      "sha256": "51c6c123d78b2d53f70e1720c8bf8aa934cbdb149a66df0a6763b6614f4fda07"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:changes",
+      "mode": "100644",
+      "path": "Native/Loader/cxx_allocation_runtime.h",
+      "sha256": "b76bdc4043c497700f93aff5ad82968f7660ebb6720bb2c71ea5615000380a62"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:changes",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.cpp",
+      "sha256": "44a8b61dcf1d4d8d309f624c442c008278d33a68ccf14ec4dc9f4757d9cdce2a"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:paths",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.h",
+      "sha256": "16eb67e76dc4ae94350e55968e9313c2f4163817182c08af76a5c85b2ec09327"
+    },
+    {
+      "basis": "reviewed-ak-manifest.json:paths",
+      "mode": "100644",
+      "path": "Native/Loader/elf_metadata_bounds.h",
+      "sha256": "7acd9287cc351b55141f40a0baecda9c3d3202a420cf4b7f0f2515572d877253"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Native/Loader/vm_initialization_diagnostics.h",
+      "sha256": "023b34540c9fb31fcb6059fea3236eb411fc52d0438025dbe9d72e88c9337e5c"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Native/anisette_core_uc.cpp",
+      "sha256": "4f256e33ae230e863f7126a7876799c8bf66b94ea653a2c9928628e110807183"
+    },
+    {
+      "basis": "historical_provenance.manifest_path@767234eb704745ce915c0750eee2c31061ac4f78:files:Native/include/anisette_core.h",
+      "mode": "100644",
+      "path": "Native/include/anisette_core.h",
+      "sha256": "ca1ea4005f77dcca17c68965ba2dd1f65596e282a57adb4277f1d90d8bd11f02"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Sources/AnisetteClient.swift",
+      "sha256": "208dcbf61dffd101ea9e0c04fe18a1500b1b176b1407fe93b2b010a8d36806a7"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Sources/AnisetteDataProvider.swift",
+      "sha256": "9c55c035d640cae8c2b6ac173db9f118a4e49cce789c0dba24f4cffca58476de"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Sources/LoginDiagnosticTrace.swift",
+      "sha256": "bd86c77eb520cf0721cfbbdb1e9100261bd53324ef0f912713873357fc76ae2e"
+    },
+    {
+      "basis": "source-transition.json:AnisetteKit:changes",
+      "mode": "100644",
+      "path": "Tests/AnisetteKitTests/LoginDiagnosticTraceTests.swift",
+      "sha256": "0a04f3657123356af34ad0c51a50291b1d494dd50376478684aa066996790bbf"
+    }
+  ],
+  "format_version": 1,
+  "historical_provenance": {
+    "delivered_p0": {
+      "manifest_path": "inherited/p0-native-basis-v1/anisette-generated/maintained-source-manifest.json",
+      "manifest_sha256": "abb3849a9be7262d988810f925c184797441f1269ad76e0a72a15b5a7238ea2e",
+      "source_inventory_path": "source-inventory.json",
+      "source_inventory_sha256": "ed6ff13008bac2f7e99d1f4927ee043f54170505352fd82fbe7d3d4d340869ed"
+    },
+    "historical_fields": {
+      "accepted_anisettekit_revision": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+      "accepted_manifest_sha256": "0813a3a636bac79caff934940ead90d6099a541d5862c866bca6a0e98be3fd7f",
+      "source_delta_sha256": "65a3689c1609cfbcfaa317e33401d500c5bde88a80cf054b240124f93b025165",
+      "source_inventory_sha256": "14041af14f64c354d5c4c367e88be261bc6e95a05c031dd4536e40dd72655ba6",
+      "upstream_anisettekit_revision": "1f5a7e36553cc865b873f222b87a6486c0bcc7bf"
+    },
+    "historical_file_basis": {
+      "Native/Loader/adi_consumption_debug.h": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/Loader/adi_consumption_debug.h",
+      "Native/Loader/elf_loader_emulator.cpp": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/Loader/elf_loader_emulator.cpp",
+      "Native/Loader/elf_loader_emulator.h": "anisette-source-parity.json:files:Native/Loader/elf_loader_emulator.h",
+      "Native/anisette_core_uc.cpp": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/anisette_core_uc.cpp",
+      "Native/include/anisette_core.h": "anisette-source-parity.json:files:Native/include/anisette_core.h",
+      "Sources/AnisetteDataProvider.swift": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Sources/AnisetteDataProvider.swift"
+    },
+    "integration_commit": "767234eb704745ce915c0750eee2c31061ac4f78",
+    "manifest_path": "migration/diagnostics/adi-consumption-v2/anisette-generated/maintained-source-manifest.json",
+    "manifest_sha256": "a89831967a7580a46e7d15da52a9e207ab2206e804c5497500bede6032323947"
+  },
+  "marker": "V3_CHECKED_ANISETTE_STAGING_V1",
+  "native_symbol": "get_anisette_headers_uc",
+  "required_compiled_evidence": {
+    "artifact_binding_requirement": "Require every listed literal in the actual packaged SideStore executable and bind its SHA-256 to this exact maintained source manifest and every retained source hash. Source metadata does not establish native, ADI or device acceptance.",
+    "encoding": "UTF-8",
+    "literals": [
+      {
+        "purpose": "retained active checked-staging provenance marker",
+        "value": "V3_CHECKED_ANISETTE_STAGING_V1"
+      },
+      {
+        "purpose": "active checked-staging implementation literal",
+        "value": "Checked OTP staging failed"
+      },
+      {
+        "purpose": "actual enabled native C++ v2 comparison/coverage prefix serializer; required in the executable to distinguish the new producer from the v1 producer and Swift decoders",
+        "value": "v2|%u|%u|%u"
+      },
+      {
+        "purpose": "enabled native C++ observer serializer; distinguishes compiled native collection from SDK decoder strings",
+        "value": "|%d,%d,%d,%d,%d,%u,%u,%d"
+      },
+      {
+        "purpose": "native producer metadata key; insufficient alone because SDK also contains this key",
+        "value": "v3_native_consumption"
+      },
+      {
+        "purpose": "bounded native constructor v1 diagnostic producer; supplements retained ADI v2 evidence",
+        "value": "Library constructor execution failed [v1;kind="
+      },
+      {
+        "purpose": "new native bounded timing payload key",
+        "value": "v3_login_native_trace"
+      },
+      {
+        "purpose": "actual bounded Swift login trace version marker",
+        "value": "login_trace_v1"
+      }
+    ]
+  },
+  "scope": "Immutable maintained source identities and compiled evidence requirements only. Actual binary verification and native-readiness outcomes belong in outer package provenance and native receipts. Additive p0-full-login-diagnostics-v1 binds the exact reviewed bounded numeric login trace and safe logging source transition. Historical P0/P2 evidence remains historical; fresh unsigned capture and final-lock equivalence are separately sealed. No real login, device execution, guest execution, or initializer-47 repair is established.",
+  "source_basis": "p0-full-login-diagnostics-v1",
+  "swift_api": "UnicornAnisetteDataProvider.getAnisetteHeaders"
+}

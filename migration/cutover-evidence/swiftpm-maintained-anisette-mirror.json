@@ -1,0 +1,22 @@
+{
+  "scope": "Local exact maintained-source mirror fixture, not observed Xcode resolution",
+  "owner": "AnisetteKit",
+  "commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+  "checkout": {
+    "commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+    "tree": "77bfbe938fa967b2531305ddb9264f939c90dfd6",
+    "tracked_entries": 31,
+    "submodules": []
+  },
+  "origin_proof": {
+    "kind": "swiftpm-local-mirror",
+    "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+    "mirror": "/tmp/cutover-anisette-mirror-86268pms/SourcePackages/repositories/AnisetteKit-proof",
+    "commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+    "tree": "77bfbe938fa967b2531305ddb9264f939c90dfd6"
+  },
+  "native_source_file_count": 5,
+  "validation_rewrote_git_configuration": false,
+  "test_fixture_setup": "Copied published checkout into bare fixture mirror with expected upstream URL, then real git clone --shared --no-checkout",
+  "native_Xcode_execution": false
+}

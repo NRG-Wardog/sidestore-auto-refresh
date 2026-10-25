@@ -1,0 +1,36 @@
+{
+  "canonical_native_fork83": {
+    "checks": 83,
+    "engine_archive_sha256": "4f61907db6aafc56fb3e336b524d742342312f498bb40739f1da55fb4a24614a",
+    "failures": 0,
+    "source_owner": "94659b4d54eed5729b34f4103b3f70579aa8d8e9"
+  },
+  "constructor_diagnostics": {
+    "case_ids": [
+      "normal_nonzero_w0",
+      "normal_error_shaped_w0",
+      "protected_access",
+      "unsupported_interrupt",
+      "abnormal_stop",
+      "dt_init_failure",
+      "dt_init_array_first_failure",
+      "dt_init_array_second_failure",
+      "array_entry_read_first",
+      "array_entry_read_second",
+      "invalid_vm",
+      "poisoned_vm",
+      "caller_snapshot_independence",
+      "serialization_bounds",
+      "serialization_privacy"
+    ],
+    "checks": 2105,
+    "failures": 0,
+    "skipped": 0,
+    "source_owner": "94659b4d54eed5729b34f4103b3f70579aa8d8e9"
+  },
+  "fingerprints_sha256": "abb694a045942cf162ed0fd35dad66be9de1ec26b6ff3ace89504bcb537fb1a1",
+  "fresh_guest_execution": false,
+  "full_loader_changed": true,
+  "review_sha256": "940879e3a378019d27a8ceaa014b9b31584229ed3220772b94cd1e44f73fa8ec",
+  "role": "historical-only"
+}

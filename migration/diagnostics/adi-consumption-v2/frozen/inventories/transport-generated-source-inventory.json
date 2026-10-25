@@ -1,0 +1,258 @@
+{
+  "baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "scope": "Three source and lock transforms, before macOS CI cargo fmt and compiler-generated FFI header. No transport compile claimed.",
+  "stages": [
+    {
+      "script": "patch_jktcp_reliability.py",
+      "returncode": 0,
+      "stdout": "patched jktcp zero-window recovery and error propagation\n",
+      "stderr": "",
+      "idempotent": false,
+      "changes": [
+        {
+          "file": "jktcp:src/adapter.rs",
+          "before": {
+            "sha256": "12399d17b16b349ee6aae88afdf2877e64df58e8b5a63328522e5030f2c37197",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "d3555e16174a3b3539ec2fe6648ea1d9006ef4590fb6ac0436bbb11c1bb81d63",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "jktcp:src/handle.rs",
+          "before": {
+            "sha256": "afa85aad3dc99d69c4f7a32d5eb49fd5f93e0073cd2877c19bd0b45cd608c5af",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "66fbeef6afabcbf29bc16e37fc9c51761141d07fa1db4c0d112b09504a87f75c",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "second_returncode": 1,
+      "second_stderr": "transport diagnostics and persist constants: expected one anchor, found 0",
+      "repeat_source_bytes_unchanged": true
+    },
+    {
+      "script": "patch_coredevice_idevice.py",
+      "returncode": 0,
+      "stdout": "V29 CoreDevice idevice patch applied and verified\n",
+      "stderr": "",
+      "idempotent": true,
+      "changes": [
+        {
+          "file": "idevice:ffi/src/afc.rs",
+          "before": {
+            "sha256": "71447c2547963cc417084039739cacaef9a6e45e6d348b1cfa667dcd823ff35e",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "f9fabb41e267c85891eac80aba562fe7ff913b2e8ece2e619086bdca9a6b5cda",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "idevice:ffi/src/core_device_proxy.rs",
+          "before": {
+            "sha256": "d609b8d3ea964829c9635f9b5a74693be7fe7581f9a7afe91de8a807476dfc16",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "eae6645531b9544aeb339a724057817b6a27f05d0bb73fc107b3c1a1aab5313b",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "idevice:ffi/src/lib.rs",
+          "before": {
+            "sha256": "8f00eec43ecb6f014d735014737192ab7c131c3554b3c5f807082083f7a458db",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "954b294a47bc172531c3e35aab59bc84d8d7e6682dc384fafe576c2095674dd1",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "idevice:ffi/src/tunnel_provider.rs",
+          "before": {
+            "sha256": "63bd51e11344d08c07f33041a74175ed2f3718bc15c992455acd478384992bf5",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "61e090ea9c1e2e75d2fb8f355965e929ed35a0a4f5e9471f9949c7504c3356f0",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "idevice:idevice/Cargo.toml",
+          "before": {
+            "sha256": "5035ad9f2274dca3adab663a43792103766b92af00920bd96d83bf9c06e0d61b",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "68496dc1f0c3dd3bbb62b952ecfe472f17d8a0a5cabfed14f68468a801df0b88",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "idevice:idevice/src/tunnel.rs",
+          "before": {
+            "sha256": "817f1b070ec139dd9d1fcfd054a3c9f317f4fcddb0a234945cbe2470e27ce380",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "78ecf7ea51660f27bd78892e9d8f493846e8a98be364a63803d804f139461b8d",
+            "mode": "0o644"
+          }
+        }
+      ]
+    },
+    {
+      "script": "patch_transport_lockfiles.py",
+      "returncode": 0,
+      "stdout": "[\n  {\n    \"path\": \"$BASELINE/jktcp/Cargo.lock\",\n    \"before_sha256\": \"3d31b87650fd8b8ddb039e5ccc8293ec47098f20bf2bbcc1a9c473618806d046\",\n    \"after_sha256\": \"575d508c4e2c4967ec4cc53b0871e5a3efcda91b132e86cbb35327db34d60f73\"\n  },\n  {\n    \"path\": \"$BASELINE/idevice/Cargo.lock\",\n    \"before_sha256\": \"f6cb7304f4d9021380863c9931a7cf07e6b68fb0876eaf9157488977a5edc5df\",\n    \"after_sha256\": \"f346555891f0b1cf4670fdac9d8c3cbdb057d4f7bc883d229afae176a3978e39\"\n  }\n]\n",
+      "stderr": "",
+      "idempotent": true,
+      "changes": [
+        {
+          "file": "idevice:Cargo.lock",
+          "before": {
+            "sha256": "f6cb7304f4d9021380863c9931a7cf07e6b68fb0876eaf9157488977a5edc5df",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "f346555891f0b1cf4670fdac9d8c3cbdb057d4f7bc883d229afae176a3978e39",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "jktcp:Cargo.lock",
+          "before": {
+            "sha256": "3d31b87650fd8b8ddb039e5ccc8293ec47098f20bf2bbcc1a9c473618806d046",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "575d508c4e2c4967ec4cc53b0871e5a3efcda91b132e86cbb35327db34d60f73",
+            "mode": "0o644"
+          }
+        }
+      ]
+    }
+  ],
+  "final_changes": [
+    {
+      "file": "idevice:Cargo.lock",
+      "before": {
+        "sha256": "f6cb7304f4d9021380863c9931a7cf07e6b68fb0876eaf9157488977a5edc5df",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "f346555891f0b1cf4670fdac9d8c3cbdb057d4f7bc883d229afae176a3978e39",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "idevice:ffi/src/afc.rs",
+      "before": {
+        "sha256": "71447c2547963cc417084039739cacaef9a6e45e6d348b1cfa667dcd823ff35e",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "f9fabb41e267c85891eac80aba562fe7ff913b2e8ece2e619086bdca9a6b5cda",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "idevice:ffi/src/core_device_proxy.rs",
+      "before": {
+        "sha256": "d609b8d3ea964829c9635f9b5a74693be7fe7581f9a7afe91de8a807476dfc16",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "eae6645531b9544aeb339a724057817b6a27f05d0bb73fc107b3c1a1aab5313b",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "idevice:ffi/src/lib.rs",
+      "before": {
+        "sha256": "8f00eec43ecb6f014d735014737192ab7c131c3554b3c5f807082083f7a458db",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "954b294a47bc172531c3e35aab59bc84d8d7e6682dc384fafe576c2095674dd1",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "idevice:ffi/src/tunnel_provider.rs",
+      "before": {
+        "sha256": "63bd51e11344d08c07f33041a74175ed2f3718bc15c992455acd478384992bf5",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "61e090ea9c1e2e75d2fb8f355965e929ed35a0a4f5e9471f9949c7504c3356f0",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "idevice:idevice/Cargo.toml",
+      "before": {
+        "sha256": "5035ad9f2274dca3adab663a43792103766b92af00920bd96d83bf9c06e0d61b",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "68496dc1f0c3dd3bbb62b952ecfe472f17d8a0a5cabfed14f68468a801df0b88",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "idevice:idevice/src/tunnel.rs",
+      "before": {
+        "sha256": "817f1b070ec139dd9d1fcfd054a3c9f317f4fcddb0a234945cbe2470e27ce380",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "78ecf7ea51660f27bd78892e9d8f493846e8a98be364a63803d804f139461b8d",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "jktcp:Cargo.lock",
+      "before": {
+        "sha256": "3d31b87650fd8b8ddb039e5ccc8293ec47098f20bf2bbcc1a9c473618806d046",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "575d508c4e2c4967ec4cc53b0871e5a3efcda91b132e86cbb35327db34d60f73",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "jktcp:src/adapter.rs",
+      "before": {
+        "sha256": "12399d17b16b349ee6aae88afdf2877e64df58e8b5a63328522e5030f2c37197",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "d3555e16174a3b3539ec2fe6648ea1d9006ef4590fb6ac0436bbb11c1bb81d63",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "jktcp:src/handle.rs",
+      "before": {
+        "sha256": "afa85aad3dc99d69c4f7a32d5eb49fd5f93e0073cd2877c19bd0b45cd608c5af",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "66fbeef6afabcbf29bc16e37fc9c51761141d07fa1db4c0d112b09504a87f75c",
+        "mode": "0o644"
+      }
+    }
+  ]
+}

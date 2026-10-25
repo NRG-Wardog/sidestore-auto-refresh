@@ -1,0 +1,21 @@
+{
+  "commit": "767234eb704745ce915c0750eee2c31061ac4f78",
+  "directory": "migration/diagnostics/adi-consumption-v2",
+  "note": "Historical digests refer to the immutable old integration directory, not current P0 paths. They are not fresh native evidence.",
+  "original_inventory_digests": {
+    "anisette-generated/maintained-source-manifest.json": "a89831967a7580a46e7d15da52a9e207ab2206e804c5497500bede6032323947",
+    "anisette-source-parity.json": "5a332efd3730eb3a2010a47b2c8aa807422ea57dbe9518a1280b1e24387a1ae8",
+    "combined-generated-source-inventory.json": "41e2845036e8faf3d307a04d4c3fb09521c9ab1bfa96b596014979f8456abb2a",
+    "frozen/accepted-v1/maintained-sources.json": "f13ad546638acad0e4d1a8cd87f8063c2f5144ff5b6ac296592f639454cddcc4",
+    "frozen/accepted-v1/source-binding.json": "132c8cd1e5e79345698f709bd37042bc5f60c793bcbebbe730a0a8d39c9cc4dc",
+    "frozen/adi-consumption-v1/compatibility-registry.json": "97c9d0b81e9b59c8271ae1155393b2fcb534dc97ea367095d3adfcde8a3783ad",
+    "frozen/adi-consumption-v1/provenance/accepted-to-diagnostic-delta.json": "4d55fdeed931af02f9d44865c0c712695b471d8a101aa1643c3770484f158106",
+    "frozen/adi-consumption-v1/provenance/source-evidence.json": "f93e2960a7c6e8ab006ac046832e121fb682e144a41dcab05cd7a7b50f651446",
+    "provenance/accepted-to-diagnostic-delta.json": "65a3689c1609cfbcfaa317e33401d500c5bde88a80cf054b240124f93b025165",
+    "provenance/anisette-diagnostic-source-inventory.json": "14041af14f64c354d5c4c367e88be261bc6e95a05c031dd4536e40dd72655ba6",
+    "rustfmt-1.98.1.json": "76baa0124c12ed739f64f12eefb909be7dc47e59a9d12d4e7dafaab26a2611c8",
+    "transport-generated-source-inventory.json": "95990a585640fdb517e6620d8a2635ead69add859d96f5aa9996de133041872e"
+  },
+  "repository": "NRG-Wardog/sidestore-auto-refresh",
+  "status": "HISTORICAL_REFERENCES_ONLY"
+}

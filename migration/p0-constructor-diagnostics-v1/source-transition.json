@@ -1,0 +1,391 @@
+{
+  "AnisetteKit": {
+    "baseline_commit": "0dfcc89aa93411d84f7c50beb3c75599af89e852",
+    "changes": {
+      ".ci/native-tests/CONSTRUCTOR_DIAGNOSTICS.md": {
+        "after": {
+          "git_object": "d21f56c4a63e57ccd84e702c3b037e811888df57",
+          "mode": "100644",
+          "sha256": "09621ed49485a11bed5f10645012afd03c1e88aacee677edb9c4859a05a5c76c",
+          "type": "blob"
+        },
+        "before": null
+      },
+      ".ci/native-tests/README.md": {
+        "after": {
+          "git_object": "57a4694a041f78cdae6d3e1ff57b77dad7cfdfa8",
+          "mode": "100644",
+          "sha256": "47136a886873602382791feeb8090a1666139711479a0df50e739fe6c213e2c1",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "6894e2b0f60a22db6cc005e58c2eda026f2ca8c6",
+          "mode": "100644",
+          "sha256": "fcbc0759be696ca69e23b5814f11592158c301dcc7aa8f2ae1f25b2c088548ae",
+          "type": "blob"
+        }
+      },
+      ".ci/native-tests/fixtures/constructor_diagnostics.cpp": {
+        "after": {
+          "git_object": "7a94b2ef7336c504776eaf4b5577285813cd2491",
+          "mode": "100644",
+          "sha256": "c9e1018a438679080a38d1c2c8feeefbc66e3f3f4bc84347f97059b5aeca40b1",
+          "type": "blob"
+        },
+        "before": null
+      },
+      ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp": {
+        "after": {
+          "git_object": "6b956e18605c94f443bee29a415293625ea7d91e",
+          "mode": "100644",
+          "sha256": "d80a994d24446f9cba39b0c46936ac050c0a0f1d503294293f45ed8cdd9e3c12",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "3722ecdc0622d94aa1804078a5a87b404c42ecd8",
+          "mode": "100644",
+          "sha256": "be4649f2f3d5e298f162cf14a9f7a1790a0beec933ff6b2653791149b1a0c142",
+          "type": "blob"
+        }
+      },
+      ".ci/native-tests/fixtures/isolated_anisette_loader_harness.cpp": {
+        "after": {
+          "git_object": "4381043502adbea1b4d8d3860f2ba5f5f83e7fa7",
+          "mode": "100644",
+          "sha256": "053efa1197760643af52976e868287ad83508195ddf75629add99b83ca7c0347",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "07068bd5c70259b6eeb865d4faabad2c91da32a0",
+          "mode": "100644",
+          "sha256": "413f965e16906baec3c8bc0b06a4201c7e7a05dad00356ed8a67552ef6c83673",
+          "type": "blob"
+        }
+      },
+      ".ci/native-tests/fixtures/isolated_anisette_vm_double.h": {
+        "after": {
+          "git_object": "96566a1fcd98e9ae2efaaf6afa1c919a96a6d9f7",
+          "mode": "100644",
+          "sha256": "b749e0bfef24f37927d92d551ac6ab475aef2ac1769d0a20361d08b950f70641",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "af791ee2844c808c16250005db89c18c5a8421e7",
+          "mode": "100644",
+          "sha256": "4c8d987fe29fcd51e7005219c212bae7868f92b03f3ba50d86d79ba6c12d8dc4",
+          "type": "blob"
+        }
+      },
+      ".ci/native-tests/run_tests.py": {
+        "after": {
+          "git_object": "902341f754fb3d5f9cb7bd9c9df8feb88008cbca",
+          "mode": "100644",
+          "sha256": "3728a41f67529f1c73222739008cba2c2d4ad4e1a818184f8103cac602e80014",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "1309e0f9b9ccc800cb1299c803ff5f11e3844e75",
+          "mode": "100644",
+          "sha256": "a1c39676c7e192dfc4568ff1f1f47379a3b75228a90a40a77581e2ad3da2b8fc",
+          "type": "blob"
+        }
+      },
+      ".ci/native-tests/test_constructor_diagnostics.py": {
+        "after": {
+          "git_object": "d693b9f0271525577344839fa6a505dfc1df6579",
+          "mode": "100644",
+          "sha256": "62e9c5585d4846aa114975b33af1c06abc79fd1f86421824e1dfb329ab1a981b",
+          "type": "blob"
+        },
+        "before": null
+      },
+      ".ci/native-tests/test_constructor_diagnostics_driver.py": {
+        "after": {
+          "git_object": "00d5c0ee991072e83bb2606678473bc81675d21f",
+          "mode": "100644",
+          "sha256": "1301567d4036731ff328898043601ff74f2acebb3f1c55847fc5ddfa2100c09c",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "Native/Loader/elf_loader_emulator.cpp": {
+        "after": {
+          "git_object": "fb50db0b6c974a973416e5c6755846c3f926df64",
+          "mode": "100644",
+          "sha256": "661a28cab7bf0258e388be2ff8cba98c869f202791699d6697c0f8277971e2db",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "34c03938361d4ea061bbad9947773d1cf132f399",
+          "mode": "100644",
+          "sha256": "6e2635c91bf5cbf4eb9cb7af586344d6641b80fcb31910892b60690dccc506ca",
+          "type": "blob"
+        }
+      },
+      "Native/Loader/elf_loader_emulator.h": {
+        "after": {
+          "git_object": "9f9888a3e106f82555647d492d236c48fe719c5c",
+          "mode": "100644",
+          "sha256": "67e4ebfa530d39451169bae486facc57926a8e78a6cd833a6425628c457d5267",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "74b09597dfd7ec1bb5306aca1d5793296866233d",
+          "mode": "100644",
+          "sha256": "9d100b0fe5f0f3ee0293e0151b1884dd98147648415d7d4ead39c3b935ec4172",
+          "type": "blob"
+        }
+      },
+      "Native/Loader/vm_initialization_diagnostics.h": {
+        "after": {
+          "git_object": "b622515c9c141c9e0b056ce9e4492633263d7ce7",
+          "mode": "100644",
+          "sha256": "023b34540c9fb31fcb6059fea3236eb411fc52d0438025dbe9d72e88c9337e5c",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "Native/anisette_core_uc.cpp": {
+        "after": {
+          "git_object": "868a4bf241f03986c95e49abc497297cfefc643e",
+          "mode": "100644",
+          "sha256": "5251cf75e1944be12d7e8bc72de2a9ab6d9e3438671251e2a0918751d91b3a76",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "356bdee84457095157bde1e2c6d12b86aebc7750",
+          "mode": "100644",
+          "sha256": "bd26de69de7c6a88f812ad1627f05b741c5407d5f21f9519bfdd1f2386230644",
+          "type": "blob"
+        }
+      }
+    },
+    "commit": "94659b4d54eed5729b34f4103b3f70579aa8d8e9",
+    "tree": "78d7fdb9f77c461419b89df5a285dfd74fa642b5"
+  },
+  "LiveContainer": {
+    "baseline_commit": "00546cec351adad1fa1cad5590da4f06e612db8f",
+    "changes": {
+      "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": {
+        "after": {
+          "git_object": "850ede57ac5851e20524c4842a9a33e7313617d1",
+          "mode": "100644",
+          "sha256": "7ca460494f57d88655bc00ea70742c1781fbef01d1ebd2c6e60e1891f87e58fa",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "f6a16cf997048f93b27be1eba39382f448273f54",
+          "mode": "100644",
+          "sha256": "7f9efe5881898bad6e8e2182c0095166b62f8b251dbb36b313d6876067df56be",
+          "type": "blob"
+        }
+      },
+      "SideStoreSupport/SideStore.swift": {
+        "after": {
+          "git_object": "8aa1b1bf765550093ecb2d6768ac4b3bf23a2dc1",
+          "mode": "100644",
+          "sha256": "95a719cdd87c207794a0c78d52411a0388ea344023a8f6edc209db4734aba1bb",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "9dd8a3d197ae15c7f0f81010ec1be1c1fc75fc46",
+          "mode": "100644",
+          "sha256": "0140bf162538bb3f6d009a94aff7f5fad20cd284a730bb2328933eae7171120a",
+          "type": "blob"
+        }
+      },
+      "tests/init_diagnostics/README.md": {
+        "after": {
+          "git_object": "dc0edf9bb3dbb75dc1d8d6b26f79e6ea0880aed4",
+          "mode": "100644",
+          "sha256": "ac387746654346f54e4625f032c7f13c6d5ee6e86e01f6874b2fba3955458f01",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "tests/init_diagnostics/host_harness.swift": {
+        "after": {
+          "git_object": "cdeb169dbf66753f18f2540ca54dbe8ae2dd579a",
+          "mode": "100644",
+          "sha256": "0fb86b7bf3dfe4677292971c41d7d226c4cb6c1395035612b101948f5e8004a9",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "tests/init_diagnostics/native_fixture.cpp": {
+        "after": {
+          "git_object": "5bba234e9469a99510eb97ffe44ff98f86aa8337",
+          "mode": "100644",
+          "sha256": "b1dfcd27822ee7e4ec9c203b956b25d8fdd8ed6afe961ad12547ffe4244187a0",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "tests/init_diagnostics/pipeline_harness.swift": {
+        "after": {
+          "git_object": "ce8a71f3558747c563312d97ad1b1e100fa66b6c",
+          "mode": "100644",
+          "sha256": "b1a46066f24a9cda5654e74aaa789b1f5d775da7cc6fbbf6f30c7febfa5039ae",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "tests/init_diagnostics/test_contract.py": {
+        "after": {
+          "git_object": "02e996517eecaeba2fa8b48cebec13a52f212b8b",
+          "mode": "100644",
+          "sha256": "0cd8d339e7629ef07a2b743193ff193eb64722432ad50d70d5cb359597f50196",
+          "type": "blob"
+        },
+        "before": null
+      }
+    },
+    "commit": "1df50257f6255522e6ff48db226508fe74d6b17d",
+    "tree": "205350ead530a22f4d04eb762e8b47fa27063879"
+  },
+  "SideSign": {
+    "baseline_commit": "081994b142c781f9a32bbddfa7277f305b20447b",
+    "changes": {
+      "Package.resolved": {
+        "after": {
+          "git_object": "c16e3542e08a574f0038d11a19f85923980e1a05",
+          "mode": "100644",
+          "sha256": "26c810668908416d018d54802e4145315a73e9da2f6f305bf6499446426063ee",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "b00d43393e91f2c01b5210b4d68a5627690506a5",
+          "mode": "100644",
+          "sha256": "9821202b215f31e818c001fdbdd2b6874fc3e62a88c8ebaa104671f96d58ec66",
+          "type": "blob"
+        }
+      },
+      "Package.swift": {
+        "after": {
+          "git_object": "917be2e8fd41f1d9136dd31335c5791c9d56164a",
+          "mode": "100644",
+          "sha256": "fb346d161dacb3d66e3665030be1f59e9be75ad3856b0445e9e4d9d3dc1acaa9",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "edcd3bfee49db6547f40123428345c1e3e3b9c56",
+          "mode": "100644",
+          "sha256": "2485f239e750be9702e25b4c0e0c3cd03426ce114a527ad0add21c9583da1cc0",
+          "type": "blob"
+        }
+      }
+    },
+    "commit": "b829a21c3955b4084fc3a6f613bad9162a8d43ef",
+    "tree": "47ba01d42aa6a6b0bd3a7a4f9f6ec48a18fd780c"
+  },
+  "SideStore": {
+    "baseline_commit": "0e6a626ae97401fb671ee12ae88e4f364fc2a31c",
+    "changes": {
+      "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": {
+        "after": {
+          "git_object": "f394613fabf90eb3c38f8fae1911b69b6c4d6c19",
+          "mode": "100644",
+          "sha256": "4248d71cc3036c8cd0a89966141e15f0da74a78e2bb5a053698a189e6f4dbabe",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "1935ce269efccdd5de5572d2706ad185aed853ef",
+          "mode": "100644",
+          "sha256": "822ab8897375eb5352cc158d311ea0d722f57974246cf4a038885f1a88ae2461",
+          "type": "blob"
+        }
+      },
+      "AltStore/AppDelegate.swift": {
+        "after": {
+          "git_object": "f6bee29b17c6b2c1c18180165d93c5a7834ef6ce",
+          "mode": "100644",
+          "sha256": "3320adc8e8793a2215bb57915e27982457e26910bdfdf01cd08065d592d9b3a0",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "39837ddd0295eba32d1c8689da05b40451a7fd0b",
+          "mode": "100644",
+          "sha256": "b1a39a4764f2de8d346740e938e59af7a9ef846924fe1622a140c0b6075f24c4",
+          "type": "blob"
+        }
+      },
+      "Dependencies/SideSign": {
+        "after": {
+          "git_object": "b829a21c3955b4084fc3a6f613bad9162a8d43ef",
+          "mode": "160000",
+          "type": "commit"
+        },
+        "before": {
+          "git_object": "081994b142c781f9a32bbddfa7277f305b20447b",
+          "mode": "160000",
+          "type": "commit"
+        }
+      },
+      "tests/init_diagnostics/README.md": {
+        "after": {
+          "git_object": "dc0edf9bb3dbb75dc1d8d6b26f79e6ea0880aed4",
+          "mode": "100644",
+          "sha256": "ac387746654346f54e4625f032c7f13c6d5ee6e86e01f6874b2fba3955458f01",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "tests/init_diagnostics/host_harness.swift": {
+        "after": {
+          "git_object": "cdeb169dbf66753f18f2540ca54dbe8ae2dd579a",
+          "mode": "100644",
+          "sha256": "0fb86b7bf3dfe4677292971c41d7d226c4cb6c1395035612b101948f5e8004a9",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "tests/init_diagnostics/native_fixture.cpp": {
+        "after": {
+          "git_object": "5bba234e9469a99510eb97ffe44ff98f86aa8337",
+          "mode": "100644",
+          "sha256": "b1dfcd27822ee7e4ec9c203b956b25d8fdd8ed6afe961ad12547ffe4244187a0",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "tests/init_diagnostics/pipeline_harness.swift": {
+        "after": {
+          "git_object": "ce8a71f3558747c563312d97ad1b1e100fa66b6c",
+          "mode": "100644",
+          "sha256": "b1a46066f24a9cda5654e74aaa789b1f5d775da7cc6fbbf6f30c7febfa5039ae",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "tests/init_diagnostics/test_contract.py": {
+        "after": {
+          "git_object": "02e996517eecaeba2fa8b48cebec13a52f212b8b",
+          "mode": "100644",
+          "sha256": "0cd8d339e7629ef07a2b743193ff193eb64722432ad50d70d5cb359597f50196",
+          "type": "blob"
+        },
+        "before": null
+      }
+    },
+    "commit": "aebf23d8129f831c1c706619a71c936ab73fb6e5",
+    "tree": "401f4fab77df1eccc38367d8da1b8289b085dba6"
+  },
+  "idevice": {
+    "baseline_commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+    "changes": {},
+    "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+    "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+  },
+  "jktcp": {
+    "baseline_commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+    "changes": {},
+    "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+    "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+  },
+  "minimuxer": {
+    "baseline_commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+    "changes": {},
+    "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+    "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+  }
+}

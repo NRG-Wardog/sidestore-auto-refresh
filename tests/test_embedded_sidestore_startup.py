@@ -3,23 +3,48 @@
 from pathlib import Path
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+import re
+from typing import Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from patch_embedded_sidestore_startup import MARKER, patch
+# Frozen patch tests deliberately retain their historical upstream fixture pins.
+WORKFLOW = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text(encoding="utf-8")
+LIVE_CONTAINER_REF = re.search(r"(?m)^  LIVE_CONTAINER_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
+EMBEDDED_SIDESTORE_REF = re.search(r"(?m)^  EMBEDDED_SIDESTORE_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
+
+
+def checkout_revision(root: Path) -> Optional[str]:
+    result = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                            capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else None
 
 
 def upstream_roots():
-    live = ROOT / ".audit" / "upstream" / "LiveContainer"
-    side = ROOT / ".audit" / "upstream" / "SideStore"
+    explicit_live = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
+    explicit_side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+    live = Path(explicit_live or ROOT / ".audit/upstream/LiveContainer")
+    side = Path(explicit_side or ROOT / ".audit/upstream/SideStore")
     if not (live / "LiveContainer" / "LCBootstrap.m").is_file():
         raise unittest.SkipTest("Pinned LiveContainer source unavailable")
     if not (side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift").is_file():
         raise unittest.SkipTest("Pinned embedded SideStore source unavailable")
+    for root, expected, explicit, name in (
+        (live, LIVE_CONTAINER_REF, explicit_live, "LiveContainer"),
+        (side, EMBEDDED_SIDESTORE_REF, explicit_side, "embedded SideStore"),
+    ):
+        actual = checkout_revision(root)
+        if actual != expected:
+            message = f"{name} test source is {actual or 'not a Git checkout'}, expected pinned {expected}"
+            if explicit:
+                raise AssertionError(message)
+            raise unittest.SkipTest(message)
     return live, side
 
 
@@ -34,12 +59,17 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         for source, target in (
             (side / "SideStore/Core/Auth/AuthManager.swift", self.side / "SideStore/Core/Auth/AuthManager.swift"),
             (live / "SideStoreSupport" / "SideStoreHooks.m", self.live / "SideStoreSupport" / "SideStoreHooks.m"),
+            (live / "SideStoreSupport" / "XPCClient.m", self.live / "SideStoreSupport" / "XPCClient.m"),
             (live / "LiveContainer" / "LCBootstrap.m", self.live / "LiveContainer" / "LCBootstrap.m"),
             (side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift",
              self.side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift"),
         ):
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            source_root = side if side in source.parents else live
+            target.write_bytes(subprocess.check_output([
+                "git", "-C", str(source_root), "show", "HEAD:" + source.relative_to(source_root).as_posix()]))
+        self.original_auth = self.text(self.side / "SideStore/Core/Auth/AuthManager.swift")
+        self.original_xpc_client = self.text(self.live / "SideStoreSupport" / "XPCClient.m")
 
     def text(self, path: Path) -> str:
         return path.read_text(encoding="utf-8")
@@ -57,11 +87,48 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         self.assertIn("PrivClass(Source) == nil", hooks)
         self.assertIn("hooks_deferred", hooks)
         self.assertIn("static dispatch_once_t onceToken", hooks)
-        self.assertIn('?: [NSMutableArray array]', hooks)
-        self.assertIn('Return to LiveContainer', hooks)
+        self.assertIn("REMOVE_NON_LIVE_SIDESTORE_UI_V1", hooks)
+        for removed_ui_symbol in (
+            "SideStoreMyAppsViewController_orig_viewDidload",
+            "SideStoreMyAppsViewController_hook_viewDidload",
+            "SideStoreMyAppsViewController_hook_escapeButtonTapped",
+            "SSVersionWindows",
+            "SSSceneObserver",
+            "SSInstallVersionWindow",
+            "PassthroughWindow",
+            "UISceneDidActivateNotification",
+            "escapeButtonTapped:",
+        ):
+            self.assertNotIn(removed_ui_symbol, hooks)
+
+        # These hooks feed SideStore identity/source behavior and the LiveProcess
+        # refresh + notification bridge; the UI cleanup must leave them intact.
+        for retained_backend_symbol in (
+            "hook_appbundleIdentifier",
+            "hook_storeAppBundleIdentifier",
+            "hook_altstoreAppGroup",
+            "hook_activeBundle",
+            "hook_baseAltStoreAppGroupID",
+            "SideStoreSource_hook_altStoreSourceURL",
+            "installSideStoreNotificationHooks",
+            "lc_addNotificationRequest:",
+            "lc_removePendingNotificationRequestsWithIdentifiers:",
+            "lc_getNotificationSettingsWithCompletionHandler:",
+            "LiveProcessSideStoreHandler",
+        ):
+            self.assertIn(retained_backend_symbol, hooks)
+        xpc_client = self.text(self.live / "SideStoreSupport" / "XPCClient.m")
+        self.assertEqual(xpc_client, self.original_xpc_client)
+        self.assertIn("installSideStoreHooks();", xpc_client)
+        self.assertIn("if(!NSUserDefaults.isLiveProcess) return;", xpc_client)
+        self.assertIn("installSideStoreNotificationHooks();", xpc_client)
+        self.assertLess(xpc_client.index("installSideStoreHooks();"),
+                        xpc_client.index("if(!NSUserDefaults.isLiveProcess) return;"))
+        self.assertLess(xpc_client.index("if(!NSUserDefaults.isLiveProcess) return;"),
+                        xpc_client.index("installSideStoreNotificationHooks();"))
         auth = self.text(self.side / "SideStore/Core/Auth/AuthManager.swift")
-        self.assertEqual(auth.count("let matches = Keychain.shared."), 4)
-        self.assertEqual(auth.count('"SAVE_FAILED"'), 4)
+        self.assertEqual(auth, self.original_auth, "Never patch upstream authentication behavior")
+        self.assertIn('coalesce(key: "apple_auth_session")', auth)
         self.assertNotIn('debugLog("[SAVED]', auth)
         for line in auth.splitlines():
             if 'debugLog(' in line and 'readback_matches=' in line:
@@ -83,10 +150,9 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         self.assertIn("reusing_attached_persistent_store_after_startup_failure", database)
         self.assertIn("Unable to read the active LiveContainer application bundle", database)
         self.assertIn("The active LiveContainer bundle has no readable provisioning profile", database)
-        self.assertIn("main_bundle=", database)
-        self.assertIn("active_bundle=", database)
-        self.assertIn("profile_exists=", database)
-        self.assertIn("app_group_path=", database)
+        self.assertIn("private func performStart() async throws", database)
+        self.assertIn("try await self.migrateDatabaseToAppGroupIfNeeded()", database)
+        self.assertIn("try await self.prepareDatabase()", database)
         self.assertNotIn("guard let localAppBundle = ALTApplication(fileURL: Bundle.Info.activeBundleURL) else { return }", database)
 
     def temp_paths(self):

@@ -1,0 +1,297 @@
+{
+  "AnisetteKit": {
+    "baseline_commit": "f494494ede88890555df345054f7fbb87b53aea5",
+    "changes": {
+      ".ci/native-tests/fixtures/android_tls_constructor.cpp": {
+        "after": {
+          "git_object": "f6fb867f0358fe7f87e4c97cdb175e6f49d9ff85",
+          "mode": "100644",
+          "sha256": "e914d11f518e065f4ddf1be75b9af5543006b222e118ef7a3d5b9c5b7fa7c331",
+          "type": "blob"
+        },
+        "before": null
+      },
+      ".ci/native-tests/test_android_tls_runtime.py": {
+        "after": {
+          "git_object": "6e7f69abc1f852e815572be301002315f6ce7d4b",
+          "mode": "100644",
+          "sha256": "285e4accc6f90366f24be470c45a5376e2826d2bc05efe59da0851ec267c24ed",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "Native/Loader/android_tls_runtime.h": {
+        "after": {
+          "git_object": "1a084e8314f94eb30a1591b6fc0112616d29ea87",
+          "mode": "100644",
+          "sha256": "51c6c123d78b2d53f70e1720c8bf8aa934cbdb149a66df0a6763b6614f4fda07",
+          "type": "blob"
+        },
+        "before": null
+      },
+      "Native/Loader/elf_loader_emulator.cpp": {
+        "after": {
+          "git_object": "34c03938361d4ea061bbad9947773d1cf132f399",
+          "mode": "100644",
+          "sha256": "6e2635c91bf5cbf4eb9cb7af586344d6641b80fcb31910892b60690dccc506ca",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "83ca3d4f273cd1e7acab2dda2d687801335eb3f1",
+          "mode": "100644",
+          "sha256": "c710077c4ad735d2a274908a252e38d48aa6b1811c8a70e56159fd34a51c6e09",
+          "type": "blob"
+        }
+      },
+      "Native/Loader/elf_loader_emulator.h": {
+        "after": {
+          "git_object": "74b09597dfd7ec1bb5306aca1d5793296866233d",
+          "mode": "100644",
+          "sha256": "9d100b0fe5f0f3ee0293e0151b1884dd98147648415d7d4ead39c3b935ec4172",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "c02f0c0b48a5875a93740c85c94152c8e838d1cc",
+          "mode": "100644",
+          "sha256": "aacfd99cf5049d2208bc9d6af471411ca3acd277828ebcd1f27914f552f2f62c",
+          "type": "blob"
+        }
+      },
+      "Native/anisette_core_uc.cpp": {
+        "after": {
+          "git_object": "356bdee84457095157bde1e2c6d12b86aebc7750",
+          "mode": "100644",
+          "sha256": "bd26de69de7c6a88f812ad1627f05b741c5407d5f21f9519bfdd1f2386230644",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "076a453eb90f7a6c104b84ab7abf1e63be6809f2",
+          "mode": "100644",
+          "sha256": "cb9a3c00c2db529fb127b6ef3aeaaf2f4c70a7261ca6ddae99fe91af14774000",
+          "type": "blob"
+        }
+      }
+    },
+    "commit": "0dfcc89aa93411d84f7c50beb3c75599af89e852",
+    "tree": "d1112813f8ea5fa93c076eb016442778b9eb29f9"
+  },
+  "LiveContainer": {
+    "baseline_commit": "6b128686477b569a936915abaa4bd2ec51b40c14",
+    "changes": {
+      "LiveContainer/Tweaks/Dead10ccFix.m": {
+        "after": {
+          "git_object": "9f18e656aba3860d4bfbb3614a4f0527f164694c",
+          "mode": "100644",
+          "sha256": "82ea26ff8f5f7da419899883647795b32bbdcc57218a2506626ba940f669bb6a",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "21d54e852eaf5db3330e5702f3d44c9b298110c2",
+          "mode": "100644",
+          "sha256": "76cfc7e3fcbc2220183168b2b77b5e78c3334d971ac01e5793cc3ea197e85690",
+          "type": "blob"
+        }
+      },
+      "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": {
+        "after": {
+          "git_object": "f6a16cf997048f93b27be1eba39382f448273f54",
+          "mode": "100644",
+          "sha256": "7f9efe5881898bad6e8e2182c0095166b62f8b251dbb36b313d6876067df56be",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "815abd06443a22a521b0640db0b2a77061e9f95f",
+          "mode": "100644",
+          "sha256": "8b8246533756a294fdf6ad09522f52dc1f322966142c11b317a4bef938093219",
+          "type": "blob"
+        }
+      },
+      "SideStoreSupport/SideStore.swift": {
+        "after": {
+          "git_object": "9dd8a3d197ae15c7f0f81010ec1be1c1fc75fc46",
+          "mode": "100644",
+          "sha256": "0140bf162538bb3f6d009a94aff7f5fad20cd284a730bb2328933eae7171120a",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "2c840ddffd208d3284b3c85e55c2ef9d468a7240",
+          "mode": "100644",
+          "sha256": "cacde808173a4a82d1375872609ed813b80e8552578cb93a5427fb720c51b34f",
+          "type": "blob"
+        }
+      }
+    },
+    "commit": "00546cec351adad1fa1cad5590da4f06e612db8f",
+    "tree": "c8b298d549ff5e72221533c5e4b946d67ec2cc97"
+  },
+  "SideSign": {
+    "baseline_commit": "45039f2c16348e098a69f4421719798b00f00429",
+    "changes": {
+      "Package.resolved": {
+        "after": {
+          "git_object": "b00d43393e91f2c01b5210b4d68a5627690506a5",
+          "mode": "100644",
+          "sha256": "9821202b215f31e818c001fdbdd2b6874fc3e62a88c8ebaa104671f96d58ec66",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "5b3f1fad1bb7580b2af9a40e081104b448a140b3",
+          "mode": "100644",
+          "sha256": "61f6121a252c102d978e23d27c2e7f6888dd973286a1c260d8902c6218aaa944",
+          "type": "blob"
+        }
+      },
+      "Package.swift": {
+        "after": {
+          "git_object": "edcd3bfee49db6547f40123428345c1e3e3b9c56",
+          "mode": "100644",
+          "sha256": "2485f239e750be9702e25b4c0e0c3cd03426ce114a527ad0add21c9583da1cc0",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "cd61d8763acb6522b2636e1ce903cee5593155cd",
+          "mode": "100644",
+          "sha256": "164da73c538430aab4c7edc6babf6aceca245e007a6ec427522253747b16c2bc",
+          "type": "blob"
+        }
+      },
+      "Sources/DeveloperPortal/Certificates.swift": {
+        "after": {
+          "git_object": "432316f293ca57b1be446b45f05b5ec9c9882f93",
+          "mode": "100644",
+          "sha256": "6e5afc992b3632c47394161149ccdf9d78684a76a50e455707c03e1f1193aaeb",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "6127e16f8a265471e01ed8d03d6ba4a496caddb0",
+          "mode": "100644",
+          "sha256": "3fb67077f5d95b7666941ae7958855c1ab3d81a4528067c730510d9e75df85ed",
+          "type": "blob"
+        }
+      }
+    },
+    "commit": "081994b142c781f9a32bbddfa7277f305b20447b",
+    "tree": "83ab480b1195f1cfdb8bd4fe4b2e446bdd647545"
+  },
+  "SideStore": {
+    "baseline_commit": "4625e29929aa52fe33327c07076bfae0358a7bf0",
+    "changes": {
+      "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": {
+        "after": {
+          "git_object": "1935ce269efccdd5de5572d2706ad185aed853ef",
+          "mode": "100644",
+          "sha256": "822ab8897375eb5352cc158d311ea0d722f57974246cf4a038885f1a88ae2461",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "1690008ffae98246e63e47afd293d80bde2318bb",
+          "mode": "100644",
+          "sha256": "d2884bdf70ad36fc112394cca8cb8d566affb7a6fe0e9cd3fb9518df5c3b9076",
+          "type": "blob"
+        }
+      },
+      "AltStore/AppDelegate.swift": {
+        "after": {
+          "git_object": "39837ddd0295eba32d1c8689da05b40451a7fd0b",
+          "mode": "100644",
+          "sha256": "b1a39a4764f2de8d346740e938e59af7a9ef846924fe1622a140c0b6075f24c4",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "1a9adb42f58fd1fa9f70808f644a0f3a4a19c4ea",
+          "mode": "100644",
+          "sha256": "5cd6baface3732e1dd1a276bf578ca6f055802d77b31bef6cef4dd78dbbe5649",
+          "type": "blob"
+        }
+      },
+      "AltStore/Core/Components/Keychain.swift": {
+        "after": {
+          "git_object": "877f7405c6d5091c23e091c6d1f880deeb6cc29b",
+          "mode": "100644",
+          "sha256": "81c362a03323ca9c658a34b5b2883b2af3bacc81d8be079c04a0dfcdf3bf8584",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "410d52700ede5d64adf6a8d61c95532b4849c003",
+          "mode": "100644",
+          "sha256": "bc121d3f00cecfa735f2d827be23233e453cf7ed85c27630f328ccbeb11f1e3c",
+          "type": "blob"
+        }
+      },
+      "Dependencies/SideSign": {
+        "after": {
+          "git_object": "081994b142c781f9a32bbddfa7277f305b20447b",
+          "mode": "160000",
+          "type": "commit"
+        },
+        "before": {
+          "git_object": "45039f2c16348e098a69f4421719798b00f00429",
+          "mode": "160000",
+          "type": "commit"
+        }
+      },
+      "SideStore/Core/Auth/DeveloperPortalProxy.swift": {
+        "after": {
+          "git_object": "a34f2e52aedb33d4fdd32bb90bfb847107be0931",
+          "mode": "100644",
+          "sha256": "82273ec98095d8355824e99f568943048359d8456f60adb8c8f78d80fc5fb0f9",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "8d938dbf82455c1bb93ffc4b7c2d985900ab4c93",
+          "mode": "100644",
+          "sha256": "c128d7f78514371494f9f3474a3a5b52ecef964d856af5b6e315d88ea86462e5",
+          "type": "blob"
+        }
+      },
+      "SideStore/Core/Certificates/CertificateManager.swift": {
+        "after": {
+          "git_object": "875ec6c18737ad99f571bee2b4c3df5a923577cc",
+          "mode": "100644",
+          "sha256": "d846b7ef3541a6d4f03ba94db202c851a5ddedd7de3e2552b3ce8f10d0068ebc",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "d0fa3f8db0af2a92bf8e9104b2de662627371bc5",
+          "mode": "100644",
+          "sha256": "8956afd05a11bd0f0a4aa68bbcc9eba044320906ce463e70716995f550e42c3e",
+          "type": "blob"
+        }
+      },
+      "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": {
+        "after": {
+          "git_object": "339b42c06a8cd836bc1fb018af108430eabe1476",
+          "mode": "100644",
+          "sha256": "8f2defd0ec7c484d73f2f196e8e57af8cc07664c030b3e29559c95b784feb5cb",
+          "type": "blob"
+        },
+        "before": {
+          "git_object": "dfea39a74c862ab63f96efd4187e2b71e215fc60",
+          "mode": "100644",
+          "sha256": "55ce7ec780c9027b61d8aaae607f0cc1b83ed719a1c020a12ada3abd7013d2cd",
+          "type": "blob"
+        }
+      }
+    },
+    "commit": "0e6a626ae97401fb671ee12ae88e4f364fc2a31c",
+    "tree": "ecbabf9893d723276a623349a5952bec510a2c12"
+  },
+  "idevice": {
+    "baseline_commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+    "changes": {},
+    "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+    "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+  },
+  "jktcp": {
+    "baseline_commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+    "changes": {},
+    "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+    "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+  },
+  "minimuxer": {
+    "baseline_commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+    "changes": {},
+    "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+    "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+  }
+}

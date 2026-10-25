@@ -1,0 +1,67 @@
+{
+  "base_commit": "44e2e734c9a31dce164add1c047c48d213c83cfe",
+  "failed_full_run": 37708955202,
+  "scope": "Reviewed pinned rustfmt byte transition and earlier unchanged read-only format checks",
+  "final_owner_pins": {
+    "jktcp": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+    "idevice": "803f9368e6b27a43d8a9f22dc0ec281c87883113"
+  },
+  "registry_sha256": "5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be",
+  "semantic_contract_versions_and_edges_unchanged": true,
+  "changed_source_paths": [
+    "jktcp:src/adapter.rs",
+    "idevice:ffi/src/afc.rs",
+    "idevice:ffi/src/tunnel_provider.rs"
+  ],
+  "changed_owner_manifest_versions": {
+    "jktcp": "1.0.1",
+    "idevice": "1.0.1"
+  },
+  "other_owner_manifest_bytes_unchanged": true,
+  "historical_evidence_preserved": true,
+  "owner_worker_review_sha256": "68a7abd89a3e234f1352d588f3feb8d019c9db287db45c064a7f5d02ee13a96d",
+  "fresh_published_graph_gate": "PASS",
+  "current_contract_gate": {
+    "source_files": 88,
+    "edges": 22,
+    "status": "PASS"
+  },
+  "historical_contract_gate_on_formatted_sources": "EXPECTED_SOURCE_DRIFT_REJECTION",
+  "exact_shipped_early_format_step": "PASS_ON_FETCHED_PUBLIC_REFS_WITH_RUST_1.98.1",
+  "format_calls_in_workflow": {
+    "jktcp": 1,
+    "idevice": 1
+  },
+  "later_source_immutability_gate_retained": true,
+  "all_native_layout_and_artifact_gates_retained": true,
+  "tests": {
+    "map_gate": {
+      "total": 57,
+      "passed": 57,
+      "skipped": 0
+    },
+    "map_gate_optimized": {
+      "total": 57,
+      "passed": 57,
+      "skipped": 0
+    },
+    "contract_gate": {
+      "total": 58,
+      "passed": 58,
+      "skipped": 0
+    },
+    "workflow_and_existing_gates": {
+      "total": 30,
+      "passed": 30,
+      "skipped": 0
+    }
+  },
+  "owner_worker_transport_results": {
+    "jktcp_selected_tests_passed": 14,
+    "jktcp_filtered_tests": 2,
+    "ffi_locked_obfuscate_check": "PASS"
+  },
+  "new_macos_ios_or_ipa_build": false,
+  "physical_device_execution": false,
+  "active_branch_pushed": false
+}

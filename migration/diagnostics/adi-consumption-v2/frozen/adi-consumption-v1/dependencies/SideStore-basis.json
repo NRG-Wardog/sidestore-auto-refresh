@@ -1,0 +1,82 @@
+{
+  "accepted": {
+    "commit": "dd4f0ca36e8ef1d858548f583c65842a8fc0ced3",
+    "tree": "b0c1d4f03785bbbf0d09b7329c0842a7a4d89d86"
+  },
+  "anisette": {
+    "accepted_commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+    "diagnostic_commit": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+    "repository": "https://github.com/NRG-Wardog/AnisetteKit.git"
+  },
+  "candidate": {
+    "commit": "1ebc69390f5b570f95cd823ac8df97c3a2f082f9",
+    "tree": "4d043ad782d6dc782e765fe94564be353cb35e80"
+  },
+  "changes": {
+    ".ci/DIAGNOSTIC_DEPENDENCIES.md": {
+      "after": {
+        "blob": "56bc7e43a26d48cefecc0254583633ddfab05f85",
+        "mode": "100644",
+        "sha256": "75ea8089d95c0428c948bc4abf8e451cc195166096260b7477535c8ee759da58"
+      },
+      "before": null
+    },
+    ".ci/production-dependencies.py": {
+      "after": {
+        "blob": "d9af4de5ae310dad11b16e8a963bb5051a5abfb6",
+        "mode": "100644",
+        "sha256": "67d58d4c66ce0b62f86e473d78d9b0217bac7003bc5c0f4889d173aea9a15d7e"
+      },
+      "before": {
+        "blob": "ef518222aa8ec2ac5bd1b8285bd58f541c3b2cba",
+        "mode": "100644",
+        "sha256": "48d17b1b8b8124a3cf4d542578f4a91155b6d853fec4ddb9069fe85daafd7df2"
+      }
+    },
+    ".ci/test_diagnostic_dependencies.py": {
+      "after": {
+        "blob": "d1a8c807973e9b1173dafd21362db4a4350b0b66",
+        "mode": "100644",
+        "sha256": "a117b72a3420b58ee5aedc5da870a1487d4d851d869c345834039f9663ae75f9"
+      },
+      "before": null
+    },
+    "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": {
+      "after": {
+        "blob": "344dc9f0319c0f94846865255c50cbbc9892f334",
+        "mode": "100644",
+        "sha256": "75ffdbb23481eed06e3d46210f24f2eb95a633dc55ece83a4295dc1e261f0c96"
+      },
+      "before": {
+        "blob": "1763df19b4004b724b835534cd3694cafa97097c",
+        "mode": "100644",
+        "sha256": "c64b26be42dadcef04caed3134fef55784cae10fc9d196acdf24ee83d82cad7f"
+      }
+    },
+    "Dependencies/SideSign": {
+      "after": {
+        "commit": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
+        "mode": "160000"
+      },
+      "before": {
+        "commit": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+        "mode": "160000"
+      }
+    }
+  },
+  "owner": "SideStore",
+  "purpose": "diagnostic_dependency_source_transition",
+  "schema_version": 1,
+  "sidesign": {
+    "basis_sha256": "7ade04c3aa00a5606c4ab79a47ab1d0012585ee3022afd881885e5a90f0e8647",
+    "commit": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
+    "repository": "https://github.com/NRG-Wardog/SideSign.git",
+    "tree": "27329eab36999128b046eabad7a175faf71b03b0"
+  },
+  "source_checkpoint": {
+    "commit": "364e65211f8678758542e3716e7b757c4dbd35ed",
+    "tree": "e765c3d23c3299ec7e1e57ac31ad0a76a91ff658"
+  },
+  "source_delta_sha256": "4d55fdeed931af02f9d44865c0c712695b471d8a101aa1643c3770484f158106",
+  "source_registry_sha256": "97c9d0b81e9b59c8271ae1155393b2fcb534dc97ea367095d3adfcde8a3783ad"
+}

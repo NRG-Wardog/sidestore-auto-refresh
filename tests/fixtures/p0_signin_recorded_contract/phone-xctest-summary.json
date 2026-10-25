@@ -1,0 +1,36 @@
+{
+  "devicesAndConfigurations": [
+    {
+      "device": {
+        "architecture": "x86_64",
+        "deviceId": "00000000-0000-0000-0000-000000000000",
+        "deviceName": "iPhone 17 Pro",
+        "modelName": "iPhone 17 Pro",
+        "osBuildNumber": "23C54",
+        "osVersion": "26.2",
+        "platform": "iOS Simulator"
+      },
+      "expectedFailures": 0,
+      "failedTests": 0,
+      "passedTests": 4,
+      "skippedTests": 0,
+      "testPlanConfiguration": {
+        "configurationId": "1",
+        "configurationName": "Test Scheme Action"
+      }
+    }
+  ],
+  "environmentDescription": "P0SignIn \u00b7 Built with macOS 26.6.1",
+  "expectedFailures": 0,
+  "failedTests": 0,
+  "finishTime": 1791306160.531,
+  "passedTests": 4,
+  "result": "Passed",
+  "skippedTests": 0,
+  "startTime": 1791305864.057,
+  "statistics": [],
+  "testFailures": [],
+  "title": "Test - P0SignIn",
+  "topInsights": [],
+  "totalTestCount": 4
+}

@@ -9,9 +9,11 @@
 static NSUserDefaults *preferences;
 @interface NSUserDefaults (ReturnTests)
 + (instancetype)lcUserDefaults;
++ (instancetype)lcSharedDefaults;
 @end
 @implementation NSUserDefaults (ReturnTests)
 + (instancetype)lcUserDefaults { return preferences; }
++ (instancetype)lcSharedDefaults { return preferences; }
 @end
 
 @interface UIColor : NSObject

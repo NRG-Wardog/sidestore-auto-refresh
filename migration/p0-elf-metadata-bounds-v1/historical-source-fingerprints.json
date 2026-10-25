@@ -1,0 +1,34 @@
+{
+  "current_source": "9c876820d102affe2f55ee4b7f735fff6abd990a",
+  "fresh_guest_execution": false,
+  "full_loader_changed": true,
+  "historical_source": "94659b4d54eed5729b34f4103b3f70579aa8d8e9",
+  "role": "historical-only narrow byte identity; no current guest execution claim",
+  "schema": 1,
+  "unchanged_files": {
+    "Native/Loader/android_tls_runtime.h": "51c6c123d78b2d53f70e1720c8bf8aa934cbdb149a66df0a6763b6614f4fda07",
+    "Native/Loader/vm_initialization_diagnostics.h": "023b34540c9fb31fcb6059fea3236eb411fc52d0438025dbe9d72e88c9337e5c"
+  },
+  "unchanged_function_definitions": {
+    "Native/Loader/elf_loader_emulator.cpp": {
+      "bool run_library_constructors(": {
+        "bytes": 2410,
+        "current_offset": 50441,
+        "historical_offset": 49658,
+        "sha256": "fc6861f62023f04b8672e0d7ed5bae33986cf14a0a9298714fbce053c1b89a04"
+      },
+      "int32_t run_vm_procedure(": {
+        "bytes": 4438,
+        "current_offset": 53099,
+        "historical_offset": 52316,
+        "sha256": "4322c0555059a88869930596b5272bff1aa4fa37fac3f2313dab0debd385ab6b"
+      },
+      "static void import_callback_router(uc_engine *uc, uint64_t address, uint32_t size, void *user_data) {": {
+        "bytes": 3162,
+        "current_offset": 36615,
+        "historical_offset": 36313,
+        "sha256": "0c3641079ead7d9755e49425211e7ddb51bb8fcc3ad4897d021a5a6021bdcf15"
+      }
+    }
+  }
+}

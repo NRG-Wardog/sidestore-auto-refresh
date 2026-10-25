@@ -1,0 +1,59 @@
+{
+  "contract_registry_sha256": "8a6d40e5ac909a43504f87227f8c2b8082c4d66c743bd62df82367cac857e6cb",
+  "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "native_validation": {
+    "capture_summary_sha256": "cc94d8d6e989d6e76fbf869bc606c95d9be09b9859b301db077c3e1d675c2939",
+    "inherited_p2_review_sha256": "ceb365632e7e7baa8a8926f2606ea44eaa5caccd058257d4b71d98e4f73729a0",
+    "native_receipt_sha256": "d8b7a70f1fce34a031679db97980285a2b5a62f1c15a6be13505282c7506569a",
+    "readiness_scope": "eligible_for_gated_full_build",
+    "review_sha256": "e42ff8620df373c539e9b118fa1ee338fc044b9287ba4ead5dcf9cec050ff960",
+    "scope": "Reviewed full-login diagnostic source graph, genuine native compile captures, and exact final SideStore app-lock equivalence; normal gated build eligibility only",
+    "source_basis": "p0-full-login-diagnostics-v1"
+  },
+  "owners": {
+    "AnisetteKit": {
+      "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+      "path": "work/AnisetteKit",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d"
+    },
+    "LiveContainer": {
+      "commit": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
+      "path": "work/LiveContainer",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69"
+    },
+    "SideSign": {
+      "commit": "c733332b0d64022cd603ab9ac5de054413729aab",
+      "path": "work/EmbeddedSideStore/Dependencies/SideSign",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0"
+    },
+    "SideStore": {
+      "commit": "d507f9e417f12c262b4d7e717c84d4a244c8e625",
+      "path": "work/EmbeddedSideStore",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "path": "idevice",
+      "repository": "https://github.com/NRG-Wardog/idevice.git",
+      "source_checkpoint": "803f9368e6b27a43d8a9f22dc0ec281c87883113"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "path": "jktcp",
+      "repository": "https://github.com/NRG-Wardog/jktcp.git",
+      "source_checkpoint": "32c0210f286b4fd16efe05be4f57167a9d94459b"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "path": "work/EmbeddedSideStore/Dependencies/minimuxer",
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "source_checkpoint": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+    }
+  },
+  "schema_version": 1,
+  "source_basis": "p0-full-login-diagnostics-v1"
+}

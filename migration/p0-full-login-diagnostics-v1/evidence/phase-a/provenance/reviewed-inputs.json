@@ -1,0 +1,623 @@
+{
+  "adapter_files": {
+    "ci/p0login/README.md": "09cb3fc62cc53322af57d6d8d9fdc18b966584e9cd5b94bfa8dc1d4616100f36",
+    "ci/p0login/TEST_DISCOVERY_AUDIT.md": "7ef29916c07d15b62db2a25eab9736aa30d5e283428f16aa0d423ae17ebf5dab",
+    "ci/p0login/allowed-paths.json": "14568d4f455d11e130bad179e4840927eeedf0352225d6e12a65af05a3e8dcb5",
+    "ci/p0login/inventory.py": "abd53616e6688a7bbe216a1d38f303c7b3762b404a2b397e5c202ec56cc59cf5",
+    "ci/p0login/lifecycle.py": "f40dee619ffad65bb102071774a1d677dda7a8343f284713701d1adc9d258b8f",
+    "ci/p0login/native_gate.py": "32c87053ceda137f0ae25de9be75c0f7d10c020aeb3604266111e5564b22a684",
+    "ci/p0login/observe_subprocess.py": "70e8134019b394084d429562be231384db4ba9401998252f0a0681aac0d66175",
+    "ci/p0login/prepare_inputs.py": "c2cdca38accf3d0c07516f1165e81b9652e362408feb94bd593cdfad3d71e3fa",
+    "ci/p0login/primitives-provenance.json": "b225716e1b4cb3f3259aaf22fdf49b2bab552c13fb2399794242dee2b9e6309d",
+    "ci/p0login/publication-trees.json": "9c0da8c5be4eb6ebac50a006225e371ed9a1a3008e5e79dd4e30d71a906eba5a",
+    "ci/p0login/run_observed_script.py": "c1c876ce95da9f928ae69576916cd6f04662bb43930895f3d1870202d781b72f",
+    "ci/p0login/run_unittest_suite.py": "cd4af63fe965b17fc1fabe21e03afaf9559ed38ae3156b0b70d78f9c34780c77",
+    "ci/p0login/source-seal.json": "0caa11b1135abbf9c3905c601d100475b91f8d011237033ab47d1f96fad116e8",
+    "ci/p0login/source_primitives.py": "78f20236c15632044c0acc6375e97d5085a668d6fbad08f1bdb300c4dd5d39b2",
+    "ci/p0login/tests/fixtures/interleaved-xctest.provenance.json": "fbd957ccd33057b4868c56cccd1126317c515abb40b8197af57f9c7ee452c9a0",
+    "ci/p0login/tests/fixtures/interleaved-xctest.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ci/p0login/tests/fixtures/interleaved-xctest.stdout.txt": "7a26d61f19c730e3a4560475bda866fc41a7c26eff06934db6f476fd2698938e",
+    "ci/p0login/tests/test_gate.py": "562c74cb8f7bdc5b5e441a0e763e438063f1a9e7afd641a07fb369598524a83a"
+  },
+  "ordinary_build_guard": {
+    "after_sha256": "392e0d48f3b4462eae854250917e54c73432e319097638ccf1863829943e0b28",
+    "before_sha256": "794d75f941bb6e7ca430a7c0ca05d6899f05ec65786cd81142a459974c62acb4",
+    "excluded_ref": "refs/heads/validation/p0-login-trace-phase-a",
+    "job": "build",
+    "path": ".github/workflows/build.yml"
+  },
+  "owners": {
+    "AnisetteKit": {
+      "base": "161435bcc0344e1a9853669455c1ca8d9dda2bf1",
+      "changes": {
+        ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp": {
+          "after": {
+            "git_object": "524b593ea254861f711d82f087d5b8e5c1692e7d",
+            "mode": "100644",
+            "sha256": "ae1036676aee82cbe470984002361e699ce44d1df5f6da63a1839cfeb3f3b490",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "6b956e18605c94f443bee29a415293625ea7d91e",
+            "mode": "100644",
+            "sha256": "d80a994d24446f9cba39b0c46936ac050c0a0f1d503294293f45ed8cdd9e3c12",
+            "type": "blob"
+          }
+        },
+        ".ci/native-tests/run_tests.py": {
+          "after": {
+            "git_object": "e2a97fc90f708dd4f9d982574f0b61a44147f10b",
+            "mode": "100644",
+            "sha256": "cfbe2a36e87dbdd1b7aa011cb2e71571ab367c7dc862c9f124bb603fd659a1ce",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "24ab5e38ab0952afe2182810de0e29197838022e",
+            "mode": "100644",
+            "sha256": "e750b294770ee864e36b94d9a7fa936c5cb76b2a16633ce8d199f439829f6811",
+            "type": "blob"
+          }
+        },
+        "Native/anisette_core_uc.cpp": {
+          "after": {
+            "git_object": "3048b6e4c5c366f2ad428989823f1013d6c281f2",
+            "mode": "100644",
+            "sha256": "4f256e33ae230e863f7126a7876799c8bf66b94ea653a2c9928628e110807183",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "782ff3329c9dad86b2aa010526fb9ab65313c952",
+            "mode": "100644",
+            "sha256": "d75cc5f9534f94d8871da89ca84c885148d3f813e93eee790aa698cec6ee855a",
+            "type": "blob"
+          }
+        },
+        "Sources/AnisetteClient.swift": {
+          "after": {
+            "git_object": "9787607fad16e5d92a7613ca23553b3cc8eb6e23",
+            "mode": "100644",
+            "sha256": "208dcbf61dffd101ea9e0c04fe18a1500b1b176b1407fe93b2b010a8d36806a7",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "900cc1b4e296089e1df03c1847145ca39da6c126",
+            "mode": "100644",
+            "sha256": "f8c551295db79d7acb082a98953b0581fe812da41c766d1c3bf2cb5bdc9e1b79",
+            "type": "blob"
+          }
+        },
+        "Sources/AnisetteDataProvider.swift": {
+          "after": {
+            "git_object": "ccdece372e0ea79c678ef9af7505c461e5be5cff",
+            "mode": "100644",
+            "sha256": "9c55c035d640cae8c2b6ac173db9f118a4e49cce789c0dba24f4cffca58476de",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "d672719ddb6191ed9e38ebc80f8b2869add22376",
+            "mode": "100644",
+            "sha256": "356d5bb03a12c8e7bf366f364078099e2f3945103c2d0c43965ac2650590287f",
+            "type": "blob"
+          }
+        },
+        "Sources/LoginDiagnosticTrace.swift": {
+          "after": {
+            "git_object": "39fbc98346f60b3ad29356042b083fee34820814",
+            "mode": "100644",
+            "sha256": "bd86c77eb520cf0721cfbbdb1e9100261bd53324ef0f912713873357fc76ae2e",
+            "type": "blob"
+          },
+          "before": null
+        },
+        "Tests/AnisetteKitTests/LoginDiagnosticTraceTests.swift": {
+          "after": {
+            "git_object": "48509b85ccf8849d566aefa30797c150321db3b1",
+            "mode": "100644",
+            "sha256": "0a04f3657123356af34ad0c51a50291b1d494dd50376478684aa066996790bbf",
+            "type": "blob"
+          },
+          "before": null
+        }
+      },
+      "commit": "e6e9d4aac698de2a5219aaef02c9a417da45f4e9",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "tree": "734664d759b9e99caa09089905e6a240b149548d"
+    },
+    "LiveContainer": {
+      "base": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+      "changes": {
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": {
+          "after": {
+            "git_object": "9465971ff05f20ad7261377d170f7b5794a055cd",
+            "mode": "100644",
+            "sha256": "406d1d7b5502dccfa2cd37afa75e4903611c1d42ffd5235190c08804d64dd56e",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "a1d730c60d43b383000da91982cd9ae7dd7bfc5d",
+            "mode": "100644",
+            "sha256": "f51818f28b16785972ec6993419444725c6e81b92f44c4e5fea5519c7f3e617d",
+            "type": "blob"
+          }
+        },
+        "SideStoreSupport/SideStore.swift": {
+          "after": {
+            "git_object": "07e84e40972097d1a7748c876cfcfde82b0d14da",
+            "mode": "100644",
+            "sha256": "b097483d27d3ab395fc82a68c9392b51bdceb4df23ebcda981bc2d9e68198aae",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "8aa1b1bf765550093ecb2d6768ac4b3bf23a2dc1",
+            "mode": "100644",
+            "sha256": "95a719cdd87c207794a0c78d52411a0388ea344023a8f6edc209db4734aba1bb",
+            "type": "blob"
+          }
+        },
+        "docs/debug-adi-consumption/contract-v2.json": {
+          "after": {
+            "git_object": "e2353c6d42dfb3b01cedd5a69e403bdcf6917cf2",
+            "mode": "100644",
+            "sha256": "a4ac915cedf8c67179a184e8ea926968a439ae6c5e7bec6e18f58a5bd162b5ed",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "83077055c0cf27a1e9d972d27f7e4dcf4c3f7a62",
+            "mode": "100644",
+            "sha256": "2c78bd8218cf8e1262e6452272a69e4245562c7eef4c4350a57b5fb802e99b72",
+            "type": "blob"
+          }
+        },
+        "tests/login_trace/README.md": {
+          "after": {
+            "git_object": "54a5ec9e421aa9a77b319cb5851559101e6e5adb",
+            "mode": "100644",
+            "sha256": "d1dabfb89f126827972ae0581c0effb30abee68b379088a66ac81ad03690ca7e",
+            "type": "blob"
+          },
+          "before": null
+        },
+        "tests/login_trace/host_harness.swift": {
+          "after": {
+            "git_object": "f65e6478989cb342b9b195bc6a1fecace7aa051e",
+            "mode": "100644",
+            "sha256": "5dd5ea6613dd6aaf0e489a235e9ffb54a4631fadaa9cc1cbc0c86b04a3a2d263",
+            "type": "blob"
+          },
+          "before": null
+        },
+        "tests/login_trace/test_contract.py": {
+          "after": {
+            "git_object": "8f1df18bb828f8a8a7dd0044f1d09e9584d42929",
+            "mode": "100644",
+            "sha256": "6c2fa4889943c60cf304f9e969d4a40d403b983e779515d93220070d98a8035f",
+            "type": "blob"
+          },
+          "before": null
+        },
+        "tests/login_trace/timeout_host_harness.swift": {
+          "after": {
+            "git_object": "81c0bb1302d832ba5834f3da64deb6de3590de42",
+            "mode": "100644",
+            "sha256": "d66fbc1f00b9ddc1a796533a5ef4971184ef4f4f26151666c6e1fc5f5c4b9eb3",
+            "type": "blob"
+          },
+          "before": null
+        }
+      },
+      "commit": "545438e1f0a89fdef375f73273c5c9fc2735cbce",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "tree": "e8014dd771c25c4a05dc76ab0aa304a233642a83"
+    },
+    "SideSign": {
+      "base": "c55f53ee6d3a65ab9b49d1528eb6c668fdde6c0e",
+      "changes": {
+        ".ci/test_login_trace_source.py": {
+          "after": {
+            "git_object": "344570836e2be3edfa6a87d533d12f4b50aaef52",
+            "mode": "100644",
+            "sha256": "3b9134aabc689fee620cfc6cf51d0a70611fca7f34e5a9f688435c6e2d8bb70f",
+            "type": "blob"
+          },
+          "before": null
+        },
+        "Package.swift": {
+          "after": {
+            "git_object": "6dd22c0d1d2ee9b4d472881cdf88b2ee7d5c0c80",
+            "mode": "100644",
+            "sha256": "258f5ae3aac78c32662211c8f6f594f0740d378c522802b4a7ca33cccee168f5",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "c887a4a52e788819aa92462afdbd006aeb10a77c",
+            "mode": "100644",
+            "sha256": "9bae0776c9d3744775f7f251a21e1ccc20c03b1b00199f575516d39da810164e",
+            "type": "blob"
+          }
+        },
+        "Sources/Anisette/AnisetteDataManager.swift": {
+          "after": {
+            "git_object": "7889c93bc8f471efef796a591beb0348bd11799f",
+            "mode": "100644",
+            "sha256": "bdcb3b55ae889313116081af79a8d21d731010ebd0e27e9b4f16890c0535d2ae",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "8c6448563e030dd991daefec52c42fcf3dbc3a0d",
+            "mode": "100644",
+            "sha256": "b9f6f748038fcbdbbdcb3489fc3d8693b3e526557734a1edd26eb37d14ec1535",
+            "type": "blob"
+          }
+        },
+        "Sources/DeveloperPortal/Authentication.swift": {
+          "after": {
+            "git_object": "2473bf0ad0d38292699874fd2105b65f08816e80",
+            "mode": "100644",
+            "sha256": "6423fbe3611aa72ef24b93481f2c6da696b02a90ae282b802e575bedaa3db7f7",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "a0ded5d36252d437332c9e93d92ecf104476a75e",
+            "mode": "100644",
+            "sha256": "5b6412e3b52b355b6f7dd2e5e6b03f25b5ff11eeeaa28bed3c34a4f360109729",
+            "type": "blob"
+          }
+        },
+        "Sources/DeveloperPortal/Certificates.swift": {
+          "after": {
+            "git_object": "a3ba7344e86b8ab575fc7114d412d8c99e4c4833",
+            "mode": "100644",
+            "sha256": "8341ae741a35cf9a4480853a149d68c01af2c7cee137f681d3bdfba4994db528",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "432316f293ca57b1be446b45f05b5ec9c9882f93",
+            "mode": "100644",
+            "sha256": "6e5afc992b3632c47394161149ccdf9d78684a76a50e455707c03e1f1193aaeb",
+            "type": "blob"
+          }
+        },
+        "Sources/DeveloperPortal/DeveloperPortalAPI.swift": {
+          "after": {
+            "git_object": "cc92cbb5a23680071c375ad6ad882a2f08cd6731",
+            "mode": "100644",
+            "sha256": "79c33dc138eeaf71e84ec662d320995058f69eaca097c12221b9c2537a760f08",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "1ba0f87fc3aa2220a565d4c8c4f92a8b3a99977f",
+            "mode": "100644",
+            "sha256": "d767d97324acae5c983f31443de5f6604dc5bf59281d19c3e50adeee4c629a41",
+            "type": "blob"
+          }
+        },
+        "Sources/DeveloperPortal/Devices.swift": {
+          "after": {
+            "git_object": "68af8527184cdba7e7ee2e1951260ef993c7b09a",
+            "mode": "100644",
+            "sha256": "d411e800ef9cf158fc1780c00b5c1417fad3941748b26690d72992624f1c96b2",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "98b0659aa7d70f82aa0f9257b7e5d69c1e034cfb",
+            "mode": "100644",
+            "sha256": "4b73e8fcf915aaf979e37376a7f1fe342f879f5e88355aa7ed428d775cc13e1f",
+            "type": "blob"
+          }
+        },
+        "Sources/DeveloperPortal/Teams.swift": {
+          "after": {
+            "git_object": "8bbb5777acea052df47adeb72f9e169fecd1938e",
+            "mode": "100644",
+            "sha256": "109e8e9badb48b0c0b2f132bbb9efaafc71757dbdb3296752e4269d88cb71b3b",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "75a885fead5e0c01ebb951343e70656cdd166bd7",
+            "mode": "100644",
+            "sha256": "73c704d3871ccbf8d8038ed1b554e5f368d641c729911600a8ba0475f2abe33c",
+            "type": "blob"
+          }
+        }
+      },
+      "commit": "770b991b1dbc269ad19dd18b8b2e8252b665af9b",
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "tree": "2931630bc76fdbccd54a8829d078d54422e3483c"
+    },
+    "SideStore": {
+      "base": "59fa3b5cd8c9ea4a88716cbaaa08bacd9f22e218",
+      "changes": {
+        "AltStore/AppDelegate.swift": {
+          "after": {
+            "git_object": "f9694d94b6cf556466745c22340d9b30f5db20f3",
+            "mode": "100644",
+            "sha256": "73fb0db0bca4188b346be0429bcdac19df7fdb963c21f649e3bff73d523ace21",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "f6bee29b17c6b2c1c18180165d93c5a7834ef6ce",
+            "mode": "100644",
+            "sha256": "3320adc8e8793a2215bb57915e27982457e26910bdfdf01cd08065d592d9b3a0",
+            "type": "blob"
+          }
+        },
+        "AltStore/Authentication/AuthenticationViewController.swift": {
+          "after": {
+            "git_object": "69601021fa35d32ea9db173ff1649acc2d8dc544",
+            "mode": "100644",
+            "sha256": "feb0df7a230cfdc6ae4cc4ab9f5e11cb4cdaf74019b19486e0d7721497bc9af5",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "ed4ee3fe715de2b5558fe669cb380bc2a481d8bd",
+            "mode": "100644",
+            "sha256": "4c20b591c6ae5ecf342bc116302434a47e3819bafddc48903798bb081b120629",
+            "type": "blob"
+          }
+        },
+        "AltStore/Settings/SettingsViewController.swift": {
+          "after": {
+            "git_object": "f47a10d05d17f18a79fc41645bce78a847d1721a",
+            "mode": "100644",
+            "sha256": "6e2907ec01b8ee072372dee7314471008ae4cba9ed188284a2a1084a7e9a0d08",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "9028d347675d4f9e0dd219bf390767af37222910",
+            "mode": "100644",
+            "sha256": "a765c541c74694e673064e93104870f601c8f2b7cbae342cef1b44d6db41cc66",
+            "type": "blob"
+          }
+        },
+        "SideStore/Core/Anisette/AnisetteConfigManager.swift": {
+          "after": {
+            "git_object": "f9bd02d57582996a78b3bdb0b3b765ed208fb845",
+            "mode": "100644",
+            "sha256": "ddd011bee67451004d48ea2526a719861990a3ee01e576a6ac6e1c7db5f38085",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "5ebe35695d35afba20d21d1db47f1c86319596fd",
+            "mode": "100644",
+            "sha256": "94f73d7cc4b334b28a2debbd7cc7658dfaebbb31ce36960123b7067e53e10fdd",
+            "type": "blob"
+          }
+        },
+        "SideStore/Core/Anisette/AnisetteProvider.swift": {
+          "after": {
+            "git_object": "b7260161f93376e05fba7a05ac4dafd700d98165",
+            "mode": "100644",
+            "sha256": "a8e751162634c11ca8e17fb5c6ec2849a1a2b98ea7cbc381e1d8ac9e8fcb85f0",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "a9be3e62fd73f4117af7ceaa9f9e1475d8b65bfa",
+            "mode": "100644",
+            "sha256": "7a3ac0f470c6f02ad30a6943b643e31bc02a512d24c2ae6b191850bb81b79425",
+            "type": "blob"
+          }
+        },
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift": {
+          "after": {
+            "git_object": "f50c6a016ad231e2c63c08847cdce141968d452b",
+            "mode": "100644",
+            "sha256": "376b4f306fafc0a2ab26564abde0237e0daec253dd0bc35ef7c2ee9fc92d48b9",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "450c8e5119f2a631ff71083cd0e0c44d8601f8c0",
+            "mode": "100644",
+            "sha256": "170f4489956db31d75dbf1fb450d55be0d31cb426aa9937f94fb1a106c91defb",
+            "type": "blob"
+          }
+        },
+        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": {
+          "after": {
+            "git_object": "ae98c2f037e1503220ff33858d3d8bff6c86e6f9",
+            "mode": "100644",
+            "sha256": "44a6744a62f2602d1511a13e49b79f4a402916aec13c74aa22c47584d3dddd7f",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "339b42c06a8cd836bc1fb018af108430eabe1476",
+            "mode": "100644",
+            "sha256": "8f2defd0ec7c484d73f2f196e8e57af8cc07664c030b3e29559c95b784feb5cb",
+            "type": "blob"
+          }
+        },
+        "docs/debug-adi-consumption/contract-v2.json": {
+          "after": {
+            "git_object": "e2353c6d42dfb3b01cedd5a69e403bdcf6917cf2",
+            "mode": "100644",
+            "sha256": "a4ac915cedf8c67179a184e8ea926968a439ae6c5e7bec6e18f58a5bd162b5ed",
+            "type": "blob"
+          },
+          "before": {
+            "git_object": "83077055c0cf27a1e9d972d27f7e4dcf4c3f7a62",
+            "mode": "100644",
+            "sha256": "2c78bd8218cf8e1262e6452272a69e4245562c7eef4c4350a57b5fb802e99b72",
+            "type": "blob"
+          }
+        },
+        "tests/login_trace/README.md": {
+          "after": {
+            "git_object": "54a5ec9e421aa9a77b319cb5851559101e6e5adb",
+            "mode": "100644",
+            "sha256": "d1dabfb89f126827972ae0581c0effb30abee68b379088a66ac81ad03690ca7e",
+            "type": "blob"
+          },
+          "before": null
+        },
+        "tests/login_trace/host_harness.swift": {
+          "after": {
+            "git_object": "f65e6478989cb342b9b195bc6a1fecace7aa051e",
+            "mode": "100644",
+            "sha256": "5dd5ea6613dd6aaf0e489a235e9ffb54a4631fadaa9cc1cbc0c86b04a3a2d263",
+            "type": "blob"
+          },
+          "before": null
+        },
+        "tests/login_trace/test_contract.py": {
+          "after": {
+            "git_object": "8f1df18bb828f8a8a7dd0044f1d09e9584d42929",
+            "mode": "100644",
+            "sha256": "6c2fa4889943c60cf304f9e969d4a40d403b983e779515d93220070d98a8035f",
+            "type": "blob"
+          },
+          "before": null
+        },
+        "tests/login_trace/timeout_host_harness.swift": {
+          "after": {
+            "git_object": "81c0bb1302d832ba5834f3da64deb6de3590de42",
+            "mode": "100644",
+            "sha256": "d66fbc1f00b9ddc1a796533a5ef4971184ef4f4f26151666c6e1fc5f5c4b9eb3",
+            "type": "blob"
+          },
+          "before": null
+        }
+      },
+      "commit": "85bf45f65a9c2835c18d2c8e2e9c618177c95b54",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "tree": "79d9ce079df8ca08f8d50d05afff50653f5493e6"
+    }
+  },
+  "phase": "phase-a",
+  "publication_sha256": "9c0da8c5be4eb6ebac50a006225e371ed9a1a3008e5e79dd4e30d71a906eba5a",
+  "python_suites": [
+    {
+      "id": "anisettekit-native-tests-0",
+      "owner": "AnisetteKit",
+      "path": ".ci/native-tests/run_tests.py",
+      "test_ids": [
+        "run_tests.MaintainedAnisetteNativeTests.test_actual_consumer_hooks_observe_without_changing_results",
+        "run_tests.MaintainedAnisetteNativeTests.test_actual_loader_lifetime_and_read_only_callbacks",
+        "run_tests.MaintainedAnisetteNativeTests.test_actual_native_boundary_success_faults_and_concurrent_calls",
+        "run_tests.MaintainedAnisetteNativeTests.test_actual_swift_consumer_decoder_rejects_private_or_malformed_values",
+        "run_tests.MaintainedAnisetteNativeTests.test_constructor_diagnostic_reaches_actual_json_boundary_and_preserves_poison",
+        "run_tests.MaintainedAnisetteNativeTests.test_fresh_provisioning_constructor_failure_is_correlated_and_redacted",
+        "run_tests.MaintainedAnisetteNativeTests.test_native_trace_is_bounded_and_can_be_disabled_without_changing_results",
+        "run_tests.MaintainedAnisetteNativeTests.test_normal_checked_staging_blocks_otp_and_preserves_previous_blob_on_every_io_failure",
+        "run_tests.MaintainedAnisetteNativeTests.test_swift_and_native_metadata_allowlists_are_identical"
+      ]
+    },
+    {
+      "id": "sidesign-ci-1",
+      "owner": "SideSign",
+      "path": ".ci/test_login_trace_source.py",
+      "test_ids": [
+        "test_login_trace_source.LoginTraceSourceTests.test_anisette_logs_are_fixed_literals",
+        "test_login_trace_source.LoginTraceSourceTests.test_authentication_and_account_have_no_free_form_log_sinks",
+        "test_login_trace_source.LoginTraceSourceTests.test_cancellation_is_classified_without_description",
+        "test_login_trace_source.LoginTraceSourceTests.test_every_authentication_stage_is_present_and_ordered",
+        "test_login_trace_source.LoginTraceSourceTests.test_original_authentication_logic_is_preserved",
+        "test_login_trace_source.LoginTraceSourceTests.test_portal_and_anisette_logic_is_preserved",
+        "test_login_trace_source.LoginTraceSourceTests.test_provisioning_logs_are_fixed_literals_and_logic_is_preserved",
+        "test_login_trace_source.LoginTraceSourceTests.test_stages_are_closed_enums_and_no_global_verbosity_is_enabled",
+        "test_login_trace_source.LoginTraceSourceTests.test_teams_logs_are_fixed_literals_and_logic_is_preserved",
+        "test_login_trace_source.LoginTraceSourceTests.test_two_factor_outcomes_are_terminal_and_retry_safe"
+      ]
+    },
+    {
+      "id": "sidestore-login_trace-2",
+      "owner": "SideStore",
+      "path": "tests/login_trace/test_contract.py",
+      "test_ids": [
+        "test_contract.LoginTraceContract.test_finite_parser_and_existing_limits",
+        "test_contract.LoginTraceContract.test_operation_ownership_and_fail_closed_paths",
+        "test_contract.LoginTraceContract.test_parser_render_and_validator_match",
+        "test_contract.LoginTraceContract.test_producer_stage_range_and_generated_correlation",
+        "test_contract.LoginTraceContract.test_real_swift_parser_and_wire",
+        "test_contract.LoginTraceContract.test_real_swift_timeout_host_retention_and_copy",
+        "test_contract.LoginTraceContract.test_timeout_adds_diagnostics_without_changing_terminal_policy",
+        "test_contract.LoginTraceContract.test_timeout_host_retention_is_diagnostic_only"
+      ]
+    },
+    {
+      "id": "sidestore-init_diagnostics-3",
+      "owner": "SideStore",
+      "path": "tests/init_diagnostics/test_contract.py",
+      "test_ids": [
+        "test_contract.InitializerDiagnosticContract.test_actual_swift_parser_service_wire_and_host_copy",
+        "test_contract.InitializerDiagnosticContract.test_bounded_primary_only_contract_and_no_recovery_mutation",
+        "test_contract.InitializerDiagnosticContract.test_real_native_producer_fixture",
+        "test_contract.InitializerDiagnosticContract.test_shared_capture_validation_and_copy_contracts_match",
+        "test_contract.InitializerDiagnosticContract.test_trace_disabled_preserves_constructor_evidence"
+      ]
+    },
+    {
+      "id": "sidestore-adi_consumption-4",
+      "owner": "SideStore",
+      "path": "tests/adi_consumption/test_contract.py",
+      "test_ids": [
+        "test_contract.ConsumerContractTests.test_disabled_trace_preserves_classification_and_drops_diagnostics",
+        "test_contract.ConsumerContractTests.test_legacy_comparison_is_read_only_snapshot_bound_and_failure_scoped",
+        "test_contract.ConsumerContractTests.test_native_pipeline_wire_copy_and_importing_host",
+        "test_contract.ConsumerContractTests.test_real_cpp_producer_descriptor_and_pinned_schema",
+        "test_contract.ConsumerContractTests.test_shared_parser_and_schema_are_exact_across_owners",
+        "test_contract.ConsumerContractTests.test_wire_and_render_use_real_finite_contract"
+      ]
+    },
+    {
+      "id": "livecontainer-login_trace-5",
+      "owner": "LiveContainer",
+      "path": "tests/login_trace/test_contract.py",
+      "test_ids": [
+        "test_contract.LoginTraceContract.test_finite_parser_and_existing_limits",
+        "test_contract.LoginTraceContract.test_operation_ownership_and_fail_closed_paths",
+        "test_contract.LoginTraceContract.test_parser_render_and_validator_match",
+        "test_contract.LoginTraceContract.test_producer_stage_range_and_generated_correlation",
+        "test_contract.LoginTraceContract.test_real_swift_parser_and_wire",
+        "test_contract.LoginTraceContract.test_real_swift_timeout_host_retention_and_copy",
+        "test_contract.LoginTraceContract.test_timeout_adds_diagnostics_without_changing_terminal_policy",
+        "test_contract.LoginTraceContract.test_timeout_host_retention_is_diagnostic_only"
+      ]
+    },
+    {
+      "id": "livecontainer-init_diagnostics-6",
+      "owner": "LiveContainer",
+      "path": "tests/init_diagnostics/test_contract.py",
+      "test_ids": [
+        "test_contract.InitializerDiagnosticContract.test_actual_swift_parser_service_wire_and_host_copy",
+        "test_contract.InitializerDiagnosticContract.test_bounded_primary_only_contract_and_no_recovery_mutation",
+        "test_contract.InitializerDiagnosticContract.test_real_native_producer_fixture",
+        "test_contract.InitializerDiagnosticContract.test_shared_capture_validation_and_copy_contracts_match",
+        "test_contract.InitializerDiagnosticContract.test_trace_disabled_preserves_constructor_evidence"
+      ]
+    },
+    {
+      "id": "livecontainer-adi_consumption-7",
+      "owner": "LiveContainer",
+      "path": "tests/adi_consumption/test_contract.py",
+      "test_ids": [
+        "test_contract.ConsumerContractTests.test_disabled_trace_preserves_classification_and_drops_diagnostics",
+        "test_contract.ConsumerContractTests.test_legacy_comparison_is_read_only_snapshot_bound_and_failure_scoped",
+        "test_contract.ConsumerContractTests.test_native_pipeline_wire_copy_and_importing_host",
+        "test_contract.ConsumerContractTests.test_real_cpp_producer_descriptor_and_pinned_schema",
+        "test_contract.ConsumerContractTests.test_shared_parser_and_schema_are_exact_across_owners",
+        "test_contract.ConsumerContractTests.test_wire_and_render_use_real_finite_contract"
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "source_basis": "p0-login-trace-phase-a-v1",
+  "source_seal_sha256": "0caa11b1135abbf9c3905c601d100475b91f8d011237033ab47d1f96fad116e8",
+  "test_source_audit": {
+    "AnisetteKit": {
+      "Tests/AnisetteKitTests/AnisetteKitTests.swift": "3a3b13ad711b4e4bb8e5b552f4ccc4b06bafd5b29455cd05e4d5e6b09feb0561",
+      "Tests/AnisetteKitTests/LoginDiagnosticTraceTests.swift": "0a04f3657123356af34ad0c51a50291b1d494dd50376478684aa066996790bbf"
+    },
+    "SideSign": {
+      "Tests/SideSignTests/SideSignTests.swift": "511c3fe77e5b4e5e8903ada85e8b2ee4b17f08016cf6ac8db90446158bcd0ad6"
+    }
+  },
+  "toolchain": {
+    "architecture": "arm64",
+    "clang": "Apple clang version 21.0.0 (clang-2100.0.123.102)",
+    "developer_dir": "/Applications/Xcode_26.4.1.app/Contents/Developer",
+    "expected_only_reference": "Exact Swift stdout/stderr from failed Phase A run39209074594 artifact49f293de4c3b1c184610986f7097d10160af7970aee7bbdfb5c2e8af867740ef; Xcode/clang versions unchanged; no validation result inherited",
+    "swift_stderr": "swift-driver version: 1.148.6 ",
+    "swift_stdout": "Apple Swift version 6.3.1 (swiftlang-6.3.1.1.2 clang-2100.0.123.102)\nTarget: arm64-apple-macosx26.0\n",
+    "xcode": "Xcode 26.4.1\nBuild version 17E202"
+  },
+  "workflow_template_sha256": "ec94ca999e297a1eb4ae48fe7eec757e61b216dda9f413dc9327af3d5aa18872"
+}

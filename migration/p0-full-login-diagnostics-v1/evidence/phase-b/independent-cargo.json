@@ -1,0 +1,244 @@
+{
+  "artifact_sha256": "b2c931dccffaa7232e8818e674267013e083af2ecb8ff47d256414b6bbc77c93",
+  "check_count": 290,
+  "checks": [
+    "artifact SHA256 exact",
+    "archive names unique and ordinary relative",
+    "complete index member set",
+    "all 406 indexed member digests recomputed",
+    "reviewed input digest matches result",
+    "replay adapter bound: cargo_contract.py",
+    "replay adapter bound: native_build.py",
+    "replay adapter bound: source_primitives.py",
+    "replay adapter bound: graph_contract.py",
+    "replay adapter bound: inventory.py",
+    "replay adapter bound: lifecycle.py",
+    "real metadata byte-identical",
+    "metadata raw log and proof binding",
+    "source receipt byte-identical",
+    "all local Cargo inputs unchanged across fetch/build",
+    "producer argv/cwd exact with clean successful settlement",
+    "pure generated transition validator output equals retained evidence",
+    "only registry package plist_ffi changed",
+    "all immutable plist proof fields equal",
+    "plist source inventory pinned",
+    "raw generated header exact",
+    "observed plist source adds exact one header",
+    "metadata package and node IDs unique",
+    "metadata proof package sets exact",
+    "local workspace identity exact",
+    "metadata edge representations agree",
+    "local manifest path/version: idevice",
+    "local manifest path/version: idevice-ffi",
+    "local manifest path/version: idevice-test-harness",
+    "local manifest path/version: idevice-tools",
+    "local manifest path/version: jktcp",
+    "pure feature graph replay exact",
+    "only exact nskeyedarchiver alias package",
+    "alias exact archive and inventory relation",
+    "alias pinned content and observed samefile proof",
+    "no unrecognized registry proof allowances",
+    "generated Cargo bookkeeping inventory unchanged",
+    "five equality mutation probes reject",
+    "metadata argv/cwd before",
+    "metadata environment equals build before",
+    "metadata exit and settlement before",
+    "metadata argv/cwd after",
+    "metadata environment equals build after",
+    "metadata exit and settlement after",
+    "no host OpenSSL or pkg-config overrides",
+    "exact isolated Rust storage env",
+    "SDK deployment and tool priority exact",
+    "no unexpected Cargo/Rust env flags",
+    "fresh and final storage/config receipts consistent",
+    "all cwd ancestry implicit config paths covered",
+    "native tool receipts byte-identical",
+    "native inventory names exact",
+    "Rust toolchain versions bind retained stdout",
+    "Rust binary receipts consistent",
+    "bindgen receipt consistent",
+    "OpenSSL host-only receipt consistent",
+    "Xcode Swift clang version receipts exact",
+    "transport finite framework inventory",
+    "transport header library modulemap bindings",
+    "transport XCFramework command exact",
+    "XCFramework clean settlement"
+  ],
+  "documentation_alias": {
+    "adapter_required_archive_bytes": 13901,
+    "archive_sha256": "36c53158d1bf37bbbdd165f5220fda8bb5757c89eb700107992152c64c6cad7e",
+    "package": "registry+https://github.com/rust-lang/crates.io-index#nskeyedarchiver_converter@0.1.3",
+    "proof": {
+      "actual_inventory_sha256": "da7438fa88a617c437082cd5cf91113b2c58c19eb07e9f53e0df2bcd3fac0ee3",
+      "archive_inventory_sha256": "c4ec405e9d04acfc75bd3b8e778fa845db7cabbf35bde38b71c8a6ebd347007e",
+      "archive_paths": [
+        "README.MD",
+        "README.md"
+      ],
+      "content_bytes": 2398,
+      "content_sha256": "8f9d7995df53d0b3c75999fb5b253930513d761808f54f1b118c5c02cfee6f31",
+      "enumerated_path": "README.md",
+      "file_identity": {
+        "bytes": 2398,
+        "device": 16777229,
+        "inode": 3031210
+      },
+      "ordinary_nonsymlink": true,
+      "rule": "PINNED_NSKEYEDARCHIVER_README_ALIAS_V1",
+      "samefile": true,
+      "verified": true
+    },
+    "remaining_inventory_relation": "all 10 surviving entries exactly equal; only README.MD absent as an enumerated directory entry"
+  },
+  "evidence_boundaries": [
+    "Registry .crate archives and dependency source blobs are not retained in this artifact. Their raw bytes, lock checksums and historical filesystem alias identity were checked by the reviewed capture adapter and retained as receipts; this audit cross-checks those receipts and does not claim independent re-hashing of absent blobs or reprobe the macOS filesystem.",
+    "The generated plist header raw bytes are retained and independently re-hashed. The exact transition and whole remaining proof equality are independently replayed.",
+    "Native tool executables, full SDK, isolated install receipt file, generated transport static library/header/XCFramework bytes are not retained. Version logs, path/hash/symlink receipts and transport inventory are cross-consistent; they are not an independent binary rebuild or direct re-hash of absent binaries.",
+    "Native command environment receipts contain the lifecycle fixed-key projection; code review confirms allowlisted native environment construction. Tool substitution checking is checkpoint-based, not an atomic execution seal.",
+    "No device, guest, ADI, installation, distribution IPA or production readiness claim."
+  ],
+  "gaps": [],
+  "metadata": {
+    "active_openssl": false,
+    "bytes": 1168086,
+    "local_packages": 5,
+    "packages": 234,
+    "registry_packages": 229,
+    "sha256": "08fa5d8f4e15132433f9aa309dc0fe5eddbfbde36db6833aae938681e20623cc",
+    "transport_closure_edges": 473,
+    "transport_closure_packages": 213
+  },
+  "method": "Read-only ZIP bytes and JSON audit; pure Python receipt/transition/feature-graph replay, no native or guest execution or remote mutation. Candidate unchanged.",
+  "native": {
+    "native_tool_names": [
+      "bindgen",
+      "brew",
+      "cargo",
+      "openssl",
+      "rustc",
+      "rustup"
+    ],
+    "producer_argv": [
+      "/opt/homebrew/bin/rustup",
+      "run",
+      "1.98.1-aarch64-apple-darwin",
+      "cargo",
+      "build",
+      "--frozen",
+      "--release",
+      "--target",
+      "aarch64-apple-ios",
+      "--features",
+      "obfuscate",
+      "--manifest-path",
+      "/Users/runner/work/_temp/p0login-phase-b-work/sources/idevice/ffi/Cargo.toml",
+      "--verbose"
+    ],
+    "producer_cwd": "/Users/runner/work/_temp/p0login-phase-b-work",
+    "recorded_environment": {
+      "BINDGEN_EXTRA_CLANG_ARGS": "--sysroot=/Applications/Xcode_26.4.1.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk",
+      "CARGO_HOME": "/Users/runner/work/_temp/p0login-phase-b-work/cargo-home",
+      "CARGO_INSTALL_ROOT": "/Users/runner/work/_temp/p0login-phase-b-work/cargo-tools",
+      "CARGO_TARGET_DIR": "/Users/runner/work/_temp/p0login-phase-b-work/cargo-target",
+      "DEVELOPER_DIR": "/Applications/Xcode_26.4.1.app/Contents/Developer",
+      "GIT_ALLOW_PROTOCOL": "https",
+      "GIT_CONFIG_GLOBAL": "/dev/null",
+      "GIT_CONFIG_NOSYSTEM": "1",
+      "GIT_GRAFT_FILE": "/dev/null",
+      "GIT_NO_LAZY_FETCH": "1",
+      "GIT_NO_REPLACE_OBJECTS": "1",
+      "GIT_TERMINAL_PROMPT": "0",
+      "HOME": "/Users/runner",
+      "HOMEBREW_NO_AUTO_UPDATE": "1",
+      "IPHONEOS_DEPLOYMENT_TARGET": "15.0",
+      "PATH": "/Users/runner/work/_temp/p0login-phase-b-work/cargo-tools/bin:/Users/runner/work/_temp/p0login-phase-b-work/rustup-home/toolchains/1.98.1-aarch64-apple-darwin/bin:/opt/homebrew/lib/ruby/gems/3.4.0/bin:/opt/homebrew/opt/ruby@3.4/bin:/Users/runner/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Users/runner/.cargo/bin:/usr/local/opt/curl/bin:/usr/local/bin:/usr/local/sbin:/Users/runner/bin:/Users/runner/.yarn/bin:/Users/runner/Library/Android/sdk/tools:/Users/runner/Library/Android/sdk/platform-tools:/Library/Frameworks/Python.framework/Versions/Current/bin:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/usr/bin:/bin:/usr/sbin:/sbin:/Users/runner/.dotnet/tools",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "RUSTUP_HOME": "/Users/runner/work/_temp/p0login-phase-b-work/rustup-home",
+      "RUSTUP_TOOLCHAIN": "1.98.1-aarch64-apple-darwin",
+      "TMPDIR": "/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T/"
+    },
+    "sdk": {
+      "resolved_path": "/Applications/Xcode_26.4.1.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk",
+      "xcrun_path": "/Applications/Xcode_26.4.1.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk"
+    },
+    "toolchain": "1.98.1-aarch64-apple-darwin"
+  },
+  "negative_probes_rejected": [
+    "other-package source change",
+    "metadata digest change",
+    "new arbitrary proof field",
+    "generated header hash change",
+    "extra generated file"
+  ],
+  "registry_manifest_bindings_checked": 229,
+  "run_id": 39229204851,
+  "schema_version": 1,
+  "status": "PASS_WITH_EVIDENCE_BOUNDARIES",
+  "transition": {
+    "after": {
+      "archive_sha256": "35ed070b06d9f2fdd7e816ef784fb07b09672f2acf37527f810dbedf450b7769",
+      "expected_sha256": "869710f970cde3b6dcb9f68d8c78b42d6717ade0a051e634fb6e12c8365d42f5",
+      "path": "plist.h",
+      "present": true,
+      "producer_build_script_sha256": "3f113baab2c64102e29141a0e66743151aeaaee6404d64971bb5f664853b0819",
+      "role": "generated native compilation input; distinct from idevice/ffi/plist.h",
+      "rule": "PINNED_PLIST_FFI_GENERATED_HEADER_V1"
+    },
+    "before": {
+      "archive_sha256": "35ed070b06d9f2fdd7e816ef784fb07b09672f2acf37527f810dbedf450b7769",
+      "expected_sha256": "869710f970cde3b6dcb9f68d8c78b42d6717ade0a051e634fb6e12c8365d42f5",
+      "path": "plist.h",
+      "present": false,
+      "producer_build_script_sha256": "3f113baab2c64102e29141a0e66743151aeaaee6404d64971bb5f664853b0819",
+      "role": "generated native compilation input; distinct from idevice/ffi/plist.h",
+      "rule": "PINNED_PLIST_FFI_GENERATED_HEADER_V1"
+    },
+    "generated_artifact": {
+      "bytes": 15535,
+      "file_identity": {
+        "device": 16777229,
+        "inode": 3051821
+      },
+      "sha256": "869710f970cde3b6dcb9f68d8c78b42d6717ade0a051e634fb6e12c8365d42f5"
+    },
+    "immutable_source_inventory_sha256": "05ab62152e8a519f8304838df72c6dca760804b212b8bda6b478ecad92c20f0d",
+    "observed_after_inventory_sha256": "48d5ae2e00f0f5d72de392588ecfb217020f33d9d172391b535c835640d8801d",
+    "producer_execution": {
+      "command_sha256": "fba3bd7423fc730692ed052ca53dec063ada2c3459ed1475306a6eb30384d8a5",
+      "exit_code_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "label": "idevice-build",
+      "pgid": 8604,
+      "settlement_sha256": "e1f92c72d9c16a2434ac56d32f4036ed5caf9edb503a405aaa8fe0fd378d9c3c",
+      "succeeded_and_quiescent": true
+    },
+    "producer_package": "registry+https://github.com/rust-lang/crates.io-index#plist_ffi@0.1.6",
+    "schema_version": 1,
+    "status": "EXACT_GENERATED_HEADER_TRANSITION_VERIFIED"
+  },
+  "transport": {
+    "framework": {
+      "Info.plist": {
+        "bytes": 755,
+        "kind": "file",
+        "sha256": "f2f09f68516fc48de643512905004a6560a042cc4e014729657f44fcf515a3cd"
+      },
+      "ios-arm64/Headers/idevice.h": {
+        "bytes": 355855,
+        "kind": "file",
+        "sha256": "4b21922e77c2dfab2e4b7f75d45c0bf648cec9656da524eeb301cb4fd41ac624"
+      },
+      "ios-arm64/Headers/module.modulemap": {
+        "bytes": 51,
+        "kind": "file",
+        "sha256": "d9f7093c17127841806e2ddffdf540ef1728ed29be75304687952bdb61ae9b82"
+      },
+      "ios-arm64/libidevice_ffi.a": {
+        "bytes": 17025232,
+        "kind": "file",
+        "sha256": "21349bc21756dbb74a4a36c3705e52130b8f8d59b6445a71d1ce4509545d53ac"
+      }
+    },
+    "header_sha256": "4b21922e77c2dfab2e4b7f75d45c0bf648cec9656da524eeb301cb4fd41ac624",
+    "library_sha256": "21349bc21756dbb74a4a36c3705e52130b8f8d59b6445a71d1ce4509545d53ac"
+  }
+}
