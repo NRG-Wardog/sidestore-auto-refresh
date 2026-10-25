@@ -120,6 +120,19 @@ sys.exit(status)
         self.assertLess(WORKFLOW.index(name),WORKFLOW.index('      - name: Compile unsigned LiveContainer'))
         self.assertNotIn('continue-on-error',WORKFLOW)
 
+    def test_diagnostic_full_row_hash_covers_unlisted_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source=Path(directory)/'raw.json'
+            first={'target':'App','buildSettings':{'CONFIGURATION':'Release','UNLISTED':'hidden-one'}}
+            second={'target':'App','buildSettings':{'CONFIGURATION':'Release','UNLISTED':'hidden-two'}}
+            source.write_text(json.dumps([first,first,second]))
+            result=capture(source,0)
+            hashes=[row['full_row_sha256'] for row in result['rows']]
+            self.assertEqual(hashes[0],hashes[1])
+            self.assertNotEqual(hashes[0],hashes[2])
+            self.assertNotIn('hidden-one',json.dumps(result))
+            self.assertNotIn('hidden-two',json.dumps(result))
+
     def test_diagnostic_missing_malformed_and_wrong_shape(self):
         with tempfile.TemporaryDirectory() as directory:
             source=Path(directory)/'raw.json'

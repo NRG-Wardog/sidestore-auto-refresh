@@ -21,8 +21,29 @@ class ReleaseCoverageTests(unittest.TestCase):
                          {'CONFIGURATION': 'Debug'}, {'GCC_INSTRUMENT_PROGRAM_FLOW_ARCS': 'YES'}):
             rows=self.row(); rows[0]['buildSettings'].update(mutation)
             with self.assertRaises(ValueError): policy.settings(rows)
-        with self.assertRaises(ValueError): policy.settings(self.row()*2)
+        conflicting = self.row() + self.row(); conflicting[1]['buildSettings']['UNLISTED'] = 'different'
+        with self.assertRaises(ValueError): policy.settings(conflicting)
         with self.assertRaises(ValueError): policy.settings([])
+
+    def test_exact_full_row_duplicates_only(self):
+        rows = self.row() + self.row()
+        self.assertEqual(len(policy.settings(rows)), 1)
+        rows[1] = dict(reversed(list(rows[1].items())))
+        rows[1]['buildSettings'] = dict(reversed(list(rows[1]['buildSettings'].items())))
+        self.assertEqual(len(policy.settings(rows)), 1)
+        for location in ('metadata', 'unlisted_setting', 'listed_setting'):
+            changed = self.row() + self.row()
+            if location == 'metadata': changed[1]['project'] = 'different-project'
+            elif location == 'unlisted_setting': changed[1]['buildSettings']['UNLISTED'] = 'different'
+            else: changed[1]['buildSettings']['DEBUG_INFORMATION_FORMAT'] = 'dwarf'
+            with self.subTest(location=location), self.assertRaises(ValueError): policy.settings(changed)
+
+    def test_duplicate_rows_each_require_validation(self):
+        for key, value in (('CONFIGURATION','Debug'), ('ENABLE_CODE_COVERAGE','YES'),
+                           ('CLANG_COVERAGE_MAPPING_LINKER_ARGS','YES')):
+            rows = self.row() + self.row(); rows[1]['buildSettings'][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError): policy.settings(rows)
+        self.assertEqual(len(policy.settings(self.support_row()*2, True)), 1)
 
     def test_secondary_mapping_and_linker_coverage_are_rejected(self):
         for key in ('CLANG_COVERAGE_MAPPING', 'CLANG_COVERAGE_MAPPING_LINKER_ARGS',
@@ -64,7 +85,7 @@ class ReleaseCoverageTests(unittest.TestCase):
 
     def test_support_settings_opt_in(self):
         self.assertEqual(policy.settings(self.support_row(), True)[0]['target'], 'SideStoreSupport')
-        for rows in (self.row(), self.support_row() * 2):
+        for rows in (self.row(),):
             with self.assertRaises(ValueError): policy.settings(rows, True)
         rows = self.support_row(); rows[0]['buildSettings']['SWIFT_OPTIMIZATION_LEVEL'] = '-O'
         with self.assertRaises(ValueError): policy.settings(rows, True)
@@ -108,13 +129,19 @@ class ReleaseCoverageTests(unittest.TestCase):
             for mode in ('settings', 'logs'):
                 lc = root / ('lc-' + mode); ss = root / ('ss-' + mode); out = root / (mode + '.json')
                 if mode == 'settings':
-                    lc.write_text(json.dumps(self.support_row())); ss.write_text(json.dumps(self.row()))
+                    lc.write_text(json.dumps(self.support_row()*2)); ss.write_text(json.dumps(self.row()*2))
                 else:
                     lc.write_bytes(self.support_log()); ss.write_bytes(b'/trusted/clang -Os source.c\n** BUILD SUCCEEDED **')
                 subprocess.run([sys.executable, '-B', str(Path(policy.__file__).resolve()), mode,
                                 '--inputs', str(lc), str(ss), '--output', str(out), '--require-support-size'],
                                cwd=root, env=env, check=True)
                 report = json.loads(out.read_text())
+                if mode == 'settings':
+                    for source in report['effective_settings_inputs'].values():
+                        self.assertEqual(source['input_row_count'],2)
+                        self.assertEqual(source['unique_target_count'],1)
+                        self.assertEqual(source['exact_duplicate_row_count'],1)
+                        self.assertEqual(len(source['exact_duplicate_full_row_sha256'][0]),64)
                 self.assertTrue(report['support_size_policy']['required'])
                 self.assertEqual(report['support_size_policy']['effective_optimization'], '-Osize')
 

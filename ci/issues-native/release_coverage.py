@@ -13,10 +13,16 @@ KEYS = ('ENABLE_CODE_COVERAGE', 'CLANG_ENABLE_CODE_COVERAGE', 'CLANG_COVERAGE_MA
         'SWIFT_OPTIMIZATION_LEVEL', 'DEBUG_INFORMATION_FORMAT', 'ENABLE_TESTABILITY')
 FLAGS = re.compile(r'(?<![\w-])(?:-fprofile-instr-generate|-fcoverage-mapping|-profile-generate|-profile-coverage-mapping|-fprofile-arcs|-ftest-coverage)(?=[\s=\x27\x22]|$)')
 
+def canonical_row(row):
+    # Includes all original settings and identity metadata, not just our whitelist.
+    return json.dumps(row, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False).encode('utf-8')
+
+
 def settings(rows, require_support_size=False):
     if not isinstance(rows, list) or not rows:
         raise ValueError('Missing effective Release settings')
     result = []
+    originals = {}
     for row in rows:
         values = row['buildSettings']
         if values.get('CONFIGURATION') != 'Release':
@@ -31,10 +37,17 @@ def settings(rows, require_support_size=False):
                     'GCC_INSTRUMENT_PROGRAM_FLOW_ARCS'):
             if values.get(key) == 'YES':
                 raise ValueError('Secondary coverage instrumentation enabled: ' + key)
+        target = row['target']
+        if not isinstance(target, str) or not target:
+            raise ValueError('Invalid effective target identity')
+        original = canonical_row(row)
+        if target in originals:
+            if originals[target] != original:
+                raise ValueError('Conflicting duplicate effective target: ' + target)
+            continue
+        originals[target] = original
         result.append({'target': row['target'], 'configuration': 'Release',
                        'settings': {key: values.get(key) for key in KEYS}})
-    if len({row['target'] for row in result}) != len(result):
-        raise ValueError('Duplicate effective target')
     if require_support_size:
         support = [row for row in result if row['target'] == 'SideStoreSupport']
         if len(support) != 1 or support[0]['settings']['SWIFT_OPTIMIZATION_LEVEL'] != '-Osize':
@@ -99,13 +112,31 @@ def main():
     result = {'schema': 'release-instrumentation-policy-v1', 'configuration': 'Release',
               'workflow_commit': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
               'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'debug_test_configuration_changed': False}
-    result['projects'] = {name: (settings(json.loads(path.read_text()), args.require_support_size and name == 'LiveContainer') if args.mode == 'settings'
-                                else build_log(path.read_bytes(), args.require_support_size and name == 'LiveContainer'))
-                          for name, path in zip(('LiveContainer', 'SideStore'), args.inputs)}
+    inputs = {name: path.read_bytes() for name, path in zip(('LiveContainer', 'SideStore'), args.inputs)}
+    parsed = {name: json.loads(data) for name, data in inputs.items()} if args.mode == 'settings' else {}
+    result['projects'] = {name: (settings(parsed[name], args.require_support_size and name == 'LiveContainer') if args.mode == 'settings'
+                                else build_log(data, args.require_support_size and name == 'LiveContainer'))
+                          for name, data in inputs.items()}
+    if args.mode == 'settings':
+        result['effective_settings_inputs'] = {}
+        for name, data in inputs.items():
+            rows = parsed[name]
+            seen = set()
+            duplicate_hashes = []
+            for row in rows:
+                if row['target'] in seen:
+                    duplicate_hashes.append(hashlib.sha256(canonical_row(row)).hexdigest())
+                seen.add(row['target'])
+            result['effective_settings_inputs'][name] = {
+                'input_sha256': hashlib.sha256(data).hexdigest(), 'input_row_count': len(rows),
+                'unique_target_count': len(result['projects'][name]),
+                'exact_duplicate_row_count': len(duplicate_hashes),
+                'exact_duplicate_full_row_sha256': duplicate_hashes,
+                'duplicate_policy': 'full-original-row-canonical-json-equality-after-validation'}
     if args.require_support_size:
         result['support_size_policy'] = {'required': True, 'target': 'SideStoreSupport',
             'effective_optimization': '-Osize', 'mode': args.mode,
-            'input_sha256': hashlib.sha256(args.inputs[0].read_bytes()).hexdigest()}
+            'input_sha256': hashlib.sha256(inputs['LiveContainer']).hexdigest()}
         if args.mode == 'settings':
             result['support_size_policy']['target_count'] = 1
             result['support_size_policy']['all_target_count'] = len(result['projects']['LiveContainer'])

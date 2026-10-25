@@ -32,7 +32,8 @@ def capture(source, exit_code):
         if not isinstance(row, dict) or not isinstance(row.get('buildSettings'), dict):
             report['rows'].append({'shape': 'INVALID_ROW'})
             continue
-        report['rows'].append({'target': row.get('target'), 'settings':
+        report['rows'].append({'target': row.get('target'),
+                              'full_row_sha256': hashlib.sha256(json.dumps(row, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False).encode('utf-8')).hexdigest(), 'settings':
                               {key: row['buildSettings'].get(key) for key in KEYS}})
     return report
 
