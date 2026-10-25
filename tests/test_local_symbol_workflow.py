@@ -27,7 +27,7 @@ class LocalWorkflowTests(unittest.TestCase):
         tree=ast.parse((ROOT/'scripts/experiment_local_symbols.py').read_text())
         runs=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)
               and isinstance(n.func.value,ast.Name) and n.func.value.id=='subprocess' and n.func.attr=='run']
-        self.assertEqual(len(runs),2)
-        self.assertEqual(sorted(next(k.value.value for k in n.keywords if k.arg=='timeout') for n in runs),[30,120])
+        self.assertEqual(len(runs),3)
+        self.assertEqual(sorted(next(k.value.value for k in n.keywords if k.arg=='timeout') for n in runs),[30,120,120])
 
 if __name__=='__main__':unittest.main()

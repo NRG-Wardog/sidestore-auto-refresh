@@ -1,13 +1,35 @@
 import json
+import struct
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
 from types import SimpleNamespace
-from test_macho_stab_guard import fixture
+from test_macho_stab_guard import fixture, alter_command
+from test_macho_local_symbol_guard import remove_fixture_local
+from macho_stab_guard import commands
 import experiment_local_symbols as experiment
 from experiment_strip_stabs import TARGETS,DSYMS,digest
+
+
+def add_synthetic_stab(data):
+    rows=commands(data)[2];sym=next(raw for cmd,raw in rows if cmd==2)
+    off,count,strings,size=struct.unpack_from('<4I',sym,8)
+    dysym=struct.unpack('<20I',next(raw for cmd,raw in rows if cmd==0xb))
+    result=data[:off]+struct.pack('<IBBHQ',2,0x3c,0,0,90260802)+data[off:]
+    result=alter_command(result,2,12,count+1);result=alter_command(result,2,16,strings+16)
+    for offset,value in ((12,dysym[3]+1),(16,dysym[4]+1),(24,dysym[6]+1),(56,dysym[14]+16)):
+        result=alter_command(result,0xb,offset,value)
+    result=bytearray(result);pos=32
+    for cmd,raw in commands(bytes(result))[2]:
+        if cmd==0x19 and raw[8:24].rstrip(b'\0')==b'__LINKEDIT':
+            for field in (32,48):struct.pack_into('<Q',result,pos+field,struct.unpack_from('<Q',raw,field)[0]+16)
+        pos+=len(raw)
+    for i in range(dysym[15]):
+        location=dysym[14]+16+4*i;value=struct.unpack_from('<I',result,location)[0]
+        if not value&0xc0000000:struct.pack_into('<I',result,location,value+1)
+    return bytes(result)
 
 
 class LocalExperimentTests(unittest.TestCase):
@@ -62,7 +84,7 @@ class LocalExperimentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0,stdout=b'synthetic strip diagnostic')
         with patch.object(experiment.subprocess,'run',side_effect=fake_strip) as run:
             with self.assertRaisesRegex(ValueError,'one or more'):experiment.measure_all_targets(targets,diagnostics,output,report)
-        self.assertEqual(run.call_count,2)
+        self.assertEqual(run.call_count,4)
         self.assertEqual(set(report['target_errors']),set(TARGETS))
         for key in TARGETS:
             observed=json.loads((output/key/'after-strip-observed.json').read_text())
@@ -71,5 +93,35 @@ class LocalExperimentTests(unittest.TestCase):
             self.assertEqual(observed['stab_records'][0]['name_hex'],b'debug.c'.hex())
             self.assertIn('STAB',report['target_errors'][key]['message'])
             self.assertFalse((output/key/'structural.json').exists())
+
+    def test_two_step_cleanup_preserves_both_unmodified_semantic_gates(self):
+        before=fixture(False);final=remove_fixture_local(before);intermediate=add_synthetic_stab(final)
+        output=self.root/'two-step';output.mkdir()
+        targets={'LiveContainerSwiftUI':before};diagnostics={'LiveContainerSwiftUI':{'uuid':experiment.image_uuid(before)}}
+        report={'targets':{'LiveContainerSwiftUI':{}}}
+        def fake_strip(command,**kwargs):
+            data=intermediate if '-x' in command else final
+            Path(command[command.index('-o')+1]).write_bytes(data)
+            return SimpleNamespace(returncode=0,stdout=b'synthetic two step')
+        with patch.object(experiment.subprocess,'run',side_effect=fake_strip):
+            experiment.measure_all_targets(targets,diagnostics,output,report)
+        row=report['targets']['LiveContainerSwiftUI']['measurement']
+        self.assertEqual(row['removed_local_records'],1);self.assertEqual(row['after']['stab_count'],0)
+        cleanup=json.loads((output/'LiveContainerSwiftUI/stab-cleanup-structural.json').read_text())
+        self.assertEqual(cleanup['removed_stabs'],1)
+        self.assertFalse(row['packaging_approved'])
+
+    def test_second_step_cannot_change_external_symbols(self):
+        before=fixture(False);final=remove_fixture_local(before);intermediate=add_synthetic_stab(final)
+        output=self.root/'bad-cleanup';output.mkdir();report={'targets':{'SideStore':{}}}
+        def fake_strip(command,**kwargs):
+            data=intermediate if '-x' in command else final.replace(b'_undefined',b'_undefineX')
+            Path(command[command.index('-o')+1]).write_bytes(data)
+            return SimpleNamespace(returncode=0,stdout=b'synthetic bad cleanup')
+        with patch.object(experiment.subprocess,'run',side_effect=fake_strip):
+            with self.assertRaisesRegex(ValueError,'one or more'):
+                experiment.measure_all_targets({'SideStore':before},{'SideStore':{'uuid':experiment.image_uuid(before)}},output,report)
+        self.assertIn('semantics changed',report['target_errors']['SideStore']['message'])
+        self.assertFalse((output/'SideStore/structural.json').exists())
 
 if __name__=='__main__':unittest.main()

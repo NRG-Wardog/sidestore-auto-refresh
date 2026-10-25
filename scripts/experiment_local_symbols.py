@@ -13,7 +13,7 @@ import sys
 import zipfile
 import zlib
 from experiment_strip_stabs import TARGETS, DSYMS, digest, unique_zip, write
-from macho_stab_guard import image_uuid, require, sha, snapshot
+from macho_stab_guard import image_uuid, require, sha, snapshot, verify as verify_stab_removal
 from macho_local_symbol_guard import classify, verify_local_removal, symbol_rows
 
 
@@ -40,6 +40,15 @@ def bind_inputs(ipa,ipa_sha,symbols,symbols_sha):
     return targets,diagnostics
 
 
+def capture_output(path, data):
+    shape=snapshot(data)
+    records,_=symbol_rows(data)
+    stabs=[{'name_hex':name.hex(),'type':kind,'section':section,'description':desc,'value':value}
+           for name,kind,section,desc,value in records if kind & 0xe0]
+    write(path,{'accepted':False,'snapshot':shape,'stab_records':stabs[:1024],
+                'stab_records_truncated':len(stabs)>1024})
+
+
 def measure_all_targets(targets,diagnostics,output,report):
     """Independent diagnostic attempts; every rejected target still fails overall."""
     errors={}
@@ -52,15 +61,20 @@ def measure_all_targets(targets,diagnostics,output,report):
             (root/'strip.log').write_bytes(result.stdout)
             require(result.returncode==0,'Apple local-symbol strip failed: '+key)
             require(original.read_bytes()==data,'strip mutated original copy')
-            final=candidate.read_bytes()
-            # Capture actual rejected output before classification. This is evidence,
-            # not admission; the unchanged final guard still requires zero STAB.
-            shape=snapshot(final)
-            records,_=symbol_rows(final)
-            stabs=[{'name_hex':name.hex(),'type':kind,'section':section,'description':desc,'value':value}
-                   for name,kind,section,desc,value in records if kind & 0xe0]
-            write(root/'after-strip-observed.json',{'accepted':False,'snapshot':shape,
-                  'stab_records':stabs[:1024],'stab_records_truncated':len(stabs)>1024})
+            intermediate=candidate.read_bytes()
+            capture_output(root/'after-strip-observed.json',intermediate)
+            cleaned=root/'stripped-stabs-cleaned'
+            cleanup=subprocess.run(['xcrun','--toolchain','default','strip','-S','-o',str(cleaned),str(candidate)],
+                                   stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False,timeout=120)
+            (root/'strip-stabs-cleanup.log').write_bytes(cleanup.stdout)
+            require(cleanup.returncode==0,'Apple debug-record cleanup failed: '+key)
+            require(candidate.read_bytes()==intermediate and original.read_bytes()==data,'cleanup changed prior copies')
+            final=cleaned.read_bytes()
+            capture_output(root/'after-stab-cleanup-observed.json',final)
+            # No marker exemption: unchanged debug-only gate proves this second
+            # operation removes only STAB, then original-to-final guard requires zero STAB.
+            cleanup_evidence=verify_stab_removal(intermediate,final,require_reduction=False)
+            write(root/'stab-cleanup-structural.json',cleanup_evidence)
             evidence=verify_local_removal(data,final)
             require(image_uuid(final)==diagnostics[key]['uuid'],'final dSYM UUID differs')
             evidence.update(deflated_before_bytes=deflated_size(data),deflated_after_bytes=deflated_size(final),
@@ -99,7 +113,7 @@ def experiment(ipa,ipa_sha,symbols,symbols_sha,output,*,inspect_only=False):
         strip_path=Path(tool.stdout.strip()).resolve(strict=True)
         expected=Path(os.environ['DEVELOPER_DIR'])/'Toolchains/XcodeDefault.xctoolchain/usr/bin/strip'
         require(strip_path==expected.resolve(strict=True),'unrecognized strip tool path')
-        report['strip_tool']={'path':str(strip_path),'sha256':digest(strip_path),'flags':['-x']}
+        report['strip_tool']={'path':str(strip_path),'sha256':digest(strip_path),'flags_sequence':[['-x'],['-S']]}
         # Full original IPA and complete dSYM archive remain in separate retained diagnostics.
         retained=output/'retained';retained.mkdir()
         for source,name,expected in ((ipa,'original.ipa',ipa_sha),(symbols,'matching-debug-diagnostics.zip',symbols_sha)):

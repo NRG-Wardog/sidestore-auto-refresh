@@ -49,3 +49,10 @@ Exact qualified IPA SHA256:
 Actual Apple strip measurements and native signing remain pending. The target
 is at most 24 MB or the closest demonstrated safe result; no minimum claim is
 made from symbol counts alone. The existing safe -S packaging path is untouched.
+
+Apple `strip -x` was observed on both reviewed inputs to introduce one N_OPT
+STAB (`radr://5614542`, type0x3c, section0, description0, value90260802).
+The diagnostic captures that output, then runs Apple `strip -S` on a separate
+copy. The unchanged debug-only gate must validate intermediate to cleaned bytes;
+the unchanged original-to-final local-symbol gate still requires zero STAB.
+There is no marker exemption, post-hoc mutation, or signing approval.
