@@ -614,6 +614,9 @@ def working_app_lock_differs():
 
 
 def receipt():
+    from verify_russian_localization import verify_receipt as verify_russian_receipt
+    russian_report = E / 'russian-localization/receipt.json'
+    verify_russian_receipt(russian_report, S / 'LiveContainer')
     from run_owned_oda import verify_receipt as verify_owned_oda_receipt
     verify_owned_oda_receipt(E / 'owned-oda/receipt.json')
     from run_issue_tests import verify_issue_receipt, verify_native_receipt
@@ -654,6 +657,7 @@ def receipt():
           'source_owned_fake_diagnostics_executed': True,
           'comprehensive_diagnostics_report_sha256': sha(diagnostic_report),
           'setup_state_recovery_report_sha256': sha(setup_report),
+          'russian_localization_report_sha256': sha(russian_report),
           'source_owned_oda_qualification_executed': True,
           'owned_oda_qualification_receipt_sha256': sha(E / 'owned-oda/receipt.json'),
           'issue_regression_tests_executed': True, 'target_native_tests_executed': False,

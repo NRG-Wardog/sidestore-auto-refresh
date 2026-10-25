@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from russian_setup_projection import REVIEWED_INPUT as RUSSIAN_REVIEWED_INPUT, add as add_russian_setup
 from verify_candidate_graph import HERE, load_candidate_graph, require, valid_path, git
 
 CONTRACTS = ('comprehensive-diagnostics-contract.json', 'setup-state-recovery-contract.json')
@@ -69,7 +70,7 @@ def sha(data):
 def project(contract, graph, sources, additional_inputs=()):
     result = copy.deepcopy(contract)
     changes = {}
-    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values()))
+    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT}
     require(set(additional_inputs) <= allowed, 'unreviewed additive contract input')
     inputs = dict(contract['input_sha256'])
     for path in additional_inputs:
@@ -106,9 +107,13 @@ def contracts(sources, output, verify=False):
     receipts = {}
     for name in CONTRACTS:
         original = HERE / name
-        projected, changes = project(json.loads(original.read_text()), graph, sources, ADDITIONAL_INPUTS[name])
+        additional_inputs = ADDITIONAL_INPUTS[name]
+        russian = name == 'setup-state-recovery-contract.json' and RUSSIAN_REVIEWED_INPUT.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {})
+        if russian: additional_inputs = additional_inputs + (RUSSIAN_REVIEWED_INPUT,)
+        projected, changes = project(json.loads(original.read_text()), graph, sources, additional_inputs)
         if name == 'setup-state-recovery-contract.json':
             projected = add_reviewed_host_coverage(projected)
+            if russian: projected = add_russian_setup(projected)
         data = (json.dumps(projected, indent=2, sort_keys=True) + '\n').encode()
         target = output / name
         if verify:
@@ -117,7 +122,8 @@ def contracts(sources, output, verify=False):
             output.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
         receipts[name] = {'frozen_contract_sha256': sha(original.read_bytes()),
-                          'candidate_contract_sha256': sha(data), 'rebound_inputs': changes}
+                          'candidate_contract_sha256': sha(data), 'rebound_inputs': changes,
+                          'russian_setup_extension': projected.get('russian_setup_extension')}
     receipt = {'schema': 'reviewed-candidate-contract-projection-v1',
                'graph_sha256': sha((HERE / 'candidate-graph.json').read_bytes()),
                'existing_behavioral_expectations_preserved': True,

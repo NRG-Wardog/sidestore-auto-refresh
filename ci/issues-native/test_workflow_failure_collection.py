@@ -12,7 +12,7 @@ EXPECTED = {
     'owned_oda_tests': ['source_gate'], 'issue_tests': ['source_gate'], 'upstream_tests': ['source_gate'],
     'minimuxer_tests': ['source_gate'], 'vpn_tests': ['source_gate'],
     'acquisition_tests': ['source_gate'], 'vendor_tests': ['source_gate'],
-    'comprehensive_tests': ['source_gate'], 'setup_tests': ['source_gate'],
+    'comprehensive_tests': ['source_gate'], 'setup_tests': ['source_gate'], 'russian_tests': ['source_gate'],
     'build_tools': ['source_gate'], 'rust_tests': ['source_gate', 'build_tools'],
     'transport_build': ['source_gate', 'build_tools'],
     'abi_inspection': ['source_gate', 'transport_build'],
@@ -34,7 +34,7 @@ FINAL = (
 )
 EVIDENCE = 'Preserve evidence, including failures (not app products)'
 TELEMETRY = 'Upload early fixture failure diagnostics only'
-TELEMETRY_CONDITION = "${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.owned_oda_tests.outcome == 'failure' || steps.issue_tests.outcome == 'failure' || steps.upstream_tests.outcome == 'failure' || steps.minimuxer_tests.outcome == 'failure' || steps.vpn_tests.outcome == 'failure' || steps.acquisition_tests.outcome == 'failure' || steps.vendor_tests.outcome == 'failure' || steps.comprehensive_tests.outcome == 'failure' || steps.setup_tests.outcome == 'failure') }}"
+TELEMETRY_CONDITION = "${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.owned_oda_tests.outcome == 'failure' || steps.issue_tests.outcome == 'failure' || steps.upstream_tests.outcome == 'failure' || steps.minimuxer_tests.outcome == 'failure' || steps.vpn_tests.outcome == 'failure' || steps.acquisition_tests.outcome == 'failure' || steps.vendor_tests.outcome == 'failure' || steps.comprehensive_tests.outcome == 'failure' || steps.setup_tests.outcome == 'failure' || steps.russian_tests.outcome == 'failure') }}"
 
 
 def steps():
@@ -66,7 +66,7 @@ def simulate(rows, failures=(), cancelled=False):
             admitted = not failed and not cancelled
         elif condition == TELEMETRY_CONDITION:
             admitted = (not cancelled and states.get('source_gate') == 'success' and
-                        any(states.get(key) == 'failure' for key in ('owned_oda_tests', 'issue_tests', 'upstream_tests', 'minimuxer_tests', 'vpn_tests', 'acquisition_tests', 'vendor_tests', 'comprehensive_tests', 'setup_tests')))
+                        any(states.get(key) == 'failure' for key in ('owned_oda_tests', 'issue_tests', 'upstream_tests', 'minimuxer_tests', 'vpn_tests', 'acquisition_tests', 'vendor_tests', 'comprehensive_tests', 'setup_tests', 'russian_tests')))
         elif condition == "${{ !cancelled() && steps.rust_tests.outcome == 'failure' }}":
             admitted = not cancelled and states.get('rust_tests') == 'failure'
         else:
@@ -116,7 +116,7 @@ class FailureCollectionTests(unittest.TestCase):
         for failures, expected in [((), 'skipped'), (('source_gate',), 'skipped'),
                                    (('issue_tests',), 'success'), (('upstream_tests',), 'success'), (('owned_oda_tests',), 'success'), (('comprehensive_tests',), 'success'),
                                    (('setup_tests',), 'success'),
-                                   (('comprehensive_tests', 'setup_tests'), 'success')]:
+                                   (('comprehensive_tests', 'setup_tests', 'russian_tests'), 'success')]:
             with self.subTest(failures=failures):
                 states, failed = simulate(self.rows, failures)
                 self.assertEqual(states[TELEMETRY], expected)

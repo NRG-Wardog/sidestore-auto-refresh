@@ -131,9 +131,18 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(optimized, output)
     if sha(output) != size_report['final_ipa_sha256']: raise ValueError('Final optimized IPA copy differs')
+    from verify_russian_localization import verify_receipt as verify_russian_receipt, verify_ipa as verify_russian_ipa
+    russian_receipt = Path('evidence/russian-localization/receipt.json')
+    verify_russian_receipt(russian_receipt, Path('sources/LiveContainer'))
+    if receipt.get('russian_localization_report_sha256') != sha(russian_receipt):
+        raise ValueError('Russian runtime receipt differs from same-run compile receipt')
+    russian = verify_russian_ipa(output, Path('sources/LiveContainer'), expected_permissions=plistlib.loads(
+        Path('evidence/russian-localization/Russian.bundle/ru.lproj/InfoPlist.strings').read_bytes()))
+    Path('diagnostic/russian-localization.json').write_text(json.dumps(russian, indent=2))
     Path('diagnostic/size-optimization.json').write_text(json.dumps(size_report, indent=2))
     provenance = dict(schema_version=1, native_run_id=os.environ['GITHUB_RUN_ID'], native_run_attempt=os.environ['GITHUB_RUN_ATTEMPT'],
                       workflow_commit=os.environ['GITHUB_SHA'], source_graph=receipt['requested_graph'],
+                      russian_localization_sha256=sha(Path('diagnostic/russian-localization.json')),
                       ipa_bytes=output.stat().st_size, ipa_sha256=sha(output), channel='experimental',
                       public_release_modified=False, physical_device_validation=False,
                       metadata_changes=records, initial_ipa_sha256=initial_hash,

@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from russian_setup_projection import variant as russian_setup_variant
 
 from verify_comprehensive_diagnostics import regular, require, digest, write_json, artifact_inventory, require_marker
 
@@ -316,6 +317,7 @@ def load_contract(path):
                          ('certificate-portal-evidence', 19), ('remote-identity-reuse', IDENTITY_CASE_COUNT),
                          *((suite, spec['case_count']) for suite, spec in ADDITIVE_SPECS.items())]:
         if suite == 'host-refresh-bundle': count = host_count
+        if suite == 'setup-localization': count = russian_setup_variant(value)['cases']
         names = value.get('case_names', {}).get(suite)
         require(isinstance(names, list) and len(names) == count and len(set(names)) == count and
                 all(isinstance(n, str) and n for n in names), 'Invalid exact case closure: ' + suite)
@@ -416,6 +418,7 @@ def retained_baseline_copy(contract):
 
 def localization_extraction(output, contract):
     root = output / 'setup-localization'
+    variant = russian_setup_variant(contract)
     value = json.loads(regular(root, 'sources.json').read_text())
     require(value.get('schema') == 'setup-localization-sources-v1' and
             value.get('status') == 'generated_not_compiled', 'Localization extraction status differs')
@@ -426,8 +429,8 @@ def localization_extraction(output, contract):
             'Localization baseline-source extraction differs')
     require(value.get('fixture_inputs') == {n: contract['input_sha256'][LOCALIZATION + '/' + n]
                                           for n in LOCALIZATION_FILES}, 'Localization fixture hashes differ')
-    require(value.get('key_count') == LOCALIZATION_KEY_COUNT and value.get('localized_value_count') == LOCALIZATION_VALUE_COUNT and
-            value.get('expected_native_case_count') == LOCALIZATION_CASE_COUNT and
+    require(value.get('key_count') == LOCALIZATION_KEY_COUNT and value.get('localized_value_count') == variant['values'] and
+            value.get('expected_native_case_count') == variant['cases'] and
             value.get('expected_case_names') == contract['case_names']['setup-localization'],
             'Localization exact case contract differs')
     require(value.get('retained_baseline_copy') == retained_baseline_copy(contract),
@@ -441,8 +444,8 @@ def localization_extraction(output, contract):
     static = json.loads(regular(root, 'static-contract.json').read_text())
     require(static.get('schema') == 'setup-localization-static-contract-v1' and static.get('status') == 'pass' and
             static.get('candidate_key_coverage') == 'pass' and static.get('baseline_key_coverage') == 'fail_as_expected' and
-            len(static.get('baseline_missing', [])) == LOCALIZATION_BASELINE_MISSING and
-            static.get('missing_translation_mutation_cases') == LOCALIZATION_VALUE_COUNT and
+            len(static.get('baseline_missing', [])) == variant['baseline_missing'] and
+            static.get('missing_translation_mutation_cases') == variant['values'] and
             isinstance(static.get('identity_diagnostic_keys'), list) and
             len(set(static['identity_diagnostic_keys'])) == len(static['identity_diagnostic_keys']) == 6 and
             static.get('source_sha256') == value['source_sha256'] and
@@ -704,8 +707,8 @@ def all_evidence(output, contract):
     return evidence
 
 
-def markers():
-    result = {'localization-run': 'SETUP_LOCALIZATION_RENDERER_PASS cases=' + str(LOCALIZATION_CASE_COUNT),
+def markers(contract=None):
+    result = {'localization-run': 'SETUP_LOCALIZATION_RENDERER_PASS cases=' + str(LOCALIZATION_CASE_COUNT if contract is None else russian_setup_variant(contract)['cases']),
               'connection-run': 'SETUP_CONNECTION_EVIDENCE_PASS cases=25',
               'vpn-recovery-run': 'VPN_REFRESH_RECOVERY_PASS cases=89',
               'identity-controls': 'OK',
@@ -758,8 +761,8 @@ def verify_receipt(path, contract_path=None):
                         'Compile-only source fixture argument closure differs')
         log = regular(path.parent, row['log']).read_bytes()
         require(digest(log) == row.get('stdout_sha256'), 'Setup command log changed')
-        if row['name'] in markers():
-            marker = markers()[row['name']]
+        if row['name'] in markers(contract):
+            marker = markers(contract)[row['name']]
             require(row.get('success_marker') == marker, 'Setup marker receipt differs')
             require_marker(log.decode('utf-8', errors='replace'), marker)
     require(report.get('evidence') == all_evidence(path.parent, contract), 'Setup evidence receipt differs')
@@ -803,7 +806,7 @@ def run(sources, swiftc, output, contract_path=None):
     runtime_failures, blocked_dependencies = [], []
     def runtime(name, argv):
         try:
-            runner.command(name, argv, markers().get(name))
+            runner.command(name, argv, markers(contract).get(name))
         except ValueError as error:
             # Runner retains the real exit/timeout/launch/log row before raising.
             # Keep marker failures too, without making a failed command successful.
@@ -836,7 +839,7 @@ def run(sources, swiftc, output, contract_path=None):
         generate('portal-source', python(PORTAL + '/test_generator.py') +
             ['--candidate-root', sources, '--baseline-root', baseline, '--output', portal],
             lambda: [variant_extraction(output, contract, 'certificate-portal-evidence', v) for v in ('baseline', 'candidate')])
-        generate('identity-controls', python(IDENTITY + '/test_generator.py'), lambda: None, markers()['identity-controls'])
+        generate('identity-controls', python(IDENTITY + '/test_generator.py'), lambda: None, markers(contract)['identity-controls'])
         generate('identity-source', python(IDENTITY + '/generate_fixture.py') +
             ['--candidate-root', sources, '--baseline-root', baseline, '--output', identity],
             lambda: identity_extraction(output, contract))

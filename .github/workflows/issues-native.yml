@@ -172,8 +172,17 @@ jobs:
             --sources sources --swiftc "$(command -v swiftc)" --output evidence/setup-state-recovery --contract evidence/candidate-contracts/setup-state-recovery-contract.json \
             2>&1 | tee evidence/setup-state-recovery.log
           printf '0\n' > evidence/setup-state-recovery.exit-code.txt
+      - name: Qualify additive Russian compiled resources and production localization
+        id: russian_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/test_russian_localization.py
+          python3 -B harness/ci/issues-native/verify_russian_localization.py \
+            --live sources/LiveContainer --output evidence/russian-localization \
+            2>&1 | tee evidence/russian-localization.log
       - name: Upload early fixture failure diagnostics only
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.owned_oda_tests.outcome == 'failure' || steps.issue_tests.outcome == 'failure' || steps.upstream_tests.outcome == 'failure' || steps.minimuxer_tests.outcome == 'failure' || steps.vpn_tests.outcome == 'failure' || steps.acquisition_tests.outcome == 'failure' || steps.vendor_tests.outcome == 'failure' || steps.comprehensive_tests.outcome == 'failure' || steps.setup_tests.outcome == 'failure') }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.owned_oda_tests.outcome == 'failure' || steps.issue_tests.outcome == 'failure' || steps.upstream_tests.outcome == 'failure' || steps.minimuxer_tests.outcome == 'failure' || steps.vpn_tests.outcome == 'failure' || steps.acquisition_tests.outcome == 'failure' || steps.vendor_tests.outcome == 'failure' || steps.comprehensive_tests.outcome == 'failure' || steps.setup_tests.outcome == 'failure' || steps.russian_tests.outcome == 'failure') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: suite-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
