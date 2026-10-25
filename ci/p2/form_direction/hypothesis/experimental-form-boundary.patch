@@ -1,0 +1,30 @@
+--- a/LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift
++++ b/LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift
+@@ -35,6 +35,7 @@
+ 
+ struct LCSettingsView: View {
+     @Environment(\.locale) private var selectedDisplayLocale
++    @Environment(\.layoutDirection) private var selectedDisplayDirection
+     @AppStorage("LCHideReturnControl", store: UserDefaults.lcShared()) private var hideReturnControl = false
+     @AppStorage("LCGuestReturnStartsCollapsed", store: UserDefaults.lcShared()) private var returnStartsCollapsed = false
+     @AppStorage("LCGuestReturnCustomColors", store: UserDefaults.lcShared()) private var returnCustomColors = false
+@@ -169,6 +170,7 @@
+         let _ = selectedDisplayLocale.identifier
+         NavigationView {
+             Form {
++                Group {
+                 V3LanguageSettingsSection()
+                 V3AccountSettings()
+                 Section {
+@@ -513,7 +515,10 @@
+                         Text("lc.settings.injectLCItselfDesc".loc)
+                     }
+                 }
+-            }
++                }
++                .environment(\.layoutDirection, selectedDisplayDirection)
++            }
++            .environment(\.layoutDirection, .leftToRight)
+             // V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1: a background is laid out
+             // outside the Form row structure, so this programmatic route cannot
+             // produce an empty Settings row at any text size or device width, and

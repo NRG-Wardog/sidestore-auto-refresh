@@ -1,0 +1,82 @@
+{
+  "keys": [
+    "%lld apps",
+    "%lld selected",
+    "Refresh completed for the verified app targets; %lld running app(s) were skipped.",
+    "Refresh completed. Results for this run were verified; %lld running app(s) were skipped."
+  ],
+  "expected": {
+    "en": [
+      "0 apps",
+      "1 app",
+      "2 apps",
+      "5 apps",
+      "0 selected",
+      "1 selected",
+      "2 selected",
+      "5 selected",
+      "Refresh completed for the verified app targets; 0 running apps were skipped.",
+      "Refresh completed for the verified app targets; 1 running app was skipped.",
+      "Refresh completed for the verified app targets; 2 running apps were skipped.",
+      "Refresh completed for the verified app targets; 5 running apps were skipped.",
+      "Refresh completed. Results for this run were verified; 0 running apps were skipped.",
+      "Refresh completed. Results for this run were verified; 1 running app was skipped.",
+      "Refresh completed. Results for this run were verified; 2 running apps were skipped.",
+      "Refresh completed. Results for this run were verified; 5 running apps were skipped."
+    ],
+    "zh-Hans": [
+      "0 个应用",
+      "1 个应用",
+      "2 个应用",
+      "5 个应用",
+      "已选择 0 项",
+      "已选择 1 项",
+      "已选择 2 项",
+      "已选择 5 项",
+      "经验证的目标应用已完成刷新；跳过了 0 个正在运行的应用。",
+      "经验证的目标应用已完成刷新；跳过了 1 个正在运行的应用。",
+      "经验证的目标应用已完成刷新；跳过了 2 个正在运行的应用。",
+      "经验证的目标应用已完成刷新；跳过了 5 个正在运行的应用。",
+      "刷新已完成。此次运行的结果已验证；跳过了 0 个正在运行的应用。",
+      "刷新已完成。此次运行的结果已验证；跳过了 1 个正在运行的应用。",
+      "刷新已完成。此次运行的结果已验证；跳过了 2 个正在运行的应用。",
+      "刷新已完成。此次运行的结果已验证；跳过了 5 个正在运行的应用。"
+    ],
+    "he": [
+      "0 יישומים",
+      "1 יישום",
+      "2 יישומים",
+      "5 יישומים",
+      "נבחרו 0",
+      "נבחר 1",
+      "נבחרו 2",
+      "נבחרו 5",
+      "הרענון הושלם עבור יישומי היעד שאומתו; דולג על 0 יישומים שפעלו.",
+      "הרענון הושלם עבור יישומי היעד שאומתו; דולג על 1 יישום שפעל.",
+      "הרענון הושלם עבור יישומי היעד שאומתו; דולג על 2 יישומים שפעלו.",
+      "הרענון הושלם עבור יישומי היעד שאומתו; דולג על 5 יישומים שפעלו.",
+      "הרענון הושלם. התוצאות של הרצה זו אומתו; דולג על 0 יישומים שפעלו.",
+      "הרענון הושלם. התוצאות של הרצה זו אומתו; דולג על 1 יישום שפעל.",
+      "הרענון הושלם. התוצאות של הרצה זו אומתו; דולג על 2 יישומים שפעלו.",
+      "הרענון הושלם. התוצאות של הרצה זו אומתו; דולג על 5 יישומים שפעלו."
+    ],
+    "zh-Hant": [
+      "0 個應用程式",
+      "1 個應用程式",
+      "2 個應用程式",
+      "5 個應用程式",
+      "已選取 0 項",
+      "已選取 1 項",
+      "已選取 2 項",
+      "已選取 5 項",
+      "已驗證的目標應用程式已完成重新整理；已略過 0 個正在執行的應用程式。",
+      "已驗證的目標應用程式已完成重新整理；已略過 1 個正在執行的應用程式。",
+      "已驗證的目標應用程式已完成重新整理；已略過 2 個正在執行的應用程式。",
+      "已驗證的目標應用程式已完成重新整理；已略過 5 個正在執行的應用程式。",
+      "重新整理已完成。本次執行的結果已驗證；已略過 0 個正在執行的應用程式。",
+      "重新整理已完成。本次執行的結果已驗證；已略過 1 個正在執行的應用程式。",
+      "重新整理已完成。本次執行的結果已驗證；已略過 2 個正在執行的應用程式。",
+      "重新整理已完成。本次執行的結果已驗證；已略過 5 個正在執行的應用程式。"
+    ]
+  }
+}

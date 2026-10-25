@@ -1,0 +1,20 @@
+{
+  "files": {
+    ".github/workflows/p2-composed-host.yml": "3fa766efd321dce6d0e02979f2ad8ebd91a034401f6190dfe6a64ffc575b7c36",
+    "ci/p2/composed_host/README.md": "2def8f814762cfb87762d92b016c2388d4620eb592728a7ad6d0c3263d10d894",
+    "ci/p2/composed_host/consumer_gate.py": "9aee55713bf6eff071d748921f251b3a0c89f384fe5251377ff99657212e2173",
+    "ci/p2/composed_host/run.py": "943b54a200a87c65b039ed86730cc7d9dea85356a0bbc13700b07d9c2e8ae1d1",
+    "ci/p2/composed_host/runtime.py": "dee002ed7624fda0494629da7bb3b5e7d10f64551901491aaee5a5eaf5838531",
+    "ci/p2/composed_host/test_compile_gate.py": "1e13dda79cb0dae2ffbf2cc14c9e3d6f79e4f43fc646095afbcaa0152bc4606a",
+    "ci/p2/composed_host/test_consumers.py": "802441ae9fe5b111df260654a7fee26d78b651bee73c87112661d4805933ec50",
+    "ci/p2/direction_rebuild/run.py": "680e7fe3fe4329b9d479e2e352c04bc496c61a02f09453054320866e3fbdf1c8",
+    "ci/p2/host_probe/install_contract.py": "b2fcf4494444eb908f7a58a3b25a55dfc8d0c73becb9d1be6a121fd342b210ac",
+    "ci/p2/host_probe/run.py": "72dd4074ea9e03c09ec967f2b8e5841af521402af884c37d5fe5aca3eded547e",
+    "ci/p2/preflight.py": "439a407ad97e8bd46056ffa101f2b233a08244ae744846e013791b5d6bad505e",
+    "scripts/p2_localization_contract.py": "2d2bfa139a75474ccead4048fb3807680c923d2370c5c3b4818e893824260a22",
+    "scripts/p2_permission_contract.py": "70a5e9d3bb6e6f63b28a60f30ddedb4cf3560ea22d6c2ef174d5f71e3263c2ba",
+    "tests/fixtures/p2_localization_contracts/compiled-translations.json": "23d7e7dc60e88e23cf80814eaf6328e998079150dbd7d10b52c38b4eafe3bcb5"
+  },
+  "sourceCommit": "e22de6df412a0977f7430b2218960ca3ee9585d5",
+  "sourceTree": "4b973e2bbf482953e298c41c7a7227cb60b30718"
+}

@@ -45,6 +45,8 @@ LIVE_CONTAINER_SCRIPTS = {
     "run_issue25_rendering.py", "rendering_localization.py",
     "run_p0_signin_rendering.py",
     "run_p0_signin_preflight.py",
+    "p2_localization_contract.py",
+    "p2_permission_contract.py",
     "select_livecontainer_lane.py",
     "patch_app_layout.py",
     "audit_ipa_signing.py",
@@ -122,7 +124,8 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(
             {path.name for path in SCRIPTS.glob("*.py")},
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
-                    "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "p0_maintained_sources.py", "p0_constructor_diagnostics.py", "p0_elf_metadata_bounds.py", "p0_cxx_allocation.py", "p2_composed_host.py", "p0_full_login_diagnostics.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py", "patch_transport_lockfiles.py"},
+                    "check_compiled_localization.py", "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "p0_maintained_sources.py", "p1_maintained_sources.py", "p0_constructor_diagnostics.py", "p0_elf_metadata_bounds.py", "p0_cxx_allocation.py", "p2_composed_host.py", "p0_full_login_diagnostics.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py", "patch_transport_lockfiles.py"},
+
         )
 
     def test_patch_scripts_parse_and_contain_guard_markers(self):
@@ -150,16 +153,18 @@ class RepositoryTests(unittest.TestCase):
         )
 
     def test_workflow_references_current_scripts(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        references = set(re.findall(r"builder/scripts/([A-Za-z0-9_.-]+\.py)", workflow))
-        self.assertTrue(REQUIRED_SCRIPTS.issubset(references))
-        self.assertNotRegex(workflow, r"builder/scripts/patch_v\d+")
-        self.assertNotIn("build-v29-coredevice-self-refresh.yml", workflow)
-        live_workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
-        self.assertIn("builder/scripts/maintained_sources.py", live_workflow)
-        self.assertIn("builder/scripts/" + COMBINED_REFRESH_SCRIPT + " --verify-ipa", live_workflow)
-        standalone_workflow = (ROOT / ".github/workflows/build-current.yml").read_text(encoding="utf-8")
-        self.assertIn("builder/scripts/patch_app_layout.py", standalone_workflow)
+        # Historical patch recipes remain inspectable, but active entrypoints
+        # must use the maintained immutable implementation, not those recipes.
+        import json
+        maintained = json.loads((ROOT / ".ci/maintained-build/contract.json").read_text())
+        for name in ("livecontainer-build.yml", "build-current.yml"):
+            workflow = (ROOT / ".github/workflows" / name).read_text()
+            self.assertIn("uses: NRG-Wardog/LiveContainer/.github/workflows/native-app-compile.yml@"
+                          + maintained["implementation_commit"], workflow)
+            self.assertNotIn("builder/scripts/", workflow)
+            self.assertNotIn("contents: write", workflow)
+        archived = ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml"
+        self.assertIn("builder/scripts/maintained_sources.py", archived.read_text())
         contract = (SCRIPTS / COMBINED_REFRESH_SCRIPT).read_text(encoding="utf-8")
         self.assertIn("from patch_embedded_keychain import patch as patch_shared_keychain", contract)
         self.assertIn("patch_combined_cli(Path(sys.argv[1]))", contract)

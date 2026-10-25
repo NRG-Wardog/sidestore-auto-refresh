@@ -1,0 +1,45 @@
+name: Validate unified SSA history
+on:
+  push:
+    branches: [main, integration/unify-ssa-validation]
+    paths:
+      - '.ci/validation-history/**'
+      - '.github/workflows/validation-history-contract.yml'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'migration/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bounded-contracts:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh'
+    runs-on: macos-26
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/LiveContainer
+          ref: c7111b580254190a0c037037036aaed49bfce8c6
+          path: maintained-implementation
+          persist-credentials: false
+          sparse-checkout: .github/workflows
+      - name: Verify history and current production boundaries
+        run: python3 -B .ci/validation-history/verify.py
+      - name: Verify immutable maintained entry and packaging boundaries
+        env:
+          MAINTAINED_IMPLEMENTATION_ROOT: ${{ github.workspace }}/maintained-implementation
+        run: python3 -B .ci/maintained-build/test_contract.py -v
+      - name: Run bounded portable and native converter regressions
+        run: |
+          set -euo pipefail
+          for name in test_repository.py test_combined_packaging.py test_compiled_localization.py test_required_test_runner.py test_combined_build_evidence.py test_merged_rendering_contract.py test_dylibify_source_build.py; do
+            python3 -B -m unittest discover -s tests -p "$name" -v
+          done
+          python3 -B -m unittest discover -s migration/tests -p test_p1_admission.py -v

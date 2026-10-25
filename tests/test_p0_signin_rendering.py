@@ -100,7 +100,7 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertIn('reveal(header, name: "credentials header", towardTop: true)', ui)
         self.assertIn('Stale error or Copy Details remains after returning to the previous-error area', ui)
         self.assertIn('.accessibilityElement(children: .contain)', app)
-        workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
+        workflow = (ROOT / 'migration/historical/ssa-validation/p0-livecontainer-build.yml').read_text()
         self.assertIn('artifacts/layout-evidence/p0-signin/**/*.txt', workflow)
         self.assertIn('artifacts/layout-evidence/p0-signin/**/*.swift', workflow)
         self.assertIn('artifacts/layout-evidence/p0-signin/project/**', workflow)
@@ -385,7 +385,7 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
 
     def test_p0_reuses_devices_and_preserves_existing_gates(self):
         source = (ROOT / "scripts/run_issue25_rendering.py").read_text()
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         self.assertIn('len(reports) == (14 if native_build else 10)', source)
         self.assertIn('len(p0_reports) == 2 and all(report["passed"]', source)
         self.assertIn('p0.execute(p0_build, kind, device, output, command)', source)
@@ -508,7 +508,7 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertNotIn('"options"', prompt)
         self.assertNotIn('"value": password', prompt)
         ui = (ROOT / "tests/fixtures/p0_signin_ui_tests.swift").read_text()
-        self.assertIn('app.buttons["Submit"]', ui)
+        self.assertIn('app.buttons[localized("Submit")]', ui)
         self.assertIn('username.typeText("p0-user@example.invalid")', ui)
         self.assertIn('password.typeText("p0-synthetic-password")', ui)
         self.assertIn('dismissInput(password, name: "password")', ui)

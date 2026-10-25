@@ -1,0 +1,41 @@
+{
+  "adapterFiles": {
+    "HostSettingsProbeTests.swift.in": "2ae360ae4e04e1334e23aabafa5205f8eb771a3ac2969f78f0365ae6d9ae54f8",
+    "README.md": "5b2859ed6e5e19847d05b896d4041047f4ce369558bf107ed2eca9494f6b4822",
+    "install_contract.py": "b2fcf4494444eb908f7a58a3b25a55dfc8d0c73becb9d1be6a121fd342b210ac",
+    "project/HostSettingsProbe.xcscheme": "14d744762a541d81f0c3fadb1d5e2bf26ab0d929e566b2063df4736be5f3167b",
+    "project/project.pbxproj": "38203612a40f07974fba401da08d652da430d92d48fc312727c2612bb610efe3",
+    "run.py": "72dd4074ea9e03c09ec967f2b8e5841af521402af884c37d5fe5aca3eded547e",
+    "test_install_contract.py": "b9e83d3147db8296b08161da3577cba91353122926cd9c2829c992288fffcdd5",
+    "test_probe.py": "28a182fa692a70f81d7e99a36b602852a6c5a80662ac4c75b8a3c1dec7f2dab8"
+  },
+  "builderParent": "4fe6738d3223fe632e179642d52d429866b052d1",
+  "configuration": "Release",
+  "contractFiles": {
+    "ci/p2/preflight.py": "439a407ad97e8bd46056ffa101f2b233a08244ae744846e013791b5d6bad505e",
+    "scripts/p2_localization_contract.py": "2d2bfa139a75474ccead4048fb3807680c923d2370c5c3b4818e893824260a22",
+    "scripts/p2_permission_contract.py": "70a5e9d3bb6e6f63b28a60f30ddedb4cf3560ea22d6c2ef174d5f71e3263c2ba",
+    "tests/fixtures/p2_localization_contracts/compiled-translations.json": "23d7e7dc60e88e23cf80814eaf6328e998079150dbd7d10b52c38b4eafe3bcb5"
+  },
+  "dependencies": {
+    "OpenSSL": {
+      "commit": "623c84da314e85363236507ca38a4bde65df21c3",
+      "declared_url": "https://github.com/krzyzanowskim/OpenSSL",
+      "fetch_url": "https://github.com/krzyzanowskim/OpenSSL",
+      "tree": "21bc09387e7f91a46eb8bd26587ce1d052277801"
+    },
+    "litehook": {
+      "commit": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55",
+      "declared_url": "https://github.com/LiveContainer/litehook",
+      "fetch_url": "https://github.com/LiveContainerMirror/litehook.git",
+      "tree": "62bc06a17a1c12d805aec1ada25910bfa9f89781"
+    }
+  },
+  "expectedTest": "HostSettingsProbeTests/testUnchangedHostSettingsLanguageRoundTrip()",
+  "project": "LiveContainer.xcodeproj",
+  "schemaVersion": 1,
+  "scheme": "LiveContainer",
+  "sourceCommit": "eb10cedb772bc0496d67edd7a269679e24826b9f",
+  "sourceRepository": "https://github.com/NRG-Wardog/LiveContainer.git",
+  "sourceTree": "d6960a99a2f022a333c364fa4d28e264568a28ca"
+}

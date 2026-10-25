@@ -23,6 +23,7 @@ from p0_elf_metadata_bounds import BASIS as P0_BOUNDS_BASIS
 from p0_cxx_allocation import BASIS as P0_CXX_BASIS
 from p2_composed_host import BASIS as P2_COMPOSED_BASIS
 from p0_full_login_diagnostics import BASIS as P0_LOGIN_BASIS
+from p1_maintained_sources import BASIS as P1_BASIS
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee"
@@ -97,6 +98,9 @@ def contract_basis(pins, integration_root=None):
     if pins.get("source_basis") == P0_CONSTRUCTOR_BASIS:
         from p0_constructor_diagnostics import contract_basis as constructor_basis
         return constructor_basis(pins, root)
+    if pins.get("source_basis") == P1_BASIS:
+        from p1_maintained_sources import contract_basis as p1_contract_basis
+        return p1_contract_basis(pins, root)
     if pins.get("source_basis") == P0_BASIS:
         from p0_maintained_sources import contract_basis as p0_contract_basis
         return p0_contract_basis(pins, root)
@@ -313,6 +317,9 @@ def expected_anisette_evidence(pins=None):
     if pins is not None and pins.get("source_basis") == P0_CONSTRUCTOR_BASIS:
         from p0_constructor_diagnostics import anisette_manifest
         return anisette_manifest(pins, ROOT)
+    if pins is not None and pins.get("source_basis") == P1_BASIS:
+        from p1_maintained_sources import anisette_manifest
+        return anisette_manifest(pins, ROOT)
     if pins is not None and pins.get("source_basis") == P0_BASIS:
         from p0_maintained_sources import anisette_manifest
         return anisette_manifest(pins, ROOT)
@@ -347,6 +354,9 @@ def load_pins(path):
     if document.get("source_basis") == P0_CONSTRUCTOR_BASIS:
         from p0_constructor_diagnostics import load_pins as constructor_load_pins
         return constructor_load_pins(document, ROOT, sys.modules[__name__])
+    if document.get("source_basis") == P1_BASIS:
+        from p1_maintained_sources import load_pins as p1_load_pins
+        return p1_load_pins(document, ROOT, sys.modules[__name__])
     if document.get("source_basis") == P0_BASIS:
         from p0_maintained_sources import load_pins as p0_load_pins
         return p0_load_pins(document, ROOT, sys.modules[__name__])
@@ -795,6 +805,9 @@ def verify_all(workspace, pins, anisette=None, after_build=False):
     if pins.get("source_basis") == P0_CONSTRUCTOR_BASIS:
         from p0_constructor_diagnostics import verify_all as constructor_verify_all
         return constructor_verify_all(workspace, pins, anisette, after_build, sys.modules[__name__])
+    if pins.get("source_basis") == P1_BASIS:
+        from p1_maintained_sources import verify_all as p1_verify_all
+        return p1_verify_all(workspace, pins, anisette, after_build, sys.modules[__name__])
     if pins.get("source_basis") == P0_BASIS:
         from p0_maintained_sources import verify_all as p0_verify_all
         return p0_verify_all(workspace, pins, anisette, after_build, sys.modules[__name__])
@@ -852,6 +865,9 @@ def acquire(workspace, pins):
     if pins.get("source_basis") == P0_CONSTRUCTOR_BASIS:
         from p0_constructor_diagnostics import acquire as constructor_acquire
         return constructor_acquire(workspace, pins, sys.modules[__name__])
+    if pins.get("source_basis") == P1_BASIS:
+        from p1_maintained_sources import acquire as p1_acquire
+        return p1_acquire(workspace, pins, sys.modules[__name__])
     if pins.get("source_basis") == P0_BASIS:
         from p0_maintained_sources import acquire as p0_acquire
         return p0_acquire(workspace, pins, sys.modules[__name__])

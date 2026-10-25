@@ -1,0 +1,120 @@
+{
+  "additionalStartupCodeEvidence": {
+    "allowedDiagnosticCodes": [
+      "SS-LAUNCH-C11-L12",
+      "SS-LAUNCH-C11-L15"
+    ],
+    "artifactBytes": 225282571,
+    "artifactId": 12133764497,
+    "artifactSHA256": "352b7f282a612661b0dea6777ea9ed0aa0d2a418c3c05844a531277ce518eeaa",
+    "builderCommit": "5dbe130ca690dc3b8fe25984c0313c0c748109db",
+    "nativeObservationSHA256": "104755bb300e38532534e0fcd332748a6ac77e7a73712b21413693ca4edfc2fc",
+    "observedAXSHA256": "ea9e7aba9754d7092dc7ffbcdd124fc47b9f24de7da9bfa18e8558491698eb61",
+    "observedDiagnosticCode": "SS-LAUNCH-C11-L15",
+    "originalConclusion": "failure",
+    "originalResultReplaced": false,
+    "productionSideStoreSHA256": "0140bf162538bb3f6d009a94aff7f5fad20cd284a730bb2328933eae7171120a",
+    "rootCauseProven": false,
+    "runAttempt": 1,
+    "runId": 39120504881,
+    "scope": "Exactly one display-only OK for either of the two observed complete code/body pairs, retaining the actual unresolved code; no generalized error allowance.",
+    "serviceFailureResolved": false
+  },
+  "baseCommit": "bcd6d06b94853537cc6c66474d0b2b65a2712eb1",
+  "baseTree": "8f81f422e7dc7cef620d9b6c8a52cf941aad0481",
+  "dependencies": {
+    "ci/p2/host_probe/HostSettingsProbeTests.swift.in": "2ae360ae4e04e1334e23aabafa5205f8eb771a3ac2969f78f0365ae6d9ae54f8",
+    "ci/p2/host_probe/install_contract.py": "b2fcf4494444eb908f7a58a3b25a55dfc8d0c73becb9d1be6a121fd342b210ac",
+    "ci/p2/host_probe/project/HostSettingsProbe.xcscheme": "14d744762a541d81f0c3fadb1d5e2bf26ab0d929e566b2063df4736be5f3167b",
+    "ci/p2/host_probe/project/project.pbxproj": "38203612a40f07974fba401da08d652da430d92d48fc312727c2612bb610efe3",
+    "ci/p2/host_probe/run.py": "72dd4074ea9e03c09ec967f2b8e5841af521402af884c37d5fe5aca3eded547e",
+    "ci/p2/preflight.py": "439a407ad97e8bd46056ffa101f2b233a08244ae744846e013791b5d6bad505e",
+    "ci/p2/runner_capability/run.py": "71813f04ea31e177bc110de5dc6e537667c550fecd888b4c809a389c25050e1a",
+    "scripts/p2_localization_contract.py": "2d2bfa139a75474ccead4048fb3807680c923d2370c5c3b4818e893824260a22",
+    "scripts/p2_permission_contract.py": "70a5e9d3bb6e6f63b28a60f30ddedb4cf3560ea22d6c2ef174d5f71e3263c2ba",
+    "tests/fixtures/p2_localization_contracts/compiled-translations.json": "23d7e7dc60e88e23cf80814eaf6328e998079150dbd7d10b52c38b4eafe3bcb5"
+  },
+  "failureCaptureEvidence": {
+    "artifactBytes": 211766761,
+    "artifactId": 12130308374,
+    "artifactSHA256": "4ccdc6b53a168a21684bb54ba9d75d25b50f5946e677e92a56e4623c561813ee",
+    "builderCommit": "e898a3ee208c2a5b47325e6e464924c3a6381932",
+    "nativeObservationSHA256": "e6a2bb33f80afca8c55273ba97a79661c2bc6c5aa788d5149f6bfb073132b649",
+    "originalConclusion": "failure",
+    "originalResultReplaced": false,
+    "runAttempt": 2,
+    "runId": 39109943797,
+    "scope": "Failure-only late-foreground evidence after the sole unreturned launch call; no second launch, navigation continuation or result promotion."
+  },
+  "files": {
+    "HostSettingsProbeTests.swift.in": "237ae7e3f6ea3a1231e5821b0e6b924f03baf4568dce868ed42a8400277327ce",
+    "README.md": "678c85998458bb139e5a30c924d2a9660e48d9ab71edf5f5a888c514703cf951",
+    "artifact_contract.py": "3acf5809e0b91e81dcf21aaa23c42a8fc6cb54c99208f845b353a759e9258d16",
+    "failure_diagnostics.py": "07491d6f60fe091c7a1bd2d0810f89f9f669d318309320aaab8abce4fa791549",
+    "fetch_artifact.py": "3a3d9d7c2e25e6e2df7cc66eeebad64844fc129b24412d0668e7645ff2139aee",
+    "generated-contract.json": "996bc66327a2f09d28081482272bff9bd3508bfea8ed667f7bd3a96816555d66",
+    "products-layout.json": "4cc549d3ef761202fc55a8b9512a5ac17af39c81daab2c32041fb6cb4b3a3a87",
+    "runner_contract.py": "31f689d2b4862c132dd7e7614352e6e3a896930baee0eadc899e2e0fe594e074",
+    "startup_contract.py": "031587597e2cc6c3fe32abc159b0a94f2b3bd9d09afe94a959e018876cda9cb0",
+    "test_artifact_contract.py": "8498befd8051afbc463cee8dd85a6e5fa90e977438a178dcee2ffb313057dbeb",
+    "test_failure_diagnostics.py": "acb86715844b7aa1a6f1941e5841ef712baed14478ede7abef2b8257bebf7bac",
+    "test_failure_runtime.py": "c75c0be731028bd0ff09fd3fc230cfcb98537436bfd7dbd0b13e052e4bf6e886",
+    "test_fetch_artifact.py": "6fd7b54474b2b1c1b4edd69d8afd2e42abbde1e7470f9e87998fb390e224fa3d",
+    "test_reuse.py": "6ef4f64f7239435fa9083d9a7819ea936857c0e9c330fe880a24889f54c794b4",
+    "test_startup_contract.py": "8a25a8be526cc3267cba351797eaab4664b793a1743ccde26f8ee1f7c91496a9"
+  },
+  "initialRequestedInputsEvidence": {
+    "artifactBytes": 209364504,
+    "artifactId": 12129710793,
+    "artifactSHA256": "5e4d66bbc216bacfb0c39b177d0ab2aae20886e50d7abbfcd3a3b207e4c3cd8b",
+    "builderCommit": "8843e1e3b24073a02afe38f5cc29e8f48319d358",
+    "claim": "Exact empirical external-proxy getters, independent of generated xctestrun maps; no effective-process environment claim.",
+    "initialRequestedArguments": [],
+    "initialRequestedEnvironment": {},
+    "launchCount": 0,
+    "nativeObservationSHA256": "39d51ad9ad39edfefec53fa90cf4ce68291c8ba78acd82e99590fd57d6a6495d",
+    "originalConclusion": "failure",
+    "originalResultReplaced": false,
+    "policyVersion": 2,
+    "runId": 39108204781
+  },
+  "normalization": "Only the one approved-input SHA field is replaced with TO_BE_SEALED; all other bytes remain bound.",
+  "normalizedSources": {
+    ".github/workflows/p2-host-reuse.yml": "457cea22afa2b600b0dd532f3c670d7431dd29cbba7ec15c8e1a26c3b940abf1",
+    "ci/p2/host_reuse/run.py": "9d7a3cd46905eb65e55a8122cf799c35469bce71b9424d619d59ad52daccd997"
+  },
+  "originalHostArtifact": {
+    "artifactId": 12112643772,
+    "builtAppZIP_SHA256": "ffa6122ad883ceb35e18f43c8a33e59f1855683e16fcfef6938d783ea2999cb6",
+    "bytes": 62318484,
+    "runId": 39064168648,
+    "sha256": "c2c4166674996460cc9c173871b456bae1fc0bc975b7538c011df350103c2f94"
+  },
+  "referenceCapabilityArtifact": {
+    "artifactId": 12114791420,
+    "bytes": 64184464,
+    "originalConclusion": "failure",
+    "runId": 39069474554,
+    "runnerDerivedZIP_SHA256": "d71c3344cc2a9e8eeaed68c929dfefe5aedb40eb422a086d24a8fbff6aaa004f",
+    "sha256": "646204e802cb02736ca2c3baf3f486055edc116e974de41c5142f5438d896fe4",
+    "xctestrunSHA256": "8c51cbb23f2814151c0eef070badcd9b0b01901138a3fe60e0486b1df2394a96"
+  },
+  "schemaVersion": 1,
+  "sourceCommit": "eb10cedb772bc0496d67edd7a269679e24826b9f",
+  "sourceTree": "d6960a99a2f022a333c364fa4d28e264568a28ca",
+  "startupAcknowledgementEvidence": {
+    "artifactBytes": 221822248,
+    "artifactId": 12133820810,
+    "artifactSHA256": "8e2078a83ac41be53582f9372511708f34fc41013c5b1dc6669315c48240ec8b",
+    "builderCommit": "b275276e9c90fb3a99938f3cfe62a77e59aa3e3e",
+    "diagnosticCode": "SS-LAUNCH-C11-L12",
+    "nativeObservationSHA256": "a83a481a88b13dc195add866131cce40ef1cf40c9898ac27709a18afbfb5970c",
+    "originalConclusion": "failure",
+    "originalResultReplaced": false,
+    "productionShellSHA256": "276085e8daa75ea3f255c8644f2e07fef31236db232e1f3ae1e0d68bc5567597",
+    "runAttempt": 1,
+    "runId": 39118510081,
+    "scope": "Exact notification Later then one exact SideStore OK presentation acknowledgement. All other prompts block; unchanged EN-HE-EN route and success gates, service fault remains unresolved.",
+    "serviceFailureResolved": false
+  }
+}

@@ -1,0 +1,1122 @@
+{
+  "entries": [
+    {
+      "id": "explicit-schedule-deadline",
+      "formatKey": "Scheduled refresh enabled (%@), next expected %@",
+      "pattern": "^Scheduled refresh enabled \\((.+?)\\), next expected (.+?)$",
+      "localizeArguments": [
+        true,
+        false
+      ],
+      "integerArguments": [
+        false,
+        false
+      ],
+      "sourceTemplate": "explicit composition of schedule summary plus next deadline"
+    },
+    {
+      "id": "7860a82af0b6e62d",
+      "formatKey": "A network connection was unavailable during %@.",
+      "pattern": "^A\\ network\\ connection\\ was\\ unavailable\\ during\\ (.+?)\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "A network connection was unavailable during \\(operation).",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "8bdec3d6fdd75b47",
+      "formatKey": "A previous %@ has an unresolved result",
+      "pattern": "^A\\ previous\\ (.+?)\\ has\\ an\\ unresolved\\ result$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "A previous \\(V3DirectRecoveryPresentationPolicy.operationName(direct.operation)) has an unresolved result",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "a7dbf696293a787b",
+      "formatKey": "A previous %@ may still be running",
+      "pattern": "^A\\ previous\\ (.+?)\\ may\\ still\\ be\\ running$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "A previous \\(recovery.kind) may still be running",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "e254e8052966c4ef",
+      "formatKey": "Apple's developer service reported an error %@.",
+      "pattern": "^Apple's\\ developer\\ service\\ reported\\ an\\ error\\ (.+?)\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Apple's developer service reported an error \\(sourceStep?.portalUserLabel ?? \"while preparing the app's provisioning data\").",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "d2238f11577f29b0",
+      "formatKey": "Auto Refresh: %@",
+      "pattern": "^Auto\\ Refresh:\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Auto Refresh: \\(enabled ? \"Enabled\" : \"Disabled\")",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "0a0b364f1bd7e1b0",
+      "formatKey": "Cannot move directory %@ inside itself at %@",
+      "pattern": "^Cannot\\ move\\ directory\\ (.+?)\\ inside\\ itself\\ at\\ (.+?)$",
+      "localizeArguments": [
+        false,
+        false
+      ],
+      "sourceTemplate": "Cannot move directory \\(source.path) inside itself at \\(destination.path)",
+      "integerArguments": [
+        false,
+        false
+      ]
+    },
+    {
+      "id": "dce04212a191232f",
+      "formatKey": "Check %@/mount_status for mounting status.",
+      "pattern": "^Check\\ (.+?)/mount_status\\ for\\ mounting\\ status\\.$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Check \\(JITStresmerEBAddress)/mount_status for mounting status.",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "ebe4f2fb939dfa65",
+      "formatKey": "Contacting JitStreamer-EB server at %@...",
+      "pattern": "^Contacting\\ JitStreamer\\-EB\\ server\\ at\\ (.+?)\\.\\.\\.$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Contacting JitStreamer-EB server at \\(JITStresmerEBAddress)...",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "4672c8272c551f73",
+      "formatKey": "Contacting SideJITServer at %@...",
+      "pattern": "^Contacting\\ SideJITServer\\ at\\ (.+?)\\.\\.\\.$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Contacting SideJITServer at \\(sideJITServerAddress)...",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "1e33e49c8b5a54ac",
+      "formatKey": "Destination already exists: %@. Delete or rename this file/folder to continue.",
+      "pattern": "^Destination\\ already\\ exists:\\ (.+?)\\.\\ Delete\\ or\\ rename\\ this\\ file/folder\\ to\\ continue\\.$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Destination already exists: \\(url.path). Delete or rename this file/folder to continue.",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "dbcc1f043bdf407a",
+      "formatKey": "Destination parent directory does not exist: %@",
+      "pattern": "^Destination\\ parent\\ directory\\ does\\ not\\ exist:\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Destination parent directory does not exist: \\(url.path)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "e68954461563dbef",
+      "formatKey": "Destination parent is not a directory: %@",
+      "pattern": "^Destination\\ parent\\ is\\ not\\ a\\ directory:\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Destination parent is not a directory: \\(url.path)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "233897526ca66bd0",
+      "formatKey": "Destination parent is not writable: %@",
+      "pattern": "^Destination\\ parent\\ is\\ not\\ writable:\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Destination parent is not writable: \\(url.path)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "5ef2b38e602f9ac1",
+      "formatKey": "Duplicate destination URL in move list: %@",
+      "pattern": "^Duplicate\\ destination\\ URL\\ in\\ move\\ list:\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Duplicate destination URL in move list: \\(url.path)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "38904fe4e5953400",
+      "formatKey": "Duplicate source URL in move list: %@",
+      "pattern": "^Duplicate\\ source\\ URL\\ in\\ move\\ list:\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Duplicate source URL in move list: \\(url.path)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "0927e12bd38cdae0",
+      "formatKey": "Error ID: %@",
+      "pattern": "^Error ID: ([A-Za-z0-9][A-Za-z0-9._:-]*)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Error ID: \\(diagnosticCode)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "30e45d74ca5f9baf",
+      "formatKey": "Failed to contact JitStreamer-EB server: %@",
+      "pattern": "^Failed\\ to\\ contact\\ JitStreamer\\-EB\\ server:\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Failed to contact JitStreamer-EB server: \\(error)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "c10d000bfce9f967",
+      "formatKey": "Failed to contact SideJITServer: %@",
+      "pattern": "^Failed\\ to\\ contact\\ SideJITServer:\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Failed to contact SideJITServer: \\(error)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "40d20fe7db833b1f",
+      "formatKey": "Failed to move %@ to %@. %@",
+      "pattern": "^Failed\\ to\\ move\\ (.+?)\\ to\\ (.+?)\\.\\ (.+?)$",
+      "localizeArguments": [
+        false,
+        false,
+        true
+      ],
+      "sourceTemplate": "Failed to move \\(source.path) to \\(destination.path). \\(error)",
+      "integerArguments": [
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "1e69ead602e50692",
+      "formatKey": "Failed to read file: %@",
+      "pattern": "^Failed\\ to\\ read\\ file:\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Failed to read file: \\(error.localizedDescription)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "00e037af9acb7a23",
+      "formatKey": "Failed to resolve shared IPA bookmark: %@",
+      "pattern": "^Failed\\ to\\ resolve\\ shared\\ IPA\\ bookmark:\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Failed to resolve shared IPA bookmark: \\(error.localizedDescription)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "0581d096b100c8a0",
+      "formatKey": "HTTP Error: %@",
+      "pattern": "^HTTP\\ Error:\\ (\\d+)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "HTTP Error: \\(statusCode)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "4d1cfda744c05c53",
+      "formatKey": "HTTP %@",
+      "pattern": "^HTTP\\ (\\d+)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "HTTP \\(httpResponse.statusCode)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "900377ecbc6983fa",
+      "formatKey": "Imported account for %@. Sign in with its Apple password to finish.",
+      "pattern": "^Imported\\ account\\ for\\ (.+?)\\.\\ Sign\\ in\\ with\\ its\\ Apple\\ password\\ to\\ finish\\.$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Imported account for \\(importedEmail). Sign in with its Apple password to finish.",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "f499c643ed363c50",
+      "formatKey": "Network error during the %@ operation.",
+      "pattern": "^Network\\ error\\ during\\ the\\ (.+?)\\ operation\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Network error during the \\(operation) operation.",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "b21bfaacbdf2017e",
+      "formatKey": "On This Device (%@)",
+      "pattern": "^On\\ This\\ Device\\ \\((\\d+)\\)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "On This Device (\\(local.count))",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "11553e85bfb6e103",
+      "formatKey": "Protection: %@",
+      "pattern": "^Protection:\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Protection: \\(protection)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "c9d7ac5e974320cf",
+      "formatKey": "Provisioning Profiles (%@)",
+      "pattern": "^Provisioning\\ Profiles\\ \\((\\d+)\\)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Provisioning Profiles (\\(profiles.count))",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "cd55f979d7b7d382",
+      "formatKey": "Reachable (HTTP %@).",
+      "pattern": "^Reachable\\ \\(HTTP\\ (\\d+)\\)\\.$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Reachable (HTTP \\($0)).",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "48af8bb2096fbc1a",
+      "formatKey": "Recover %@",
+      "pattern": "^Recover\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Recover \\(record.kind)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "fcabdd4350b94323",
+      "formatKey": "Refresh completed for the verified app targets; %lld running app(s) were skipped.",
+      "pattern": "^Refresh\\ completed\\ for\\ the\\ verified\\ app\\ targets;\\ (\\d+)\\ running\\ app\\(s\\)\\ were\\ skipped\\.$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Refresh completed for the verified app targets; \\(skippedCount) running app(s) were skipped.",
+      "integerArguments": [
+        true
+      ]
+    },
+    {
+      "id": "59e7d5321ef7af61",
+      "formatKey": "Refresh completed. Results for this run were verified; %lld running app(s) were skipped.",
+      "pattern": "^Refresh\\ completed\\.\\ Results\\ for\\ this\\ run\\ were\\ verified;\\ (\\d+)\\ running\\ app\\(s\\)\\ were\\ skipped\\.$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Refresh completed. Results for this run were verified; \\(skippedCount) running app(s) were skipped.",
+      "integerArguments": [
+        true
+      ]
+    },
+    {
+      "id": "75bd3f3a1c12bc28",
+      "formatKey": "Refresh failed during %@, but no safe underlying cause was available.",
+      "pattern": "^Refresh\\ failed\\ during\\ (.+?),\\ but\\ no\\ safe\\ underlying\\ cause\\ was\\ available\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Refresh failed during \\(stage.rawValue), but no safe underlying cause was available.",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "cc204062917c5baf",
+      "formatKey": "Refresh: %@",
+      "pattern": "^Refresh:\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Refresh: \\(healthState.replacingOccurrences(of: \"_\", with: \" \").capitalized)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "9a8e7ca84f7ccf1f",
+      "formatKey": "Scheduled refresh enabled (%@)",
+      "pattern": "^Scheduled\\ refresh\\ enabled\\ \\((.+?)\\)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Scheduled refresh enabled (\\(frequency))",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "ddf828d8e32c5bb3",
+      "formatKey": "Servers (%@)",
+      "pattern": "^Servers\\ \\((\\d+)\\)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Servers (\\(servers.count))",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "664d2568dd5c6e75",
+      "formatKey": "SideStore could not %@ in time while %@.",
+      "pattern": "^SideStore\\ could\\ not\\ (.+?)\\ in\\ time\\ while\\ (.+?)\\.$",
+      "localizeArguments": [
+        true,
+        true
+      ],
+      "sourceTemplate": "SideStore could not \\(timeoutAction) in time while \\(timeoutContext).",
+      "integerArguments": [
+        false,
+        false
+      ]
+    },
+    {
+      "id": "d47997cd262f04ad",
+      "formatKey": "SideStore could not start or complete the requested %@ action.",
+      "pattern": "^SideStore\\ could\\ not\\ start\\ or\\ complete\\ the\\ requested\\ (.+?)\\ action\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "SideStore could not start or complete the requested \\(operation) action.",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "9dc9751f28686a4d",
+      "formatKey": "SideStore could not start or complete the requested %@ action. The exact underlying cause could not be safely identified.",
+      "pattern": "^SideStore\\ could\\ not\\ start\\ or\\ complete\\ the\\ requested\\ (.+?)\\ action\\.\\ The\\ exact\\ underlying\\ cause\\ could\\ not\\ be\\ safely\\ identified\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "SideStore could not start or complete the requested \\(operation) action. The exact underlying cause could not be safely identified.",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "8c045c27c6f61516",
+      "formatKey": "SideStore refresh intent type was not found: %@",
+      "pattern": "^SideStore\\ refresh\\ intent\\ type\\ was\\ not\\ found:\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "SideStore refresh intent type was not found: \\(name)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "1595634d55a0f2f1",
+      "formatKey": "SideStore type is not an AppIntent: %@",
+      "pattern": "^SideStore\\ type\\ is\\ not\\ an\\ AppIntent:\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "SideStore type is not an AppIntent: \\(name)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "0493614091b3eb54",
+      "formatKey": "Source URL is invalid: %@",
+      "pattern": "^Source\\ URL\\ is\\ invalid:\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Source URL is invalid: \\(url)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "2d5c88d767be4758",
+      "formatKey": "Source and destination are the same: %@",
+      "pattern": "^Source\\ and\\ destination\\ are\\ the\\ same:\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Source and destination are the same: \\(url.path)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "0431ba753753937d",
+      "formatKey": "Source does not exist: %@",
+      "pattern": "^Source\\ does\\ not\\ exist:\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Source does not exist: \\(url.path)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "1003a1cc4e62c09e",
+      "formatKey": "Source is not reachable: %@. %@",
+      "pattern": "^Source\\ is\\ not\\ reachable:\\ (.+?)\\.\\ (.+?)$",
+      "localizeArguments": [
+        false,
+        true
+      ],
+      "sourceTemplate": "Source is not reachable: \\(url.path). \\(error)",
+      "integerArguments": [
+        false,
+        false
+      ]
+    },
+    {
+      "id": "fcaac48d16fa98ea",
+      "formatKey": "Source parent is not writable: : %@",
+      "pattern": "^Source\\ parent\\ is\\ not\\ writable:\\ :\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Source parent is not writable: : \\(url.path)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "31f9c12de1c26b27",
+      "formatKey": "Sources (%@)",
+      "pattern": "^Sources\\ \\((\\d+)\\)$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "Sources (\\(status.sources.count))",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "00c5e734b2a7cb7c",
+      "formatKey": "The %@ request was cancelled. Its result may need reconciliation.",
+      "pattern": "^The\\ (.+?)\\ request\\ was\\ cancelled\\.\\ Its\\ result\\ may\\ need\\ reconciliation\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The \\(operation) request was cancelled. Its result may need reconciliation.",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "3dc3e3f37e376b77",
+      "formatKey": "The network connection was lost during %@.",
+      "pattern": "^The\\ network\\ connection\\ was\\ lost\\ during\\ (.+?)\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The network connection was lost during \\(operation).",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "3b02b30d4a12dfd9",
+      "formatKey": "The network request timed out during %@.",
+      "pattern": "^The\\ network\\ request\\ timed\\ out\\ during\\ (.+?)\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The network request timed out during \\(operation).",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "1d8e58e71c6217ec",
+      "formatKey": "The operation could not start. %@",
+      "pattern": "^The\\ operation\\ could\\ not\\ start\\.\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The operation could not start. \\(currentFailure.recommendedAction)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "c857e632befed8a2",
+      "formatKey": "The retry could not be confirmed as started. The previous operation may still be active. Previous attempt: %@",
+      "pattern": "^The\\ retry\\ could\\ not\\ be\\ confirmed\\ as\\ started\\.\\ The\\ previous\\ operation\\ may\\ still\\ be\\ active\\.\\ Previous\\ attempt:\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The retry could not be confirmed as started. The previous operation may still be active. Previous attempt: \\(previousFailure.whatHappened)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "e2322070ef6c86a2",
+      "formatKey": "The retry could not start because another SideStore operation is still active. Previous attempt: %@",
+      "pattern": "^The\\ retry\\ could\\ not\\ start\\ because\\ another\\ SideStore\\ operation\\ is\\ still\\ active\\.\\ Previous\\ attempt:\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The retry could not start because another SideStore operation is still active. Previous attempt: \\(previousFailure.whatHappened)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "3a07ba4a90e5132d",
+      "formatKey": "The retry could not start, so the app operation did not run. Previous attempt: %@",
+      "pattern": "^The\\ retry\\ could\\ not\\ start,\\ so\\ the\\ app\\ operation\\ did\\ not\\ run\\.\\ Previous\\ attempt:\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The retry could not start, so the app operation did not run. Previous attempt: \\(previousFailure.whatHappened)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "f07414228dcba9e3",
+      "formatKey": "The retry could not start. %@",
+      "pattern": "^The\\ retry\\ could\\ not\\ start\\.\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The retry could not start. \\(currentFailure.recommendedAction)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "1a7a1ed3f0d72f68",
+      "formatKey": "The sign-in attempt could not be confirmed. SideStore confirms no account is currently signed in. %@",
+      "pattern": "^The\\ sign\\-in\\ attempt\\ could\\ not\\ be\\ confirmed\\.\\ SideStore\\ confirms\\ no\\ account\\ is\\ currently\\ signed\\ in\\.\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The sign-in attempt could not be confirmed. SideStore confirms no account is currently signed in. \\(failureMessage)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "2d23bb1e812a4e80",
+      "formatKey": "The sign-in attempt could not be confirmed. SideStore could not confirm whether sign-in completed. %@",
+      "pattern": "^The\\ sign\\-in\\ attempt\\ could\\ not\\ be\\ confirmed\\.\\ SideStore\\ could\\ not\\ confirm\\ whether\\ sign\\-in\\ completed\\.\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The sign-in attempt could not be confirmed. SideStore could not confirm whether sign-in completed. \\(failureMessage)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "8d399024e3662e3b",
+      "formatKey": "The sign-in attempt could not be confirmed. SideStore currently reports an account as signed in. %@",
+      "pattern": "^The\\ sign\\-in\\ attempt\\ could\\ not\\ be\\ confirmed\\.\\ SideStore\\ currently\\ reports\\ an\\ account\\ as\\ signed\\ in\\.\\ (.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "The sign-in attempt could not be confirmed. SideStore currently reports an account as signed in. \\(failureMessage)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "c8fa3fd431b03de9",
+      "formatKey": "Unknown (last known: %@)",
+      "pattern": "^Unknown\\ \\(last\\ known:\\ (.+?)\\)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "Unknown (last known: \\(pairingStatus))",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "c7032ea0682d062e",
+      "formatKey": "What happened: SideStore could not reach the configured Anisette server.\nWhat you can do: Check its address and your network, then try again. This does not show that LocalDevVPN is unavailable.\n%@",
+      "pattern": "^What\\ happened:\\ SideStore\\ could\\ not\\ reach\\ the\\ configured\\ Anisette\\ server\\.\\\nWhat\\ you\\ can\\ do:\\ Check\\ its\\ address\\ and\\ your\\ network,\\ then\\ try\\ again\\.\\ This\\ does\\ not\\ show\\ that\\ LocalDevVPN\\ is\\ unavailable\\.\\\n(.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "What happened: SideStore could not reach the configured Anisette server.\\nWhat you can do: Check its address and your network, then try again. This does not show that LocalDevVPN is unavailable.\\n\\(failure.diagnosticLabel)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "204cdeb917669df1",
+      "formatKey": "What happened: The Anisette Servers request was cancelled.\nWhat you can do: Reopen Anisette Servers to check the current state before trying again.\n%@",
+      "pattern": "^What\\ happened:\\ The\\ Anisette\\ Servers\\ request\\ was\\ cancelled\\.\\\nWhat\\ you\\ can\\ do:\\ Reopen\\ Anisette\\ Servers\\ to\\ check\\ the\\ current\\ state\\ before\\ trying\\ again\\.\\\n(.+?)$",
+      "localizeArguments": [
+        true
+      ],
+      "sourceTemplate": "What happened: The Anisette Servers request was cancelled.\\nWhat you can do: Reopen Anisette Servers to check the current state before trying again.\\n\\(failure.diagnosticLabel)",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "ab0bfc22318084b7",
+      "formatKey": "\"%@\" is not added. Add it, then the operation retries automatically.",
+      "pattern": "^\"(.+?)\"\\ is\\ not\\ added\\.\\ Add\\ it,\\ then\\ the\\ operation\\ retries\\ automatically\\.$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "\\\"\\((offer[\"name\"] ?? \"\"))\\\" is not added. Add it, then the operation retries automatically.",
+      "integerArguments": [
+        false
+      ]
+    },
+    {
+      "id": "a48a5ee672232396",
+      "formatKey": "%lld selected",
+      "pattern": "^(\\d+)\\ selected$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "\\(selectedHistoryIDs.count) selected",
+      "integerArguments": [
+        true
+      ]
+    },
+    {
+      "id": "30226d2cb2d59401",
+      "formatKey": "%lld apps",
+      "pattern": "^(\\d+)\\ apps$",
+      "localizeArguments": [
+        false
+      ],
+      "sourceTemplate": "\\(source.appCount) apps",
+      "integerArguments": [
+        true
+      ]
+    },
+    {
+      "id": "p2-display-65",
+      "formatKey": "Install %@",
+      "pattern": "^Install\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": "app-owned operation title or result; opaque app name"
+    },
+    {
+      "id": "p2-display-66",
+      "formatKey": "Update %@",
+      "pattern": "^Update\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": "app-owned operation title or result; opaque app name"
+    },
+    {
+      "id": "p2-display-67",
+      "formatKey": "Back up %@",
+      "pattern": "^Back\\ up\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": "app-owned operation title or result; opaque app name"
+    },
+    {
+      "id": "p2-display-68",
+      "formatKey": "Restore %@",
+      "pattern": "^Restore\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": "app-owned operation title or result; opaque app name"
+    },
+    {
+      "id": "p2-display-69",
+      "formatKey": "Enable JIT for %@",
+      "pattern": "^Enable\\ JIT\\ for\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": "app-owned operation title or result; opaque app name"
+    },
+    {
+      "id": "p2-display-70",
+      "formatKey": "Remove %@ from library and erase its backups",
+      "pattern": "^Remove\\ (.+?)\\ from\\ library\\ and\\ erase\\ its\\ backups$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": "app-owned operation title or result; opaque app name"
+    },
+    {
+      "id": "p2-display-71",
+      "formatKey": "Delete %@ and erase its data and backups",
+      "pattern": "^Delete\\ (.+?)\\ and\\ erase\\ its\\ data\\ and\\ backups$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": "app-owned operation title or result; opaque app name"
+    },
+    {
+      "id": "p2-display-72",
+      "formatKey": "Refresh %@",
+      "pattern": "^Refresh\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": "app-owned operation title or result; opaque app name"
+    },
+    {
+      "id": "p2-display-73",
+      "formatKey": "%@ completed successfully.",
+      "pattern": "^(.+?)\\ completed\\ successfully\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": "app-owned operation title or result; opaque app name"
+    },
+    {
+      "id": "backend-display-74",
+      "formatKey": "The portal holds certificates that block provisioning for a %@ team. Keep the existing certificates or revoke the selected ones.",
+      "pattern": "^The\\ portal\\ holds\\ certificates\\ that\\ block\\ provisioning\\ for\\ a\\ (.+?)\\ team\\.\\ Keep\\ the\\ existing\\ certificates\\ or\\ revoke\\ the\\ selected\\ ones\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 1596
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    },
+    {
+      "id": "backend-display-75",
+      "formatKey": "The installed LiveContainer app needs to be refreshed with the active signing certificate (%@). Finish sign-in, then run Refresh All or Test Refresh in Setup Assistant. Sign-in alone does not re-sign the installed app.",
+      "pattern": "^The\\ installed\\ LiveContainer\\ app\\ needs\\ to\\ be\\ refreshed\\ with\\ the\\ active\\ signing\\ certificate\\ \\((.+?)\\)\\.\\ Finish\\ sign\\-in,\\ then\\ run\\ Refresh\\ All\\ or\\ Test\\ Refresh\\ in\\ Setup\\ Assistant\\.\\ Sign\\-in\\ alone\\ does\\ not\\ re\\-sign\\ the\\ installed\\ app\\.$",
+      "localizeArguments": [
+        true
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 1612
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    },
+    {
+      "id": "backend-display-76",
+      "formatKey": "The app reports %@ but the active signing identity expects %@. Proceed anyway?",
+      "pattern": "^The\\ app\\ reports\\ (.+?)\\ but\\ the\\ active\\ signing\\ identity\\ expects\\ (.+?)\\.\\ Proceed\\ anyway\\?$",
+      "localizeArguments": [
+        false,
+        false
+      ],
+      "integerArguments": [
+        false,
+        false
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 1681
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    },
+    {
+      "id": "backend-display-77",
+      "formatKey": "%@ requests %lld permission(s):\n%@",
+      "pattern": "^(.+?)\\ requests\\ ([0-9]+)\\ permission\\(s\\):\\\n(.+?)$",
+      "localizeArguments": [
+        false,
+        false,
+        false
+      ],
+      "integerArguments": [
+        false,
+        true,
+        false
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 1689
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    },
+    {
+      "id": "backend-display-78",
+      "formatKey": "%@ contains %lld extension(s). Keep them using the main app's profile or register an App ID for each, or choose which to remove.",
+      "pattern": "^(.+?)\\ contains\\ ([0-9]+)\\ extension\\(s\\)\\.\\ Keep\\ them\\ using\\ the\\ main\\ app's\\ profile\\ or\\ register\\ an\\ App\\ ID\\ for\\ each,\\ or\\ choose\\ which\\ to\\ remove\\.$",
+      "localizeArguments": [
+        false,
+        false
+      ],
+      "integerArguments": [
+        false,
+        true
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 1704
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    },
+    {
+      "id": "backend-display-79",
+      "formatKey": "Remove %@",
+      "pattern": "^Remove\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 1707
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    },
+    {
+      "id": "backend-display-80",
+      "formatKey": "Download %@ %@",
+      "pattern": "^Download\\ (.+?)\\ (.+?)$",
+      "localizeArguments": [
+        false,
+        false
+      ],
+      "integerArguments": [
+        false,
+        false
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 1729
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    },
+    {
+      "id": "backend-display-81",
+      "formatKey": "The app group %@ does not match the expected %@.",
+      "pattern": "^The\\ app\\ group\\ (.+?)\\ does\\ not\\ match\\ the\\ expected\\ (.+?)\\.$",
+      "localizeArguments": [
+        false,
+        false
+      ],
+      "integerArguments": [
+        false,
+        false
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 1791
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    },
+    {
+      "id": "backend-display-82",
+      "formatKey": "Use %@",
+      "pattern": "^Use\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 1792
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    },
+    {
+      "id": "backend-display-83",
+      "formatKey": "Keep %@",
+      "pattern": "^Keep\\ (.+?)$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 1793
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    },
+    {
+      "id": "backend-display-84",
+      "formatKey": "Would you like to add the source \"%@\"?",
+      "pattern": "^Would\\ you\\ like\\ to\\ add\\ the\\ source\\ \"(.+?)\"\\?$",
+      "localizeArguments": [
+        false
+      ],
+      "integerArguments": [
+        false
+      ],
+      "sourceTemplate": [
+        {
+          "file": "v3_headless_runtime.swift",
+          "line": 2944
+        }
+      ],
+      "provenance": "app-owned backend format; separately reviewed opaque arguments"
+    }
+  ],
+  "excluded": {
+    "1f3f28eb922d6eca": "LaunchAppExtension message outside host implementation; remains separately tracked",
+    "c150dd9ae29dc456": "Pixel unit, no prose to translate",
+    "d5dc6b50864b5a69": "Guest language selection label; preserve guest locale control",
+    "9dcbedd0bc67f16c": "Generic history status pair needs explicit operand adapter",
+    "1e570f73684fcdf7": "Generic message pair needs explicit operand adapter",
+    "d191f8f5e7524039": "Generic title/count needs explicit caller adapter"
+  }
+}

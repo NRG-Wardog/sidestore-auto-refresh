@@ -1,0 +1,64 @@
+name: P2 authenticated reused-host single Settings route
+on:
+  push:
+    branches: [validation/p2-alert-lifecycle]
+    paths:
+      - .github/workflows/p2-host-reuse.yml
+      - ci/p2/host_reuse/**
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: p2-host-reuse-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  reuse-probe:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/p2-alert-lifecycle'
+    runs-on: macos-26
+    timeout-minutes: 40
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      APPROVED_HOST_REUSE_INPUTS_SHA256: 290b9606b1e9fbf3f3ea33ca4c98dbda3195162a2bed88e6bdcc0e3e2c5ae0ca
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_CONFIG_COUNT: '0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: builder
+          fetch-depth: 0
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Portable authentication and hostile launch-policy checks
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s builder/ci/p2/host_reuse -p 'test_*.py' -v 2>&1 | tee p2-host-reuse-portable.log
+      - name: Authenticate and download the one approved historical build artifact
+        env:
+          P2_ARTIFACT_READ_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -B builder/ci/p2/host_reuse/fetch_artifact.py --output "$GITHUB_WORKSPACE/p2-host-reuse-download"
+      - name: Fresh install and single cleared-requested-input Settings probe
+        run: |
+          set -euo pipefail
+          python3 -B builder/ci/p2/host_reuse/run.py \
+            --artifact "$GITHUB_WORKSPACE/p2-host-reuse-download/artifact.zip" \
+            --approved-inputs-sha256 "$APPROVED_HOST_REUSE_INPUTS_SHA256" \
+            --work "$GITHUB_WORKSPACE/p2-host-reuse-work" --evidence "$GITHUB_WORKSPACE/p2-host-reuse-evidence"
+      - name: Retain all successes and failure boundaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p2-host-reuse-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            p2-host-reuse-evidence/**
+            p2-host-reuse-download/**
+            p2-host-reuse-portable.log
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,58 @@
+// Explicit candidate component composition, not the complete host application.
+@MainActor final class DirectionOwner: ObservableObject {
+    @Published var text = ""
+    @Published var enabled = false
+}
+@MainActor struct DirectionScreen: View {
+    @ObservedObject var owner: DirectionOwner
+    @Environment(\.layoutDirection) private var direction
+    @FocusState private var inputFocused: Bool
+    var body: some View {
+        NavigationView {
+            Form {
+                V3LanguageSettingsSection()
+                Section {
+                    TextField("Fixture input", text: $owner.text).textInputAutocapitalization(.never).autocorrectionDisabled(true).focused($inputFocused).accessibilityIdentifier("retained-input")
+                    Toggle("Fixture preference", isOn: $owner.enabled).accessibilityIdentifier("retained-toggle")
+                    HStack { Text("A"); Spacer(); Text("B") }
+                } header: { Text("Language") }
+            }
+            .id(direction == .rightToLeft)
+            .navigationTitle("Settings")
+            .toolbar { ToolbarItemGroup(placement: .keyboard) { Button("Dismiss input") { inputFocused = false }.accessibilityIdentifier("dismiss-input") } }
+        }.navigationViewStyle(.stack)
+    }
+}
+@MainActor struct DirectionRoot: View {
+    @ObservedObject var owner: DirectionOwner
+    @AppStorage(V3AppLanguage.storageKey, store: V3Localization.hostDefaults) var language = "en"
+    var body: some View {
+        DirectionScreen(owner: owner)
+            .environment(\.locale, Locale(identifier: V3AppLanguage.resolve(language).rawValue))
+            .environment(\.layoutDirection, V3AppLanguage.resolve(language).isRightToLeft ? .rightToLeft : .leftToRight)
+            .safeAreaInset(edge: .bottom) {
+                Text(verbatim: language + "|" + owner.text + "|" + (owner.enabled ? "true" : "false"))
+                    .accessibilityIdentifier("direction-state")
+            }
+    }
+}
+@main @MainActor final class FormDirectionAppDelegate: UIResponder, UIApplicationDelegate {
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: "P2FormDirectionScene", sessionRole: session.role)
+        configuration.delegateClass = FormDirectionWindowDelegate.self
+        return configuration
+    }
+}
+@MainActor final class FormDirectionWindowDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+    private let owner = DirectionOwner()
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
+        guard let scene = scene as? UIWindowScene else { return }
+        V3AppLanguage.persist(.english) // Isolated fixture domain, before presentation.
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: DirectionRoot(owner: owner))
+        self.window = window
+        window.makeKeyAndVisible()
+    }
+}

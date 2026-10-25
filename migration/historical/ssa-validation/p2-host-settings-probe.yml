@@ -1,0 +1,64 @@
+name: P2 unchanged real-host Settings feasibility
+on:
+  push:
+    branches: [validation/p2-alert-lifecycle]
+    paths:
+      - .github/workflows/p2-host-settings-probe.yml
+      - ci/p2/host_probe/**
+permissions:
+  contents: read
+concurrency:
+  group: p2-host-settings-probe-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  feasibility:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/p2-alert-lifecycle'
+    runs-on: macos-26
+    timeout-minutes: 50
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      APPROVED_HOST_PROBE_INPUTS_SHA256: d90ebf4e6729b0c87498b1fc5c6037120753b4d40fb9c2abeedac6a9055c3bb2
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_CONFIG_COUNT: '0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: builder
+          fetch-depth: 0
+          persist-credentials: false
+          set-safe-directory: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/LiveContainer
+          ref: eb10cedb772bc0496d67edd7a269679e24826b9f
+          path: maintained-source
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Portable provenance and hostile-parser tests
+        env:
+          P2_HOST_PROBE_SOURCE: ${{ github.workspace }}/maintained-source
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s builder/ci/p2/host_probe -p 'test_*.py' -v 2>&1 | tee p2-host-probe-portable.log
+      - name: Build unchanged real target and probe ordinary Settings feasibility
+        run: |
+          set -euo pipefail
+          python3 -B builder/ci/p2/host_probe/run.py --host "$GITHUB_WORKSPACE/maintained-source" \
+            --approved-inputs-sha256 "$APPROVED_HOST_PROBE_INPUTS_SHA256" \
+            --work "$GITHUB_WORKSPACE/p2-host-probe-work" --evidence "$GITHUB_WORKSPACE/p2-host-probe-evidence"
+      - name: Preserve exact successes and feasibility failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p2-host-settings-feasibility-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            p2-host-probe-evidence/**
+            p2-host-probe-portable.log
+          if-no-files-found: error
+          retention-days: 30

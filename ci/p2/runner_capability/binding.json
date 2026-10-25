@@ -1,0 +1,85 @@
+{
+  "builderCommit": "4cb67e4d252ba1b1f7a6fa6431560f75264f337c",
+  "environment": {
+    "architecture": "arm64",
+    "developerDir": "/Applications/Xcode_26.4.1.app/Contents/Developer",
+    "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+    "runtimeBuild": "23F77",
+    "runtimeIdentifier": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+    "runtimeVersion": "26.5",
+    "sdkVersion": "26.4",
+    "xcodeVersion": "Xcode 26.4.1\nBuild version 17E202"
+  },
+  "files": {
+    "generated-runner/HostSettingsProbe.xcodeproj/project.pbxproj": {
+      "bytes": 3307,
+      "sha256": "38203612a40f07974fba401da08d652da430d92d48fc312727c2612bb610efe3"
+    },
+    "generated-runner/HostSettingsProbe.xcodeproj/xcshareddata/xcschemes/HostSettingsProbe.xcscheme": {
+      "bytes": 1260,
+      "sha256": "14d744762a541d81f0c3fadb1d5e2bf26ab0d929e566b2063df4736be5f3167b"
+    },
+    "generated-runner/Sources/HostSettingsProbeTests.swift": {
+      "bytes": 9488,
+      "sha256": "de6c28e0a21c3b986ff76d74fbf7c076bcf2f5f6eedbadebf544727995b147cd"
+    },
+    "historical/commands/010.json": {
+      "bytes": 337,
+      "sha256": "7916ae036baa1a02e421716cb033facd2114ae2e8d3809388e95bbbc984d8a29"
+    },
+    "historical/commands/010.stdout": {
+      "bytes": 34,
+      "sha256": "bbe969e3e1760bbc982b73129dcb3b303aa7e410a7a6d7f666d20df96e601bdf"
+    },
+    "historical/commands/057.json": {
+      "bytes": 908,
+      "sha256": "65bfc1fe70a317850932813f7e5ead0a0609b266e6e21e81d01f8ad0cb271313"
+    },
+    "historical/commands/057.stderr": {
+      "bytes": 532,
+      "sha256": "0701d284884f580b2751c425c2e4d7ec8b83311d1d0aac4cf2df5a0925ae6a8e"
+    },
+    "historical/commands/057.stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "historical/evidence-sha256.json": {
+      "bytes": 45150,
+      "sha256": "d3919501a1b0944463d0f6e4e9f9f553d8d2bf58cb580e8272b15d9aa7413c7b"
+    },
+    "historical/feasibility.json": {
+      "bytes": 2666,
+      "sha256": "90b564fe427a3c86f2095196b2a815f1aea2c555a4e410bc904c7ecd13b1b7e4"
+    },
+    "historical/inputs.json": {
+      "bytes": 2321,
+      "sha256": "d90ebf4e6729b0c87498b1fc5c6037120753b4d40fb9c2abeedac6a9055c3bb2"
+    },
+    "historical/product-build-settings.json": {
+      "bytes": 46201,
+      "sha256": "dfe47fe08b218d59acfa9d92c710615081d3b98e11615bfe07a39b8ad3de66d7"
+    },
+    "historical/provenance/installed-initial-signatures.json": {
+      "bytes": 1025,
+      "sha256": "8dbb743b92b3daf2c1809cc7487d3e76d4b2259f06243e24c0f28790482b2635"
+    },
+    "historical/provenance/product-identity.json": {
+      "bytes": 28177,
+      "sha256": "b659019566e6b70b787993504d9d1c87b9ce1630109c33e49fe2aa7e777e3ed9"
+    },
+    "historical/simulator.json": {
+      "bytes": 20061,
+      "sha256": "82e253c9669199718e5355658d2b5becdbc6b4e7aa8f7e7881f5cca24e5a126a"
+    }
+  },
+  "historicalHostExecutableSHA256": "72eae07bb0f34fed85e47fa5d40b61383f2a774f5ffe9433c5d296f6e77d9f3f",
+  "runId": 39064168648,
+  "schemaVersion": 1,
+  "scope": "historical-runner-generation-only",
+  "sourceCommit": "eb10cedb772bc0496d67edd7a269679e24826b9f",
+  "sourceTree": "d6960a99a2f022a333c364fa4d28e264568a28ca",
+  "validatorFiles": {
+    "ci/p2/host_probe/install_contract.py": "b2fcf4494444eb908f7a58a3b25a55dfc8d0c73becb9d1be6a121fd342b210ac",
+    "ci/p2/host_probe/run.py": "72dd4074ea9e03c09ec967f2b8e5841af521402af884c37d5fe5aca3eded547e"
+  }
+}

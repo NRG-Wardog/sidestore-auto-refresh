@@ -50,6 +50,10 @@ def contract_files(pins, root=None):
     if pins.get("source_basis") == CONSTRUCTOR_BASIS:
         from p0_constructor_diagnostics import contract_files as constructor_contract_files
         return constructor_contract_files(pins, ROOT, root)
+    from p1_maintained_sources import BASIS as P1_BASIS
+    if pins.get("source_basis") == P1_BASIS:
+        from p1_maintained_sources import contract_files as p1_contract_files
+        return p1_contract_files(pins, ROOT, root)
     from p0_maintained_sources import BASIS as P0_BASIS
     if pins.get("source_basis") == P0_BASIS:
         from p0_maintained_sources import contract_files as p0_contract_files

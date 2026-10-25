@@ -19,10 +19,13 @@ class P0PackageEvidenceTests(unittest.TestCase):
     def setUp(self):
         # A final integration branch is required to have reviewed P0 pins.
         # Missing pins, disabled admission, or an absent explicit source must fail.
-        active = gate.load_pins(ROOT/'migration/maintained-sources.json')
         self.pin_path = ROOT/'migration/maintained-sources.json'
-        if active['source_basis'] in {'p0-constructor-diagnostics-v1', 'p0-elf-metadata-bounds-v1', 'p0-cxx-allocation-v1', 'p2-composed-host-v1','p0-full-login-diagnostics-v1'}:
+        active = gate.load_pins(self.pin_path)
+        if active['source_basis'] in {'p0-constructor-diagnostics-v1', 'p0-elf-metadata-bounds-v1', 'p0-cxx-allocation-v1', 'p2-composed-host-v1', 'p0-full-login-diagnostics-v1'}:
             self.pin_path = ROOT/'migration/p0-constructor-diagnostics-v1/inherited/p0-pins.json'
+        elif active['source_basis'] == 'p1-ui-feedback-v1':
+            # Exercise the exact inherited P0 proof, without relabeling it as P1.
+            self.pin_path = ROOT/'migration/p1-native-basis-v1/inherited/p0-pins.json'
         self.pins = gate.load_pins(self.pin_path)
         self.assertEqual(self.pins['source_basis'], p0.BASIS)
         configured = os.environ.get('P0_ANISETTE_TEST_SOURCE')

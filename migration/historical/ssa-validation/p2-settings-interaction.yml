@@ -1,0 +1,61 @@
+name: P2 actual Settings and alert interaction
+on:
+  push:
+    branches: [validation/p2-alert-lifecycle]
+    paths:
+      - .github/workflows/p2-settings-interaction.yml
+      - ci/p2/settings/**
+permissions:
+  contents: read
+concurrency:
+  group: p2-settings-interaction-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  interaction:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/p2-alert-lifecycle'
+    runs-on: macos-26
+    timeout-minutes: 50
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      APPROVED_SETTINGS_INPUTS_SHA256: f1368699e33112d929199b97f09e16004a9daa725fb90aeca37c669f6509fa75
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_CONFIG_COUNT: '0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: builder
+          persist-credentials: false
+          set-safe-directory: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/LiveContainer
+          ref: eb10cedb772bc0496d67edd7a269679e24826b9f
+          path: maintained-source
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Verify exact Settings extraction and five strict UI-test gates
+        env:
+          P2_SETTINGS_SOURCE: ${{ github.workspace }}/maintained-source
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s builder/ci/p2/settings -p test_lane.py -v
+      - name: Execute actual picker, relaunch and alert-action UI tests
+        run: |
+          set -euo pipefail
+          python3 -B builder/ci/p2/settings/run.py --host "$GITHUB_WORKSPACE/maintained-source" \
+            --approved-inputs-sha256 "$APPROVED_SETTINGS_INPUTS_SHA256" \
+            --work "$GITHUB_WORKSPACE/p2-settings-work" --evidence "$GITHUB_WORKSPACE/p2-settings-evidence"
+      - name: Retain raw native results and exact sources on success or failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p2-settings-interaction-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: p2-settings-evidence/**
+          if-no-files-found: error
+          retention-days: 30
