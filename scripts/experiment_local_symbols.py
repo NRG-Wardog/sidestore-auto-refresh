@@ -15,7 +15,7 @@ import zipfile
 import zlib
 from experiment_strip_stabs import TARGETS, DSYMS, digest, unique_zip, write
 from macho_stab_guard import image_uuid, require, sha, snapshot
-from macho_local_symbol_guard import classify, verify_local_removal, symbol_rows
+from macho_local_symbol_guard import classify, verify_local_removal, symbol_rows, runtime_save_list
 
 
 def deflated_size(data):
@@ -57,7 +57,13 @@ def measure_all_targets(targets,diagnostics,output,report):
         root=output/key;root.mkdir();original=root/'original';candidate=root/'stripped'
         original.write_bytes(data)
         try:
-            result=subprocess.run(['xcrun','--toolchain','default','strip','-x','-o',str(candidate),str(original)],
+            command=['xcrun','--toolchain','default','strip','-x']
+            if key=='SideStore':
+                content,keep_receipt=runtime_save_list(data)
+                keep=root/'runtime-adapter-keep.log';keep.write_bytes(content)
+                write(root/'runtime-adapter-keep.json',keep_receipt)
+                command+=['-s',str(keep)]
+            result=subprocess.run(command+['-o',str(candidate),str(original)],
                                   stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False,timeout=120)
             (root/'strip.log').write_bytes(result.stdout)
             require(result.returncode==0,'Apple local-symbol strip failed: '+key)
@@ -70,6 +76,9 @@ def measure_all_targets(targets,diagnostics,output,report):
                 'deflated_after_bytes':deflated_size(final),
                 'deflated_bytes_saved':deflated_size(data)-deflated_size(final)})
             evidence=verify_local_removal(data,final)
+            if key=='SideStore':
+                from package_livecontainer_combined import verify_side_store_intent_runtime_symbols
+                verify_side_store_intent_runtime_symbols(final)
             require(image_uuid(final)==diagnostics[key]['uuid'],'final dSYM UUID differs')
             evidence.update(deflated_before_bytes=deflated_size(data),deflated_after_bytes=deflated_size(final),
                 deflated_bytes_saved=deflated_size(data)-deflated_size(final),
@@ -115,6 +124,8 @@ def experiment(ipa,ipa_sha,symbols,symbols_sha,output,*,inspect_only=False,quali
             shutil.copyfile(source,retained/name)
             require(digest(retained/name)==expected,'retained original readback differs')
         if qualify_package:
+            from package_livecontainer_combined import verify as verify_combined
+            write(output/'original-package-preflight.json',verify_combined(ipa))
             from local_symbol_packaging import native
             baseline=output/'before-transform-SideStore';baseline.write_bytes(targets['SideStore'])
             native(['/usr/bin/codesign','--verify','--strict','--verbose=4',str(baseline)],output/'before-transform-strict.log')

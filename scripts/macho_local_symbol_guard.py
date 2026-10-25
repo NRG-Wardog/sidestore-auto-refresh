@@ -7,7 +7,8 @@ non-LINKEDIT bytes must remain exact. This module never mutates input bytes.
 """
 from collections import Counter
 import struct
-from macho_stab_guard import commands, require, snapshot
+from macho_stab_guard import commands, require, snapshot, symbol_digest, sha
+from package_livecontainer_combined import REQUIRED_SIDESTORE_INTENT_SYMBOLS
 
 
 def symbol_rows(data):
@@ -32,6 +33,30 @@ APPLE_SOURCE = {'commit':'e0d56624eca2a76c2ace4c21850df9e666de4ca5',
 APPLE_LOCAL_SENTINEL = (b'radr://5614542', 0x3c, 0, 0, 0x05614542)
 
 
+def is_runtime_adapter_name(name):
+    return any(stem in name for stem in REQUIRED_SIDESTORE_INTENT_SYMBOLS)
+
+
+def runtime_save_list(data):
+    """Apple -s can retain private-extern/global records, not ordinary locals."""
+    shape,removable,protected=classify(data)
+    rows,_=symbol_rows(data)
+    runtime=[row for row in rows if is_runtime_adapter_name(row[0]) and row[1] & 0x11]
+    names={row[0] for row in runtime}
+    for stem in REQUIRED_SIDESTORE_INTENT_SYMBOLS:
+        for suffix in (b'Ma',b'Mn',b'N'):
+            require(b'_$s'+stem+suffix in names,'App Intent runtime metadata root missing')
+    keep=runtime+[row for row in rows if row[1] & 1]
+    names=sorted({row[0] for row in keep})
+    require(all(name and not any(c in name for c in (b'\n',b'\r',b'\0')) for name in names),'unsafe keep-list name')
+    content=b''.join(name+b'\n' for name in names)
+    ordinary=[row for row in rows if is_runtime_adapter_name(row[0]) and not row[1]&0x11]
+    return content,{'runtime_adapter_tuple_count':len(runtime),'runtime_adapter_tuple_digest':symbol_digest(runtime),
+                   'ordinary_family_label_count_before':len(ordinary),'keep_name_count':len(names),
+                   'keep_list_sha256':sha(content),'source_semantics':'Apple strip -x -s, no -S or -i',
+                   'six_metadata_access_descriptor_and_type_roots_required':True}
+
+
 def classify(data, *, allow_apple_local_sentinel=False):
     shape = snapshot(data)  # All bounds/ranges, category closure and blob checks first.
     rows, dysym = symbol_rows(data)
@@ -52,7 +77,8 @@ def classify(data, *, allow_apple_local_sentinel=False):
         if sentinel and index == 0: continue
         kind = row[1]
         is_local = local_start <= index < local_start + local_count
-        eligible = is_local and not kind & 1 and (kind & 0x0e) in (2, 0x0e) and index not in protected_indices
+        runtime_adapter = is_runtime_adapter_name(row[0]) and bool(kind & 0x11)
+        eligible = not runtime_adapter and is_local and not kind & 1 and (kind & 0x0e) in (2, 0x0e) and index not in protected_indices
         (removable if eligible else protected).append(row)
     return shape, Counter(removable), Counter(protected)
 
@@ -81,7 +107,9 @@ def verify_local_removal(before, after, *, require_reduction=True):
             'removed_local_records': sum(removed.values()), 'remaining_removable_local_records': sum(new_local.values()),
             'actual_local_symbol_category_count': symbol_rows(after)[1][3],
             'compatibility_marker_count': new['stab_count'],
-            'protected_records': sum(old_protected.values()), 'bytes_saved': len(before)-len(after),
+            'protected_records': sum(old_protected.values()),
+            'runtime_adapter_private_tuples_preserved':sum(count for row,count in old_protected.items() if is_runtime_adapter_name(row[0]) and row[1]&0x10),
+            'ordinary_runtime_family_labels_removed':sum(count for row,count in removed.items() if is_runtime_adapter_name(row[0])), 'bytes_saved': len(before)-len(after),
             'apple_compatibility_sentinel_retained': new['stab_count'] == 1,
             'apple_sentinel_source_evidence': APPLE_SOURCE,
             'signature_verified': False, 'runtime_proven': False, 'packaging_approved': False}

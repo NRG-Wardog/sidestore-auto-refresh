@@ -87,7 +87,8 @@ class LocalExperimentTests(unittest.TestCase):
             self.assertEqual(kwargs['timeout'],120)
             Path(command[command.index('-o')+1]).write_bytes(fixture(True))
             return SimpleNamespace(returncode=0,stdout=b'synthetic strip diagnostic')
-        with patch.object(experiment.subprocess,'run',side_effect=fake_strip) as run:
+        with patch.object(experiment.subprocess,'run',side_effect=fake_strip) as run, \
+             patch.object(experiment,'runtime_save_list',return_value=(b'_public\n',{'synthetic_test_only':True})):
             with self.assertRaisesRegex(ValueError,'one or more'):experiment.measure_all_targets(targets,diagnostics,output,report)
         self.assertEqual(run.call_count,2)
         self.assertEqual(set(report['target_errors']),set(TARGETS))

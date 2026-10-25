@@ -83,3 +83,34 @@ archive size and immutable original hash. SwiftUI stays unsigned. Success permit
 an internal experimental artifact, not release, device qualification, or delivery
 as the current complete Russian candidate. The original and full dSYMs remain
 archived separately. Any failed gate prevents derivative artifact promotion.
+
+## App Intent runtime keep closure
+
+The qualified-source adapter calls `_getTypeByMangledNameInContext` from
+`SideStoreSupport/SideStoreClient.swift` for both SideStore refresh intent types.
+The original package's two complete mangled stems occur only in LINKEDIT. The
+unchanged package guard correctly rejected their loss after unconstrained `-x`.
+
+For SideStore only, `-x -s` now retains all original private-extern/global tuples
+containing either required intent stem, plus every protected external/undefined
+symbol name. Both types' exact `Ma`, `Mn` and `N` metadata roots are mandatory.
+For the measured baseline this is172 private-extern family tuples plus2918
+external/undefined names,3090 distinct save-list entries. Every retained tuple
+(name/type/section/description/value and multiplicity) is protected by the local
+semantic gate, not merely by a substring check. No names are injected.
+
+The pinned Apple implementation's local branch (`strip.c:3623–3805`) only honors
+save lists for private externals; `-R` operates in the global branch. Therefore65
+ordinary local family labels still disappear. These include async continuation
+and conformance-cache labels, not just implementation-function labels. Their
+code, descriptor, cache and other non-LINKEDIT bytes remain identical; this is
+not a device/runtime proof. All172 private-extern family tuples and six metadata
+roots remain, and the original App Intent package guards are unchanged.
+
+The save-list option may invoke export-trie pruning. The strict unchanged export
+blob gate still applies; the measured SideStore source has an empty8-byte export
+trie. SwiftUI receives no save-list and its exports remain protected. Support is
+not transformed here, retaining its369 matching host-wrapper symbol records and
+all metadata. The full original packaging contract is checked before tools and
+again on the final derivative. Runtime tuple loss now fails immediately after
+strip, before resealing or archive generation.
