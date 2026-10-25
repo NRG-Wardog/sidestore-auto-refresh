@@ -265,7 +265,7 @@ ldid format is accepted here, with no XML/DER entitlement slots.
     return {'directories': sorted(directories), 'other_slots': others}
 
 
-def _checked_signature_entries(data):
+def _checked_signature_entries(data, *, require_zero_padding=True):
     rows = [raw for cmd, raw in commands(data)[2] if cmd == 0x1d]
     require(len(rows) == 1 and len(rows[0]) == 16, 'one signature command required')
     offset, allocated = struct.unpack_from('<II', rows[0], 8)
@@ -274,7 +274,8 @@ def _checked_signature_entries(data):
     require(len(blob) >= 12, 'signature header truncated')
     magic, length, count = struct.unpack_from('>3I', blob)
     require(magic == 0xfade0cc0 and count <= 16 and 12+count*8 <= length <= len(blob), 'invalid signature index')
-    require(not any(blob[length:]), 'nonzero signature padding')
+    if require_zero_padding:
+        require(not any(blob[length:]), 'nonzero signature padding')
     entries, ranges = {}, []
     for i in range(count):
         slot, start = struct.unpack_from('>2I', blob, 12+8*i)
@@ -320,6 +321,19 @@ def _verify_code_directory_hashes(data, offset, entries, expected_flags):
     return policies
 
 
+def _validated_apple_signature_policy(original, final, *, require_zero_padding=True):
+    signature_metadata(original)  # Existing original ldid closure remains mandatory.
+    old_offset, _, old_entries = _checked_signature_entries(original)
+    offset, padding, entries = _checked_signature_entries(final, require_zero_padding=require_zero_padding)
+    require(set(entries) == {0,2,0x1000,0x10000}, 'unreviewed ad-hoc signature slots')
+    require(entries[2] == bytes.fromhex('fade0c010000000c00000000'), 'ad-hoc requirements differ')
+    require(entries[0x10000] == bytes.fromhex('fade0b0100000008'), 'ad-hoc CMS must be empty wrapper')
+    old_policy = _verify_code_directory_hashes(original, old_offset, old_entries, 0)
+    policy = _verify_code_directory_hashes(final, offset, entries, 2)
+    require(old_policy == policy, 'signing executable geometry/hash algorithms changed')
+    return padding, old_entries, entries
+
+
 def verify_apple_adhoc_reseal(original, final):
     """Reusable final-product guard, independent of any artifact/run SHA.
 
@@ -330,17 +344,31 @@ Zero allocation padding may vary by signer sizing; it cannot exceed the
 original VM allocation or defeat the required final binary size reduction.
 """
     structural = verify(original, final)
-    signature_metadata(original)  # Existing original ldid closure remains mandatory.
-    old_offset, _, old_entries = _checked_signature_entries(original)
-    offset, padding, entries = _checked_signature_entries(final)
-    require(set(entries) == {0,2,0x1000,0x10000}, 'unreviewed ad-hoc signature slots')
-    require(entries[2] == bytes.fromhex('fade0c010000000c00000000'), 'ad-hoc requirements differ')
-    require(entries[0x10000] == bytes.fromhex('fade0b0100000008'), 'ad-hoc CMS must be empty wrapper')
-    old_policy = _verify_code_directory_hashes(original, old_offset, old_entries, 0)
-    policy = _verify_code_directory_hashes(final, offset, entries, 2)
-    require(old_policy == policy, 'signing executable geometry/hash algorithms changed')
+    padding, old_entries, entries = _validated_apple_signature_policy(original, final)
     return {'structural': structural, 'signature_policy': 'reviewed_apple_adhoc_v20400_dual_hash',
             'all_code_pages_and_special_slots_verified': True, 'signature_zero_padding_bytes': padding,
             'original_requirements_sha256': sha(old_entries[2]), 'final_requirements_sha256': sha(entries[2]),
             'original_designated_requirement_preserved': False,
             'installer_resigning_required': True, 'device_execution_verified': False}
+
+
+def canonicalize_apple_signature_padding(original, signed):
+    """Erase only stale allocation padding outside a validated Apple SuperBlob.
+
+All occupied signature children and covered code pages are verified BEFORE
+producing new bytes. The strict public zero-padding validator is unchanged.
+"""
+    verify(original, signed)
+    padding, _, _ = _validated_apple_signature_policy(original, signed, require_zero_padding=False)
+    declared_end = len(signed)-padding
+    stale = signed[declared_end:]
+    canonical = signed[:declared_end] + bytes(padding)
+    require(len(canonical) == len(signed) and canonical[:declared_end] == signed[:declared_end],
+            'padding canonicalization changed occupied bytes')
+    verify_apple_adhoc_reseal(original, canonical)
+    return canonical, {'operation': 'zero_only_declared_signature_allocation_padding',
+                       'declared_signature_end': declared_end, 'padding_bytes': padding,
+                       'before_padding_sha256': sha(stale), 'after_padding_sha256': sha(bytes(padding)),
+                       'before_nonzero_padding_bytes': sum(byte != 0 for byte in stale),
+                       'before_binary_sha256': sha(signed), 'after_binary_sha256': sha(canonical),
+                       'occupied_bytes_unchanged': True, 'file_size_unchanged': True}

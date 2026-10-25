@@ -20,7 +20,7 @@ import zipfile
 
 from audit_ipa_signing import inventory as signing_inventory, signing
 from ipa_size_report import inspect, report as size_report
-from macho_stab_guard import image_uuid, require, sha, snapshot, verify, signature_metadata, commands, verify_apple_adhoc_reseal
+from macho_stab_guard import image_uuid, require, sha, snapshot, verify, signature_metadata, commands, verify_apple_adhoc_reseal, canonicalize_apple_signature_padding
 from package_livecontainer_combined import verify as verify_combined
 
 RUN = '40213898605'
@@ -283,6 +283,10 @@ def main():
                          '--digest-algorithm=sha1,sha256', '--timestamp=none', str(candidate)],
                         args.output / (key + '-apple-adhoc-reseal.log'))
                     capture_signature(candidate, args.output, key + '-apple-adhoc')
+                    canonical, padding_receipt = canonicalize_apple_signature_padding(data, candidate.read_bytes())
+                    candidate.write_bytes(canonical)
+                    write(args.output / 'signature-padding-canonicalization.json', padding_receipt)
+                    capture_signature(candidate, args.output, key + '-apple-adhoc-canonical')
                     report['apple_adhoc_policy'] = verify_apple_adhoc_reseal(data, candidate.read_bytes())
                     write(args.output / 'apple-adhoc-policy.json', report['apple_adhoc_policy'])
                 run(['/usr/bin/codesign', '--verify', '--strict', '--verbose=4', str(candidate)], args.output / (key + '-codesign-verify.log'))

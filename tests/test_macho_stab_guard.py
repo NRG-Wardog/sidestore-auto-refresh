@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from macho_stab_guard import snapshot, verify, commands, signature_metadata, verify_apple_adhoc_reseal, _checked_signature_entries
+from macho_stab_guard import snapshot, verify, commands, signature_metadata, verify_apple_adhoc_reseal, _checked_signature_entries, canonicalize_apple_signature_padding
 
 
 def fixture(debug=True, *, local=b'_local', indirect_wrong=False, payload=b'export-trie', signature=False):
@@ -52,7 +52,7 @@ def alter_command(data, command, offset, value, fmt='<I'):
     raise AssertionError(command)
 
 
-def signed_fixture(debug=True, *, adhoc=False, correct_hashes=False):
+def signed_fixture(debug=True, *, adhoc=False, correct_hashes=False, padding=0):
     data = fixture(debug, signature=True)
     _, _, rows = commands(data)
     sig = next(raw for cmd, raw in rows if cmd == 0x1d)
@@ -74,8 +74,8 @@ def signed_fixture(debug=True, *, adhoc=False, correct_hashes=False):
     for slot, child in children:
         index += struct.pack('>2I', slot, pos); body += child; pos += len(child)
     blob = struct.pack('>3I', 0xfade0cc0, pos, len(children)) + index + body
-    result = data[:off] + blob
-    result = alter_command(result, 0x1d, 12, len(blob))
+    result = data[:off] + blob + bytes(padding)
+    result = alter_command(result, 0x1d, 12, len(blob)+padding)
     # Select LINKEDIT (the second segment) rather than TEXT.
     result = bytearray(result)
     struct.pack_into('<Q', result, 32+72+32, len(result)-512)
@@ -223,6 +223,27 @@ class StabGuardTests(unittest.TestCase):
         changed = bytearray(new + b'\x01')
         changed = alter_command(bytes(changed), 0x1d,12,len(new)-offset+1)
         with self.assertRaises(ValueError): verify_apple_adhoc_reseal(old,changed)
+
+    def test_padding_canonicalization_preserves_all_occupied_bytes_and_rejects_bad_hashes(self):
+        old = signed_fixture(correct_hashes=True)
+        clean = signed_fixture(False, adhoc=True, correct_hashes=True, padding=4)
+        stale = clean[:-4] + b'old!'
+        with self.assertRaisesRegex(ValueError, 'nonzero signature padding'):
+            verify_apple_adhoc_reseal(old, stale)
+        canonical, receipt = canonicalize_apple_signature_padding(old, stale)
+        self.assertEqual(canonical, clean)
+        self.assertEqual(receipt['before_nonzero_padding_bytes'], 4)
+        self.assertTrue(receipt['occupied_bytes_unchanged'])
+        self.assertEqual(canonicalize_apple_signature_padding(old, clean)[0], clean)
+        offset = struct.unpack_from('<I', next(raw for cmd,raw in commands(stale)[2] if cmd==0x1d),8)[0]
+        cd = offset + struct.unpack_from('>I',stale,offset+16)[0]
+        hoff = struct.unpack_from('>I',stale,cd+16)[0]
+        bad = bytearray(stale); bad[cd+hoff] ^= 1
+        with self.assertRaisesRegex(ValueError, 'page hash mismatch'):
+            canonicalize_apple_signature_padding(old, bytes(bad))
+        bad = bytearray(stale); bad[cd+15] ^= 1
+        with self.assertRaisesRegex(ValueError, 'unreviewed ad-hoc'):
+            canonicalize_apple_signature_padding(old, bytes(bad))
 
     def test_malformed_and_unsupported_images_reject(self):
         original = fixture()
