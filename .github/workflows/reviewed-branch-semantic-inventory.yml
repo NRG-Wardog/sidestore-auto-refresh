@@ -1,0 +1,51 @@
+name: Collect exact read-only branch semantic evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.ci/branch-semantic-review/inventory.json'
+
+permissions:
+  contents: read
+concurrency:
+  group: reviewed-branch-semantic-inventory
+  cancel-in-progress: false
+env:
+  REVIEWED_MANIFEST_SHA256: 1a9f1da6d5aefa53fc1af8c380ca9119de8833c9259e8a4235a8e2666503c6a4
+
+jobs:
+  inventory:
+    if: github.event_name == 'push' && github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the exact workflow commit without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          sparse-checkout: |
+            .ci/branch-semantic-review
+            .github/workflows/reviewed-branch-semantic-inventory.yml
+          sparse-checkout-cone-mode: false
+      - name: Verify the exact reviewed manifest and code without network
+        run: python3 .ci/branch-semantic-review/inventory.py --verify-manifest-only
+      - name: Test bounded collection and fail-closed safety gates without network
+        run: python3 -m unittest discover -s .ci/branch-semantic-review -p 'test_inventory.py' -v
+      - name: Collect exact public read-only Git evidence without running fetched code
+        run: python3 .ci/branch-semantic-review/inventory.py --output branch-semantic-evidence --work "${RUNNER_TEMP}/branch-semantic-git"
+      - name: Retain complete and explicitly partial offline review evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: branch-semantic-evidence-${{ github.sha }}
+          path: branch-semantic-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6

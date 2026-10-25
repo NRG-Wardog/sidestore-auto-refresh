@@ -1,0 +1,589 @@
+{
+  "control_files": [
+    ".ci/branch-semantic-review/README.md",
+    ".ci/branch-semantic-review/inventory.json",
+    ".ci/branch-semantic-review/inventory.py",
+    ".ci/branch-semantic-review/source-receipt.json",
+    ".ci/branch-semantic-review/test_inventory.py",
+    ".github/workflows/reviewed-branch-semantic-inventory.yml"
+  ],
+  "expected_nondefault_branches": 97,
+  "limits": {
+    "capture_bytes": 8388608,
+    "commit_patch_bytes": 2097152,
+    "default_tree_history_entries": 50000,
+    "diff_bytes": 4194304,
+    "local_seconds": 180,
+    "merge_bases": 8,
+    "merge_parents": 8,
+    "patch_artifact_bytes": 402653184,
+    "remote_seconds": 900,
+    "remote_spacing_seconds": 3.1,
+    "repository_bytes": 3221225472,
+    "total_seconds": 7200,
+    "unique_commits_per_branch": 500
+  },
+  "manual_holds": [
+    {
+      "branch": "research/cellular-refresh-feasibility-20261022",
+      "reason": "Preserve open PR 49 research pending separate review.",
+      "repository": "NRG-Wardog/sidestore-auto-refresh"
+    },
+    {
+      "branch": "migration/runtime-source-141776ba",
+      "reason": "Preserve runtime-source migration dependency pending separate review.",
+      "repository": "NRG-Wardog/AnisetteKit"
+    }
+  ],
+  "repositories": [
+    {
+      "branches": [
+        {
+          "name": "fix/v3.0.3-auth-errors",
+          "protected_at_receipt": false,
+          "sha": "54eb199044311193dc5a70d39f4c646218804336"
+        },
+        {
+          "name": "fix/v3.1.0-audit",
+          "protected_at_receipt": false,
+          "sha": "c477b44ad47f5e87e6a05b16dfb165c0065adc73"
+        },
+        {
+          "name": "fix/v3.1.0-p1-integration",
+          "protected_at_receipt": false,
+          "sha": "e555dc1244f8be556c2906754ea7efe881798fe0"
+        },
+        {
+          "name": "research/cellular-refresh-feasibility-20261022",
+          "protected_at_receipt": false,
+          "sha": "ff0e44e622da8ab6e364d8f9d8393db20d4710b5"
+        },
+        {
+          "name": "validation/p0-cxx-allocation-release",
+          "protected_at_receipt": false,
+          "sha": "083b0f425549f987081005a97cacba814f456e11"
+        },
+        {
+          "name": "validation/p0-login-trace-release",
+          "protected_at_receipt": false,
+          "sha": "3edd9fa523a223bcd2898d5c960c5da7ff335be8"
+        },
+        {
+          "name": "validation/p2-alert-lifecycle",
+          "protected_at_receipt": false,
+          "sha": "1d09456b441912c12227052eb21a26389ac0a203"
+        },
+        {
+          "name": "validation/p2-composed-release",
+          "protected_at_receipt": false,
+          "sha": "828c4818b93e747125c979537bec29afda678ad5"
+        },
+        {
+          "name": "validation/p2-localization-preflight",
+          "protected_at_receipt": false,
+          "sha": "0cc9078ef6cb57d8b3512306fd48f376e601040d"
+        }
+      ],
+      "default_branch": "main",
+      "default_sha": "86bda6add36f28a7f47b13c1ad6f6527a0c57a81",
+      "repository": "NRG-Wardog/sidestore-auto-refresh"
+    },
+    {
+      "branches": [
+        {
+          "name": "backport-sidesign-gsa-5xx",
+          "protected_at_receipt": false,
+          "sha": "6e6891e492e64f64607cd0e8a2487b3cc7acdef7"
+        },
+        {
+          "name": "validation/pr1835-quick",
+          "protected_at_receipt": false,
+          "sha": "825b3f888dfc7cd53e9f17039ffba75659f04ffc"
+        }
+      ],
+      "default_branch": "LiveContainerSupport",
+      "default_sha": "18ab80ac78853e988adbe5dab67a1f9f4027eff4",
+      "repository": "NRG-Wardog/SideStore"
+    },
+    {
+      "branches": [
+        {
+          "name": "debug/adi-otp-execution",
+          "protected_at_receipt": false,
+          "sha": "1ff6b466f7a252223468c61820c598cccf4c5ae2"
+        },
+        {
+          "name": "fix/p0-constructor-diagnostics",
+          "protected_at_receipt": false,
+          "sha": "1df50257f6255522e6ff48db226508fe74d6b17d"
+        },
+        {
+          "name": "fix/p1-guest-geometry",
+          "protected_at_receipt": false,
+          "sha": "0dcc2a20d9490a797ead972507a28fe02eef56fc"
+        },
+        {
+          "name": "fix/v3.1.0-p1",
+          "protected_at_receipt": false,
+          "sha": "bd5d9d87af76bfce0553d358bb3c6d45cbbc806a"
+        },
+        {
+          "name": "validation/adi-consumption-native",
+          "protected_at_receipt": false,
+          "sha": "f1ad99a767f4fc619b271d42fe8c44f3e9a040b0"
+        },
+        {
+          "name": "validation/adi-production-dependencies",
+          "protected_at_receipt": false,
+          "sha": "761eb1387b6264d27ad606920e1e44a87f6bbb65"
+        },
+        {
+          "name": "validation/cache-root-alias-investigation-20261024",
+          "protected_at_receipt": false,
+          "sha": "8928d99bae45f051af2e708a953b5021e0ba0796"
+        },
+        {
+          "name": "validation/cold-vpn-recovery-test-20261024",
+          "protected_at_receipt": false,
+          "sha": "5ee0e9adebef6981ae3ac1c2163f80b0c893a79f"
+        },
+        {
+          "name": "validation/consumer-contract-20261020",
+          "protected_at_receipt": false,
+          "sha": "88c7110c868c12f70f8686b8cf887ff3f13a7c78"
+        },
+        {
+          "name": "validation/diagnostic-ipa-20261020",
+          "protected_at_receipt": false,
+          "sha": "73da2284ff16aa8910761a706318f650e4bbd8de"
+        },
+        {
+          "name": "validation/evidence-transfer-20261020",
+          "protected_at_receipt": false,
+          "sha": "1d9dcd5c16ccfe79b25e7fa22a74eda8a638487b"
+        },
+        {
+          "name": "validation/install-chain-fixture-20261024",
+          "protected_at_receipt": false,
+          "sha": "796a946ae44279cfe1e9c53b26fa32a0d68ecf32"
+        },
+        {
+          "name": "validation/native-app-compile-20261020",
+          "protected_at_receipt": false,
+          "sha": "19247a63fdc912d1cf8dac690cdb37769ad9e38a"
+        },
+        {
+          "name": "validation/native-cache-compatibility-20261024",
+          "protected_at_receipt": false,
+          "sha": "a395469f43ef3c80bae48839336d9f7bc87fcb53"
+        },
+        {
+          "name": "validation/native-cold-vpn-activation-20261024",
+          "protected_at_receipt": false,
+          "sha": "107bb6fbe112d9d9769f6e2915c72464f5712151"
+        },
+        {
+          "name": "validation/native-comprehensive-diagnostics-20261021",
+          "protected_at_receipt": false,
+          "sha": "cb3fc0d66e2a85cd8961488be7635af4b5b420a9"
+        },
+        {
+          "name": "validation/native-host-bundle-repair-20261023",
+          "protected_at_receipt": false,
+          "sha": "da061bda6ac5315722a16859401b7dbb3c7eb953"
+        },
+        {
+          "name": "validation/native-iloader-auth-20261022",
+          "protected_at_receipt": false,
+          "sha": "c8700f4b4d4706510df5ce106137a5c0f79a0b6c"
+        },
+        {
+          "name": "validation/native-iloader-onboarding-20261022",
+          "protected_at_receipt": false,
+          "sha": "8e310c1c2bb5e7455aaf08781a9604885aadee54"
+        },
+        {
+          "name": "validation/native-pairing-deferred-setup-20261022",
+          "protected_at_receipt": false,
+          "sha": "c975bef8987ca9ce24ed2cbf6af9903bd9a2c792"
+        },
+        {
+          "name": "validation/native-pairing-finalization-recovery-20261022",
+          "protected_at_receipt": false,
+          "sha": "e375ffda1afb160da332833baae404845ec60476"
+        },
+        {
+          "name": "validation/native-refresh-failure-preservation-20261022",
+          "protected_at_receipt": false,
+          "sha": "785d4623982094eae836f1b857bf7e8cfe093a87"
+        },
+        {
+          "name": "validation/native-refresh-failure-preservation-recovery-20261022",
+          "protected_at_receipt": false,
+          "sha": "deba71bcac44b1adc1da95c7b2db2f60a2300211"
+        },
+        {
+          "name": "validation/native-registration-diagnostics-20261022",
+          "protected_at_receipt": false,
+          "sha": "ab2e392fed7eddb7ebe7cae556dcb9d3fd7c616f"
+        },
+        {
+          "name": "validation/native-setup-state-recovery1-20261022",
+          "protected_at_receipt": false,
+          "sha": "0eb987f2c3a59193b68a0221fb7d4d2517ec5e61"
+        },
+        {
+          "name": "validation/native-setup-state-recovery2-20261022",
+          "protected_at_receipt": false,
+          "sha": "2f7ae8533b943432fd6e981acf946bd83f66d415"
+        },
+        {
+          "name": "validation/native-setup-state-recovery3-20261022",
+          "protected_at_receipt": false,
+          "sha": "98457f22991926c900f14c3a9792f9f25fbd5ab4"
+        },
+        {
+          "name": "validation/native-setup-state-recovery4-20261022",
+          "protected_at_receipt": false,
+          "sha": "7e4ae0246933377bd4be5a78520f6155c4be3341"
+        },
+        {
+          "name": "validation/native-setup-state-recovery5-20261022",
+          "protected_at_receipt": false,
+          "sha": "835b8d736c2d370b5b2565e19f6115bcd3cb6362"
+        },
+        {
+          "name": "validation/native-setup-state-recovery6-20261022",
+          "protected_at_receipt": false,
+          "sha": "d1564b00ea85bd611cabf1cd401b4db7592eb82f"
+        },
+        {
+          "name": "validation/native-setup-state-recovery7-20261022",
+          "protected_at_receipt": false,
+          "sha": "93aa13df1be96b14715cc1e156043f931ed293da"
+        },
+        {
+          "name": "validation/native-setup-state-recovery-20261022",
+          "protected_at_receipt": false,
+          "sha": "2ef9cd5626aa223b8c285d278788719334d29a8b"
+        },
+        {
+          "name": "validation/native-status-profile-diagnostics-20261023",
+          "protected_at_receipt": false,
+          "sha": "f16526ce4e3fbd2a7c4278d8afee8f57ee6347c7"
+        },
+        {
+          "name": "validation/native-vpn-interface-recovery-20261024",
+          "protected_at_receipt": false,
+          "sha": "177ac31e90499231191b25f761014c17d9f2ba7b"
+        },
+        {
+          "name": "validation/p0-constructor-diagnostics",
+          "protected_at_receipt": false,
+          "sha": "1d0a875bf4e7257c44022aac6e0b77c9f5a11925"
+        },
+        {
+          "name": "validation/p0-cxx-allocation",
+          "protected_at_receipt": false,
+          "sha": "bbd14b3137f213004a2006f65a2c94ad6d52712c"
+        },
+        {
+          "name": "validation/p0-cxx-allocation-linux",
+          "protected_at_receipt": false,
+          "sha": "252eb33dfcd59bb6d07f3034e58dd15584eda2dc"
+        },
+        {
+          "name": "validation/p0-defensive-ab-artifact-transport",
+          "protected_at_receipt": false,
+          "sha": "afd4944ece3ac15140fa97e226b76baab24bd078"
+        },
+        {
+          "name": "validation/p0-defensive-ab-linux",
+          "protected_at_receipt": false,
+          "sha": "7cc24df4fabb8960cbed3b6241f144a5da6dbbff"
+        },
+        {
+          "name": "validation/p0-defensive-ab-phase-a",
+          "protected_at_receipt": false,
+          "sha": "7ef4fc881c6b1583455f4cdffa1c16585de2eb2a"
+        },
+        {
+          "name": "validation/p0-defensive-ab-phase-a-toolchain",
+          "protected_at_receipt": false,
+          "sha": "d057b2bd1cedc2ac234f8b7397052ed9554b6c0d"
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-artifact-transport",
+          "protected_at_receipt": false,
+          "sha": "95396d081776bc82cc8660b83a8371ea8f514887"
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-corrected-transport",
+          "protected_at_receipt": false,
+          "sha": "a3187b79e840c7adfc805d26764edade885115b2"
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-phase-a",
+          "protected_at_receipt": false,
+          "sha": "1f1230372551c4aa0a4f39d93f58be76a8ee163d"
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-phase-a-swift-split",
+          "protected_at_receipt": false,
+          "sha": "4df0baa4f92274983a0d750cc5c3a3553600296b"
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-phase-b",
+          "protected_at_receipt": false,
+          "sha": "2437b2abb7bb950efcec254441b4b917ac3982ce"
+        },
+        {
+          "name": "validation/p0-defensive-diagnostic-phase-b-transport",
+          "protected_at_receipt": false,
+          "sha": "4b6358de06b9313073c155f4eed59f1ca9b41f72"
+        },
+        {
+          "name": "validation/p0-elf-metadata-bounds",
+          "protected_at_receipt": false,
+          "sha": "6edd04bdeca008faf0f5e3c56d0ff42ac097e7d8"
+        },
+        {
+          "name": "validation/p0-fault-aggregate-phase-a",
+          "protected_at_receipt": false,
+          "sha": "8f8002412248d2168c6e52858ff928800a2a01bb"
+        },
+        {
+          "name": "validation/p0-fault-aggregate-phase-a-transport",
+          "protected_at_receipt": false,
+          "sha": "80b59ec2daaaf1fd50b1c98d8d4512518e986a9d"
+        },
+        {
+          "name": "validation/p0-login-trace-phase-a",
+          "protected_at_receipt": false,
+          "sha": "3ec28a81d8ff8f0f736e775c676d733bc5b61be8"
+        },
+        {
+          "name": "validation/p0-login-trace-phase-b",
+          "protected_at_receipt": false,
+          "sha": "dd8fff072238af26bcee00ae17881f9f15d3ec2c"
+        },
+        {
+          "name": "validation/p0-native-basis",
+          "protected_at_receipt": false,
+          "sha": "5a255a7b52bfa0351d1a5a2a934be90df985d138"
+        },
+        {
+          "name": "validation/p1-export-replay",
+          "protected_at_receipt": false,
+          "sha": "61521cfc621ae018aa1336d1b9bf9ba1efc4c8a1"
+        },
+        {
+          "name": "validation/p1-native-basis",
+          "protected_at_receipt": false,
+          "sha": "09d75d765a6c63b27fccae3529c8b224100278b3"
+        },
+        {
+          "name": "validation/p1-sample-capability",
+          "protected_at_receipt": false,
+          "sha": "e07d8a45bf8ac71fdf426903238bc8389dc20c83"
+        },
+        {
+          "name": "validation/package-cache-compatibility-20261024",
+          "protected_at_receipt": false,
+          "sha": "bbbdef8cdb098d7d46b280d66f39d35064c44569"
+        },
+        {
+          "name": "validation/package-cold-vpn-activation-20261024",
+          "protected_at_receipt": false,
+          "sha": "5ed17a034b3cefbf1ef0497179a8e42d075d40a7"
+        },
+        {
+          "name": "validation/package-comprehensive-diagnostics-20261022",
+          "protected_at_receipt": false,
+          "sha": "461a6b378e77797083ddc3bf4ff8b7ba4c76cc2b"
+        },
+        {
+          "name": "validation/package-host-bundle-repair-20261023",
+          "protected_at_receipt": false,
+          "sha": "430a77aa6cffeb2b172653ebeefd95fb809c1d7f"
+        },
+        {
+          "name": "validation/package-iloader-auth-20261022",
+          "protected_at_receipt": false,
+          "sha": "f696381b55a6ede1ee82439fd53c3014f3674eb0"
+        },
+        {
+          "name": "validation/package-iloader-onboarding-20261022",
+          "protected_at_receipt": false,
+          "sha": "662f971025d653141001ee192259f0d0a141ac0c"
+        },
+        {
+          "name": "validation/package-pairing-deferred-setup-20261022",
+          "protected_at_receipt": false,
+          "sha": "ab68e947255cec975e1a1705253abe748b9a4dd6"
+        },
+        {
+          "name": "validation/package-pairing-finalization-recovery-20261022",
+          "protected_at_receipt": false,
+          "sha": "8ac03c8453416a3fb13bee609588f789bd507e0a"
+        },
+        {
+          "name": "validation/package-refresh-failure-preservation-recovery-20261022",
+          "protected_at_receipt": false,
+          "sha": "a946db241bf881ad7659b892d3522b608859e8ad"
+        },
+        {
+          "name": "validation/package-registration-diagnostics-20261022",
+          "protected_at_receipt": false,
+          "sha": "a6bd8202050dcd8a692341c0b1e1381bafdb02af"
+        },
+        {
+          "name": "validation/package-setup-state-recovery-20261022",
+          "protected_at_receipt": false,
+          "sha": "ecb0056ca5f2d3ef565975d7574ca122e70a650a"
+        },
+        {
+          "name": "validation/package-status-profile-diagnostics-20261023",
+          "protected_at_receipt": false,
+          "sha": "90f23970e7dc1556b85d77fa70a599c08a0acc11"
+        },
+        {
+          "name": "validation/package-vpn-interface-recovery-20261024",
+          "protected_at_receipt": false,
+          "sha": "0403c859f943ffe4f17a048ac1309dd009f1f17b"
+        },
+        {
+          "name": "validation/pr1835-quick",
+          "protected_at_receipt": false,
+          "sha": "8193d7379c7cbdc420b02bc75d4e9e37c4823f17"
+        },
+        {
+          "name": "validation/production-dependencies-141776ba",
+          "protected_at_receipt": false,
+          "sha": "5fcff4214fc459b30b37843aaa2cf075232f52f2"
+        },
+        {
+          "name": "validation/runtime-source-141776ba",
+          "protected_at_receipt": false,
+          "sha": "9f7a566a17c59cac4121fb59b59d55dbfa574efb"
+        }
+      ],
+      "default_branch": "main",
+      "default_sha": "5980d02b91077562fb5994027ff12e7773f4113e",
+      "repository": "NRG-Wardog/LiveContainer"
+    },
+    {
+      "branches": [
+        {
+          "name": "validation/p0-remote-reserve-20261019",
+          "protected_at_receipt": false,
+          "sha": "b47478bb876363ae47fca6caac323765c453310b"
+        },
+        {
+          "name": "validation/pr1835-quick",
+          "protected_at_receipt": false,
+          "sha": "4e852649fada9851774a80e2639414d20f3efd72"
+        }
+      ],
+      "default_branch": "main",
+      "default_sha": "cefb5f39d2c0566b5bbfecf7756cd3c293b69f1c",
+      "repository": "NRG-Wardog/SideSign"
+    },
+    {
+      "branches": [
+        {
+          "name": "debug/adi-rejection-ff5a1af",
+          "protected_at_receipt": false,
+          "sha": "a04485e25ab4ab1dc41c81f5061c3b442d588660"
+        },
+        {
+          "name": "fix/adi-abi-20261008",
+          "protected_at_receipt": false,
+          "sha": "ff5a1af34fe1fef443c1f82e614c073e21054970"
+        },
+        {
+          "name": "migration/runtime-source-141776ba",
+          "protected_at_receipt": false,
+          "sha": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d"
+        },
+        {
+          "name": "research/adi-binary-match-20261009",
+          "protected_at_receipt": false,
+          "sha": "87a76cb0648edf43e83705d8138de7ebc4f132ea"
+        },
+        {
+          "name": "validation/p0-remote-reserve-20261019",
+          "protected_at_receipt": false,
+          "sha": "b76bd9c00c1926de38c2269849a4bf647e3b84d1"
+        },
+        {
+          "name": "validation/pr1835-quick",
+          "protected_at_receipt": false,
+          "sha": "26e101d72c2a4e0e70ee94342a775b20d6f7092b"
+        }
+      ],
+      "default_branch": "main",
+      "default_sha": "cb9d56a0670014fa0f4b37f6cc9d3ba0ffd96848",
+      "repository": "NRG-Wardog/AnisetteKit"
+    },
+    {
+      "branches": [
+        {
+          "name": "joematt",
+          "protected_at_receipt": false,
+          "sha": "01c3ed15d53c2ff9f51bce37dc34a9d5905f793c"
+        },
+        {
+          "name": "ny/refactor",
+          "protected_at_receipt": false,
+          "sha": "8ffabf6b92bf55bfe39dc1cac721726a994b5107"
+        },
+        {
+          "name": "prebuild",
+          "protected_at_receipt": false,
+          "sha": "edd369c26be6da204234795274a396bf1335fc48"
+        },
+        {
+          "name": "swiftpm",
+          "protected_at_receipt": false,
+          "sha": "aee593661156cf7520463fc5e26d6109d53f548a"
+        }
+      ],
+      "default_branch": "develop",
+      "default_sha": "fe049d6431418bbc9aee6ab282a07cde9ba71dff",
+      "repository": "NRG-Wardog/minimuxer"
+    },
+    {
+      "branches": [
+        {
+          "name": "dependabot/cargo/idevice/rustls-webpki-0.103.13",
+          "protected_at_receipt": false,
+          "sha": "1023132a3bd82a22b2cb189b2005a5369351bcb3"
+        }
+      ],
+      "default_branch": "master",
+      "default_sha": "b892fed1c87701ab0d05926a10a49dc042d2b0b2",
+      "repository": "NRG-Wardog/idevice"
+    },
+    {
+      "branches": [
+        {
+          "name": "dependabot/cargo/rand-0.9.3",
+          "protected_at_receipt": false,
+          "sha": "376b9d20a491354815d27bfaca6d57945f392202"
+        }
+      ],
+      "default_branch": "master",
+      "default_sha": "ca21d888eb8d978e5116decfa3f990712d96c5ad",
+      "repository": "NRG-Wardog/jktcp"
+    }
+  ],
+  "reviewed_code_sha256": {
+    "inventory.py": "f2090a4bffcaee1910c5ed26360a165be2cb6c4509676a6316fb472152d460f8",
+    "test_inventory.py": "2f0fee4248c55a7c51a4dd50c64eb0121f67506edce8106c90547f619fc41c33"
+  },
+  "schema_version": 1,
+  "source_receipt_sha256": "ac3e56abe8c17bb190c748e967050dc9c871484625f36c4274672dc2c13b7752",
+  "workflow_branch": "main",
+  "workflow_repository": "NRG-Wardog/sidestore-auto-refresh"
+}
