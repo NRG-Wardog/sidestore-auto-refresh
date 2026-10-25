@@ -80,6 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/test_release_coverage.py | tee evidence/release-coverage-controls.log
+          python3 -B harness/ci/issues-native/test_lc_scheme_settings.py | tee evidence/lc-scheme-controls.log
           python3 -B harness/ci/issues-native/test_release_settings_cache.py | tee evidence/release-settings-cache-controls.log
           python3 -B harness/ci/issues-native/test_native_transfer_seal.py 2>&1 | tee evidence/native-transfer-seal-controls.log
           python3 -B harness/ci/issues-native/test_generated_openssl_inputs.py 2>&1 | tee evidence/generated-openssl-seal-controls.log
@@ -340,6 +341,28 @@ jobs:
           python3 harness/ci/issues-native/release_coverage.py settings --require-support-size \
             --inputs "$RUNNER_TEMP/LiveContainer-release-settings.json" "$RUNNER_TEMP/SideStore-release-settings.json" \
             --output evidence/release-coverage-settings.json 2>&1 | tee evidence/release-settings/policy.log
+          # Scheme invocation injects coverage mapping independently of project defaults.
+          # Mirror the actual Release build, with a distinct settings-only result bundle.
+          test ! -e "$RUNNER_TEMP/native-LiveContainer-settings.xcresult"
+          test ! -L "$RUNNER_TEMP/native-LiveContainer-settings.xcresult"
+          if xcodebuild -project sources/LiveContainer/LiveContainer.xcodeproj -scheme LiveContainer \
+            -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/native-LiveContainer" \
+            -resultBundlePath "$RUNNER_TEMP/native-LiveContainer-settings.xcresult" \
+            -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CLANG_COVERAGE_MAPPING=NO \
+            -showBuildSettings -json > "$RUNNER_TEMP/LiveContainer-scheme-settings.json"; then
+            scheme_status=0
+          else
+            scheme_status=$?
+          fi
+          python3 harness/ci/issues-native/capture_release_settings.py \
+            --input "$RUNNER_TEMP/LiveContainer-scheme-settings.json" --exit-code "$scheme_status" \
+            --output evidence/release-settings/LiveContainer-scheme.json
+          if [ "$scheme_status" -ne 0 ]; then exit "$scheme_status"; fi
+          python3 harness/ci/issues-native/verify_lc_scheme_settings.py \
+            --input "$RUNNER_TEMP/LiveContainer-scheme-settings.json" \
+            --output evidence/LiveContainer-scheme-coverage-settings.json 2>&1 | tee evidence/release-settings/scheme-policy.log
       - name: Upload early effective-settings failure diagnostics only
         if: ${{ !cancelled() && steps.coverage_settings.outcome == 'failure' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -358,7 +381,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/native-LiveContainer" \
             -resultBundlePath "$RUNNER_TEMP/native-LiveContainer-build.xcresult" \
             -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee evidence/LiveContainer-build.log
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CLANG_COVERAGE_MAPPING=NO build 2>&1 | tee evidence/LiveContainer-build.log
           printf '0\n' > evidence/LiveContainer-build.exit-code.txt
       - name: Compile unsigned SideStore app and extensions
         id: sidestore_build

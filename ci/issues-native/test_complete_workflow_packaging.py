@@ -131,7 +131,8 @@ class CompletePackagingWorkflowTests(unittest.TestCase):
         self.assertIn('-showBuildSettings -json', probe['text'])
         self.assertIn('release_coverage.py settings --require-support-size', probe['text'])
         self.assertIn('release_coverage.py logs --require-support-size', WORKFLOW.read_text())
-        self.assertNotRegex(probe['text'], r'(?:COVERAGE|PROGRAM_FLOW_ARCS|TEST_COVERAGE_FILES)=(?:YES|NO)')
+        self.assertNotRegex(probe['text'].split('          done',1)[0], r'(?:COVERAGE|PROGRAM_FLOW_ARCS|TEST_COVERAGE_FILES)=(?:YES|NO)')
+        self.assertIn('verify_lc_scheme_settings.py',probe['text'])
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             settings = {'CONFIGURATION': 'Release', 'ENABLE_CODE_COVERAGE': 'NO',

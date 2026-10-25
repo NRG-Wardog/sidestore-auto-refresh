@@ -20,7 +20,7 @@ class SettingsCacheTests(unittest.TestCase):
         derived = re.search(r'-derivedDataPath "([^"\n]+)"', resolver).group(1)
         self.assertIn('packages="' + derived + '/SourcePackages"', SCRIPT)
         self.assertIn('query_args+=(-clonedSourcePackagesDirPath "$packages")', SCRIPT)
-        self.assertNotIn('-derivedDataPath ', '\n'.join(line for line in SCRIPT.splitlines() if not line.lstrip().startswith('#')))
+        self.assertNotIn('-derivedDataPath ', SCRIPT.split('          done',1)[0].split('done',1)[0])
         self.assertIn('-alltargets', SCRIPT)
         self.assertIn('-onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution', SCRIPT)
         self.assertNotIn('GIT_ALLOW_PROTOCOL=', SCRIPT)
@@ -53,12 +53,16 @@ if 'sources/SideStore/AltStore.xcodeproj' in args:
  assert args[args.index('-clonedSourcePackagesDirPath')+1]==os.environ['RUNNER_TEMP']+'/native-SideStore/SourcePackages'
 else:
  assert '-clonedSourcePackagesDirPath' not in args
-assert '-alltargets' in args and '-derivedDataPath' not in args
+is_scheme='-scheme' in args
+if is_scheme:
+ assert '-alltargets' not in args and 'CLANG_COVERAGE_MAPPING=NO' in args
+else:
+ assert '-alltargets' in args and '-derivedDataPath' not in args
 with open('calls.jsonl','a') as out: out.write(json.dumps(args)+'\\n')
 status=int(os.environ['FAKE_XCODE_STATUS'])
-owner='SideStore' if 'sources/SideStore/AltStore.xcodeproj' in args else 'LiveContainer'
+owner='LiveContainerScheme' if is_scheme else ('SideStore' if 'sources/SideStore/AltStore.xcodeproj' in args else 'LiveContainer')
 if os.environ['FAKE_FAIL_OWNER'] and os.environ['FAKE_FAIL_OWNER']!=owner: status=0
-if not status: print(json.dumps([{'target':'SideStoreSupport','buildSettings':{'CONFIGURATION':'Release','ENABLE_CODE_COVERAGE':'NO','SWIFT_OPTIMIZATION_LEVEL':'-Osize','UNRELATED_SECRET':'do-not-copy'}}]))
+if not status: print(json.dumps([{'target':'LiveContainer' if is_scheme else 'SideStoreSupport','buildSettings':{'CONFIGURATION':'Release','ENABLE_CODE_COVERAGE':'NO','CLANG_COVERAGE_MAPPING':'NO','SWIFT_OPTIMIZATION_LEVEL':'-Osize','UNRELATED_SECRET':'do-not-copy'}}]))
 sys.exit(status)
 ''')
             executable.chmod(0o755)
@@ -73,10 +77,10 @@ sys.exit(status)
     def test_shell_success_only_sidestore_reuses_its_exact_cache(self):
         result, reports, calls, policy = self.run_shell()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
         self.assertNotIn('-clonedSourcePackagesDirPath',json.loads(calls[0]))
         self.assertIn('-clonedSourcePackagesDirPath',json.loads(calls[1]))
-        self.assertEqual(set(reports), {'LiveContainer.json','SideStore.json'})
+        self.assertEqual(set(reports), {'LiveContainer.json','SideStore.json','LiveContainer-scheme.json'})
         self.assertTrue(policy)
         self.assertNotIn('do-not-copy', json.dumps(reports))
 
@@ -97,6 +101,15 @@ sys.exit(status)
         self.assertEqual(reports['SideStore.json']['xcodebuild_exit_code'],65)
         self.assertEqual(reports['SideStore.json']['parse_status'],'INVALID_JSON')
         self.assertFalse(policy)
+
+    def test_actual_scheme_query_failure_retains_failure_after_alltargets_pass(self):
+        result, reports, calls, policy = self.run_shell(status=65, fail_owner='LiveContainerScheme')
+        self.assertEqual(result.returncode,65)
+        self.assertEqual(len(calls),3)
+        self.assertTrue(policy)  # All-target success must not mask scheme failure.
+        self.assertEqual(reports['LiveContainer-scheme.json']['xcodebuild_exit_code'],65)
+        self.assertEqual(reports['LiveContainer.json']['xcodebuild_exit_code'],0)
+        self.assertEqual(reports['SideStore.json']['xcodebuild_exit_code'],0)
 
     def test_missing_owned_cache_has_no_fallback(self):
         result, reports, calls, policy = self.run_shell(missing_cache=True)
