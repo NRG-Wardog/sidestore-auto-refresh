@@ -70,7 +70,13 @@ def validate_manifest(m, env):
         require(c["functional_dependency_checks_complete"] is True, "Incomplete functional dependency review")
         head = sha(c["expected_branch_sha"])
         anchor = c["retained_anchor_ref"]
-        require(anchor == "refs/heads/" + default or anchor.startswith("refs/tags/"), "Anchor must be retained default or existing tag")
+        preserved_anchor = (anchor.startswith("refs/heads/") and anchor[11:] in m["preserved_branch_names"]
+                            and any(snap["repository_full_name"] == repo and snap["ref"] == anchor
+                                    and snap["kind"] == "immutable_branch"
+                                    and snap["expected_sha"] == c["retained_anchor_sha"]
+                                    for snap in m["dependency_snapshots"]))
+        require(anchor == "refs/heads/" + default or anchor.startswith("refs/tags/") or preserved_anchor,
+                "Anchor must be default, existing tag, or exact excluded immutable branch")
         require(subprocess.run(["git", "check-ref-format", anchor], capture_output=True).returncode == 0,
                 "Invalid retained ref")
         sha(c["retained_anchor_sha"])
@@ -239,8 +245,10 @@ def local_ancestor(folder, base, head):
 
 
 def anchor_expectation(candidate, workflow_sha):
-    if candidate["retained_anchor_ref"].startswith("refs/heads/"):
+    if candidate["retained_anchor_ref"] == "refs/heads/" + candidate["actual_default_branch"]:
         return workflow_sha
+    if candidate["retained_anchor_ref"].startswith("refs/heads/"):
+        return candidate["retained_anchor_sha"]
     return {"object_sha": candidate["retained_anchor_object_sha"], "commit_sha": candidate["retained_anchor_sha"]}
 
 

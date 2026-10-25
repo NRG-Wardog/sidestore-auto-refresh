@@ -335,3 +335,26 @@ class LocalGitLeaseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PreservedBranchAnchorTests(unittest.TestCase):
+    def preserved(self):
+        m=fixture();m['preserved_branch_names']=['validation/retained']
+        m['candidates'][0]['retained_anchor_ref']='refs/heads/validation/retained'
+        m['dependency_snapshots']=[{'repository_full_name':REPO,'ref':'refs/heads/validation/retained','kind':'immutable_branch','expected_sha':B}]
+        return m
+    def test_exact_excluded_branch_is_valid_and_not_workflow_sha(self):
+        m=self.preserved();c.validate_manifest(m,environment())
+        self.assertEqual(c.anchor_expectation(m['candidates'][0],C),B)
+    def test_missing_preserved_name_rejected(self):
+        m=self.preserved();m['preserved_branch_names']=[]
+        with self.assertRaises(ValueError):c.validate_manifest(m,environment())
+    def test_moved_or_unpinned_anchor_rejected(self):
+        for value in (A,C):
+            m=self.preserved();m['dependency_snapshots'][0]['expected_sha']=value
+            with self.assertRaises(ValueError):c.validate_manifest(m,environment())
+    def test_nonimmutable_anchor_rejected(self):
+        m=self.preserved();m['dependency_snapshots'][0]['kind']='actual_default'
+        with self.assertRaises(ValueError):c.validate_manifest(m,environment())
+    def test_anchor_cannot_also_be_deleted(self):
+        m=self.preserved();item=copy.deepcopy(m['candidates'][0]);item['branch_name']='validation/retained';item['expected_branch_sha']=B;m['candidates'].append(item)
+        with self.assertRaises(ValueError):c.validate_manifest(m,environment())
