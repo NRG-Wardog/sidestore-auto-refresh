@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+from types import SimpleNamespace
 from test_macho_stab_guard import fixture
 import experiment_local_symbols as experiment
 from experiment_strip_stabs import TARGETS,DSYMS,digest
@@ -49,5 +50,26 @@ class LocalExperimentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'artifact hash'):self.run_experiment()
         self.ipa=link.resolve();(self.root/'output').mkdir()
         with self.assertRaisesRegex(ValueError,'fresh diagnostic'):self.run_experiment()
+
+    def test_both_rejected_outputs_captured_and_overall_still_fails(self):
+        output=self.root/'measurement';output.mkdir()
+        targets={key:fixture(False) for key in TARGETS}
+        diagnostics={key:{'uuid':experiment.image_uuid(data)} for key,data in targets.items()}
+        report={'targets':{key:{} for key in targets}}
+        def fake_strip(command,**kwargs):
+            self.assertEqual(kwargs['timeout'],120)
+            Path(command[command.index('-o')+1]).write_bytes(fixture(True))
+            return SimpleNamespace(returncode=0,stdout=b'synthetic strip diagnostic')
+        with patch.object(experiment.subprocess,'run',side_effect=fake_strip) as run:
+            with self.assertRaisesRegex(ValueError,'one or more'):experiment.measure_all_targets(targets,diagnostics,output,report)
+        self.assertEqual(run.call_count,2)
+        self.assertEqual(set(report['target_errors']),set(TARGETS))
+        for key in TARGETS:
+            observed=json.loads((output/key/'after-strip-observed.json').read_text())
+            self.assertFalse(observed['accepted'])
+            self.assertEqual(observed['snapshot']['stab_count'],1)
+            self.assertEqual(observed['stab_records'][0]['name_hex'],b'debug.c'.hex())
+            self.assertIn('STAB',report['target_errors'][key]['message'])
+            self.assertFalse((output/key/'structural.json').exists())
 
 if __name__=='__main__':unittest.main()

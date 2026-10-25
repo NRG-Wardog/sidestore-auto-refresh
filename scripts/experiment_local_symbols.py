@@ -13,8 +13,8 @@ import sys
 import zipfile
 import zlib
 from experiment_strip_stabs import TARGETS, DSYMS, digest, unique_zip, write
-from macho_stab_guard import image_uuid, require, sha
-from macho_local_symbol_guard import classify, verify_local_removal
+from macho_stab_guard import image_uuid, require, sha, snapshot
+from macho_local_symbol_guard import classify, verify_local_removal, symbol_rows
 
 
 def deflated_size(data):
@@ -38,6 +38,42 @@ def bind_inputs(ipa,ipa_sha,symbols,symbols_sha):
             diagnostics[key]={'uuid':image_uuid(dwarf),'dwarf_sha256':sha(dwarf),'bundle_entries':len(names)}
     for data in targets.values():classify(data)
     return targets,diagnostics
+
+
+def measure_all_targets(targets,diagnostics,output,report):
+    """Independent diagnostic attempts; every rejected target still fails overall."""
+    errors={}
+    for key,data in targets.items():
+        root=output/key;root.mkdir();original=root/'original';candidate=root/'stripped'
+        original.write_bytes(data)
+        try:
+            result=subprocess.run(['xcrun','--toolchain','default','strip','-x','-o',str(candidate),str(original)],
+                                  stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False,timeout=120)
+            (root/'strip.log').write_bytes(result.stdout)
+            require(result.returncode==0,'Apple local-symbol strip failed: '+key)
+            require(original.read_bytes()==data,'strip mutated original copy')
+            final=candidate.read_bytes()
+            # Capture actual rejected output before classification. This is evidence,
+            # not admission; the unchanged final guard still requires zero STAB.
+            shape=snapshot(final)
+            records,_=symbol_rows(final)
+            stabs=[{'name_hex':name.hex(),'type':kind,'section':section,'description':desc,'value':value}
+                   for name,kind,section,desc,value in records if kind & 0xe0]
+            write(root/'after-strip-observed.json',{'accepted':False,'snapshot':shape,
+                  'stab_records':stabs[:1024],'stab_records_truncated':len(stabs)>1024})
+            evidence=verify_local_removal(data,final)
+            require(image_uuid(final)==diagnostics[key]['uuid'],'final dSYM UUID differs')
+            evidence.update(deflated_before_bytes=deflated_size(data),deflated_after_bytes=deflated_size(final),
+                deflated_bytes_saved=deflated_size(data)-deflated_size(final),
+                code_signature_state='UNVERIFIED_MUTATED_DIAGNOSTIC_NOT_DELIVERABLE')
+            report['targets'][key]['measurement']=evidence
+            write(root/'structural.json',evidence)
+        except Exception as error:
+            errors[key]={'type':type(error).__name__,'message':str(error)}
+            report['targets'][key]['failure']=errors[key]
+            write(root/'failure.json',errors[key])
+    report['target_errors']=errors
+    require(not errors,'one or more local-symbol diagnostic targets rejected; see per-target evidence')
 
 
 def experiment(ipa,ipa_sha,symbols,symbols_sha,output,*,inspect_only=False):
@@ -69,22 +105,7 @@ def experiment(ipa,ipa_sha,symbols,symbols_sha,output,*,inspect_only=False):
         for source,name,expected in ((ipa,'original.ipa',ipa_sha),(symbols,'matching-debug-diagnostics.zip',symbols_sha)):
             shutil.copyfile(source,retained/name)
             require(digest(retained/name)==expected,'retained original readback differs')
-        for key,data in targets.items():
-            root=output/key;root.mkdir();original=root/'original';candidate=root/'stripped'
-            original.write_bytes(data)
-            result=subprocess.run(['xcrun','--toolchain','default','strip','-x','-o',str(candidate),str(original)],
-                                  stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False,timeout=120)
-            (root/'strip.log').write_bytes(result.stdout)
-            require(result.returncode==0,'Apple local-symbol strip failed: '+key)
-            require(original.read_bytes()==data,'strip mutated original copy')
-            final=candidate.read_bytes()
-            evidence=verify_local_removal(data,final)
-            require(image_uuid(final)==diagnostics[key]['uuid'],'final dSYM UUID differs')
-            evidence.update(deflated_before_bytes=deflated_size(data),deflated_after_bytes=deflated_size(final),
-                deflated_bytes_saved=deflated_size(data)-deflated_size(final),
-                code_signature_state='UNVERIFIED_MUTATED_DIAGNOSTIC_NOT_DELIVERABLE')
-            report['targets'][key]['measurement']=evidence
-            write(root/'structural.json',evidence)
+        measure_all_targets(targets,diagnostics,output,report)
         require(digest(ipa)==ipa_sha and digest(symbols)==symbols_sha,'immutable source artifacts changed')
         report['status']='STRUCTURAL_DIAGNOSTIC_PASS_SIGNING_AND_RUNTIME_UNQUALIFIED'
         return report
