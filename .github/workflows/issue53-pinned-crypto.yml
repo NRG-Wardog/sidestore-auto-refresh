@@ -1,0 +1,82 @@
+name: Qualify unchanged OpenSSL macOS slices
+on:
+  workflow_dispatch:
+  push:
+    branches: ['test/issue53-pinned-crypto']
+    paths: ['ci/issue53-crypto/**', '.github/workflows/issue53-pinned-crypto.yml']
+permissions:
+  contents: read
+concurrency:
+  group: issue53-pinned-crypto-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/test/issue53-pinned-crypto'
+    runs-on: macos-26
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Record harness and validate fail-closed controls
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          printf 'workflow_commit=%s\nrun_id=%s\nscope=single-library-synthetic-not-device\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence/identity.txt
+          xcodebuild -version | tee evidence/xcode.txt
+          grep -Fx 'Xcode 26.4.1' evidence/xcode.txt
+          python3 -B ci/issue53-crypto/test_controls.py 2>&1 | tee evidence/control-tests.log
+      - name: Acquire exact unchanged inputs
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue53-crypto/acquire.py --output inputs 2>&1 | tee evidence/acquisition.log
+          cp inputs/acquisition.json evidence/acquisition.json
+          cp ci/issue53-crypto/pinned-inputs.json evidence/pinned-inputs.json
+      - name: Run isolated synthetic probe for each exact macOS library
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import json, pathlib, subprocess, sys
+          root = pathlib.Path.cwd()
+          pins = json.loads((root/'ci/issue53-crypto/pinned-inputs.json').read_text())
+          failed = False
+          for owner in ('host', 'embedded'):
+              framework = root/'inputs'/owner/'OpenSSL.framework/Versions/A'
+              command = [sys.executable, '-B', 'ci/issue53-crypto/run.py',
+                         '--library', str(framework/'OpenSSL'), '--headers', str(framework/'Headers'),
+                         '--header-inventory', str(root/'ci/issue53-crypto'/f'{owner}-headers.json'),
+                         '--sha256', pins[owner]['binary_sha256'], '--expected-version', pins[owner]['version'],
+                         '--builtin-providers', '--output', str(root/'evidence'/f'{owner}-receipt.json')]
+              with (root/'evidence'/f'{owner}.log').open('w') as log:
+                  try:
+                      code = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=180).returncode
+                  except subprocess.TimeoutExpired:
+                      log.write('Owner probe exceeded 180s watchdog\n')
+                      code = 124
+              (root/'evidence'/f'{owner}.exit-code.txt').write_text(str(code)+'\n')
+              print(owner, code)
+              failed |= code != 0
+          sys.exit(1 if failed else 0)
+          PY
+      - name: Upload only non-secret evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue53-pinned-crypto-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14
