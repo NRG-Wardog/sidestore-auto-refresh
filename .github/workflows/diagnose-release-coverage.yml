@@ -1,0 +1,73 @@
+name: Diagnose pinned Release coverage invocation
+on:
+  workflow_dispatch:
+  push:
+    branches: ['validation/issue55-release-settings-probe']
+    paths: ['.github/workflows/diagnose-release-coverage.yml', 'ci/issue55-coverage-probe/**']
+permissions:
+  contents: read
+concurrency:
+  group: coverage-parity-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  settings:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/issue55-release-settings-probe'
+    runs-on: macos-26
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_ALLOW_PROTOCOL: https
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout pinned diagnostic harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Read exact candidate source pin and test diagnostic controls
+        id: pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issue55-coverage-probe/test_probe.py
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          owner, commit = json.loads(Path('harness/ci/issues-native/candidate-graph.json').read_text())['owners']['LiveContainer']
+          assert owner == 'NRG-Wardog/LiveContainer' and re.fullmatch('[0-9a-f]{40}', commit)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('commit=' + commit + '\n')
+          PY
+      - name: Checkout exact LiveContainer source only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/LiveContainer
+          ref: ${{ steps.pin.outputs.commit }}
+          path: sources/LiveContainer
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Compare settings invocation controls without compilation
+        id: probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issue55-coverage-probe/probe.py --source sources/LiveContainer \
+            --temp "$RUNNER_TEMP/coverage-invocation-probe" --evidence coverage-probe-evidence
+      - name: Retain only non-secret settings diagnostics
+        if: ${{ !cancelled() && (steps.probe.outcome == 'success' || steps.probe.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-invocation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: coverage-probe-evidence/
+          if-no-files-found: error
+          retention-days: 14
