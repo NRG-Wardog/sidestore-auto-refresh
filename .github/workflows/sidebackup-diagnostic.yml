@@ -1,0 +1,115 @@
+name: Measure unsigned nested SideBackup debug stripping without app execution
+on:
+  push:
+    branches: [experiment/issue55-sidebackup]
+    paths: ['scripts/experiment_sidebackup_stabs.py', 'scripts/macho_stab_guard.py', 'tests/test_sidebackup_stabs.py', '.github/workflows/sidebackup-diagnostic.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sidebackup-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  measure:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/experiment/issue55-sidebackup'
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Verify isolated controls and pinned toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p evidence inputs
+          printf 'run=%s\nattempt=%s\nworkflow_commit=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > evidence/attempt.log
+          xcodebuild -version | tee evidence/xcode.log
+          grep -Fx 'Xcode 26.4.1' evidence/xcode.log
+          python3 -B - <<'PY' 2>&1 | tee evidence/controls.log
+          import unittest
+          suite=unittest.TestSuite(unittest.TestLoader().discover('tests',pattern=name) for name in ('test_sidebackup_stabs.py','test_macho_stab_guard.py'))
+          if suite.countTestCases()<21: raise SystemExit('Required diagnostic controls missing')
+          result=unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.skipped: raise SystemExit('Diagnostic controls failed or skipped')
+          PY
+      - name: Single authorized artifact read attempt with unchanged permissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # No retries, access expansion, alternate tokens or bypass on denial.
+          # curl does not forward Authorization to a different redirect hostname.
+          curl --fail --silent --show-error --location --retry 0 --max-time 180 \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            https://api.github.com/repos/NRG-Wardog/sidestore-auto-refresh/actions/artifacts/12614379452/zip \
+            -o inputs/candidate.zip 2> evidence/candidate-download.log
+          sleep 3  # Serialize GitHub requests even when the preceding download is fast.
+          curl --fail --silent --show-error --location --retry 0 --max-time 180 \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            https://api.github.com/repos/NRG-Wardog/sidestore-auto-refresh/actions/artifacts/12612862529/zip \
+            -o inputs/native.zip 2> evidence/native-download.log
+          python3 -B - <<'PY'
+          import hashlib, pathlib, zipfile
+          inputs=pathlib.Path('inputs')
+          path=inputs/'candidate.zip'
+          assert hashlib.sha256(path.read_bytes()).hexdigest()=='a98b07a9e17f2cc482c972cfb31494de718e7aeaebac42daa3a1d4fdac2c2684', 'qualified artifact SHA differs'
+          with zipfile.ZipFile(path) as archive:
+              assert len(archive.namelist())==len(set(archive.namelist())), 'duplicate artifact member'
+              (inputs/'original.ipa').write_bytes(archive.read('local-symbol-qualified.ipa'))
+          assert hashlib.sha256((inputs/'native.zip').read_bytes()).hexdigest()=='8cbd47809a648a10679d39ae30ef8a94887144edd249a06ed8254c3bfc612663', 'native artifact SHA differs'
+          PY
+      - name: Qualify copy-only unsigned nested debug stripping, not Russian final delivery
+        run: |
+          set -euo pipefail
+          python3 -B scripts/experiment_sidebackup_stabs.py \
+            --ipa inputs/original.ipa --ipa-sha256 1b917b314b29bc30393057279be4bd19f775546b6f9f2944750798768a374506 \
+            --native-artifact inputs/native.zip --output sidebackup-products 2>&1 | tee evidence/driver.log
+      - name: Retain only regular diagnostic JSON and logs
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import pathlib, shutil
+          source=pathlib.Path('sidebackup-products'); destination=pathlib.Path('evidence/sidebackup')
+          if source.exists():
+              assert source.is_dir() and not source.is_symlink()
+              for path in source.rglob('*'):
+                  if path.suffix not in ('.json','.log'): continue
+                  assert path.is_file() and not path.is_symlink()
+                  target=destination/path.relative_to(source);target.parent.mkdir(parents=True,exist_ok=True)
+                  shutil.copyfile(path,target)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sidebackup-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain internally qualified measurement only after every gate passes
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sidebackup-qualified-not-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            sidebackup-products/SideBackup-debug-qualified.ipa
+            sidebackup-products/experiment.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve matching full symbols and original nested IPA separately
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sidebackup-original-symbols-${{ github.run_id }}-${{ github.run_attempt }}
+          path: sidebackup-products/retained-original-and-symbols.zip
+          if-no-files-found: error
+          retention-days: 14

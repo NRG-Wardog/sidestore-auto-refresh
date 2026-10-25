@@ -52,9 +52,12 @@ def symbol_digest(symbols):
     return h.hexdigest()
 
 
-def snapshot(data):
+def snapshot(data, *, unsigned_executable=False):
     header, command_end, rows = commands(data)
-    require(header[2] == 6, 'only reviewed MH_DYLIB images supported')
+    require(header[2] == (2 if unsigned_executable else 6), 'only reviewed Mach-O file type supported')
+    if unsigned_executable:
+        require(sum(cmd == 0x80000028 for cmd, _ in rows) == 1, 'unsigned executable requires exactly one LC_MAIN')
+        require(not any(cmd == 0x1d for cmd, _ in rows), 'unsigned executable must have no signature')
     normalized, blobs, ranges, segments, section_rows = [], [], [], [], []
     linkedit = symtab = dysymtab = None
     signature = None
@@ -184,8 +187,8 @@ def snapshot(data):
             'command_end': command_end, 'bytes': len(data), 'sha256': sha(data)}
 
 
-def verify(before, after, *, require_reduction=True, preserve_stabs=False):
-    old, new = snapshot(before), snapshot(after)
+def verify(before, after, *, require_reduction=True, preserve_stabs=False, unsigned_executable=False):
+    old, new = snapshot(before, unsigned_executable=unsigned_executable), snapshot(after, unsigned_executable=unsigned_executable)
     for key in ('header', 'uuid', 'commands', 'segments', 'sections', 'linkedit_offset',
                 'linkedit_blobs', 'symbols', 'symbol_count', 'symbol_groups', 'indirect_symbols'):
         require(old[key] == new[key], 'non-debug image semantics changed: ' + key)
