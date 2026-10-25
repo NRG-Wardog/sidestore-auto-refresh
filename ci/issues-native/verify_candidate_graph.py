@@ -6,13 +6,16 @@ import subprocess
 import sys
 
 HERE = Path(__file__).resolve().parent
-# The original native harness's exact acquisition closure. New repositories or
-# owner paths require an explicit code review, not only a manifest edit.
+# Reviewed acquisition closure. RemotePairingKit was already the locked
+# production dependency of minimuxer; it is acquired explicitly so its source-
+# bound local LTS overlay can be verified without mutating resolver checkouts.
+# New repositories/owner paths require code review, not only a manifest edit.
 BASELINE_OWNERS = {
     'LiveContainer': ('NRG-Wardog/LiveContainer', '8808211d340c6e9e2a6274c0eaa863d7ab09474f'),
     'SideStore': ('NRG-Wardog/SideStore', '5afdedc3e50be60082ac1d405a456274920b8eab'),
     'AnisetteKit': ('NRG-Wardog/AnisetteKit', '3e670c2e1b72ff328d3a64353d8de2418df87e73'),
     'idevice': ('NRG-Wardog/idevice', '774f02a6d29777c85400f4ba7fa69c12b4227fb3'),
+    'RemotePairingKit': ('mahee96/RemotePairingKit', 'e3f70d16c0c551540a533a39d540e78e5b0a60a8'),
     'jktcp': ('NRG-Wardog/jktcp', 'a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9'),
     'SideStore/Dependencies/SideSign': ('NRG-Wardog/SideSign', '483c626d6e5004b45298518352307eb492fe1ccd'),
     'SideStore/Dependencies/minimuxer': ('NRG-Wardog/minimuxer', '4ca3af5270de8aa48e8bc100eadf1b3550260ea2'),
@@ -54,6 +57,7 @@ def load_candidate_graph(path=HERE / 'candidate-graph.json'):
     owners, deltas = graph['owners'], graph['reviewed_deltas']
     require(isinstance(owners, dict) and set(owners) == set(BASELINE_OWNERS), 'candidate owner closure differs')
     require(isinstance(deltas, dict) and REQUIRED_DELTAS <= set(deltas) <= set(owners), 'reviewed delta owner closure differs')
+    require('RemotePairingKit' not in deltas, 'Pairing upstream must remain pristine; only the separate recorded overlay may change')
     for name, value in owners.items():
         require(isinstance(value, list) and len(value) == 2 and value[0] == BASELINE_OWNERS[name][0] and oid(value[1]), 'invalid candidate repository or pin: ' + name)
         require(value[1] == BASELINE_OWNERS[name][1] or name in deltas, 'changed owner lacks reviewed delta: ' + name)

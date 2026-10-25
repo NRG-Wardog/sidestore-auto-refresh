@@ -38,6 +38,20 @@ def inventory(root):
     return files, shape
 
 
+def copy_size_reports(source, destination):
+    """Only non-secret JSON/log evidence crosses from binary staging."""
+    if not source.exists(): return
+    if source.is_symlink() or not source.is_dir(): raise ValueError('Invalid size report source')
+    destination.mkdir(parents=True, exist_ok=True)
+    for path in sorted(source.rglob('*')):
+        if path.suffix not in {'.json', '.log'}: continue
+        if path.is_symlink() or not path.is_file(): raise ValueError('Unsafe size report file')
+        target = destination / path.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+        if sha(target) != sha(path): raise ValueError('Size report copy differs')
+
+
 def main():
     receipt = json.loads(Path('evidence/receipt.json').read_text())
     for key, expected in [('status', 'COMPILE_ONLY_PASS_REQUIRES_REVIEW'),
@@ -75,14 +89,57 @@ def main():
                                 after_sha256=sha(path), metadata_change='LCBuilderCommit only'))
     Path('package-evidence/builder-stamping.json').write_text(json.dumps(records, indent=2))
     output = Path('diagnostic/LiveContainer-SideStore-issues-experimental.ipa')
+    initial_root = Path('packaging-size-inputs')
+    if initial_root.exists() or initial_root.is_symlink(): raise ValueError('Size inputs must be fresh')
+    initial_root.mkdir()
+    initial = initial_root / 'initial-combined.ipa'
+    if initial.exists() or initial.is_symlink(): raise ValueError('Initial IPA must be fresh')
     if output.exists() or output.is_symlink(): raise ValueError('IPA output must be fresh')
     subprocess.run([sys.executable, 'harness/scripts/package_livecontainer_combined.py', '--root', 'sources/LiveContainer',
-                    '--host', str(root / 'LiveContainer.app'), '--side', str(root / 'SideStore.app'), '--output', str(output)], check=True)
+                    '--host', str(root / 'LiveContainer.app'), '--side', str(root / 'SideStore.app'), '--output', str(initial)], check=True)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+    from optimize_native_candidate import optimize_same_run_ipa
+    # Revalidate sealed generated inputs and exact unstripped native products before packaging-only stripping.
+    import record as native_record
+    generated_openssl = {}
+    for embedded, key in ((False, 'OpenSSLHost'), (True, 'OpenSSLEmbedded')):
+        native_record.verify_generated_openssl_payload(embedded=embedded)
+        snapshot = (native_record.generated_embedded_snapshot if embedded else native_record.generated_openssl_snapshot)(required=True, sealed=True)
+        generated_root = native_record.S / snapshot['relative_path']
+        if embedded: generated_root = generated_root / 'GeneratedDependencies/OpenSSL35'
+        framework = native_record.generated_device_framework(generated_root)
+        generated_openssl[key] = {'binary': framework / 'OpenSSL',
+            'dsym': framework.parent / 'dSYMs/OpenSSL.framework.dSYM',
+            'payload_receipt': native_record.E / ('generated-embedded-openssl-payload.json' if embedded else 'generated-openssl-payload.json')}
+    initial_hash = sha(initial)
+    try:
+        optimized, size_report = optimize_same_run_ipa(initial, expected_sha=initial_hash,
+            transfer_roots={owner: Path(os.environ['RUNNER_TEMP']) / ('native-transfer-' + owner) for owner in expected},
+            receipt_path=Path('evidence/receipt.json'), work=Path('packaging-size-work'),
+            output=Path('packaging-size-products'), retained=Path('size-diagnostics'),
+            run_identity={key: receipt[key] for key in ('run_id', 'run_attempt', 'workflow_commit')},
+            generated_openssl=generated_openssl)
+    finally:
+        copy_size_reports(Path('packaging-size-products'), Path('package-evidence/size-reports'))
+    native_record.verify_generated_openssl_payload()
+    native_record.verify_generated_openssl_payload(embedded=True)
+    # The transform never edits compiled products, receipts, or the initial IPA.
+    for owner in expected:
+        source = Path(os.environ['RUNNER_TEMP']) / ('native-' + owner) / 'Build/Products/Release-iphoneos' / (owner + '.app')
+        if inventory(source)[0] != expected[owner]: raise ValueError('Compiled input changed during packaging: ' + owner)
+    if sha(initial) != initial_hash: raise ValueError('Initial combined IPA changed')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(optimized, output)
+    if sha(output) != size_report['final_ipa_sha256']: raise ValueError('Final optimized IPA copy differs')
+    Path('diagnostic/size-optimization.json').write_text(json.dumps(size_report, indent=2))
     provenance = dict(schema_version=1, native_run_id=os.environ['GITHUB_RUN_ID'], native_run_attempt=os.environ['GITHUB_RUN_ATTEMPT'],
                       workflow_commit=os.environ['GITHUB_SHA'], source_graph=receipt['requested_graph'],
                       ipa_bytes=output.stat().st_size, ipa_sha256=sha(output), channel='experimental',
                       public_release_modified=False, physical_device_validation=False,
-                      metadata_changes=records)
+                      metadata_changes=records, initial_ipa_sha256=initial_hash,
+                      size_optimization_receipt_sha256=sha(Path('diagnostic/size-optimization.json')),
+                      retained_original_ipa_and_symbols_sha256=size_report['retained_debug_sidecar_sha256'],
+                      signing_policy='reviewed Apple ad-hoc; original designated requirement replaced; installer resigning required')
     Path('diagnostic/provenance.json').write_text(json.dumps(provenance, indent=2))
     Path('diagnostic/SHA256SUMS').write_text(sha(output) + '  ' + output.name + '\n')
     shutil.copyfile('evidence/receipt.json', 'diagnostic/native-receipt.json')

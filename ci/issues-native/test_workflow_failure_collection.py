@@ -9,14 +9,16 @@ import unittest
 
 WORKFLOW = Path(__file__).resolve().parents[2] / '.github/workflows/issues-native.yml'
 EXPECTED = {
-    'issue_tests': ['source_gate'], 'upstream_tests': ['source_gate'],
+    'owned_oda_tests': ['source_gate'], 'issue_tests': ['source_gate'], 'upstream_tests': ['source_gate'],
     'minimuxer_tests': ['source_gate'], 'vpn_tests': ['source_gate'],
     'acquisition_tests': ['source_gate'], 'vendor_tests': ['source_gate'],
     'comprehensive_tests': ['source_gate'], 'setup_tests': ['source_gate'],
     'build_tools': ['source_gate'], 'rust_tests': ['source_gate', 'build_tools'],
     'transport_build': ['source_gate', 'build_tools'],
     'abi_inspection': ['source_gate', 'transport_build'],
-    'package_resolution': ['source_gate', 'abi_inspection'],
+    'openssl_inputs': ['source_gate'],
+    'package_resolution': ['source_gate', 'abi_inspection', 'openssl_inputs'],
+    'coverage_settings': ['source_gate', 'package_resolution'],
     'livecontainer_build': ['source_gate', 'package_resolution'],
     'sidestore_build': ['source_gate', 'package_resolution'],
 }
@@ -25,8 +27,10 @@ FINAL = (
     'Retain exact unsigned app products for diagnostic packaging',
     'Upload unsigned LiveContainer and matching compile evidence',
     'Upload unsigned SideStore and matching compile evidence',
+    'Verify same-run size optimizer controls without skips',
     'Package same-run reviewed candidate without public release',
     'Upload experimental candidate IPA and provenance',
+    'Retain original IPA and matching debug symbols separately',
 )
 EVIDENCE = 'Preserve evidence, including failures (not app products)'
 TELEMETRY = 'Upload early fixture failure diagnostics only'
@@ -128,7 +132,7 @@ class FailureCollectionTests(unittest.TestCase):
         self.assertEqual(states[TELEMETRY], 'skipped')
 
     def test_each_independent_suite_failure_still_collects_other_suites(self):
-        for failure in [key for key, deps in EXPECTED.items() if deps == ['source_gate'] and key != 'build_tools'] + ['rust_tests', 'livecontainer_build', 'sidestore_build']:
+        for failure in [key for key, deps in EXPECTED.items() if deps == ['source_gate'] and key not in {'build_tools', 'openssl_inputs'}] + ['rust_tests', 'livecontainer_build', 'sidestore_build']:
             with self.subTest(failure=failure):
                 states, failed = simulate(self.rows, [failure])
                 self.assertTrue(failed)
@@ -142,10 +146,11 @@ class FailureCollectionTests(unittest.TestCase):
     def test_source_and_tool_or_build_dependency_failures_block_dependents(self):
         blocked = {
             'source_gate': set(EXPECTED),
-            'build_tools': {'rust_tests', 'transport_build', 'abi_inspection', 'package_resolution', 'livecontainer_build', 'sidestore_build'},
-            'transport_build': {'abi_inspection', 'package_resolution', 'livecontainer_build', 'sidestore_build'},
-            'abi_inspection': {'package_resolution', 'livecontainer_build', 'sidestore_build'},
-            'package_resolution': {'livecontainer_build', 'sidestore_build'},
+            'build_tools': {'rust_tests', 'transport_build', 'abi_inspection', 'package_resolution', 'coverage_settings', 'livecontainer_build', 'sidestore_build'},
+            'transport_build': {'abi_inspection', 'package_resolution', 'coverage_settings', 'livecontainer_build', 'sidestore_build'},
+            'abi_inspection': {'package_resolution', 'coverage_settings', 'livecontainer_build', 'sidestore_build'},
+            'openssl_inputs': {'package_resolution', 'coverage_settings', 'livecontainer_build', 'sidestore_build'},
+            'package_resolution': {'coverage_settings', 'livecontainer_build', 'sidestore_build'},
         }
         for failure, dependents in blocked.items():
             with self.subTest(failure=failure):

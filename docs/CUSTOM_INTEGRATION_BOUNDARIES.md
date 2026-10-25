@@ -35,3 +35,63 @@ This is a representative adapter contract test, not an actual merge of an upstre
 4. Preserve custom behavior not touched by the update. Run focused tests for changed contracts, then one coherent native build rather than a separate build per issue.
 5. Record the exact multi-repository candidate tuple and artifact hashes. Inspect the actual packaged code/resources and distinguish source tests, native compilation and device observations.
 6. Keep device-dependent issues open until their acceptance matrix is satisfied. Publish no claim of complete modularization or guaranteed merge compatibility from this first increment.
+
+## Named packaging adapter and patch surface
+
+`package_livecontainer_combined.adapt` delegates to `scripts/packaging_adapters.py`.
+Its eight immutable `IntegrationRule` records are the complete upstream-facing
+packaging patch surface. Each has a stable name, owner, rationale, exact anchor
+and replacement. `docs/PACKAGING_PATCH_SURFACE.json` is the machine-readable
+inventory, checked against those records by regression tests. Changing a rule
+requires an explicit inventory update and review; it cannot silently become a
+fuzzy match. The generic `apply_rules` engine has no networking, subprocesses or
+packaging knowledge and is independently testable with unrelated adapters.
+
+This extraction preserves the previous adapter's output byte-for-byte for the
+retained real upstream script. The output SHA witness comes from the pre-refactor
+adapter at builder commit `eb1b05b94dee5170b5720c665c806be84e442f96`.
+Fixtures retain source attribution and upstream AGPL license. Missing or duplicate
+anchors report their named seam and reject the input, including every one of the
+eight rules independently. Unrelated upstream changes survive without changing
+custom rule logic.
+
+A local immutable source revision can be rehearsed without running its shell:
+
+```sh
+python3 scripts/rehearse_packaging_integration.py \
+  --repository /path/to/LiveContainer \
+  --commit 433dd73edd78401bc5d38eef87d51414bb30f6f4 \
+  --output /path/to/new-rehearsal.json
+```
+
+The command reads a Git commit's `.github/build_github.sh` as bounded UTF-8 data,
+records original/adapted hashes and the exact rule inventory, and writes no source
+files. It rejects branch names and replacement objects. It does not fetch, execute
+the upstream script, run a native build, sign an IPA, or claim device validation.
+The rehearsal demonstrates adapter integration, not an upstream application merge.
+
+### Actual historical revision compatibility rehearsal
+
+The checked-in real upstream revision
+`LiveContainer/LiveContainer@2d092098cae6ef6d98eefe3943927f81d925e527`
+changes the service download URL and includes an additional widget-framework copy.
+The production adapter rejects this input at `compiled-sidestore`. A separate,
+explicit rehearsal profile binds the exact revision and source SHA256 and changes
+only that upstream anchor. It cannot replace any custom behavior. All eight custom
+replacements are reused; the unrelated upstream copy step survives and is recorded
+as a behavioral difference requiring review before any actual packaging execution.
+The rehearsal is not approval to ship that historical script.
+
+The two source fixtures, acquisition URLs, source/output hashes, AGPL license and
+explicit compatibility profile are retained under
+`tests/fixtures/upstream-packaging/`. Regression tests reject wrong revisions,
+modified source, unknown rules, empty anchors, replacement injection and duplicate
+anchors. This is a concrete example of adapting a small interface description
+rather than rewriting custom logic, not a promise of future merge compatibility.
+
+For a locally available historical commit, add
+`--anchor-profile tests/fixtures/upstream-packaging/2d092098-anchor-profile.json`
+to the rehearsal command. No profile is selected automatically, and production
+`adapt()` continues using the original strict default. New package verification
+reports record the adapter module SHA256 and exact named rule inventory separately
+from the original upstream script SHA256; historical witnesses remain unchanged.

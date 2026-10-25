@@ -2,8 +2,8 @@ name: Validate issue integration candidate
 on:
   workflow_dispatch:
   push:
-    branches: ['integration/issues-oct25']
-    paths: ['ci/issues-native/**', '.github/workflows/issues-native.yml']
+    branches: ['integration/complete-issues-oct25']
+    paths: ['ci/issues-native/**', '.github/workflows/issues-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_native_size_optimization.py']
 permissions:
   contents: read
 concurrency:
@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   compile:
-    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/integration/issues-oct25'
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/integration/complete-issues-oct25'
     runs-on: macos-26
     timeout-minutes: 100
     env:
@@ -80,12 +80,21 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/test_workflow_failure_collection.py
+          python3 -B harness/ci/issues-native/test_complete_workflow_packaging.py
           python3 -B harness/ci/issues-native/test_projected_contract_cli.py
           python3 -B harness/ci/issues-native/test_issue_receipt.py
           python3 -B harness/ci/issues-native/test_candidate_graph.py
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py
           python3 -B harness/ci/issues-native/verify_candidate_graph.py
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
+      - name: Qualify exact owned ODA source and verified local startup
+        id: owned_oda_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/test_owned_oda_contract.py
+          python3 -B harness/ci/issues-native/run_owned_oda.py --sources sources --evidence evidence/owned-oda --inputs qualification-inputs
       - name: Run issue regression suite without skips
         id: issue_tests
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
@@ -188,9 +197,7 @@ jobs:
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
         run: |
           set -euo pipefail
-          cd sources/idevice
-          cargo +1.98.1 test --locked -p idevice --lib --no-default-features --features ring,usbmuxd 2>&1 | tee ../../evidence/idevice-tests.log
-          cargo +1.98.1 test --locked -p idevice-ffi --lib --no-default-features --features ring,tcp,usbmuxd,house_arrest,mobile_image_mounter,syslog_relay,springboardservices 2>&1 | tee ../../evidence/idevice-ffi-tests.log
+          python3 -B harness/ci/issues-native/run_issue_tests.py --idevice-native
       - name: Compile iOS transport and stage local framework
         id: transport_build
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
@@ -222,13 +229,25 @@ jobs:
             --framework sources/idevice/swift/IDevice.xcframework \
             --staged-framework sources/SideStore/Dependencies/minimuxer/DeviceGateway/LocalBinary/IDevice.xcframework \
             --output evidence/idevice-abi-inspection.json 2>&1 | tee evidence/idevice-abi-inspection.log
+      - name: Build and seal explicit generated LTS inputs for both consumers
+        id: openssl_inputs
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          trap 'status=$?; if test -f lts-ios-build/build-ios.log; then cp lts-ios-build/build-ios.log evidence/; fi; for slice in ios-arm64 sim-arm64 sim-x86_64; do if test -f "lts-ios-build/$slice/configdata.txt"; then cp "lts-ios-build/$slice/configdata.txt" "evidence/$slice-openssl-config.log"; fi; done; exit "$status"' EXIT
+          python3 -B -m unittest discover -s harness/ci/issue53-lts -p 'test_*.py' 2>&1 | tee evidence/openssl-lts-controls.log
+          python3 -B harness/ci/issue53-lts/build_ios.py --output lts-ios-build 2>&1 | tee evidence/openssl-ios-build-driver.log
+          python3 -B harness/ci/issues-native/record.py stage-openssl lts-ios-build
+          python3 -B harness/ci/issues-native/record.py stage-embedded-openssl lts-ios-build sources/RemotePairingKit
+          cp lts-ios-build/ios-build-receipt.json evidence/openssl-ios-build-receipt.json
       - name: Capture genuine app lock transition to exact AnisetteKit
         id: package_resolution
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.abi_inspection.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.abi_inspection.outcome == 'success' && steps.openssl_inputs.outcome == 'success' }}
         run: |
           set -euo pipefail
           # Fresh Xcode resolution is allowed to update the app lock, then the recorder
-          # admits only AK e6e9 -> 3e670 plus actual resolver originHash. No other pin may move.
+          # admits only resolver originHash metadata. Every source-locked pin remains exact.
           test ! -e "$RUNNER_TEMP/native-SideStore"
           test ! -L "$RUNNER_TEMP/native-SideStore"
           GIT_ALLOW_PROTOCOL=https:file xcodebuild -resolvePackageDependencies -disablePackageRepositoryCache \
@@ -237,6 +256,33 @@ jobs:
           python3 harness/ci/issues-native/record.py seal-resolution
           python3 harness/ci/issues-native/record.py verify-resolved
           python3 harness/ci/issues-native/record.py snapshot compiler-inputs
+      - name: Record effective Release coverage settings without changing them
+        id: coverage_settings
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.package_resolution.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          xcodebuild -project sources/LiveContainer/LiveContainer.xcodeproj -scheme LiveContainer \
+            -sdk iphoneos -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/native-LiveContainer" \
+            -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution \
+            -showBuildSettings -json > "$RUNNER_TEMP/LiveContainer-release-settings.json"
+          python3 - <<'PY_COVERAGE'
+          import json, os, pathlib
+          keys = ('CLANG_ENABLE_CODE_COVERAGE', 'ENABLE_CODE_COVERAGE',
+                  'GCC_GENERATE_TEST_COVERAGE_FILES', 'GCC_INSTRUMENT_PROGRAM_FLOW_ARCS',
+                  'SWIFT_OPTIMIZATION_LEVEL', 'ENABLE_TESTABILITY')
+          rows = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'LiveContainer-release-settings.json').read_text())
+          if not isinstance(rows, list) or not rows: raise ValueError('Missing effective build settings')
+          observed = []
+          for row in rows:
+              settings = row['buildSettings']
+              if settings.get('CONFIGURATION') != 'Release': raise ValueError('Not Release build settings')
+              observed.append({'target': row['target'], 'configuration': 'Release',
+                               'settings': {key: settings.get(key) for key in keys}})
+          receipt = {'workflow_commit': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
+                     'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'behavior_changed': False, 'targets': observed}
+          pathlib.Path('evidence/LiveContainer-release-coverage-settings.json').write_text(json.dumps(receipt, indent=2))
+          PY_COVERAGE
       - name: Compile unsigned LiveContainer app and extensions
         id: livecontainer_build
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.package_resolution.outcome == 'success' }}
@@ -365,12 +411,51 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Verify same-run size optimizer controls without skips
+        if: success()
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_SIZE_TESTS' 2>&1 | tee evidence/native-size-controls.log
+          import pathlib, sys, unittest
+          root = pathlib.Path('harness/tests').resolve(strict=True)
+          sys.path.insert(0, str(root))
+          suite = unittest.TestSuite()
+          for pattern in ('test_macho_stab_guard.py', 'test_experiment_strip_stabs.py',
+                          'test_native_size_optimization.py', 'test_combined_packaging.py', 'test_ipa_size_report.py'):
+              tests = unittest.TestLoader().discover(str(root), pattern=pattern)
+              if tests.countTestCases() == 0: raise ValueError('Missing size controls: ' + pattern)
+              suite.addTests(tests)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.skipped: raise SystemExit(1)
+          PY_SIZE_TESTS
       - name: Package same-run reviewed candidate without public release
         if: success()
         run: |
           set -euo pipefail
           mkdir -p package-evidence diagnostic
-          trap 'status=$?; printf "%s\n" "$status" > package-evidence/package.exit-code.txt; mkdir -p evidence/candidate-package; cp -R package-evidence/. evidence/candidate-package/; exit "$status"' EXIT
+          collect_package_evidence() {
+            status=$?
+            trap - EXIT
+            set +e
+            printf '{"exit_code":%s}\n' "$status" > package-evidence/package.exit-code.json
+            python3 - <<'PY_PACKAGE_EVIDENCE'
+          import pathlib, shutil, stat
+          source = pathlib.Path('package-evidence')
+          target = pathlib.Path('evidence/candidate-package')
+          if source.is_symlink() or target.is_symlink(): raise ValueError('Linked evidence root')
+          target.mkdir(parents=True, exist_ok=True)
+          for path in source.rglob('*'):
+              if path.suffix not in {'.json', '.log'} or not stat.S_ISREG(path.lstat().st_mode): continue
+              output = target / path.relative_to(source)
+              output.parent.mkdir(parents=True, exist_ok=True)
+              if output.is_symlink(): raise ValueError('Linked evidence destination')
+              shutil.copyfile(path, output)
+          PY_PACKAGE_EVIDENCE
+            collected=$?
+            if [ "$status" -eq 0 ]; then status=$collected; fi
+            exit "$status"
+          }
+          trap collect_package_evidence EXIT
           python3 harness/ci/issues-native/package_candidate.py --self-test
           # Formula metadata is checked before bottle-only acquisition; never fetch the git source.
           HOMEBREW_NO_AUTO_UPDATE=1 brew info --json=v2 --formula homebrew/core/ldid > package-evidence/ldid-formula.json
@@ -425,7 +510,7 @@ jobs:
           cp "$LDID_PREFIX/INSTALL_RECEIPT.json" package-evidence/ldid-install-receipt.json
           python3 package-evidence/validate_ldid_bottle.py "$LDID_PREFIX"
           export PATH="$LDID_PREFIX/bin:$PATH"
-          { xcodebuild -version; brew list --versions ldid; shasum -a 256 "$LDID_PREFIX/bin/ldid"; } > package-evidence/toolchain.txt
+          { xcodebuild -version; brew list --versions ldid; shasum -a 256 "$LDID_PREFIX/bin/ldid"; } > package-evidence/toolchain.log
           python3 harness/ci/issues-native/package_candidate.py 2>&1 | tee package-evidence/package.log
       - name: Upload experimental candidate IPA and provenance
         if: success()
@@ -433,6 +518,15 @@ jobs:
         with:
           name: experimental-issues-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: diagnostic/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Retain original IPA and matching debug symbols separately
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: size-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: size-diagnostics/
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "name": "reviewed-converter",
+      "owner": "NRG-Wardog/sidestore-auto-refresh",
+      "rationale": "Use only the locally built source-hash-verified converter.",
+      "exact_occurrences": 1,
+      "anchor_sha256": "b6b6345efc3376c72b15ce881d3ee4c17cc0f6633a17897aef250081ed259455",
+      "replacement_sha256": "6d4ee2b1832cb284d002e7350fe7fff71311b47765d288b954a22150297859a4",
+      "upstream_lines": 1,
+      "replacement_lines": 1
+    },
+    {
+      "name": "reviewed-signer",
+      "owner": "NRG-Wardog/sidestore-auto-refresh",
+      "rationale": "Use the independently qualified signing tool; never install from the upstream script.",
+      "exact_occurrences": 1,
+      "anchor_sha256": "87263693b3e3b0e0a3e1a07fcd36710b73c7a5ea79b2c061d457ea2b71811533",
+      "replacement_sha256": "ca49ca74d0b57cc0e84f12bcb69cbaf176d58065a406e2390188553cbc49ef9e",
+      "upstream_lines": 1,
+      "replacement_lines": 1
+    },
+    {
+      "name": "compiled-sidestore",
+      "owner": "NRG-Wardog/sidestore-auto-refresh",
+      "rationale": "Use the exact same-run compiled service rather than downloading another build.",
+      "exact_occurrences": 1,
+      "anchor_sha256": "b844fee946749b0f59bcb3ea15d3f195cde4ac427891d7e32cc7502bcab79144",
+      "replacement_sha256": "ff135afd7921c6625410a1b2b1762815faa30b67e90d4b9c2e3859dcedfa712c",
+      "upstream_lines": 1,
+      "replacement_lines": 1
+    },
+    {
+      "name": "fresh-signing-cache",
+      "owner": "NRG-Wardog/sidestore-auto-refresh",
+      "rationale": "The isolated workspace has no historical signing cache.",
+      "exact_occurrences": 1,
+      "anchor_sha256": "02ec74f3e34ca8f2858e71860915620c9ee7ae8e2d7f43893b6563d0189bc1f4",
+      "replacement_sha256": "0887f8b0b477054ac1945261deca72183143442ba4cd2526e2a8e661547ea6ab",
+      "upstream_lines": 1,
+      "replacement_lines": 1
+    },
+    {
+      "name": "signature-cleanup-root",
+      "owner": "NRG-Wardog/sidestore-auto-refresh",
+      "rationale": "Limit signature cleanup to the actual staged Payload tree.",
+      "exact_occurrences": 1,
+      "anchor_sha256": "e5044b4d38237a98ab15bedbbffc07a26dccf9256167596f0ff31977989df219",
+      "replacement_sha256": "1e9b63763788c9b7730a3b2b6492315d43b9e1d9828964b67a241f346f1d6ff9",
+      "upstream_lines": 1,
+      "replacement_lines": 1
+    },
+    {
+      "name": "headless-intent-ownership",
+      "owner": "NRG-Wardog/sidestore-auto-refresh",
+      "rationale": "Retain host intent metadata and remove duplicate embedded metadata ownership.",
+      "exact_occurrences": 1,
+      "anchor_sha256": "7db28d324fabcc433e1ae6bb79f612a3ec0ee117eb8733744aabb44e7694a721",
+      "replacement_sha256": "b535097ecc9117cb76729b7d1df16bd01a153546ceeab9ea1297b78f04ae08a8",
+      "upstream_lines": 6,
+      "replacement_lines": 10
+    },
+    {
+      "name": "shared-entitlement-preparation",
+      "owner": "NRG-Wardog/sidestore-auto-refresh",
+      "rationale": "Prepare the shared secret handoff and extension entitlements before packaging.",
+      "exact_occurrences": 1,
+      "anchor_sha256": "527c668d5ae4f9e34e46c8ad88ce3c5b4a41eb27ec684ace6a4f11621fc42edf",
+      "replacement_sha256": "c053c914e53c5d964b5edc3c4c145fdf1654efc78a410c2bc21e3b19a2f86e5a",
+      "upstream_lines": 1,
+      "replacement_lines": 3
+    },
+    {
+      "name": "converter-preconditions-postconditions",
+      "owner": "NRG-Wardog/sidestore-auto-refresh",
+      "rationale": "Check the converted Mach-O shape and chained-fixup invariants before and after conversion.",
+      "exact_occurrences": 1,
+      "anchor_sha256": "3a8dd61bb7eb09f15475037bf7b5abe64258ea8645b103152f81ce6148ef3a1b",
+      "replacement_sha256": "bfbb04774a9deabd039f57b02137e9b2968a2d53c3635556f9fa7778a9f0d206",
+      "upstream_lines": 1,
+      "replacement_lines": 3
+    }
+  ]
+}

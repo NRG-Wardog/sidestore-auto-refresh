@@ -70,6 +70,229 @@ def repos():
     return roots
 
 
+def generated_installer(*, embedded=False):
+    """Load only the source-owned installer and its exact sibling recipe module."""
+    import importlib.util
+    folder = Path(__file__).resolve().parents[1] / 'issue53-lts'
+    def load(name, path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    shared = load('_issue53_snapshot_build', folder / 'build.py')
+    previous = sys.modules.get('build')
+    sys.modules['build'] = shared
+    previous_installer = sys.modules.get('install_ios')
+    try:
+        installer = load('_issue53_snapshot_installer', folder / 'install_ios.py')
+        if not embedded: return installer
+        sys.modules['install_ios'] = installer
+        return load('_issue53_snapshot_embedded', folder / 'embedded.py')
+    finally:
+        if previous is None: sys.modules.pop('build', None)
+        else: sys.modules['build'] = previous
+        if previous_installer is None: sys.modules.pop('install_ios', None)
+        else: sys.modules['install_ios'] = previous_installer
+
+
+def generated_inventory(root):
+    import stat
+    require(root.is_dir() and not root.is_symlink(), 'Missing/linked generated dependency')
+    rows = {}
+    for path in [root, *sorted(root.rglob('*'))]:
+        mode = path.lstat().st_mode
+        require(not stat.S_ISLNK(mode), 'Linked generated compiler input')
+        require(stat.S_ISDIR(mode) or stat.S_ISREG(mode), 'Nonregular generated compiler input')
+        row = {'mode': stat.S_IMODE(mode), 'kind': 'directory' if stat.S_ISDIR(mode) else 'file'}
+        if stat.S_ISREG(mode): row['sha256'] = sha(path)
+        rows[path.relative_to(root).as_posix()] = row
+    return rows
+
+
+def generated_openssl_snapshot(*, required=False, sealed=False):
+    consumer = S / 'LiveContainer'
+    root = consumer / 'GeneratedDependencies/OpenSSL35'
+    require(not root.is_symlink() and not root.parent.is_symlink(), 'Linked generated dependency root')
+    if not root.exists():
+        require(not required, 'Generated OpenSSL compiler inputs have not been staged')
+        return {'present': False}
+    generated, receipt = generated_installer().validate_installed(consumer)
+    observed = {'present': True, 'relative_path': 'LiveContainer/GeneratedDependencies/OpenSSL35',
+                'source': receipt['source'], 'recipe_sha256': receipt['recipe_sha256'],
+                'shared_recipe_sha256': receipt['shared_recipe_sha256'], 'files': generated_inventory(generated)}
+    if sealed:
+        path = E / 'generated-openssl-stage.json'
+        require(path.is_file() and not path.is_symlink(), 'Generated OpenSSL stage receipt missing')
+        stage = json.loads(path.read_text())
+        require(stage.get('schema') == 'same-run-generated-openssl-input-v1' and
+                stage.get('workflow_commit') == os.environ['GITHUB_SHA'] and
+                stage.get('run_id') == os.environ['GITHUB_RUN_ID'] and
+                stage.get('run_attempt') == os.environ['GITHUB_RUN_ATTEMPT'] and
+                stage.get('consumer_commit') == OWNERS['LiveContainer'][1] and
+                stage.get('generated') == observed, 'Generated OpenSSL stage identity/bytes drifted')
+        observed = {**observed, 'stage_receipt_sha256': sha(path)}
+    return observed
+
+
+def stage_openssl(built):
+    consumer = S / 'LiveContainer'
+    before = tracked(consumer)
+    require(git(consumer, 'rev-parse', 'HEAD') == OWNERS['LiveContainer'][1], 'Consumer pin differs before staging')
+    installer = generated_installer()
+    installer.install(Path(built), consumer)
+    require(tracked(consumer) == before, 'Installer modified tracked consumer source/gitlink')
+    observed = generated_openssl_snapshot(required=True)
+    write('generated-openssl-stage.json', {'schema': 'same-run-generated-openssl-input-v1',
+          'workflow_commit': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
+          'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'consumer_commit': OWNERS['LiveContainer'][1],
+          'generated': observed, 'old_gitlink_overwritten': False, 'target_executed': False})
+    return generated_openssl_snapshot(required=True, sealed=True)
+
+
+def generated_embedded_snapshot(*, required=False, sealed=False):
+    owner = 'SideStore/Dependencies/minimuxer'
+    consumer = S / owner
+    overlay = consumer / 'GeneratedDependencies/RemotePairingKit'
+    require(not overlay.is_symlink() and not overlay.parent.is_symlink(), 'Linked embedded generated dependency root')
+    if not overlay.exists():
+        require(not required, 'Embedded generated OpenSSL compiler inputs have not been staged')
+        return {'present': False}
+    generated, receipt = generated_installer(embedded=True).validate_embedded(consumer)
+    nested = receipt['generated_build_receipt']
+    observed = {'present': True, 'relative_path': owner+'/GeneratedDependencies/RemotePairingKit',
+                'source_repository': receipt['source_repository'], 'source_commit': receipt['source_commit'],
+                'source_tree': receipt['source_tree'], 'adapter_sha256': receipt['adapter_sha256'],
+                'source': nested['source'], 'recipe_sha256': nested['recipe_sha256'],
+                'shared_recipe_sha256': nested['shared_recipe_sha256'], 'files': generated_inventory(overlay)}
+    if sealed:
+        path = E / 'generated-embedded-openssl-stage.json'
+        require(path.is_file() and not path.is_symlink(), 'Embedded generated stage receipt missing')
+        stage = json.loads(path.read_text())
+        require(stage.get('schema') == 'same-run-generated-embedded-openssl-input-v1' and
+                stage.get('workflow_commit') == os.environ['GITHUB_SHA'] and
+                stage.get('run_id') == os.environ['GITHUB_RUN_ID'] and
+                stage.get('run_attempt') == os.environ['GITHUB_RUN_ATTEMPT'] and
+                stage.get('consumer_commit') == OWNERS[owner][1] and stage.get('generated') == observed,
+                'Embedded generated stage identity/bytes drifted')
+        observed = {**observed, 'stage_receipt_sha256': sha(path)}
+    return observed
+
+
+def stage_embedded_openssl(built, upstream):
+    owner = 'SideStore/Dependencies/minimuxer'
+    consumer = S / owner
+    before = tracked(consumer)
+    require(git(consumer, 'rev-parse', 'HEAD') == OWNERS[owner][1], 'Embedded consumer pin differs before staging')
+    generated_installer(embedded=True).stage(Path(built), Path(upstream), consumer)
+    require(tracked(consumer) == before, 'Embedded installer modified tracked consumer source')
+    observed = generated_embedded_snapshot(required=True)
+    write('generated-embedded-openssl-stage.json', {'schema': 'same-run-generated-embedded-openssl-input-v1',
+          'workflow_commit': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
+          'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'consumer_commit': OWNERS[owner][1],
+          'generated': observed, 'upstream_source_modified_except_manifest': False,
+          'host_library_deduplicated': False, 'target_executed': False})
+    return generated_embedded_snapshot(required=True, sealed=True)
+
+
+def generated_device_framework(root):
+    import plistlib
+    xc = root / 'OpenSSL.xcframework'
+    info = plistlib.loads((xc / 'Info.plist').read_bytes())
+    libraries = info.get('AvailableLibraries', [])
+    require(len(libraries) == 2, 'Generated XCFramework slice count differs')
+    closure = {(row.get('SupportedPlatform'), row.get('SupportedPlatformVariant'),
+                tuple(sorted(row.get('SupportedArchitectures', [])))) for row in libraries}
+    require(closure == {('ios', None, ('arm64',)), ('ios', 'simulator', ('arm64','x86_64'))},
+            'Generated XCFramework platform/architecture closure differs')
+    row = next(row for row in libraries if row.get('SupportedPlatformVariant') is None)
+    name = row['LibraryIdentifier']
+    require(re.fullmatch(r'[A-Za-z0-9_.-]+', name) and name not in ('.','..') and
+            row['LibraryPath'] == 'OpenSSL.framework', 'Unsafe generated framework selector')
+    framework = xc / name / 'OpenSSL.framework'
+    require(framework.is_dir() and not framework.is_symlink(), 'Missing/linked generated device framework')
+    return framework
+
+
+def generated_ios_macho(path, *, require_minimum=True, allowed_kinds=(6,)):
+    import struct
+    data = path.read_bytes()
+    require(len(data) >= 32, 'Generated payload is not Mach-O')
+    magic, cpu, subtype, kind, count, size, flags, reserved = struct.unpack_from('<8I', data)
+    require(magic == 0xfeedfacf and cpu == 0x100000c and kind in allowed_kinds and count <= 1024 and
+            size <= len(data)-32, 'Generated payload architecture/type differs')
+    end, position, platforms, identities = 32+size, 32, [], []
+    install_names, loaded_dylibs = [], []
+    for _ in range(count):
+        require(position+8 <= end, 'Truncated generated Mach-O command')
+        cmd, length = struct.unpack_from('<2I', data, position)
+        require(length >= 8 and length % 8 == 0 and length <= end-position, 'Invalid generated Mach-O command')
+        if cmd == 0x32:
+            require(length >= 24, 'Truncated generated platform command')
+            platform, minimum, sdk, tools = struct.unpack_from('<4I', data, position+8)
+            require(length == 24+tools*8 and platform == 2 and (not require_minimum or minimum == 0x000f0000),
+                    'Generated payload must target iOS device 15.0')
+            platforms.append({'platform': platform, 'minimum': minimum, 'sdk': sdk})
+        if cmd == 0x1b:
+            require(length == 24, 'Invalid generated UUID command')
+            identities.append(data[position+8:position+24].hex())
+        if cmd in (0xd, 0xc, 0x80000018, 0x8000001f):
+            require(length >= 24, 'Truncated generated dylib command')
+            name_offset = struct.unpack_from('<I', data, position+8)[0]
+            require(24 <= name_offset < length, 'Invalid generated dylib name offset')
+            name_end = data.find(b'\0', position+name_offset, position+length)
+            require(name_end >= position+name_offset, 'Unterminated generated dylib name')
+            name = data[position+name_offset:name_end].decode('utf-8')
+            (install_names if cmd == 0xd else loaded_dylibs).append(name)
+        position += length
+    require(position == end and len(platforms) == len(identities) == 1,
+            'Generated platform/UUID command closure differs')
+    return {'architecture': 'arm64', 'uuid': identities[0], 'install_names': install_names,
+            'loaded_dylibs': loaded_dylibs, **platforms[0]}
+
+
+def verify_generated_openssl_payload(*, embedded=False):
+    current = (generated_embedded_snapshot if embedded else generated_openssl_snapshot)(required=True, sealed=True)
+    key = 'generated-embedded-openssl' if embedded else 'generated-openssl'
+    owner = 'SideStore' if embedded else 'LiveContainer'
+    for label in ('compiler-inputs', 'after-build'):
+        recorded = json.loads((E / (label+'.json')).read_text())
+        require(recorded.get(key) == current, 'Generated compiler input snapshot drift: '+label)
+    root = S / current['relative_path']
+    if embedded: root = root / 'GeneratedDependencies/OpenSSL35'
+    framework = generated_device_framework(root)
+    generated = framework / 'OpenSSL'
+    app = TMP / ('native-'+owner) / 'Build/Products/Release-iphoneos' / (owner+'.app')
+    product = app / 'Frameworks/OpenSSL.framework'
+    require(app.is_dir() and not app.is_symlink() and product.is_dir() and not product.is_symlink() and
+            product.resolve(strict=True).is_relative_to(app.resolve(strict=True)),
+            'Generated framework missing/outside native product')
+    payload = product / 'OpenSSL'
+    require(payload.is_file() and not payload.is_symlink(), 'Generated native payload missing/linked')
+    require(sha(payload) == sha(generated), 'Native OpenSSL payload differs from generated device input')
+    identity = generated_ios_macho(generated)
+    require(generated_ios_macho(payload) == identity, 'Native generated OpenSSL platform/UUID differs')
+    expected_install = '@rpath/OpenSSL.framework/OpenSSL'
+    require(identity['install_names'] == [expected_install], 'Generated OpenSSL install name differs')
+    consumer = app / 'SideStore' if embedded else product.parent / 'ZSign.dylib'
+    require(consumer.is_file() and not consumer.is_symlink() and
+            consumer.resolve(strict=True).is_relative_to(app.resolve(strict=True)),
+            'Native generated-library consumer absent/linked/outside product')
+    linked = generated_ios_macho(consumer, require_minimum=False, allowed_kinds=(2,) if embedded else (6,))['loaded_dylibs']
+    require([name for name in linked if '/OpenSSL.framework/' in name] == [expected_install],
+            'Native consumer does not link the generated OpenSSL install name')
+    require((product/'Info.plist').is_file() and not (product/'Info.plist').is_symlink() and
+            sha(product/'Info.plist') == sha(framework/'Info.plist'), 'Native generated framework metadata differs')
+    report = {'schema': 'same-run-generated-openssl-payload-v1', 'status': 'EXACT_GENERATED_DEVICE_BYTES_LINKED_NOT_RUNTIME_PROVEN',
+              'consumer': owner, 'source': current['source'], 'generated_binary_sha256': sha(generated),
+              'native_binary_sha256': sha(payload), 'identity': identity,
+              'native_consumer_sha256': sha(consumer), 'native_consumer_dependency': expected_install,
+              'generated_stage_receipt_sha256': current['stage_receipt_sha256'],
+              'generated_inputs_unchanged': True, 'historical_gitlink_used_as_payload': False,
+              'target_executed': False, 'production_admission': False}
+    write(key+'-payload.json', report)
+    return report
+
+
 def snapshot(label):
     result = {}
     for name, root in repos().items():
@@ -86,6 +309,10 @@ def snapshot(label):
         folder = TMP / ('native-' + owner) / 'SourcePackages/artifacts'
         result['binary-artifacts/' + owner] = {p.relative_to(folder).as_posix(): sha(p)
             for p in sorted(folder.rglob('*')) if p.is_file()}
+    result['generated-openssl'] = generated_openssl_snapshot(
+        required=label in ('compiler-inputs', 'after-build'), sealed=label in ('compiler-inputs', 'after-build'))
+    result['generated-embedded-openssl'] = generated_embedded_snapshot(
+        required=label in ('compiler-inputs', 'after-build'), sealed=label in ('compiler-inputs', 'after-build'))
     write(label + '.json', result)
 
 
@@ -135,21 +362,21 @@ def seal_resolution():
     old, new = index(before), index(after)
     require(len(old) == len(before['pins']) and len(new) == len(after['pins']), 'Duplicate package identities')
     require(set(old) == set(new), 'Resolver changed package identity closure')
-    require(old['anisettekit']['state'] == {'revision': 'e6e9d4aac698de2a5219aaef02c9a417da45f4e9'},
-            'Unexpected starting AK lock')
-    expected = json.loads(json.dumps(old))
-    expected['anisettekit']['state'] = {'revision': OWNERS['AnisetteKit'][1]}
-    require(new == expected, 'Resolver changed pins beyond the exact AK revision transition')
+    require(old['anisettekit']['state'] == {'revision': OWNERS['AnisetteKit'][1]},
+            'Unexpected starting AK lock: source must match the exact candidate graph')
+    require(new == old, 'Resolver changed pins beyond the exact source lock')
     if 'originHash' in after:
         require(isinstance(after['originHash'], str) and re.fullmatch('[0-9a-f]{64}', after['originHash']),
                 'Invalid observed resolver originHash')
     (E / 'SideStore.Package.resolved.after').write_bytes(after_raw)
-    write('app-lock-transition.json', {'status': 'OBSERVED_RESOLVER_TRANSITION_REQUIRES_REVIEW',
-          'source_commit': OWNERS['SideStore'][1], 'working_checkout_has_uncommitted_app_lock': True,
+    write('app-lock-transition.json', {'status': 'OBSERVED_RESOLVER_METADATA_ONLY' if before_raw != after_raw else 'UNCHANGED_PINNED_APP_LOCK',
+          'source_commit': OWNERS['SideStore'][1],
+          'working_checkout_has_uncommitted_app_lock': before_raw != after_raw,
           'before_sha256': hashlib.sha256(before_raw).hexdigest(),
           'after_sha256': hashlib.sha256(after_raw).hexdigest(),
           'before_originHash': before.get('originHash'), 'after_originHash': after.get('originHash'),
-          'only_pin_revision_changed': 'anisettekit', 'new_source_commit_published': False})
+          'pins_changed': [], 'only_allowed_metadata_change': 'originHash',
+          'new_source_commit_published': False})
 
 
 def https_origin(value):
@@ -341,9 +568,19 @@ def verify_vpn_transport_evidence(expected=None):
     return report
 
 
+def working_app_lock_differs():
+    transition = json.loads((E / 'app-lock-transition.json').read_text())
+    observed = transition.get('working_checkout_has_uncommitted_app_lock')
+    require(type(observed) is bool, 'App lock transition must report a strict boolean difference')
+    return observed
+
+
 def receipt():
-    from run_issue_tests import verify_issue_receipt
+    from run_owned_oda import verify_receipt as verify_owned_oda_receipt
+    verify_owned_oda_receipt(E / 'owned-oda/receipt.json')
+    from run_issue_tests import verify_issue_receipt, verify_native_receipt
     verify_issue_receipt(E / 'issue-tests.json')
+    verify_native_receipt(E / 'idevice-issue-tests.json')
     verify_vpn_transport_evidence()
     from verify_comprehensive_diagnostics import verify_receipt
     diagnostic_report = E / 'comprehensive-diagnostics/report.json'
@@ -360,6 +597,8 @@ def receipt():
         require((E / (owner + '-build.exit-code.txt')).read_text().strip() == '0', 'Build did not pass')
         outputs[owner] = {p.relative_to(product).as_posix(): sha(p)
                           for p in sorted(product.rglob('*')) if p.is_file()}
+    verify_generated_openssl_payload()
+    verify_generated_openssl_payload(embedded=True)
     write('product-hashes.json', outputs)
     write('receipt.json', {'schema_version': 1, 'status': 'COMPILE_ONLY_PASS_REQUIRES_REVIEW',
           'workflow_commit': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
@@ -367,13 +606,18 @@ def receipt():
           'run_url': 'https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID'],
           'requested_graph': OWNERS, 'native_builds': {'LiveContainer': 'PASS_UNSIGNED_RELEASE_IPHONEOS',
           'SideStore': 'PASS_UNSIGNED_RELEASE_IPHONEOS'}, 'compiler_input_bytes_unchanged': True,
-          'working_sidestore_app_lock_differs_from_git': True, 'final_lock_only_child_compiled': False,
+          'generated_openssl_inputs_unchanged': True,
+          'generated_openssl_payload_receipt_sha256': sha(E / 'generated-openssl-payload.json'),
+          'generated_embedded_openssl_payload_receipt_sha256': sha(E / 'generated-embedded-openssl-payload.json'),
+          'working_sidestore_app_lock_differs_from_git': working_app_lock_differs(), 'final_lock_only_child_compiled': False,
           'production_admission': False, 'combined_ipa_packaged': False, 'physical_device_execution': False,
           'authentication_executed': False, 'guest_binary_executed': False,
           'live_authentication_executed': False, 'source_owned_fake_authentication_executed': True,
           'source_owned_fake_diagnostics_executed': True,
           'comprehensive_diagnostics_report_sha256': sha(diagnostic_report),
           'setup_state_recovery_report_sha256': sha(setup_report),
+          'source_owned_oda_qualification_executed': True,
+          'owned_oda_qualification_receipt_sha256': sha(E / 'owned-oda/receipt.json'),
           'issue_regression_tests_executed': True, 'target_native_tests_executed': False,
           'issue_regression_receipt_sha256': sha(E / 'issue-tests.json'), 'independent_review': 'pending',
           'evidence_sha256': {p.name: sha(p) for p in sorted(E.iterdir()) if p.is_file() and p.name != 'receipt.json'}})
@@ -383,6 +627,12 @@ if __name__ == '__main__':
     action = sys.argv[1]
     if action == 'snapshot':
         snapshot(sys.argv[2])
+    elif action == 'stage-openssl':
+        require(len(sys.argv) == 3, 'stage-openssl requires exactly one build directory')
+        stage_openssl(Path(sys.argv[2]))
+    elif action == 'stage-embedded-openssl':
+        require(len(sys.argv) == 4, 'stage-embedded-openssl requires build directory and pinned upstream checkout')
+        stage_embedded_openssl(Path(sys.argv[2]), Path(sys.argv[3]))
     elif action == 'acquire':
         acquire()
     elif action == 'seal-resolution':

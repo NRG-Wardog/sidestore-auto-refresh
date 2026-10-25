@@ -140,10 +140,18 @@ class DylibifyValidationTests(unittest.TestCase):
 
     def test_packager_downloads_no_converter(self):
         source = (ROOT / 'scripts/package_livecontainer_combined.py').read_text()
-        self.assertIn('VERIFIED_DYLIBIFY', source)
+        from packaging_adapters import COMBINED_PACKAGING_RULES
+        rules = {rule.name: rule for rule in COMBINED_PACKAGING_RULES}
         self.assertIn('source hash differs', source)
-        self.assertIn('--validate-dylibify-input', source)
-        self.assertIn("conversion, 'python3", source)
+        self.assertIn('adapt_combined_packaging(text)', source)
+        self.assertEqual(rules['reviewed-converter'].replacement, 'cp "$VERIFIED_DYLIBIFY" dylibify')
+        conversion = rules['converter-preconditions-postconditions']
+        self.assertIn('--validate-dylibify-input', conversion.replacement)
+        self.assertIn('--verify-dylibify', conversion.replacement)
+        self.assertLess(conversion.replacement.index('--validate-dylibify-input'),
+                        conversion.replacement.index(conversion.anchor))
+        self.assertLess(conversion.replacement.index(conversion.anchor),
+                        conversion.replacement.index('--verify-dylibify'))
 
 
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('xcrun'), 'macOS compiler required')

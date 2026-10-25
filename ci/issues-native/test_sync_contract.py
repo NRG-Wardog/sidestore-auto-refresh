@@ -172,11 +172,10 @@ class RecorderTests(unittest.TestCase):
         self.before = {'version': 3, 'originHash': 'a' * 64, 'pins': [
             {'identity': 'anisettekit', 'kind': 'remoteSourceControl',
              'location': 'https://github.com/NRG-Wardog/AnisetteKit',
-             'state': {'revision': 'e6e9d4aac698de2a5219aaef02c9a417da45f4e9'}},
+             'state': {'revision': r.OWNERS['AnisetteKit'][1]}},
             {'identity': 'unrelated', 'kind': 'remoteSourceControl',
              'location': 'https://github.com/example/unrelated', 'state': {'revision': 'b' * 40}}]}
         self.after = copy.deepcopy(self.before)
-        self.after['pins'][0]['state']['revision'] = r.OWNERS['AnisetteKit'][1]
         self.after['originHash'] = 'c' * 64
         self.patches = [patch.object(r, 'E', self.e), patch.object(r, 'S', self.s)]
         for item in self.patches:
@@ -188,11 +187,33 @@ class RecorderTests(unittest.TestCase):
         self.path.write_text(json.dumps(self.after))
         r.seal_resolution()
 
-    def test_exact_observed_transition(self):
+    def test_exact_observed_metadata_only_transition(self):
         self.seal()
         report = json.loads((self.e / 'app-lock-transition.json').read_text())
         self.assertEqual(report['after_originHash'], 'c' * 64)
+        self.assertEqual(report['status'], 'OBSERVED_RESOLVER_METADATA_ONLY')
+        self.assertEqual(report['pins_changed'], [])
+        self.assertEqual(report['only_allowed_metadata_change'], 'originHash')
+        self.assertTrue(report['working_checkout_has_uncommitted_app_lock'])
         self.assertEqual((self.e / 'SideStore.Package.resolved.after').read_bytes(), self.path.read_bytes())
+
+    def test_unchanged_source_lock_receipt(self):
+        self.after = copy.deepcopy(self.before)
+        self.seal()
+        report = json.loads((self.e / 'app-lock-transition.json').read_text())
+        self.assertEqual(report['status'], 'UNCHANGED_PINNED_APP_LOCK')
+        self.assertFalse(report['working_checkout_has_uncommitted_app_lock'])
+        self.assertEqual(report['pins_changed'], [])
+
+    def test_ak_revision_drift_is_not_an_allowed_transition(self):
+        self.after['pins'][0]['state']['revision'] = 'd' * 40
+        with self.assertRaisesRegex(RuntimeError, 'exact source lock'):
+            self.seal()
+
+    def test_old_historical_ak_baseline_is_rejected(self):
+        self.before['pins'][0]['state']['revision'] = 'e6e9d4aac698de2a5219aaef02c9a417da45f4e9'
+        with self.assertRaisesRegex(RuntimeError, 'starting AK'):
+            self.seal()
 
     def test_other_pin_drift(self):
         self.after['pins'][1]['state']['revision'] = 'd' * 40

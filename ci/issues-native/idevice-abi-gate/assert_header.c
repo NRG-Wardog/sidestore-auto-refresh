@@ -7,6 +7,12 @@
     _Static_assert(__builtin_types_compatible_p(__typeof__(&(name)), expected_type), \
                    #name " signature mismatch")
 
+// Disconnect IDs are 64-bit; mixing a new library with an old uint32_t header
+// can overwrite caller storage. Bind all three generated/staged header copies.
+CHECK_FUNCTION(idevice_usbmuxd_listener_next,
+    struct IdeviceFfiError *(*)(struct UsbmuxdListenerHandle *, bool *,
+        struct UsbmuxdDeviceHandle **, uint64_t *));
+
 CHECK_FUNCTION(pairable_host_prepare,
     struct IdeviceFfiError *(*)(const char *, const char *, bool,
         struct PairableHostHandle **, char **, uint8_t **, uintptr_t *, uint8_t *));

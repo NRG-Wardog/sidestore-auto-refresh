@@ -2,11 +2,11 @@
   "owners": {
     "AnisetteKit": [
       "NRG-Wardog/AnisetteKit",
-      "3e670c2e1b72ff328d3a64353d8de2418df87e73"
+      "7b603283248d972b050ed4940592bf5dc2fe0d41"
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "6f11f8843ea6ae11f0d82b902e5d9170a197862f"
+      "da2661382b1a66facded906376731e7257c5db95"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -16,21 +16,25 @@
       "LiveContainerMirror/litehook",
       "a7e9f599d7f0b3d77008ad62bf10cb10dab6eca9"
     ],
+    "RemotePairingKit": [
+      "mahee96/RemotePairingKit",
+      "e3f70d16c0c551540a533a39d540e78e5b0a60a8"
+    ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "46274c50dc09a0ac54869713920054619d106c72"
+      "5f45bcaf0044c907358f40943ef853149fef45e4"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
-      "5bf1ad1881a9929edf1fac7fc08a7f02b3c43cd1"
+      "aac073a32cc8649b8bb4e604f52e124dc867003e"
     ],
     "SideStore/Dependencies/minimuxer": [
       "NRG-Wardog/minimuxer",
-      "4ca3af5270de8aa48e8bc100eadf1b3550260ea2"
+      "aba27533a7c958f4b2692fbb7ad2c778382386f7"
     ],
     "idevice": [
       "NRG-Wardog/idevice",
-      "447e3b48ff70556c58ccb23b17b6677e693b040b"
+      "700ec1f3392d161f18be82e9f11497d62a91ee35"
     ],
     "idevice/cpp/plist_ffi": [
       "jkcoxson/plist_ffi",
@@ -42,23 +46,57 @@
     ]
   },
   "reviewed_deltas": {
+    "AnisetteKit": {
+      "baseline": "3e670c2e1b72ff328d3a64353d8de2418df87e73",
+      "files": {
+        ".ci/native-tests/fixtures/adi_consumption_harness.cpp": "3931063f9131c9ba6870a8d498d6d6ceee395aab",
+        ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp": "71f8879f1ebfdef8e79ed1ec759ae14559791ea2",
+        ".ci/native-tests/fixtures/isolated_anisette_vm_double.h": "3d0215e436a4d38700a250f31e9314d72f034ea3",
+        ".ci/native-tests/fixtures/vm_setup_host.cpp": "8483305c75af81808f4f48cb0b4203210d208671",
+        ".ci/native-tests/run_tests.py": "6f10b0c221768f41d8f7b77547e9339123c6ccfb",
+        ".ci/native-tests/test_vm_setup_host.py": "c60f03efc98abf97ed3652d11de52d7dd5780e06",
+        ".ci/owned-attempt/README.md": "a518555209ab279d9021f72c645dfc71bcd3f850",
+        ".ci/owned-attempt/control_test.cpp": "b46325c629bdf7b676faf137b3f8623abe0e77ef",
+        ".ci/owned-attempt/filesystem_test.cpp": "efa02ae2b422e62af92e0f368ec7b870f3304c2b",
+        ".ci/owned-attempt/native_api_test.cpp": "4213bf6d543ca618a303c8663e8251462320c714",
+        ".ci/owned-attempt/prepare_verified_libraries.py": "36db7a1fa89d4fc46bcccf89e72902253e15d34a",
+        ".ci/owned-attempt/run.py": "bf37a0604eab615dedf9b3cc2cb81f7427cff27b",
+        ".ci/owned-attempt/run_verified_startup.py": "d49efc9b07cf8341b36fd083939cff1a680df832",
+        ".ci/owned-attempt/unicorn_procedure_test.cpp": "fc5b3e8bb8ef08147c2364ab77b556108774984d",
+        ".ci/owned-attempt/verified_adi_startup.cpp": "c1e2b43c8c741300176d46fdab815508f8960777",
+        ".github/workflows/owned-oda-qualification.yml": "a50b344e073a66d016cf7528c6a64c3727e5626f",
+        "Native/Loader/elf_loader_emulator.cpp": "61a07096d6a1e5c6d3ff5cbddcdd432a5aee8f04",
+        "Native/Loader/elf_loader_emulator.h": "499db102699a097d6fd611c20f77d29c167b6d0c",
+        "Native/Loader/owned_attempt_filesystem.h": "2a4ea631b67f9ba1a91278f6139df84000f1ad7f",
+        "Native/Loader/owned_attempt_lifecycle.h": "40120989ad89676e66eea0baa84ead14ca435b17",
+        "Native/Loader/owned_directory_cleanup.h": "7cd007dfac548a4789c4ad914a7ca36962f629a6",
+        "Native/anisette_core_uc.cpp": "73e3d545fb828b65bc4d00220fa3bf46295740c2",
+        "Native/include/anisette_core.h": "152968a6088328ec943a088f6aff94d595e4e401",
+        "Sources/AnisetteClient.swift": "2e23cb21c5d78a9862258f54389c437b957d9914",
+        "Sources/OwnedOnDeviceAnisetteAttempt.swift": "700a6f492d7ecd48ec5c48a84c70188f03ee3dc7",
+        "Tests/AnisetteKitTests/OwnedOnDeviceAnisetteAttemptTests.swift": "90e483c3aec8082723ddff234a4234500b77b12f"
+      },
+      "tree": "83846bca124967e1ea9a9894180e50c126c3bf5a"
+    },
     "LiveContainer": {
       "baseline": "8808211d340c6e9e2a6274c0eaa863d7ab09474f",
       "files": {
         ".ci/branch-cleanup/allowlist.json": "152ec8b04398d1f5aafcd0018e865cf09b0278dd",
         ".ci/branch-cleanup/cleanup.py": "db84b91a0f98a60cf9e19ef2172c3ab1b4da029b",
         ".ci/branch-cleanup/test_cleanup.py": "d2c59ce6dfde05518eff6723cc6fad17bb918d0f",
+        ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "1d519c04e2b319a237ea2b1a17969a9addf3eb69",
         ".ci/extension-selection/Cases.swift": "124f2b2b16d0164f114898a48c6062735443a805",
         ".ci/extension-selection/Doubles.swift": "09aaec3bb1e31ce8948abd0b184d04c822cf051d",
-        ".ci/extension-selection/generate_fixture.py": "64ba5e70835b8b5e7a30e6087dad33478f8787d2",
+        ".ci/extension-selection/generate_fixture.py": "f524a726714d23df3acd78192b490bb0b8f21798",
+        ".ci/owned-oda-note/test_source.py": "2ba87b5cf26364d122e2bda9c6d141ea5d8bdaba",
         ".github/workflows/build.yml": "7d17217482f45cb96cc8d9393be2799a071bd026",
         ".github/workflows/native-app-compile.yml": "704a7faf9d48b8b586a70f0c2d935aa35ba85d80",
         ".github/workflows/package-diagnostic.yml": "fe77d4c7665195b7703dd05d65fdb8f081261eae",
         ".github/workflows/reviewed-branch-cleanup.yml": "ca5bbae8d856a8bc28b7899ac02e3790faa708ee",
-        "LiveContainer.xcodeproj/project.pbxproj": "efe0df2b053b8fbdb4c0167c0ce58e0ae25d6e26",
+        "LiveContainer.xcodeproj/project.pbxproj": "0fd6e7a4678ee1207ddfcba8d3a4812166f41ae2",
         "LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift": "207d3c8d79263865d0b984f06dc6b264a2321309",
         "LiveContainerSwiftUI/Utilities/V3SourceAppPresentation.swift": "5312f206458345534120fdc82f1021663fb2aa4e",
-        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "b022b9b668ffcb3759ab4af2fe7412db741d9ce0",
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "76993bff51211c13971384938f5a85815d9da0cc",
         "MultitaskSupport/AppSceneViewController.h": "ecc9927a4ebd256346429a6dd60a7ff4c227bb6e",
         "MultitaskSupport/AppSceneViewController.m": "e7d90528c08d375529f58603367543dde2a3199e",
         "MultitaskSupport/DecoratedAppSceneViewController.h": "a6df0d79276542f27c09dda5ef27012854b8cdfa",
@@ -66,7 +104,9 @@
         "MultitaskSupport/LCGuestSafeAreaGeometry.h": "b086b34eec7deb97d926f5752e81788f272dfd98",
         "MultitaskSupport/MultitaskDockView.swift": "308d94b718098c66fb0dc7269ecf076d704192ab",
         "MultitaskSupport/UIKitHooks.m": "9def2e0164f2b3d9910461206bcfffcc18035688",
+        "Resources/Localizable.xcstrings": "871a13de3405b4f4108c6424a094d947657ef696",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
+        "docs/integration/GENERATED_OPENSSL35.md": "113c76d38fd59f03050a3faf68285585ce1ca363",
         "docs/validation/P1_LAYOUT_HARDENING.md": "58ca36616e11a93cadc97988222243f1b6d2b659",
         "docs/validation/issue47-guest-input-and-safe-area.md": "3a501c138a3904c3eb64f6b6eb3ba8d1265a5abf",
         "docs/validation/issue55-swiftui-size.md": "50a43285403de81cd53a9588d4221e69879d73d0",
@@ -80,7 +120,7 @@
         "tests/test_release_size_configuration.py": "8960d36f35e0dfb8bba56f233d974bb6815aa11f",
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8"
       },
-      "tree": "743c91c0550bcd35dd09140fa504388adff5c7d4"
+      "tree": "35da3f7c0f35ae956f3d4f4befbf6626d023733c"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -88,29 +128,38 @@
         ".ci/branch-cleanup/allowlist.json": "f4fa7e585a01a176694441a15fb33bf8cfbc8ce7",
         ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
         ".ci/branch-cleanup/test_cleanup.py": "bae89afbd4d820fd1fae69819800f88e6cd4a706",
-        ".ci/iloader-onboarding-scope/OperationBoundaries.swift": "f1bf9a78d98e40e302b1250aebd4872226a08aa7",
+        ".ci/iloader-onboarding-scope/BoundaryDoubles.swift": "1cec6f632b314318567f461ec2160907acb5032e",
+        ".ci/iloader-onboarding-scope/OperationBoundaries.swift": "c6e8a60896a1d62280b5342028c54a6b5a02036e",
         ".ci/iloader-onboarding-scope/RuntimeTests.swift": "3a5ae16401a07a7a5ee32dac435b9828110a1139",
-        ".ci/iloader-onboarding-scope/generate.py": "6c2b0fffadbb4c4dc1366de03487dd0e54075dfb",
-        ".ci/iloader-onboarding-scope/test_source.py": "5e7457061d0d6346e1e3bcf193ff5413962161ce",
+        ".ci/iloader-onboarding-scope/generate.py": "92a79a5c6a5c7469998812199a61784a4beb811a",
+        ".ci/iloader-onboarding-scope/test_source.py": "86df243244758f1eac44052848711c885bf02466",
+        ".ci/owned-oda/IdentityCases.swift": "51f16a988c317d0a5afea3b7928437c68c390dca",
+        ".ci/owned-oda/generate_identity.py": "04c62f67bb581ba790bf447007df2f3454842fb0",
+        ".ci/owned-oda/run.sh": "ab64ec8454cb4897fa1ebdaf656404ddc44638bd",
+        ".ci/owned-oda/test_sources.py": "c4b0ad970e632e66ee10ecbc936a7cfd21719aef",
+        ".ci/remote-identity-reuse/RuntimeDoubles.swift": "ce853e1997be2e1b7a0f493d053548921faf7256",
         ".ci/remote-identity-reuse/generate_fixture.py": "bc68af1ca5d198b8286da85c160533152bdb610d",
         ".ci/remote-identity-reuse/test_generator.py": "9f2353524f694fbc386234f5c5c5d00f6f6c059d",
         ".github/workflows/nightly.yml": "0a4831356302661ed391de04eb400ba01fad8570",
         ".github/workflows/reviewed-branch-cleanup.yml": "3c84d751489af85c66ac56f934b557fc083ac6d8",
         "AGENTS.md": null,
-        "AltStore/AppDelegate.swift": "d2a1846f792c40d65c50d94cefa1bebc9a971ab3",
-        "Dependencies/SideSign": "5bf1ad1881a9929edf1fac7fc08a7f02b3c43cd1",
-        "SideStore/Core/Anisette/AnisetteProvider.swift": "985a6c348a8d81a4109bec4b0fdfac5f5d6df018",
-        "SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift": "120ccfafedeed87a399e087e94a7050fd69c412b",
-        "SideStore/Core/Auth/AuthManager.swift": "d267cd7d09e4395cff39b1feb2181ca4cc352970",
+        "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "c0ef6619c1f9971d78c809b9df3ac0e66b72d331",
+        "AltStore/AppDelegate.swift": "a7f06b0675c18fe505f35c594b43f623b2dc9ec6",
+        "Dependencies/SideSign": "aac073a32cc8649b8bb4e604f52e124dc867003e",
+        "Dependencies/minimuxer": "aba27533a7c958f4b2692fbb7ad2c778382386f7",
+        "SideStore/Core/Anisette/AnisetteProvider.swift": "9899b064e45a6d8f005c000f15453b3b11730452",
+        "SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift": "475c914fd4342bfdf33a8ac8d10f301e94b435e5",
+        "SideStore/Core/Auth/AuthManager.swift": "61c36d4ee026391c014fc720d84e0dadf4882d48",
+        "SideStore/Core/Auth/DeveloperPortalProxy.swift": "e495dd09302c158c15b1f9ea6269d1bdf8608f05",
         "SideStore/Core/Operations/OperationContexts.swift": "3d74c1a588b6f24363313cb01cd94f38efc643de",
-        "SideStore/Core/Operations/PipelineExecutionHandler.swift": "77bff7371b018035687751eea30fcebd61bd75fb",
-        "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": "9ad0648bea8c442a10f1abfb4f9126d2424e4120",
+        "SideStore/Core/Operations/PipelineExecutionHandler.swift": "7433223de3f31887297b663ebc57945d0ed46d7a",
+        "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": "37d972dfe562b0b7fcf413c1f2f4656563d5fc1f",
         "SideStore/Core/Operations/PipelineOperations/InstallAppOperation.swift": "4623c1c049864853e5a6aade9da6a6677d475a7d",
         "SideStore/Core/Operations/PipelineOperations/PrepareAppExtensionBundleIDsOperation.swift": "464b23b254c88f0f06448e3474402a02ca89000f",
         "SideStore/Core/Operations/PipelineOperations/RemoveAppExtensionsOperation.swift": "a4fec8ef0e66faa799159cc99526510cac97cd33",
         "SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift": "8bfda475e9604e54644f403891aa39bce79fec25",
         "SideStore/Core/Operations/PipelineRunner.swift": "7c4cd4ff7fc984e1591592dd36db72c659cefa9e",
-        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": "f80a512589bfc784ae542bc347eadef82aa3f89a",
+        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": "7b485e94bc6d8c96633903b2509bf6ed8e45cd3f",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
         "tests/appid_expiry/test_appid_expiry_bridge.py": "4e223dabf1e11f5838f6c65a9fd81362443a6414",
         "tests/cache_compatibility/generate_fixture.py": "b467d1370ba0a211e5342a79a4ea282b3985b1f6",
@@ -121,40 +170,65 @@
         "tests/host_refresh_bundle/test_contract.py": "ccb7ae6c8d46dab6d4bbc3369c2053957f47443c",
         "tests/provider_sequence/main.swift": "275a64df2e3de10212e6b804a021bd2397ff0b31",
         "tests/provider_sequence/noncooperative.swift": "de5bbcb68d805c27d9ce318b24d17f31f78de18d",
+        "tests/reuse_main/ExplanationCases.swift": "5a5e49951b1e5e38b466f8b9d3336afd71cfdded",
         "tests/reuse_main/RegistryCases.swift": "cd5ac91c7f9c2f3684f85fe816f1d9bf396f024e",
-        "tests/reuse_main/run.sh": "ff1abdb0b30d00289c3f874a9f743523e3417306",
-        "tests/reuse_main/test_contract.py": "f812660a56c20370ab1d3f55ad64916a693b8f79",
-        "tests/test_diagnostic_provider_sequence.py": "d3df41d9fbab0f29b8d60f28326124b79abf4818",
+        "tests/reuse_main/run.sh": "b29d67e12cc2a5d13cb95b15c071ccac32dc2b71",
+        "tests/reuse_main/test_contract.py": "fdc59d1d71b1f34e1292bf8dcbc12e531de047a2",
+        "tests/test_diagnostic_provider_sequence.py": "7aa1b47cb7f6b0c40743a4a5393325037e81743b",
         "tests/upstream_sync/test_iloader_submit_route.py": "4f7e956fe564c12f832d52dea34f108cc5eff0ce"
       },
-      "tree": "f310d871c52f156529f442f8de0081e4bbe19492"
+      "tree": "45e814d6a279d7e02b8b59c517c6934a5a169385"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
       "files": {
+        ".ci/auth-request-diagnostics/BoundaryDoubles.swift": "e09c6af5727153be56a1a6cdb9595ad40f65e4c4",
+        ".ci/auth-request-diagnostics/test_source.py": "c974fa56e73ace3b207d1f2cec8f8f530f3b7709",
         ".ci/branch-cleanup/allowlist.json": "075b4e6ab4628192a58bc6740afe1529cd65b841",
         ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
         ".ci/branch-cleanup/test_cleanup.py": "bae89afbd4d820fd1fae69819800f88e6cd4a706",
         ".ci/iloader-auth-parity/ProviderDoubles.swift": "e666d255e47a8c8daba07ceeff6c8aa430cf88a0",
         ".ci/iloader-auth-parity/README.md": "77daef817254205bb00ea5c9f8ac0c7b1e099dd7",
         ".ci/iloader-auth-parity/RuntimeTests.swift": "ad6b22c6749e9119b4ab5bd8a1f97e45939d8ea5",
-        ".ci/iloader-auth-parity/generate.py": "3275d011e17dad30f8b18e9808b02e0341b5e6fa",
-        ".ci/iloader-auth-parity/test_source.py": "a65c46e7b1c596b266117a1ae7aec432f8fb4a7f",
+        ".ci/iloader-auth-parity/generate.py": "2fe16ff6dad5c96b487d78a813325de75b7b8327",
+        ".ci/iloader-auth-parity/test_source.py": "9b269264113ce776e38ea2293e636f4a332e985c",
+        ".ci/owned-oda/Fixture.swift": "c577211a81bb7b791110ada6429bf384e85d459e",
+        ".ci/owned-oda/README.md": "afcca146a962302f19f8125abc52751ae757ded4",
+        ".ci/owned-oda/authentication-projection.json": "bbb04da73deeb9df5f8f1e49fb4b7c4888e643ed",
+        ".ci/owned-oda/qualification-inputs.json": "2057527310a5f374d07a3a58e8131d02408e6f88",
+        ".ci/owned-oda/run.sh": "d4fc1432b93db35a993ab4779011b4fdf0bc809e",
+        ".ci/owned-oda/test_sources.py": "3cce410ee7ffec550a87b07c5dd3bb7853c07b92",
         ".ci/reuse-main/Cases.swift": "00a9d472f1ccbae09d671f012a8b5e8bbeae57ea",
         ".ci/reuse-main/README.md": "2b4da3e1eb44aa404000eb9301b2bfc2a085e7f4",
         ".ci/reuse-main/SignerCases.swift": "b2939d25f8ca3f9210c175185e87a2a453dc3c77",
         ".ci/reuse-main/SignerDoubles.swift": "42042ca751c40b033ffb00e8653ae66ba9c73958",
         ".ci/reuse-main/run.sh": "2d667b03c0819230709f9dd44efea57ca2f06f73",
         ".ci/reuse-main/test_source.py": "6658702c092c4c644722f20ffb95a6b8e3e8b3db",
+        ".github/workflows/owned-oda-qualification.yml": "2e7abe31ed9ae57c5c9d9c1ecb92e608640b5e8c",
         ".github/workflows/reviewed-branch-cleanup.yml": "32e136f1df8c9adbb5e1f3b03cc88937bb8223cc",
         "CLI/CommandHandler.swift": "d80a9b661d5c198fa8d47c2775668aef4c730622",
+        "Package.resolved": "e6fd8dbce750ef9281c1666272f2dd0039b0f356",
+        "Package.swift": "3f1c463578f777d413c9cc9f8797c0809bd254e4",
         "Sources/Anisette/ILoaderRemoteAnisette.swift": "c4ffdc804ad6597a801406a7903592a7524dc772",
         "Sources/Anisette/ILoaderRemoteHTTPTransport.swift": "49ac64a6449efd7bf78740b475f71161c685c155",
+        "Sources/Anisette/OwnedODAAuthenticationContext.swift": "997ec2581e533a5cda25ab2ba33b55cd9c68984b",
+        "Sources/Anisette/OwnedODALibraryPreparation.swift": "ddc4d4a43ce950d9947a4c99aaabb5b966e8a80d",
+        "Sources/Anisette/OwnedODANativeSource.swift": "ffa7029a681719c62ddf38238ac65cb265d3b1c6",
         "Sources/CodeSigning/CodeSignerAPI.swift": "228d6e788746f7ac724910bfb1d36b2501f5bd12",
         "Sources/CodeSigning/ExtensionSigningPolicy.swift": "4dfdbebb444cb45f1e9a76c357a47f74766f81a2",
+        "Sources/DeveloperPortal/Authentication.swift": "b9aa1cb610d4d16487ceacd2ee0605b00f3651d7",
+        "Sources/DeveloperPortal/DeveloperPortalAPI.swift": "1705a0b06c32e6b8c3dce87b8eb48dbf2b475c60",
         "Tests/SideSignTests/ILoaderRemoteHTTPTransportTests.swift": "3f06fd743c9adf1e5d90636b531c76f008ae8669"
       },
-      "tree": "1e46df8ba3aa71d41a49c48185afbe601c665b81"
+      "tree": "d16a6bc6dd1e557d00ef4a23c2c64fed45b29c14"
+    },
+    "SideStore/Dependencies/minimuxer": {
+      "baseline": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
+      "files": {
+        "DeviceGateway/Package.swift": "88e744dc1a1fd6d383025fdb7a60abd5e5180b81",
+        "docs/integration/GENERATED_PAIRING_CRYPTO.md": "63cbe29c876d99f2471811310d0f6ec1a3bce7ef"
+      },
+      "tree": "e853028bce8923413a82eb4ce20efb4a978d26ac"
     },
     "idevice": {
       "baseline": "774f02a6d29777c85400f4ba7fa69c12b4227fb3",
@@ -162,13 +236,20 @@
         ".ci/branch-cleanup/allowlist.json": "ce2c02ab4152fb188421c17585fa4f17b997cda7",
         ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
         ".ci/branch-cleanup/test_cleanup.py": "bae89afbd4d820fd1fae69819800f88e6cd4a706",
-        ".ci/issue53/README.md": "48239ba8177da06b8e8b48bf93f3cd5c660b8884",
+        ".ci/issue53/README.md": "d740175c86a5e68ce407ffee3ad03d2a16c2ba31",
+        ".ci/issue53/assert_listener_abi.c": "c2a611aaaaa5092fec60af6669b20ef32afed5cc",
+        ".ci/issue53/assert_listener_abi.cpp": "1061399b5cbc5001c23549edbc324b8003d8b3f4",
+        ".ci/issue53/check_listener_abi.sh": "1b44a313cce3733fa1b92ee7b3f5c48541805a23",
         ".ci/issue53/fixtures/idevice.h": "2d68c39216e2c2f36f8b87580782eca5333b9d35",
         ".ci/issue53/fixtures/ownership.cpp": "36c79d82749819518454de9d9c59bdf74231a150",
-        ".ci/issue53/test_ownership.py": "aaf1d451e8730ddfd21dd5c62242926c33aad062",
+        ".ci/issue53/test_adapter_clone_scope.py": "b54eb7cbb7c438cf479eec0485760de2741e52ea",
+        ".ci/issue53/test_listener.py": "c19ca59be1fb54e31a5f2165d254cbbc5a929b4a",
+        ".ci/issue53/test_mss.py": "dd60cde45a84c872fa1c80fe9bd72f7aedfc2d4e",
+        ".ci/issue53/test_ownership.py": "8544a8e1f13a13d420da1236b2b90220427f3719",
         ".github/workflows/reviewed-branch-cleanup.yml": "674e070d322100297169f68d89025044fbfabacf",
         "AI.md": null,
         "cpp/include/idevice++/house_arrest.hpp": "9567afce89b3fe2782a19e03ea93eaea5759cf5b",
+        "cpp/include/idevice++/mobile_image_mounter.hpp": "9373cfe16978c0dc9d3bd167b7982397a696db10",
         "cpp/src/house_arrest.cpp": "91499e14c9c0ac4f0b3fdc4516287e4ef3f20014",
         "cpp/src/lockdown.cpp": "935053a4929d48489115c8f65b08437b590e054a",
         "cpp/src/os_trace_relay.cpp": "e76ac6b790374be5c5492d3c6c8d0aead4220f0e",
@@ -177,16 +258,21 @@
         "ffi/examples/mounter.c": "79bc5fd2126e1072c6d2a3daee38298af31558d3",
         "ffi/src/house_arrest.rs": "47b59626b46a787ee63526fa7663f14cd9c7d42e",
         "ffi/src/lockdown.rs": "e3382565ec210dba0fb2c41e4c9db6fa47f1f75a",
-        "ffi/src/mobile_image_mounter.rs": "f3c267dbc68b8b3d164cd2a25c44ce03408b1cc8",
+        "ffi/src/mobile_image_mounter.rs": "124a2f7b7396aca613ce0e522abaf53584b8b094",
         "ffi/src/os_trace_relay.rs": "e4dcaecb0382d1c725eec991625af021cad7a904",
         "ffi/src/provider.rs": "40a157a158b4145d12e9e344fc8cc722ab3ab4b5",
         "ffi/src/springboardservices.rs": "133e57cb4bacf42c178a5be0fb761edc4026577e",
         "ffi/src/syslog_relay.rs": "1b32650e99c460c62419b02d2d8d8668d435712b",
-        "ffi/src/usbmuxd.rs": "9669a3418fa2073599d175929cb70b41e81c50f7",
-        "idevice/src/usbmuxd/mod.rs": "99918699df94e232e3b4681c2f50baf0e92f5c63",
+        "ffi/src/tunnel_provider.rs": "6f8b5a6c20cea59d94a6aba0e9c080745f8e89aa",
+        "ffi/src/usbmuxd.rs": "8d9ac236db9ab2736de615c6bcca13769bb79cda",
+        "idevice/src/services/core_device_proxy.rs": "b1ee705d73f2f6af12c5464c89c524a2c079f13d",
+        "idevice/src/services/cryptexd.rs": "6345b9ea0bfa85720686a20b52147f3d3f34015e",
+        "idevice/src/services/restore/recovery/mod.rs": "5a41b60e1fe82f763ed29c2c9db6a35493042705",
+        "idevice/src/tcp/mod.rs": "5a473b8fb4b8b817883cc100a54f19d29e28fc0e",
+        "idevice/src/usbmuxd/mod.rs": "e18bce34816cf4512be161aa55bcf6eeafd2578c",
         "idevice/src/usbmuxd/raw_packet.rs": "ab704757497d40664ac3a434a03b76c5634a75cf"
       },
-      "tree": "1c35a9c6dcf18d9b78aae2fbcb08f103d0aba60f"
+      "tree": "29da4c53131083cea088536863ea03ac5145bc2e"
     }
   },
   "schema_version": 1

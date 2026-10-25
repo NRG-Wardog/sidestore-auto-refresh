@@ -113,11 +113,11 @@ class NativeABIContract(unittest.TestCase):
             self.invoke()
         self.assertFalse(self.output.exists(), 'Failure wrote a passing result')
 
-    def test_pass_keeps_three_archives_six_symbols_headers_and_provenance(self):
+    def test_pass_keeps_three_archives_seven_symbols_headers_and_provenance(self):
         self.nm_stderr = 'fixture: benign archive member has no symbols\n'
         result = self.invoke()
         self.assertEqual(len(result['artifacts']), 3)
-        self.assertEqual(len(result['required_symbols']), 6)
+        self.assertEqual(len(result['required_symbols']), 7)
         self.assertFalse(result['target_executed'])
         self.assertEqual(result['symbol_reader']['sha256'], gate.digest(self.nm))
         self.assertEqual(result['symbol_reader']['component_sha256'], gate.COMPONENT_SHA256)
@@ -136,11 +136,15 @@ class NativeABIContract(unittest.TestCase):
                          [str(self.source / 'ffi'), str(self.framework / 'ios-arm64/Headers'),
                           str(self.staged / 'ios-arm64/Headers')])
         self.assertFalse(any(command[:2] == ['xcrun', 'nm'] for command in self.commands))
-        self.assertEqual(hashlib.sha256((Path(__file__).parent / 'assert_header.c').read_bytes()).hexdigest(), 'ebf680f7cdf8b373e081a8eebc6ff9f6e31f0190aa3c881014df60778dc7df08')
+        self.assertEqual(hashlib.sha256((Path(__file__).parent / 'assert_header.c').read_bytes()).hexdigest(), '2259ebe6541ba13811e2ea5437ba24f06adb59c8bb7d2d4f77e6452c32974257')
 
-    def test_nm_error_rejected_even_with_all_six_symbols(self):
+    def test_nm_error_rejected_even_with_all_seven_symbols(self):
         self.fail_nm = True
         self.reject(subprocess.CalledProcessError)
+
+    def test_missing_listener_symbol_rejected(self):
+        self.nm_output = '\n'.join(x['mach_o_symbol'] for x in self.symbols if x['name'] != 'idevice_usbmuxd_listener_next')
+        self.reject()
 
     def test_missing_symbol_rejected(self):
         self.nm_output = '\n'.join(x['mach_o_symbol'] for x in self.symbols[1:])

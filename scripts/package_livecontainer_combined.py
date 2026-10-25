@@ -11,6 +11,7 @@ import subprocess
 
 from audit_ipa_signing import inventory
 from ipa_size_report import optimize as optimize_ipa_size
+from packaging_adapters import COMBINED_PACKAGING_RULES, adapt_combined_packaging, patch_surface
 
 REQUIRED_SIDESTORE_INTENT_SYMBOLS = (
     b"9SideStore20RefreshAllAppsIntentV",
@@ -71,45 +72,9 @@ def verify_shared_secret_handoff_group(host_groups, live_process_groups):
     return shared[0]
 
 
-def replace_once(text, old, new):
-    if text.count(old) != 1:
-        raise ValueError(f'Upstream packaging anchor changed: {old}')
-    return text.replace(old, new, 1)
-
-
 def adapt(text):
-    text = replace_once(text, 'wget https://github.com/LiveContainer/dylibify/releases/download/1.0/dylibify',
-                        'cp "$VERIFIED_DYLIBIFY" dylibify')
-    text = replace_once(text, 'brew install ldid', 'command -v ldid >/dev/null')
-    text = replace_once(text, 'wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa',
-                        'cp "$PATCHED_SIDESTORE_IPA" SideStore.ipa')
-    text = replace_once(text, 'rm -r .zsign_cache', '# No zsign cache exists in the fresh packaging workspace.')
-    text = replace_once(text, 'find payloadlc/Payload -type d -name "_CodeSignature" -exec rm -r {} +',
-                        'find Payload -type d -name "_CodeSignature" -prune -exec rm -r {} +')
-    text = replace_once(text,
-        '''# copy intents
-cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Intents.intentdefinition ./Payload/LiveContainer.app/
-cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/ViewApp.intentdefinition ./Payload/LiveContainer.app/
-cp -r ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents ./Payload/LiveContainer.app/Metadata.appintents
-sed -i '' 's/9SideStore20RefreshAllAppsIntentV/16SideStoreSupport20RefreshAllAppsIntentV/g' ./Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata
-sed -i '' 's/9SideStore26RefreshAllAppsWidgetIntentV/16SideStoreSupport26RefreshAllAppsWidgetIntentV/g' ./Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata
-''',
-        '''# Stage the host App Intents schemas/metadata from the headless service build,
-# then remove these packaging inputs from the embedded backend framework.
-cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Intents.intentdefinition ./Payload/LiveContainer.app/
-cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/ViewApp.intentdefinition ./Payload/LiveContainer.app/
-cp -r ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents ./Payload/LiveContainer.app/Metadata.appintents
-sed -i '' 's/9SideStore20RefreshAllAppsIntentV/16SideStoreSupport20RefreshAllAppsIntentV/g' ./Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata
-sed -i '' 's/9SideStore26RefreshAllAppsWidgetIntentV/16SideStoreSupport26RefreshAllAppsWidgetIntentV/g' ./Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata
-rm -f ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Intents.intentdefinition
-rm -f ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/ViewApp.intentdefinition
-rm -rf ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents
-''')
-    text = replace_once(text, '# package\n',
-                        'python3 "$COMBINED_PACKAGER" --prepare-entitlements . Payload/LiveContainer.app\n\n# package\n')
-    conversion = './dylibify ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore.dylib'
-    text = replace_once(text, conversion, 'python3 "$COMBINED_PACKAGER" --validate-dylibify-input ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore\n' + conversion + '\npython3 "$COMBINED_PACKAGER" --verify-dylibify ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore.dylib')
-    return 'set -eu\n' + text
+    """Compatibility entry point for the independently testable named adapter."""
+    return adapt_combined_packaging(text)
 
 
 def build_dylibify(output):
@@ -437,6 +402,8 @@ def package(root, host, side, output):
     result = verify(ipa, side)
     result['size_optimization'] = size_result
     result['upstream_packaging_sha256'] = hashlib.sha256(upstream.encode()).hexdigest()
+    result['packaging_adapter_sha256'] = hashlib.sha256(Path(__file__).with_name('packaging_adapters.py').read_bytes()).hexdigest()
+    result['packaging_adapter_rules'] = patch_surface(COMBINED_PACKAGING_RULES)
     result['dylibify'] = converter_evidence
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ipa, output)

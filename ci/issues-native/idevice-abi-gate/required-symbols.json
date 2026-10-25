@@ -9,13 +9,14 @@
   ],
   "required_ffi_features": [
     "remote_pairing",
-    "tunnel_tcp_stack"
+    "tunnel_tcp_stack",
+    "usbmuxd"
   ],
   "required_target_cfg": [
     "unix"
   ],
   "target": "aarch64-apple-ios",
-  "target_cfg_basis": "The reviewed Apple iOS arm64 target is Unix; no build.rs changes or additional feature-dependent gates apply to these six exports.",
+  "target_cfg_basis": "The reviewed Apple iOS arm64 target is Unix; no build.rs changes or additional feature-dependent gates apply to these seven exports.",
   "crate_type": [
     "staticlib"
   ],
@@ -143,6 +144,17 @@
       "export": "unsafe(no_mangle), pub extern C",
       "arity": 7,
       "rust_signature": "pub unsafe extern \"C\" fn rppairing_pair_network(\n    addr: *const idevice_sockaddr,\n    addr_len: idevice_socklen_t,\n    hostname: *const c_char,\n    pairing_file: *mut RpPairingFileHandle,\n    pin_callback: Option<extern \"C\" fn(context: *mut c_void) -> *const c_char>,\n    pin_context: *mut c_void,\n    out_peer_device: *mut *mut RpPairingPeerDeviceC,\n) -> *mut IdeviceFfiError"
+    },
+    {
+      "name": "idevice_usbmuxd_listener_next",
+      "mach_o_symbol": "_idevice_usbmuxd_listener_next",
+      "source": "ffi/src/usbmuxd.rs",
+      "ffi_feature": "usbmuxd",
+      "function_cfg": [],
+      "enabled_under_reviewed_ci_flags": true,
+      "export": "unsafe(no_mangle), pub extern C",
+      "arity": 4,
+      "rust_signature": "pub unsafe extern \"C\" fn idevice_usbmuxd_listener_next(stream_handle: *mut UsbmuxdListenerHandle, connect: *mut bool, connection_device: *mut *mut UsbmuxdDeviceHandle, disconnection_id: *mut u64) -> *mut IdeviceFfiError"
     }
   ],
   "nm_assertion": [
@@ -153,7 +165,7 @@
     "--format=just-symbols",
     "<archive>"
   ],
-  "nm_match": "Require successful inspection of the full archive, then exact complete output lines for all six Mach-O-prefixed symbols. --defined-only excludes undefined symbols; no member filtering or fallback is permitted.",
+  "nm_match": "Require successful inspection of the full archive, then exact complete output lines for all seven Mach-O-prefixed symbols. --defined-only excludes undefined symbols; no member filtering or fallback is permitted.",
   "framework_assertion": "Read XCFramework Info.plist, require one non-simulator ios/arm64 slice, and compare static archive and generated header bytes to Cargo outputs before inspection. Inspect Cargo symbols once; copies inherit symbol validation only through rechecked exact archive byte identity, recorded explicitly. Keep independent header syntax/layout checks in all three include-directory contexts.",
   "header_generator": {
     "source": "ffi/build.rs",
