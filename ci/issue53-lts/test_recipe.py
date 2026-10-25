@@ -58,9 +58,27 @@ class RecipeTests(unittest.TestCase):
                 os.chdir(root)
                 output,archive=recipe.normalized_paths(Path('out'),Path('source.tar.gz'))
                 os.chdir(root/'child')
-                self.assertEqual(output,root/'out')
-                self.assertEqual(archive,root/'source.tar.gz')
+                self.assertEqual(output,(root/'out').resolve())
+                self.assertEqual(archive,(root/'source.tar.gz').resolve())
                 self.assertTrue(output.is_absolute() and archive.is_absolute())
+            finally:os.chdir(previous)
+
+    def test_symlink_parent_paths_remain_canonical_across_chdir(self):
+        import os
+        previous=Path.cwd()
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp).resolve();real=root/'real';real.mkdir()
+            alias=root/'alias';alias.symlink_to(real,target_is_directory=True)
+            (real/'child').mkdir();(real/'source.tar.gz').write_bytes(b'path-only fixture')
+            try:
+                os.chdir(alias)
+                output,archive=recipe.normalized_paths(alias/'out',alias/'source.tar.gz')
+                os.chdir(real/'child')
+                self.assertEqual(output,real/'out')
+                self.assertEqual(archive,real/'source.tar.gz')
+                self.assertNotEqual(output,alias/'out')
+                self.assertTrue(output.is_absolute() and archive.is_absolute())
+                self.assertEqual(archive.read_bytes(),b'path-only fixture')
             finally:os.chdir(previous)
 
     def test_output_and_platform_admission(self):
