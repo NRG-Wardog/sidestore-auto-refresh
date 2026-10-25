@@ -1,8 +1,10 @@
 """Packaging-only measured derivative of one exact green candidate. No rebuild.
 
-Only Apple strip -S is admitted. SideStore receives the existing empty-entitlement
-ldid reseal; it must pass Apple's strict signature verification. This is not
-provisioning, a production release, or proof of device/runtime compatibility.
+Only Apple strip -S is admitted. The opt-in reviewed Apple ad-hoc mode replaces
+the original designated requirement with empty ad-hoc requirements, verifies
+every signature hash and requires Apple strict verification. Installer signing
+is still required. This is not provisioning, a production release, or proof of
+device/runtime compatibility.
 """
 import argparse
 import copy
@@ -18,7 +20,7 @@ import zipfile
 
 from audit_ipa_signing import inventory as signing_inventory, signing
 from ipa_size_report import inspect, report as size_report
-from macho_stab_guard import image_uuid, require, sha, snapshot, verify, signature_metadata, commands
+from macho_stab_guard import image_uuid, require, sha, snapshot, verify, signature_metadata, commands, verify_apple_adhoc_reseal
 from package_livecontainer_combined import verify as verify_combined
 
 RUN = '40213898605'
@@ -216,7 +218,9 @@ def main():
     parser.add_argument('--work', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--inspect-only', action='store_true')
-    parser.add_argument('--apple-adhoc-diagnostic-only', action='store_true')
+    signing_mode = parser.add_mutually_exclusive_group()
+    signing_mode.add_argument('--apple-adhoc-diagnostic-only', action='store_true')
+    signing_mode.add_argument('--apple-adhoc-package', action='store_true')
     args = parser.parse_args()
     require(not args.output.exists() and not args.output.is_symlink(), 'output artifact directory must be fresh')
     args.output.mkdir(parents=True)
@@ -274,8 +278,16 @@ def main():
                     require(digest(original) == IPA_SHA, 'original IPA changed')
                     report['status'] = 'APPLE_ADHOC_DIAGNOSTIC_PASS_POLICY_REVIEW_PENDING_NO_IPA'
                     return
+                if args.apple_adhoc_package:
+                    run(['/usr/bin/codesign', '--force', '--sign', '-', '--identifier', 'SideStore',
+                         '--digest-algorithm=sha1,sha256', '--timestamp=none', str(candidate)],
+                        args.output / (key + '-apple-adhoc-reseal.log'))
+                    capture_signature(candidate, args.output, key + '-apple-adhoc')
+                    report['apple_adhoc_policy'] = verify_apple_adhoc_reseal(data, candidate.read_bytes())
+                    write(args.output / 'apple-adhoc-policy.json', report['apple_adhoc_policy'])
                 run(['/usr/bin/codesign', '--verify', '--strict', '--verbose=4', str(candidate)], args.output / (key + '-codesign-verify.log'))
-                report['sidestore_signature'] = 'existing_empty_entitlement_ldid_recipe_resealed_and_apple_strict_verified'
+                report['sidestore_signature'] = ('apple_adhoc_empty_entitlements_verified_installer_resigning_required'
+                    if args.apple_adhoc_package else 'existing_empty_entitlement_ldid_recipe_resealed_and_apple_strict_verified')
             else:
                 require(signing(data).get('signature_present') is False and signing(stripped).get('signature_present') is False,
                         'unsigned UI framework signing status changed')

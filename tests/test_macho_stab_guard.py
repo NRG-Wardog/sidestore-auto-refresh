@@ -1,10 +1,11 @@
 from pathlib import Path
 import struct
+import hashlib
 import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from macho_stab_guard import snapshot, verify, commands, signature_metadata
+from macho_stab_guard import snapshot, verify, commands, signature_metadata, verify_apple_adhoc_reseal, _checked_signature_entries
 
 
 def fixture(debug=True, *, local=b'_local', indirect_wrong=False, payload=b'export-trie', signature=False):
@@ -51,7 +52,7 @@ def alter_command(data, command, offset, value, fmt='<I'):
     raise AssertionError(command)
 
 
-def signed_fixture(debug=True):
+def signed_fixture(debug=True, *, adhoc=False, correct_hashes=False):
     data = fixture(debug, signature=True)
     _, _, rows = commands(data)
     sig = next(raw for cmd, raw in rows if cmd == 0x1d)
@@ -62,10 +63,12 @@ def signed_fixture(debug=True):
         pages = (off + 4095) // 4096
         hoff = 88 + len(ident) + 2*hashsize
         length = hoff + pages*hashsize
-        child = struct.pack('>9I4B4I4Q', 0xfade0c02, length, 0x20400, 0, hoff, 88, 2, pages, off,
+        child = struct.pack('>9I4B4I4Q', 0xfade0c02, length, 0x20400, 2 if adhoc else 0, hoff, 88, 2, pages, off,
                             hashsize, hashtype, 0, 12, 0, 0, 0, 0, 0, 0, 512, 0)
         children.append((slot, child + ident + b'\0'*(hashsize*(2+pages))))
     children.insert(1, (2, struct.pack('>3I', 0xfade0c01, 12, 0)))
+    if adhoc:
+        children.append((0x10000, bytes.fromhex('fade0b0100000008')))
     pos = 12 + 8*len(children)
     index, body = b'', b''
     for slot, child in children:
@@ -77,6 +80,17 @@ def signed_fixture(debug=True):
     result = bytearray(result)
     struct.pack_into('<Q', result, 32+72+32, len(result)-512)
     struct.pack_into('<Q', result, 32+72+48, len(result)-512)
+    if correct_hashes:
+        for i in range(len(children)):
+            slot, start = struct.unpack_from('>2I', result, off+12+8*i)
+            if slot not in (0,0x1000): continue
+            child = off+start
+            hoff, _, special, pages, limit = struct.unpack_from('>5I',result,child+16)
+            hs, ht = struct.unpack_from('>2B',result,child+36)
+            digest = hashlib.sha1 if ht == 1 else hashlib.sha256
+            result[child+hoff-2*hs:child+hoff-hs] = digest(bytes.fromhex('fade0c010000000c00000000')).digest()
+            for page in range(pages):
+                result[child+hoff+page*hs:child+hoff+(page+1)*hs] = digest(result[page*4096:min((page+1)*4096,limit)]).digest()
     return bytes(result)
 
 
@@ -171,6 +185,44 @@ class StabGuardTests(unittest.TestCase):
             verify(original, changed, require_reduction=False, preserve_stabs=True)
         with self.assertRaisesRegex(ValueError, 'altered debug records'):
             verify(original, fixture(False), require_reduction=False, preserve_stabs=True)
+
+    def test_finite_apple_adhoc_policy_and_complete_hashes(self):
+        old = signed_fixture(correct_hashes=True)
+        new = signed_fixture(False, adhoc=True, correct_hashes=True)
+        receipt = verify_apple_adhoc_reseal(old, new)
+        self.assertTrue(receipt['all_code_pages_and_special_slots_verified'])
+        self.assertFalse(receipt['original_designated_requirement_preserved'])
+        self.assertTrue(receipt['installer_resigning_required'])
+        offset = struct.unpack_from('<I', next(raw for cmd,raw in commands(new)[2] if cmd==0x1d),8)[0]
+        starts = {struct.unpack_from('>I',new,offset+12+8*i)[0]: offset+struct.unpack_from('>I',new,offset+16+8*i)[0]
+                  for i in range(4)}
+        cd = starts[0]; hoff = struct.unpack_from('>I',new,cd+16)[0]
+        mutations = {'page': cd+hoff, 'special': cd+hoff-20, 'flags': cd+15,
+                     'team': cd+51, 'requirements': starts[2]+11, 'CMS': starts[65536]+7,
+                     'coverage': cd+35, 'identifier': cd+88, 'runtime': cd+87}
+        for name, index in mutations.items():
+            changed = bytearray(new); changed[index] ^= 1
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                verify_apple_adhoc_reseal(old, bytes(changed))
+        padded = alter_command(new + bytes(16), 0x1d, 12, len(new)-offset+16)
+        self.assertEqual(_checked_signature_entries(padded)[1], 16)
+        corrupt_padding = padded[:-1] + b'\x01'
+        with self.assertRaisesRegex(ValueError, 'nonzero signature padding'):
+            _checked_signature_entries(corrupt_padding)
+        sha256_cd = starts[0x1000]
+        sha256_hash = struct.unpack_from('>I', new, sha256_cd+16)[0]
+        bad_sha256 = bytearray(new); bad_sha256[sha256_cd+sha256_hash] ^= 1
+        with self.assertRaisesRegex(ValueError, 'page hash mismatch'):
+            verify_apple_adhoc_reseal(old, bytes(bad_sha256))
+        old_offset = struct.unpack_from('<I', next(raw for cmd,raw in commands(old)[2] if cmd==0x1d),8)[0]
+        old_cd = old_offset + struct.unpack_from('>I', old, old_offset+16)[0]
+        old_hash = struct.unpack_from('>I', old, old_cd+16)[0]
+        bad_original = bytearray(old); bad_original[old_cd+old_hash] ^= 1
+        with self.assertRaisesRegex(ValueError, 'page hash mismatch'):
+            verify_apple_adhoc_reseal(bytes(bad_original), new)
+        changed = bytearray(new + b'\x01')
+        changed = alter_command(bytes(changed), 0x1d,12,len(new)-offset+1)
+        with self.assertRaises(ValueError): verify_apple_adhoc_reseal(old,changed)
 
     def test_malformed_and_unsupported_images_reject(self):
         original = fixture()

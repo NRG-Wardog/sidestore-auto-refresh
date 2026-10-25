@@ -122,6 +122,19 @@ class ExperimentPackagingTests(unittest.TestCase):
             self.assertTrue((output / (label + '-apple-snapshots.json')).is_file())
         self.assertFalse(list(output.glob('*.ipa')))
 
+    def test_adhoc_product_mode_cannot_be_combined_with_diagnostic_mode(self):
+        result = subprocess.run([sys.executable, '-B', driver.__file__, '--artifacts', 'unused',
+                                 '--work', 'unused', '--output', 'unused',
+                                 '--apple-adhoc-package', '--apple-adhoc-diagnostic-only'],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('not allowed with argument', result.stderr)
+        text = Path(driver.__file__).read_text()
+        validation = text.index("report['apple_adhoc_policy'] = verify_apple_adhoc_reseal")
+        strict = text.index("run(['/usr/bin/codesign', '--verify', '--strict'", validation)
+        self.assertLess(validation, strict)
+        self.assertLess(strict, text.index('verification = repackage'))
+
     def test_actual_cli_and_exact_transform_arguments_remain_bounded(self):
         script = Path(driver.__file__)
         process = subprocess.run([sys.executable, '-B', str(script), '--help'], capture_output=True, text=True)

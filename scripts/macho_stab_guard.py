@@ -263,3 +263,84 @@ ldid format is accepted here, with no XML/DER entitlement slots.
             others[slot] = sha(child)
     require(entries == {0, 2, 0x1000}, 'original dual-hash/requirements signature closure differs')
     return {'directories': sorted(directories), 'other_slots': others}
+
+
+def _checked_signature_entries(data):
+    rows = [raw for cmd, raw in commands(data)[2] if cmd == 0x1d]
+    require(len(rows) == 1 and len(rows[0]) == 16, 'one signature command required')
+    offset, allocated = struct.unpack_from('<II', rows[0], 8)
+    require(offset <= len(data) and allocated == len(data)-offset, 'signature must occupy exact image tail')
+    blob = data[offset:]
+    require(len(blob) >= 12, 'signature header truncated')
+    magic, length, count = struct.unpack_from('>3I', blob)
+    require(magic == 0xfade0cc0 and count <= 16 and 12+count*8 <= length <= len(blob), 'invalid signature index')
+    require(not any(blob[length:]), 'nonzero signature padding')
+    entries, ranges = {}, []
+    for i in range(count):
+        slot, start = struct.unpack_from('>2I', blob, 12+8*i)
+        require(slot not in entries and 12+count*8 <= start <= length-8, 'duplicate/out-of-bounds signature slot')
+        size = struct.unpack_from('>I', blob, start+4)[0]
+        require(8 <= size <= length-start, 'signature child outside superblob')
+        ranges.append((start,start+size)); entries[slot] = blob[start:start+size]
+    cursor = 12+count*8
+    for start, end in sorted(ranges):
+        require(start >= cursor and not any(blob[cursor:start]), 'overlap/nonzero signature gaps')
+        cursor = end
+    require(not any(blob[cursor:length]), 'nonzero signature trailing gap')
+    return offset, allocated-length, entries
+
+
+def _verify_code_directory_hashes(data, offset, entries, expected_flags):
+    policies = []
+    for slot, hashsize, hashtype in ((0,20,1),(0x1000,32,2)):
+        child = entries[slot]
+        require(len(child) >= 88, 'CodeDirectory truncated')
+        fields = struct.unpack_from('>9I4B4I4Q', child)
+        magic, length, version, flags, hashes, ident, special, pages, limit = fields[:9]
+        hs, ht, platform, pagepower = fields[9:13]
+        spare2, scatter, team, spare3, limit64, execbase, execlimit, execflags = fields[13:]
+        require((magic,length,version,flags,hs,ht,platform,pagepower,ident,special) ==
+                (0xfade0c02,len(child),0x20400,expected_flags,hashsize,hashtype,0,12,88,2),
+                'unreviewed ad-hoc CodeDirectory policy')
+        require(spare2 == scatter == team == spare3 == limit64 == execflags == 0,
+                'unexpected team/scatter/runtime signing policy')
+        require(child[88:98] == b'SideStore\0' and hashes == 98+special*hashsize,
+                'signing identifier/hash layout changed')
+        require(limit == offset and pages == (limit+4095)//4096 and hashes+pages*hashsize == length,
+                'CodeDirectory page coverage changed')
+        digest = hashlib.sha1 if hashtype == 1 else hashlib.sha256
+        for page in range(pages):
+            expected = digest(data[page*4096:min((page+1)*4096,limit)]).digest()
+            require(child[hashes+page*hashsize:hashes+(page+1)*hashsize] == expected,
+                    'CodeDirectory page hash mismatch')
+        require(child[hashes-hashsize:hashes] == bytes(hashsize), 'unexpected Info special-slot hash')
+        require(child[hashes-2*hashsize:hashes-hashsize] == digest(entries[2]).digest(),
+                'requirements special-slot hash mismatch')
+        policies.append((slot,version,hashtype,execbase,execlimit,execflags))
+    return policies
+
+
+def verify_apple_adhoc_reseal(original, final):
+    """Reusable final-product guard, independent of any artifact/run SHA.
+
+The finite policy intentionally replaces the original designated requirement
+with empty ad-hoc requirements. It is not provisioning or installer signing.
+Apple strict verification remains a separate mandatory native-tool gate.
+Zero allocation padding may vary by signer sizing; it cannot exceed the
+original VM allocation or defeat the required final binary size reduction.
+"""
+    structural = verify(original, final)
+    signature_metadata(original)  # Existing original ldid closure remains mandatory.
+    old_offset, _, old_entries = _checked_signature_entries(original)
+    offset, padding, entries = _checked_signature_entries(final)
+    require(set(entries) == {0,2,0x1000,0x10000}, 'unreviewed ad-hoc signature slots')
+    require(entries[2] == bytes.fromhex('fade0c010000000c00000000'), 'ad-hoc requirements differ')
+    require(entries[0x10000] == bytes.fromhex('fade0b0100000008'), 'ad-hoc CMS must be empty wrapper')
+    old_policy = _verify_code_directory_hashes(original, old_offset, old_entries, 0)
+    policy = _verify_code_directory_hashes(final, offset, entries, 2)
+    require(old_policy == policy, 'signing executable geometry/hash algorithms changed')
+    return {'structural': structural, 'signature_policy': 'reviewed_apple_adhoc_v20400_dual_hash',
+            'all_code_pages_and_special_slots_verified': True, 'signature_zero_padding_bytes': padding,
+            'original_requirements_sha256': sha(old_entries[2]), 'final_requirements_sha256': sha(entries[2]),
+            'original_designated_requirement_preserved': False,
+            'installer_resigning_required': True, 'device_execution_verified': False}
