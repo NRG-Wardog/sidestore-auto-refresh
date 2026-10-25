@@ -19,9 +19,21 @@ An independent, open-source build based on **SideStore** and **LiveContainer**, 
 
 <a id="current-status-v60"></a>
 
-## Current release features
+## Main features
 
-[Download v6.0.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0) · [Installation guide](#installation)
+[Download the latest release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest) · [Installation guide](#installation)
+
+- **PC-free auto-refresh:** refresh on your iPhone after initial setup, with manual refresh, six-hour/daily/weekly schedules, notifications, and history.
+- **LiveContainer + SideStore in one app:** Home, Apps, Sources, Refresh, and Settings in a unified interface.
+- **Install and sign apps:** import IPAs or installation links, sign in with your Apple Account, and choose which app extensions to keep.
+- **Run LiveContainer guests:** add guest apps, use JITless mode where supported, multitask, and return to the host with customizable controls.
+- **Browse Sources:** add app catalogs, discover their apps, and install them.
+- **Multilingual UI:** English, Simplified Chinese, Traditional Chinese, and Hebrew, with right-to-left layout support.
+
+Initial installation and pairing require a computer. Refresh uses Wi-Fi and the official LocalDevVPN; iOS controls background scheduling, so selected times are not exact alarms.
+
+<details>
+<summary><strong>More features and settings</strong></summary>
 
 ### Auto-refresh and setup
 - **On-device refresh:** manual refresh and automatic refresh scheduling through the official LocalDevVPN + CoreDevice transport, without a connected computer after initial installation and pairing.
@@ -56,13 +68,7 @@ An independent, open-source build based on **SideStore** and **LiveContainer**, 
 - **Existing integrations:** the Refresh All Apps action for Apple Shortcuts and supported app/source/installation links.
 - **Host/backend separation:** LiveContainer owns the interface and guest runtime; embedded SideStore supplies account, signing, provisioning, source, and installation services.
 
-**Verification scope:** this lists capabilities present in the released lineage, not a claim that every option works on every device. Sign-in, installation, extension selection, adding Sources and guests, cancelling Add Source, JITless use, and guest background behavior were confirmed on the maintainer's device. iOS controls background execution timing; schedules are not exact alarms. The fixes currently under development are not included in this list.
-
-- **Verification limits:** manual refresh and opening a guest after refresh looked okay in the reported test. This is not long-duration or unattended scheduled-refresh proof. Source updates ([#30](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/30)) remain unknown; preference persistence ([#34](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/34)) and Keep/Reuse ([#44](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/44)) are not device-verified.
-- **Historical releases:** v3.1.0 and earlier v3 releases, combined v2 and standalone v1 retain their original release records. The v3.1.0 login warning is historical, not the current v6.0 login result; no older release is recommended as a verified fallback.
-- **Existing installs:** preserve your setup and back up important guest data. Do not delete the app, reset account data, or replace pairing records as speculative recovery.
-
-This independent project combines LiveContainer and SideStore in one interface. A computer is needed for initial installation and pairing. After setup, the intended refresh route uses **Wi-Fi + the official App Store LocalDevVPN** without keeping the computer connected. Cellular-only refresh remains experimental.
+</details>
 
 [Release status](#current-status-v60) · [Installation reference](#installation) · [Known issues](#troubleshooting) · [Verification](#verification-status) · [Build from source](#build-it-yourself)
 
