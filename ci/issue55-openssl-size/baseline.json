@@ -1,0 +1,21 @@
+{
+  "schema": "issue55-openssl-O2-baseline-v1",
+  "run_id": "40229079312",
+  "ipa_sha256": "34e00688c9015d3b6fdd2bf6485fd20aa0396229fbd4962dfeea7ee8406079db",
+  "source_version": "3.5.9",
+  "optimization": "O2",
+  "stage": "Apple strip -S, no local-symbol removal",
+  "copies": [
+    "Payload/LiveContainer.app/Frameworks/OpenSSL.framework/OpenSSL",
+    "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Frameworks/OpenSSL.framework/OpenSSL"
+  ],
+  "binary_sha256": "d490bc3e908c6e5f6935b030eb340e1b16dd2a62541b95fb440a8a44f5a88ce8",
+  "raw_bytes_per_copy": 4802120,
+  "deflate9_bytes_per_copy": 1914140,
+  "zip_entry_compressed_bytes_per_copy": [
+    1914140,
+    1914140
+  ],
+  "defined_external_names_count": 10815,
+  "defined_external_names_sha256": "663ae651ae244e4672b1061394a5249d47a19c58d0843160a3ee08334386e8af"
+}
