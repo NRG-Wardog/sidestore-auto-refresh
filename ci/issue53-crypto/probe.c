@@ -47,7 +47,17 @@ static void roundtrip(EVP_PKEY *key, X509 *cert, int legacy) {
     unsigned char *changed = (unsigned char *)ASN1_STRING_get0_data(mac);
     changed[0] ^= 1;
     REQUIRE(PKCS12_verify_mac(p12, password, -1) == 0); ERR_clear_error();
-    PKCS12_free(p12); OPENSSL_free(der);
+    PKCS12_free(p12);
+    const int cuts[] = {0, 1, size/2, size-1};
+    for (size_t i=0; i<sizeof(cuts)/sizeof(cuts[0]); i++) {
+        const unsigned char *truncated = der;
+        PKCS12 *bad = d2i_PKCS12(NULL, &truncated, cuts[i]); REQUIRE(bad == NULL); ERR_clear_error();
+    }
+    const unsigned char malformed[] = {0x30,0x03,0x02,0x01,0x03};
+    const unsigned char *badInput = malformed;
+    PKCS12 *bad = d2i_PKCS12(NULL, &badInput, sizeof(malformed)); REQUIRE(bad == NULL); ERR_clear_error();
+    puts(legacy ? "PASS legacy-pkcs12-malformed-truncated" : "PASS modern-pkcs12-malformed-truncated");
+    OPENSSL_free(der);
     puts(legacy ? "PASS legacy-pkcs12-roundtrip-wrong-password-tampered-mac" : "PASS modern-pkcs12-roundtrip-wrong-password-tampered-mac");
 }
 int main(void) {
@@ -71,6 +81,22 @@ int main(void) {
     X509_NAME *name = X509_get_subject_name(cert);
     REQUIRE(X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, (const unsigned char *)"Synthetic qualification only", -1, -1, 0) == 1);
     REQUIRE(X509_set_issuer_name(cert, name) == 1 && X509_sign(cert, key, EVP_sha256()) > 0);
+    BIO *pem = BIO_new(BIO_s_mem()); REQUIRE(pem);
+    REQUIRE(PEM_write_bio_PrivateKey(pem, key, NULL, NULL, 0, NULL, NULL) == 1);
+    EVP_PKEY *pemKey = PEM_read_bio_PrivateKey(pem, NULL, NULL, NULL); REQUIRE(pemKey && EVP_PKEY_eq(key, pemKey) == 1);
+    EVP_PKEY_free(pemKey); BIO_free(pem);
+    unsigned char *encodedKey = NULL; int keyLength = i2d_PrivateKey(key, &encodedKey); REQUIRE(keyLength > 0);
+    const unsigned char *keyCursor = encodedKey;
+    EVP_PKEY *derKey = d2i_AutoPrivateKey(NULL, &keyCursor, keyLength); REQUIRE(derKey && EVP_PKEY_eq(key, derKey) == 1);
+    EVP_PKEY_free(derKey); OPENSSL_clear_free(encodedKey, keyLength);
+    pem = BIO_new(BIO_s_mem()); REQUIRE(pem && PEM_write_bio_X509(pem, cert) == 1);
+    X509 *pemCert = PEM_read_bio_X509(pem, NULL, NULL, NULL); REQUIRE(pemCert && X509_cmp(cert,pemCert)==0);
+    X509_free(pemCert); BIO_free(pem);
+    unsigned char *encodedCert = NULL; int certLength = i2d_X509(cert, &encodedCert); REQUIRE(certLength > 0);
+    const unsigned char *certCursor = encodedCert;
+    X509 *derCert = d2i_X509(NULL, &certCursor, certLength); REQUIRE(derCert && X509_cmp(cert,derCert)==0);
+    X509_free(derCert); OPENSSL_free(encodedCert);
+    puts("PASS synthetic-PEM-and-DER-key-certificate-roundtrip");
     roundtrip(key, cert, 0); roundtrip(key, cert, 1);
     const unsigned char message[] = "issue53 synthetic signature fixture";
     EVP_MD_CTX *ctx = EVP_MD_CTX_new(); REQUIRE(ctx);

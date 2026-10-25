@@ -40,7 +40,9 @@ jobs:
           xcodebuild -version | tee evidence/xcode.txt
           grep -Fx 'Xcode 26.4.1' evidence/xcode.txt
           python3 -B ci/issue53-crypto/test_controls.py 2>&1 | tee evidence/control-tests.log
+          python3 -B ci/issue53-crypto/test_consumer_contract.py 2>&1 | tee evidence/consumer-control-tests.log
       - name: Acquire exact unchanged inputs
+        id: inputs
         run: |
           set -euo pipefail
           python3 -B ci/issue53-crypto/acquire.py --output inputs 2>&1 | tee evidence/acquisition.log
@@ -72,6 +74,39 @@ jobs:
               failed |= code != 0
           sys.exit(1 if failed else 0)
           PY
+      - name: Check both cold-process load orders and symbol binding
+        if: ${{ always() && steps.inputs.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue53-crypto/consumer.py coload --inputs inputs --evidence evidence 2>&1 | tee evidence/coload-driver.log
+      - name: Acquire exact maintained ZSign source only
+        id: zsign_source
+        if: ${{ always() && steps.inputs.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue53-crypto/consumer.py acquire --inputs inputs 2>&1 | tee evidence/zsign-acquisition.log
+          cp ci/issue53-crypto/zsign-source.json evidence/zsign-source.json
+      - name: Execute actual CodeDirectory and CMS production consumers
+        if: ${{ always() && steps.zsign_source.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PYCODE'
+          import pathlib, subprocess, sys
+          evidence = pathlib.Path('evidence')
+          failed = False
+          for owner in ('host', 'embedded'):
+              command = [sys.executable, '-B', 'ci/issue53-crypto/consumer.py', 'zsign', '--inputs', 'inputs', '--evidence', 'evidence', '--owner', owner]
+              with (evidence/f'{owner}-zsign-driver.log').open('w') as log:
+                  try:
+                      code = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=300).returncode
+                  except subprocess.TimeoutExpired:
+                      log.write('Actual ZSign consumer exceeded 300s watchdog\n')
+                      code = 124
+              (evidence/f'{owner}-zsign.exit-code.txt').write_text(str(code)+'\n')
+              print(owner, code)
+              failed |= code != 0
+          sys.exit(1 if failed else 0)
+          PYCODE
       - name: Upload only non-secret evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

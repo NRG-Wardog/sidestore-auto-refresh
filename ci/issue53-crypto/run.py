@@ -116,6 +116,8 @@ def run(args):
                 raise ValueError('Provider dispatch image differs from reviewed input')
             provider_images[name] = {'path': str(actual), 'sha256': digest(actual)}
         expected = {'explicit-default-and-legacy-provider-activation',
+                    'synthetic-PEM-and-DER-key-certificate-roundtrip',
+                    'modern-pkcs12-malformed-truncated', 'legacy-pkcs12-malformed-truncated',
                     'modern-pkcs12-roundtrip-wrong-password-tampered-mac',
                     'legacy-pkcs12-roundtrip-wrong-password-tampered-mac', 'synthetic-signature-produced'}
         cases = [row[5:] for row in rows if row.startswith('PASS ')]

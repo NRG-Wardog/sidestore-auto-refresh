@@ -115,3 +115,44 @@ another OpenSSL verification call. System SDK/transitive dependency provenance,
 iOS execution, initialization inside the production apps and coexistence still
 remain outside this experiment. A green result is only a pinned **macOS synthetic
 crypto** pass, never completion of all #53 runtime/device qualification.
+
+## Actual consumer and coexistence qualification extension
+
+The next experiment keeps the same two library inputs and adds:
+
+- Four fresh processes: host-first and embedded-first, each under `RTLD_LOCAL`
+  and `RTLD_GLOBAL`. Every handle's version, PKCS#12/signing/provider function
+  binding and default/legacy provider dispatch image must stay on its exact
+  requested library. Global-namespace resolution is recorded, not mistaken for
+  proof of iOS's production loader behavior. Unexpected bindings are quarantined;
+  all four cases are collected even after one fails.
+- PKCS#12 malformed/truncated DER rejection and synthetic private-key/certificate
+  PEM/DER roundtrips. Keys remain ephemeral and never enter evidence artifacts.
+- Actual maintained `ZSign::SlotBuildCodeDirectory` and
+  `ZSign::SlotBuildCMSSignature` from the exact LiveContainer source tree in
+  `zsign-source.json`, compiled unchanged with their real common implementations.
+  The harness does not copy/reimplement these signing algorithms.
+- Independent Python checks of every synthetic code-page hash, CodeDirectory
+  metadata, CMS slot framing, detached message digest, signer issuer/serial,
+  canonical signed attributes, Apple CDHash plist and digest-agility attribute.
+  Truncated code/directories/CMS/wrapper must fail closed.
+- Independent Apple Security verification of the actual CMS signed-attribute
+  signature, rejection after message alteration, and confirmation that the
+  synthetic leaf is **not trusted**. Trust-network fetching is disabled and no
+  trust anchors or stores are changed.
+
+The production signer only accepts recognized Apple issuer-name hashes. The
+fixture therefore uses a PUBLIC CA subject as the issuer name but signs its leaf
+with an unrelated ephemeral key. This is intentionally an invalid/untrusted Apple
+certificate chain, not a real signing credential or an Apple-trusted signature.
+The test exercises cryptographic CMS creation and attribute correctness only.
+
+The Linux smoke compiled these exact source files, generated actual CMS and code
+directories, passed the independent parser and a separate cryptography verifier.
+That smoke uses system OpenSSL 3.5.7 and is not a pinned-platform result. The
+workflow must run the native pinned tests before any such result is claimed.
+
+No new OpenSSL release is selected by these baseline passes. A later supported
+3.5 LTS/provider-enabled option or proposed 3.6.5 wrapper still needs its own
+immutable inputs, provider-enabled artifacts and the same qualification. No
+product pin, framework count or dependency packaging changes here.
