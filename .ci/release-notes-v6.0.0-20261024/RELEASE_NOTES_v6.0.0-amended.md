@@ -15,19 +15,23 @@ Download `LiveContainer-SideStore-v6.0.0.ipa`. `SHA256SUMS` and `release-provena
 
 The public version is **6.0** (tag `v6.0.0`). To preserve the tested bytes, the retained CI build-label metadata still says `6.0 pairing and deferred setup experimental` with an experimental channel. This is not a rewritten app-bundle version. Upstream bundle versions remain LiveContainer `3.8.11` and SideStore `0.7.0` (`0700`). Use the builder revision and checksum to identify this release; these retained labels do not identify a different IPA.
 
-## Download size compared with v3.1.0
+## Download size compared with official combined LiveContainer + SideStore
 
-This compares equivalent **combined LiveContainer + SideStore IPA download files**, not standalone SideStore, source archives or optional evidence attachments.
+These are compressed **combined LiveContainer + SideStore IPA downloads**, not standalone LiveContainer, TrollStore builds, source archives or installed sizes. Official asset metadata was checked on 2026-10-25.
 
-| Combined release | IPA filename | Compressed bytes | MB (decimal) | MiB (binary) |
-| --- | --- | ---: | ---: | ---: |
-| [v3.1.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0) | `LiveContainer-SideStore-v3.1.0.ipa` | 25,122,692 | 25.122692 | 23.958866 |
-| v6.0.0 | `LiveContainer-SideStore-v6.0.0.ipa` | 30,416,579 | 30.416579 | 29.007510 |
-| **Change from v3.1.0** | | **+5,293,887** | **+5.293887** | **+5.048644** |
+| Combined release | Compressed bytes | MB (decimal) | MiB (binary) |
+| --- | ---: | ---: | ---: |
+| [Official stable 3.8.0](https://github.com/LiveContainer/LiveContainer/releases/tag/3.8.0), `LiveContainer+SideStore.ipa` | 35,403,538 | 35.403538 | 33.763445 |
+| This v6.0.0, `LiveContainer-SideStore-v6.0.0.ipa` | 30,416,579 | 30.416579 | 29.007510 |
+| [Official nightly published 2026-10-17](https://github.com/LiveContainer/LiveContainer/releases/tag/nightly), `LiveContainer+SideStore.ipa` | 24,155,286 | 24.155286 | 23.036276 |
 
-**v6.0.0 is 21.07% larger as a compressed download than v3.1.0**, an increase of approximately **5.29 MB / 5.05 MiB**. One MB is 1,000,000 bytes; one MiB is 1,048,576 bytes. The percentage is `(30,416,579 − 25,122,692) / 25,122,692 × 100`.
+Compared with **official stable 3.8.0**, this release is **4,986,959 bytes smaller, a 14.09% reduction** (approximately 4.99 MB / 4.76 MiB).
 
-The v3.1.0 number is the recorded published IPA asset size; the v6.0.0 number is verified against this release's exact IPA and checksum. This is **not installed size**, uncompressed payload size, RAM use or a runtime-speed comparison. No component-level explanation for the increase is claimed from the total alone. The older v3.1.0 size reduction relative to v3.0.2 remains historical and must not be presented as a reduction in v6.0.0 relative to v3.1.0.
+For completeness, the official nightly available at the time of comparison is smaller than both: this release is **6,261,293 bytes larger, or 25.92% larger**, than that nightly. The nightly tag is mutable; the checked asset is ID `649977564`, SHA-256 `33831bb279d74f2da1be08eb3cc6d3646992a6120da32ffb763269696052b868`. The stable asset is ID `480113517`, SHA-256 `97dc0fd2202fd4460efcab389943b8d5fdbb4988efff76b116b92b84a4662425`.
+
+These are different release snapshots. An exact matching official LiveContainer 3.8.11 / SideStore 0.7.0 baseline has not been established, so this is not a controlled same-source optimization benchmark or a claim that this IPA is smaller than every official build. No RAM, installed-size or performance claim follows from these download sizes. One MB is 1,000,000 bytes; one MiB is 1,048,576 bytes. Reduction uses `(official stable bytes - our bytes) / official stable bytes`; the nightly increase uses the nightly size as its denominator.
+
+Historical comparison with our previous combined v3.1.0: 25,122,692 bytes to 30,416,579 bytes, an increase of 5,293,887 bytes (21.07%). That is separate from the official-build comparison above.
 
 ## New changes and fixes since v3.1.0
 

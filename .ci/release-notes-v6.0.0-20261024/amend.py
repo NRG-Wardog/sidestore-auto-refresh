@@ -17,7 +17,7 @@ TAG = "v6.0.0"
 TARGET = "c25dd39e6e06c41523a36d2e4aa34fe747d82db7"
 BRANCH = "refs/heads/main"
 NOTES = "RELEASE_NOTES_v6.0.0-amended.md"
-OLD_BODY_SHA256 = "6800c82893f41fa6d54c727a351f551490f27d601d64e50be4c9247164091f69"
+OLD_BODY_SHA256 = "d1ce7cc6780c0e3168848ebd4e30b1adf53fdc7f8d9ea91427876709cfcd1e88"
 ASSETS = {
     "LiveContainer-SideStore-v6.0.0.ipa": {"id": 673432376, "size": 30416579, "digest": "sha256:86db9a6bf4accf7e886d88563f1474063c85865682131a5ba0b13ed55a33f321"},
     "release-provenance.json": {"id": 673432662, "size": 5087, "digest": "sha256:0a3a7b99449baeba95fd40adfc0a3f70b782f651114d4a593d406816b01139aa"},
