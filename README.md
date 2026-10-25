@@ -10,8 +10,6 @@
 
 ![LiveContainer and SideStore app icons connected by a refresh loop beside the project title, Auto-Refresh](docs/assets/project-banner.webp)
 
-[![Combined Build](https://github.com/NRG-Wardog/LiveContainer/actions/workflows/native-app-compile.yml/badge.svg)](https://github.com/NRG-Wardog/LiveContainer/actions/workflows/native-app-compile.yml)
-[![Standalone Build](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml/badge.svg)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml)
 [![Release](https://img.shields.io/github/v/release/NRG-Wardog/sidestore-auto-refresh)](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -21,11 +19,45 @@ An independent, open-source build based on **SideStore** and **LiveContainer**, 
 
 <a id="current-status-v60"></a>
 
-## Current status: v6.0 replaces v3
+## Current release features
 
-**v6.0 is the current unified product line, replacing v3.** The public [v6.0.0 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0) promotes the exact tested IPA without a rebuild or re-sign. Verification is limited to the confirmed flows below, not every device, account or background scenario.
+[Download v6.0.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.0) · [Installation guide](#installation)
 
-- **DEVICE VERIFIED in v6.0:** Apple Account login, IPA installation and app operation, extension selection, adding Sources and LiveContainer guests, cancelling Add Source, JITless use, and guest background behavior were confirmed on the maintainer’s device.
+### Auto-refresh and setup
+- **On-device refresh:** manual refresh and automatic refresh scheduling through the official LocalDevVPN + CoreDevice transport, without a connected computer after initial installation and pairing.
+- **Schedule controls:** six-hour, daily, and weekly schedules, preferred refresh times, and target-app selection.
+- **Readiness and recovery:** setup checklist for pairing, account, network, Background App Refresh, notifications, and a test refresh; bounded retries, duplicate-run handling, and recovery for interrupted operations.
+- **History and alerts:** persistent refresh history, run-correlated verification, progress, expiration/deadline awareness, and start, completion, and failure notifications.
+
+### Apps, Sources, and signing
+- **Unified navigation:** Home, Apps, Sources, Refresh, and Settings in one interface, with actionable account, connection, and app status.
+- **Account access:** Apple Account / Personal Team support, sign-in, two-factor authentication with device/phone choices, and sign-out.
+- **App installation:** local IPA import, shared-file and URL installation, operation progress/cancellation, and extension selection.
+- **Sources:** add and manage source catalogs, browse their app listings, and install apps. Updating an already installed source app is not yet device-verified.
+- **Signing and developer tools:** certificates, teams, registered devices, App IDs, App Groups, provisioning profiles, pairing-file management, anisette server settings, and SideSign configuration import/export.
+- **Installation options:** App ID and extension customization, App Group ID handling, resigned-app export, and bundle ID, iOS/app version, checksum, and file-size verification controls.
+- **Backups:** app backup/restore and password-protected account-file import/export.
+
+### LiveContainer guests
+- **Guest apps:** import and run apps inside LiveContainer, with guest data/container controls and background behavior.
+- **Runtime choices:** JITless setup and health checks, JIT/SideJIT configuration, and per-app runtime/compatibility options. Availability depends on the app and device.
+- **Multitasking:** windowed/fullscreen guest modes, dock controls, and the option to start the dock collapsed.
+- **Return controls:** show/hide the Return button, collapse it to an edge tab, start collapsed, retain its position, and customize icon/background colors.
+- **Per-app controls:** guest language, orientation, hiding/locking, shared/private placement, tweak-loader choices, and compatibility settings.
+
+### Interface and languages
+- **App layouts:** List, Grid, and Compact List, grid-size and app-label controls, and a preferred launch screen.
+- **Appearance:** interface color/icon options and separate Guest Return appearance settings.
+- **Multilingual unified UI:** English, Simplified Chinese, Traditional Chinese, and Hebrew, including right-to-left layout and localized dates. The language choice applies to the host UI rather than changing guest preferences.
+- **Translated documentation:** English, Simplified Chinese, Traditional Chinese, Russian, and Hebrew README versions.
+
+### Diagnostics and integration
+- **Troubleshooting:** health checks, operation logs, configurable logging, copyable diagnostic details, and stage-specific errors for authentication, VPN, pairing, transport, signing, and installation.
+- **Existing integrations:** the Refresh All Apps action for Apple Shortcuts and supported app/source/installation links.
+- **Host/backend separation:** LiveContainer owns the interface and guest runtime; embedded SideStore supplies account, signing, provisioning, source, and installation services.
+
+**Verification scope:** this lists capabilities present in the released lineage, not a claim that every option works on every device. Sign-in, installation, extension selection, adding Sources and guests, cancelling Add Source, JITless use, and guest background behavior were confirmed on the maintainer's device. iOS controls background execution timing; schedules are not exact alarms. The fixes currently under development are not included in this list.
+
 - **Verification limits:** manual refresh and opening a guest after refresh looked okay in the reported test. This is not long-duration or unattended scheduled-refresh proof. Source updates ([#30](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/30)) remain unknown; preference persistence ([#34](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/34)) and Keep/Reuse ([#44](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/44)) are not device-verified.
 - **Historical releases:** v3.1.0 and earlier v3 releases, combined v2 and standalone v1 retain their original release records. The v3.1.0 login warning is historical, not the current v6.0 login result; no older release is recommended as a verified fallback.
 - **Existing installs:** preserve your setup and back up important guest data. Do not delete the app, reset account data, or replace pairing records as speculative recovery.
