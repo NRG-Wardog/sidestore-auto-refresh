@@ -55,6 +55,14 @@ def sanitized_environment():
             env.pop(key)
     return env
 
+def tool_invocation(path):
+    # Multicall Apple tools (ranlib -> libtool) dispatch on argv[0]. Validate
+    # and hash the resolved bytes, but never replace the invocation basename.
+    invocation=Path(path).absolute()
+    target=invocation.resolve(strict=True)
+    if not target.is_file(): raise ValueError('Selected tool is not a regular file')
+    return invocation
+
 def normalized_paths(output,archive=None):
     return Path(output).resolve(), Path(archive).resolve() if archive is not None else None
 
@@ -72,9 +80,9 @@ def build(output,archive=None):
     if 'Xcode 26.4.1' not in xcode.splitlines(): raise ValueError('Expected Xcode26.4.1')
     sdk=command(['xcrun','--sdk','macosx','--show-sdk-path'],log,env)
     sdk_version=command(['xcrun','--sdk','macosx','--show-sdk-version'],log,env)
-    clang=Path(command(['xcrun','--find','clang'],log,env)).resolve(strict=True)
-    perl=Path('/usr/bin/perl').resolve(strict=True);make=Path('/usr/bin/make').resolve(strict=True)
-    selected_tools={name:Path(command(['xcrun','--find',name],log,env)).resolve(strict=True)
+    clang=tool_invocation(command(['xcrun','--find','clang'],log,env))
+    perl=tool_invocation('/usr/bin/perl');make=tool_invocation('/usr/bin/make')
+    selected_tools={name:tool_invocation(command(['xcrun','--find',name],log,env))
                     for name in ['ar','ranlib','ld','dsymutil','dwarfdump','vtool']}
     tools={str(p):digest(p) for p in [clang,perl,make,*selected_tools.values()]}
     env['PATH']=str(clang.parent)+':/usr/bin:/bin:/usr/sbin:/sbin'
@@ -97,11 +105,11 @@ def build(output,archive=None):
     try:
         os.chdir(source)
         command(configure,log,env,120)
+        config=command([str(perl),'configdata.pm','--dump'],log,env,30)
+        (output/'configdata.txt').write_text(config+'\n')
         command([str(make),'-j3','build_libs'],log,env,600)
         command([str(make),'install_dev'],log,env,120)
-        config=command([str(perl),'configdata.pm','--dump'],log,env,30)
     finally: os.chdir(previous)
-    (output/'configdata.txt').write_text(config+'\n')
     # Source files may generate additional outputs, but no archived input bytes
     # may silently change during the recipe. Report exceptions rather than hide them.
     changed={name: {'before':sha,'after':digest(source/name) if (source/name).is_file() else None}
@@ -136,7 +144,8 @@ def build(output,archive=None):
     shutil.copyfile(source/'LICENSE.txt',output/'generated/LICENSE.txt')
     receipt={'schema':'issue53-lts-generated-dependency-v1','status':'BUILT_NOT_QUALIFIED_NOT_APP_READY',
              'source':pins,'source_inventory_sha256':hashlib.sha256(json.dumps(before,sort_keys=True).encode()).hexdigest(),
-             'recipe_sha256':digest(Path(__file__)),'tools_sha256':tools,'xcode':xcode,'compiler':compiler,
+             'recipe_sha256':digest(Path(__file__)),'tools_sha256':tools,
+             'tool_resolved_paths':{path:str(Path(path).resolve(strict=True)) for path in tools},'xcode':xcode,'compiler':compiler,
              'architecture':arch,'minimum_os':minimum,'sdk_version':sdk_version,'sdk_path':sdk,
              'static_archives_sha256':{str(p):digest(p) for p in archives},
              'configure_command':configure,'configuration_sha256':digest(output/'configdata.txt'),

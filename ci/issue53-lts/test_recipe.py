@@ -81,6 +81,26 @@ class RecipeTests(unittest.TestCase):
                 self.assertEqual(archive.read_bytes(),b'path-only fixture')
             finally:os.chdir(previous)
 
+    def test_multicall_tool_keeps_invocation_name_and_hashes_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp).resolve();target=root/'libtool';target.write_bytes(b'tool fixture')
+            invocation=root/'ranlib';invocation.symlink_to(target)
+            selected=recipe.tool_invocation(invocation)
+            self.assertEqual(selected,invocation)
+            self.assertEqual(selected.name,'ranlib')
+            self.assertNotEqual(selected,target)
+            self.assertEqual(selected.resolve(strict=True),target)
+            self.assertEqual(recipe.digest(selected),recipe.digest(target))
+            with self.assertRaises(FileNotFoundError):recipe.tool_invocation(root/'missing')
+            with self.assertRaisesRegex(ValueError,'regular file'):recipe.tool_invocation(root)
+
+    def test_configuration_is_preserved_before_native_build(self):
+        source=(HERE/'build.py').read_text()
+        self.assertLess(source.index("(output/'configdata.txt').write_text"),
+                        source.index("command([str(make),'-j3','build_libs']"))
+        self.assertLess(source.index("command([str(make),'-j3','build_libs']"),
+                        source.index("command([str(make),'install_dev']"))
+
     def test_output_and_platform_admission(self):
         with tempfile.TemporaryDirectory() as temp:
             with patch.object(recipe.platform,'system',return_value='Linux'),patch.object(recipe.subprocess,'run') as process:

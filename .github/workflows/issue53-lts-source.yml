@@ -65,6 +65,7 @@ jobs:
         run: |
           mkdir -p evidence
           if test -f lts-build/build.log; then cp lts-build/build.log evidence/lts-build.log; fi
+          if test -f lts-build/configdata.txt; then cp lts-build/configdata.txt evidence/configdata.txt; fi
       - name: Upload non-secret qualification evidence only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
