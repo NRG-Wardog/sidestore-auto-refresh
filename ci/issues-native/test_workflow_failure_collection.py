@@ -69,6 +69,8 @@ def simulate(rows, failures=(), cancelled=False):
                         any(states.get(key) == 'failure' for key in ('owned_oda_tests', 'issue_tests', 'upstream_tests', 'minimuxer_tests', 'vpn_tests', 'acquisition_tests', 'vendor_tests', 'comprehensive_tests', 'setup_tests', 'russian_tests')))
         elif condition == "${{ !cancelled() && steps.rust_tests.outcome == 'failure' }}":
             admitted = not cancelled and states.get('rust_tests') == 'failure'
+        elif condition == "${{ !cancelled() && steps.coverage_settings.outcome == 'failure' }}":
+            admitted = not cancelled and states.get('coverage_settings') == 'failure'
         else:
             deps = re.findall(r"steps\.(\w+)\.outcome == 'success'", condition)
             if condition != expression(deps):
@@ -132,6 +134,21 @@ class FailureCollectionTests(unittest.TestCase):
         self.assertEqual(states['sidestore_build'], 'success')
         states, _ = simulate(self.rows, cancelled=True)
         self.assertEqual(states[TELEMETRY], 'skipped')
+
+    def test_settings_failure_keeps_build_evidence_but_blocks_packaging(self):
+        name = 'Upload early effective-settings failure diagnostics only'
+        for failures, expected in [((), 'skipped'), (('coverage_settings',), 'success'),
+                                   (('package_resolution',), 'skipped')]:
+            states, failed = simulate(self.rows, failures)
+            self.assertEqual(states[name], expected)
+            self.assertEqual(failed, bool(failures))
+            if expected == 'success':
+                self.assertEqual(states['livecontainer_build'], 'success')
+                self.assertEqual(states['sidestore_build'], 'success')
+                for final in FINAL:
+                    self.assertEqual(states[final], 'skipped')
+        states, _ = simulate(self.rows, ('coverage_settings',), cancelled=True)
+        self.assertEqual(states[name], 'skipped')
 
     def test_rust_failure_logs_are_retained_before_native_compilation(self):
         name = 'Upload early Rust failure diagnostics only'

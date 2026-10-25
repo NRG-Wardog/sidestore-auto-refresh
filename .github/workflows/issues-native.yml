@@ -80,6 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/test_release_coverage.py | tee evidence/release-coverage-controls.log
+          python3 -B harness/ci/issues-native/test_release_settings_cache.py | tee evidence/release-settings-cache-controls.log
           python3 -B harness/ci/issues-native/test_native_transfer_seal.py 2>&1 | tee evidence/native-transfer-seal-controls.log
           python3 -B harness/ci/issues-native/test_generated_openssl_inputs.py 2>&1 | tee evidence/generated-openssl-seal-controls.log
           python3 -B harness/ci/issue53-lts/test_embedded.py 2>&1 | tee evidence/embedded-openssl-scaffold-controls.log
@@ -306,17 +307,46 @@ jobs:
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.package_resolution.outcome == 'success' }}
         run: |
           set -euo pipefail
+          mkdir -p evidence/release-settings
+          printf 'workflow_commit=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > evidence/release-settings/identity.txt
           for owner in LiveContainer SideStore; do
             project=LiveContainer.xcodeproj
-            if [ "$owner" = SideStore ]; then project=AltStore.xcodeproj; fi
-            xcodebuild -project "sources/$owner/$project" -alltargets \
+            package_args=()
+            if [ "$owner" = SideStore ]; then
+              project=AltStore.xcodeproj
+              # Only SideStore reuses its own successfully resolved package tree.
+              # Keep the package-free LiveContainer query unchanged.
+              packages="$RUNNER_TEMP/native-SideStore/SourcePackages"
+              test -d "$packages"
+              test ! -L "$packages"
+              package_args=(-clonedSourcePackagesDirPath "$packages")
+            fi
+            if xcodebuild -project "sources/$owner/$project" -alltargets \
               -sdk iphoneos -configuration Release \
+              "${package_args[@]}" \
               -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution \
-              -showBuildSettings -json > "$RUNNER_TEMP/$owner-release-settings.json"
+              -showBuildSettings -json > "$RUNNER_TEMP/$owner-release-settings.json"; then
+              query_status=0
+            else
+              query_status=$?
+            fi
+            python3 harness/ci/issues-native/capture_release_settings.py \
+              --input "$RUNNER_TEMP/$owner-release-settings.json" --exit-code "$query_status" \
+              --output "evidence/release-settings/$owner.json"
+            if [ "$query_status" -ne 0 ]; then exit "$query_status"; fi
           done
           python3 harness/ci/issues-native/release_coverage.py settings --require-support-size \
             --inputs "$RUNNER_TEMP/LiveContainer-release-settings.json" "$RUNNER_TEMP/SideStore-release-settings.json" \
-            --output evidence/release-coverage-settings.json
+            --output evidence/release-coverage-settings.json 2>&1 | tee evidence/release-settings/policy.log
+      - name: Upload early effective-settings failure diagnostics only
+        if: ${{ !cancelled() && steps.coverage_settings.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-settings-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/release-settings/
+          if-no-files-found: error
+          retention-days: 14
       - name: Compile unsigned LiveContainer app and extensions
         id: livecontainer_build
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.package_resolution.outcome == 'success' }}

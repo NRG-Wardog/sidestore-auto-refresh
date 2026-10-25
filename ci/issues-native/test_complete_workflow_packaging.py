@@ -150,7 +150,12 @@ class CompletePackagingWorkflowTests(unittest.TestCase):
             self.assertEqual(set(report['projects']), {'LiveContainer', 'SideStore'})
             for rows in report['projects'].values():
                 self.assertEqual(rows[0]['settings']['ENABLE_CODE_COVERAGE'], 'NO')
-                self.assertEqual(len(rows[0]['settings']), 8)
+                self.assertEqual(set(rows[0]['settings']), {
+                    'ENABLE_CODE_COVERAGE', 'CLANG_ENABLE_CODE_COVERAGE', 'CLANG_COVERAGE_MAPPING',
+                    'CLANG_COVERAGE_MAPPING_LINKER_ARGS', 'CLANG_CLANG_COVERAGE_MAPPING_LINKER_ARGS',
+                    'SWIFTC_CLANG_COVERAGE_MAPPING_LINKER_ARGS', 'GCC_GENERATE_TEST_COVERAGE_FILES',
+                    'GCC_INSTRUMENT_PROGRAM_FLOW_ARCS', 'SWIFT_OPTIMIZATION_LEVEL',
+                    'DEBUG_INFORMATION_FORMAT', 'ENABLE_TESTABILITY'})
             settings['ENABLE_CODE_COVERAGE'] = 'YES'
             files[1].write_text(json.dumps([{'target': 'App', 'buildSettings': settings}]))
             failed = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)

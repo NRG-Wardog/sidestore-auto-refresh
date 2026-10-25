@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "91663abe9c3280d52a1cfe88375ec9728df23129"
+      "93634e6dd7bae045a9d63f4a4df7ab5f9dd82f49"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -100,7 +100,7 @@
         ".github/workflows/native-app-compile.yml": "704a7faf9d48b8b586a70f0c2d935aa35ba85d80",
         ".github/workflows/package-diagnostic.yml": "fe77d4c7665195b7703dd05d65fdb8f081261eae",
         ".github/workflows/reviewed-branch-cleanup.yml": "ca5bbae8d856a8bc28b7899ac02e3790faa708ee",
-        "LiveContainer.xcodeproj/project.pbxproj": "fad36571edd7cea9fb9d567da722bdb7cb2380b6",
+        "LiveContainer.xcodeproj/project.pbxproj": "15db64d7850e96db256404bc1693c2c24e03b1be",
         "LiveContainer/Localization.m": "de9b74a6e6d7b5d93b19021e9d18cbdd6b7892b5",
         "LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift": "207d3c8d79263865d0b984f06dc6b264a2321309",
         "LiveContainerSwiftUI/Utilities/V3Localization.swift": "924be8f0143900faef51826fdc0909154ce59a29",
@@ -130,11 +130,11 @@
         "tests/test_guest_input_lifecycle.py": "39bf0e8c348d5da7ea5f24c08851aa51adadfa84",
         "tests/test_guest_safe_area_geometry.py": "396d43c13d8134437f03c7d3eda10c372abe0cf2",
         "tests/test_recovery_banner_layout.py": "e630276bb1dc9f04b579355838ae9fb365322ede",
-        "tests/test_release_size_configuration.py": "d90cee02c203003f839542ee07fe84c46cbdb039",
+        "tests/test_release_size_configuration.py": "b9244eda242a4f789f55ec9cc7c98527a32c726c",
         "tests/test_russian_localization.py": "14de628975fb9bf2a192c6f91790c6c5ff9ccd25",
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8"
       },
-      "tree": "c6fc4cc59e80bed6a0f617d6f85d69e6f7fbd9e4"
+      "tree": "2d73e27f8bbecfe93d7fc7453334d3eef3a20b54"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",

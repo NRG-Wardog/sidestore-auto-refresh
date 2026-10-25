@@ -24,6 +24,22 @@ class ReleaseCoverageTests(unittest.TestCase):
         with self.assertRaises(ValueError): policy.settings(self.row()*2)
         with self.assertRaises(ValueError): policy.settings([])
 
+    def test_secondary_mapping_and_linker_coverage_are_rejected(self):
+        for key in ('CLANG_COVERAGE_MAPPING', 'CLANG_COVERAGE_MAPPING_LINKER_ARGS',
+                    'CLANG_CLANG_COVERAGE_MAPPING_LINKER_ARGS', 'SWIFTC_CLANG_COVERAGE_MAPPING_LINKER_ARGS'):
+            rows = self.row(); rows[0]['buildSettings'][key] = 'YES'
+            with self.subTest(key=key), self.assertRaises(ValueError): policy.settings(rows)
+            rows[0]['buildSettings'][key] = 'NO'
+            self.assertEqual(policy.settings(rows)[0]['settings'][key], 'NO')
+
+    def test_link_commands_cannot_reintroduce_coverage(self):
+        clean = b'/trusted/swiftc -module-name SideStoreSupport -Osize -c source.swift\n'
+        for compiler in ('clang', 'clang++'):
+            link = ('/trusted/' + compiler + ' -dynamiclib -fprofile-instr-generate -o App\n** BUILD SUCCEEDED **\n').encode()
+            with self.subTest(compiler=compiler), self.assertRaises(ValueError):
+                policy.build_log(clean + link, True)
+        self.assertTrue(policy.build_log(clean + b'/trusted/clang -dynamiclib -o App\n** BUILD SUCCEEDED **', True)['native_build_succeeded'])
+
     def test_native_log_requires_success_and_compiler(self):
         good=b'/trusted/clang -Os -g file.c\n** BUILD SUCCEEDED **\n'
         self.assertFalse(policy.build_log(good)['coverage_flags_present'])

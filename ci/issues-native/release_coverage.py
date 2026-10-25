@@ -7,7 +7,8 @@ from pathlib import Path
 import re
 import shlex
 
-KEYS = ('ENABLE_CODE_COVERAGE', 'CLANG_ENABLE_CODE_COVERAGE', 'CLANG_COVERAGE_MAPPING',
+KEYS = ('ENABLE_CODE_COVERAGE', 'CLANG_ENABLE_CODE_COVERAGE', 'CLANG_COVERAGE_MAPPING', 'CLANG_COVERAGE_MAPPING_LINKER_ARGS',
+        'CLANG_CLANG_COVERAGE_MAPPING_LINKER_ARGS', 'SWIFTC_CLANG_COVERAGE_MAPPING_LINKER_ARGS',
         'GCC_GENERATE_TEST_COVERAGE_FILES', 'GCC_INSTRUMENT_PROGRAM_FLOW_ARCS',
         'SWIFT_OPTIMIZATION_LEVEL', 'DEBUG_INFORMATION_FORMAT', 'ENABLE_TESTABILITY')
 FLAGS = re.compile(r'(?<![\w-])(?:-fprofile-instr-generate|-fcoverage-mapping|-profile-generate|-profile-coverage-mapping|-fprofile-arcs|-ftest-coverage)(?=[\s=\x27\x22]|$)')
@@ -22,9 +23,11 @@ def settings(rows, require_support_size=False):
             raise ValueError('Not Release settings')
         if values.get('ENABLE_CODE_COVERAGE') != 'NO':
             raise ValueError('Release coverage must explicitly be disabled: ' + row['target'])
-        # CLANG_COVERAGE_MAPPING is recorded, but mapping alone does not enable
-        # instrumentation; actual emitted flags are checked after compilation.
-        for key in ('CLANG_ENABLE_CODE_COVERAGE', 'GCC_GENERATE_TEST_COVERAGE_FILES',
+        # Mapping also drives separate linker coverage flags, even when the
+        # primary compiler-instrumentation switch is NO (Apple Clang.xcspec).
+        for key in ('CLANG_ENABLE_CODE_COVERAGE', 'CLANG_COVERAGE_MAPPING',
+                    'CLANG_COVERAGE_MAPPING_LINKER_ARGS', 'CLANG_CLANG_COVERAGE_MAPPING_LINKER_ARGS',
+                    'SWIFTC_CLANG_COVERAGE_MAPPING_LINKER_ARGS', 'GCC_GENERATE_TEST_COVERAGE_FILES',
                     'GCC_INSTRUMENT_PROGRAM_FLOW_ARCS'):
             if values.get(key) == 'YES':
                 raise ValueError('Secondary coverage instrumentation enabled: ' + key)
