@@ -34,7 +34,7 @@ FINAL = (
 )
 EVIDENCE = 'Preserve evidence, including failures (not app products)'
 TELEMETRY = 'Upload early fixture failure diagnostics only'
-TELEMETRY_CONDITION = "${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.comprehensive_tests.outcome == 'failure' || steps.setup_tests.outcome == 'failure') }}"
+TELEMETRY_CONDITION = "${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.owned_oda_tests.outcome == 'failure' || steps.issue_tests.outcome == 'failure' || steps.upstream_tests.outcome == 'failure' || steps.minimuxer_tests.outcome == 'failure' || steps.vpn_tests.outcome == 'failure' || steps.acquisition_tests.outcome == 'failure' || steps.vendor_tests.outcome == 'failure' || steps.comprehensive_tests.outcome == 'failure' || steps.setup_tests.outcome == 'failure') }}"
 
 
 def steps():
@@ -66,7 +66,9 @@ def simulate(rows, failures=(), cancelled=False):
             admitted = not failed and not cancelled
         elif condition == TELEMETRY_CONDITION:
             admitted = (not cancelled and states.get('source_gate') == 'success' and
-                        any(states.get(key) == 'failure' for key in ('comprehensive_tests', 'setup_tests')))
+                        any(states.get(key) == 'failure' for key in ('owned_oda_tests', 'issue_tests', 'upstream_tests', 'minimuxer_tests', 'vpn_tests', 'acquisition_tests', 'vendor_tests', 'comprehensive_tests', 'setup_tests')))
+        elif condition == "${{ !cancelled() && steps.rust_tests.outcome == 'failure' }}":
+            admitted = not cancelled and states.get('rust_tests') == 'failure'
         else:
             deps = re.findall(r"steps\.(\w+)\.outcome == 'success'", condition)
             if condition != expression(deps):
@@ -112,7 +114,7 @@ class FailureCollectionTests(unittest.TestCase):
         self.assertLess(names.index(setup), names.index(TELEMETRY))
         self.assertLess(names.index(TELEMETRY), names.index(tools))
         for failures, expected in [((), 'skipped'), (('source_gate',), 'skipped'),
-                                   (('issue_tests',), 'skipped'), (('comprehensive_tests',), 'success'),
+                                   (('issue_tests',), 'success'), (('upstream_tests',), 'success'), (('owned_oda_tests',), 'success'), (('comprehensive_tests',), 'success'),
                                    (('setup_tests',), 'success'),
                                    (('comprehensive_tests', 'setup_tests'), 'success')]:
             with self.subTest(failures=failures):
@@ -130,6 +132,23 @@ class FailureCollectionTests(unittest.TestCase):
         self.assertEqual(states['sidestore_build'], 'success')
         states, _ = simulate(self.rows, cancelled=True)
         self.assertEqual(states[TELEMETRY], 'skipped')
+
+    def test_rust_failure_logs_are_retained_before_native_compilation(self):
+        name = 'Upload early Rust failure diagnostics only'
+        row = next(row for row in self.rows if row['name'] == name)
+        self.assertEqual(row['condition'], "${{ !cancelled() && steps.rust_tests.outcome == 'failure' }}")
+        self.assertIn('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02', row['text'])
+        self.assertEqual(re.findall(r'^            (evidence/[^\n]+)$', row['text'], re.M),
+                         ['evidence/idevice-tests.log', 'evidence/idevice-ffi-tests.log',
+                          'evidence/idevice-listener-generated-abi.log'])
+        names = [r['name'] for r in self.rows]
+        self.assertLess(names.index('Run Rust ownership and packet regressions'), names.index(name))
+        self.assertLess(names.index(name), names.index('Compile iOS transport and stage local framework'))
+        for failures, expected in [((), 'skipped'), (('rust_tests',), 'success'), (('build_tools',), 'skipped')]:
+            states, _ = simulate(self.rows, failures)
+            self.assertEqual(states[name], expected)
+        states, _ = simulate(self.rows, ('rust_tests',), cancelled=True)
+        self.assertEqual(states[name], 'skipped')
 
     def test_each_independent_suite_failure_still_collects_other_suites(self):
         for failure in [key for key, deps in EXPECTED.items() if deps == ['source_gate'] and key not in {'build_tools', 'openssl_inputs'}] + ['rust_tests', 'livecontainer_build', 'sidestore_build']:

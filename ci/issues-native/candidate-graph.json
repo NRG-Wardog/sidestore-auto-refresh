@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "da2661382b1a66facded906376731e7257c5db95"
+      "cde62753cf77f01dd68a035bd3eb677a35a4b817"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "5f45bcaf0044c907358f40943ef853149fef45e4"
+      "c85f5c4acf554daf22e5db8a08f701f1e8c398ae"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -84,6 +84,9 @@
         ".ci/branch-cleanup/allowlist.json": "152ec8b04398d1f5aafcd0018e865cf09b0278dd",
         ".ci/branch-cleanup/cleanup.py": "db84b91a0f98a60cf9e19ef2172c3ab1b4da029b",
         ".ci/branch-cleanup/test_cleanup.py": "d2c59ce6dfde05518eff6723cc6fad17bb918d0f",
+        ".ci/certificate-portal-evidence/generate_regression.py": "88f4f277a48376ec2ef81be45b94230145bd70a5",
+        ".ci/certificate-portal-evidence/portal_doubles.swift": "482e608382ef5b4dc22c61414ed33647dc706dbf",
+        ".ci/certificate-portal-evidence/test_generator.py": "68638b16d53312e0b4aa0cf0f5010bad08ea513a",
         ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "1d519c04e2b319a237ea2b1a17969a9addf3eb69",
         ".ci/extension-selection/Cases.swift": "124f2b2b16d0164f114898a48c6062735443a805",
         ".ci/extension-selection/Doubles.swift": "09aaec3bb1e31ce8948abd0b184d04c822cf051d",
@@ -120,7 +123,7 @@
         "tests/test_release_size_configuration.py": "8960d36f35e0dfb8bba56f233d974bb6815aa11f",
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8"
       },
-      "tree": "35da3f7c0f35ae956f3d4f4befbf6626d023733c"
+      "tree": "b8b628e61874e3b73b58ebee8bc27ea661f1ce67"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -175,9 +178,9 @@
         "tests/reuse_main/run.sh": "b29d67e12cc2a5d13cb95b15c071ccac32dc2b71",
         "tests/reuse_main/test_contract.py": "fdc59d1d71b1f34e1292bf8dcbc12e531de047a2",
         "tests/test_diagnostic_provider_sequence.py": "7aa1b47cb7f6b0c40743a4a5393325037e81743b",
-        "tests/upstream_sync/test_iloader_submit_route.py": "4f7e956fe564c12f832d52dea34f108cc5eff0ce"
+        "tests/upstream_sync/test_iloader_submit_route.py": "89740faba3efc4f71125e560fdf3ef5e6ad29a8d"
       },
-      "tree": "45e814d6a279d7e02b8b59c517c6934a5a169385"
+      "tree": "983764ebeecb56099ffb39707cd0c840b40aa1c0"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
