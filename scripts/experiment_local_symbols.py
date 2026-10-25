@@ -1,0 +1,104 @@
+"""Copy-only, diagnostic-only Apple strip -x measurement on two reviewed images.
+
+Never emits an IPA and never approves modified code signatures. Exact source IPA
+and retained full dSYM ZIP SHA-256 are mandatory. Both inputs stay immutable.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import zipfile
+import zlib
+from experiment_strip_stabs import TARGETS, DSYMS, digest, unique_zip, write
+from macho_stab_guard import image_uuid, require, sha
+from macho_local_symbol_guard import classify, verify_local_removal
+
+
+def deflated_size(data):
+    compressor=zlib.compressobj(9,zlib.DEFLATED,-15)
+    return len(compressor.compress(data)+compressor.flush())
+
+
+def bind_inputs(ipa,ipa_sha,symbols,symbols_sha):
+    for path,expected in ((ipa,ipa_sha),(symbols,symbols_sha)):
+        require(path.is_file() and not path.is_symlink() and digest(path)==expected,'exact original artifact hash differs')
+    with unique_zip(ipa) as archive:
+        targets={key:archive.read(path) for key,path in TARGETS.items()}
+    diagnostics={}
+    with unique_zip(symbols) as archive:
+        for key,(_,bundle) in DSYMS.items():
+            prefix='Symbols/'+bundle+'/'
+            names=[n for n in archive.namelist() if n.startswith(prefix)]
+            require(names and prefix+'Contents/Info.plist' in names,'complete matching dSYM bundle missing')
+            dwarf=archive.read(prefix+'Contents/Resources/DWARF/'+key)
+            require(image_uuid(dwarf)==image_uuid(targets[key]),'retained dSYM UUID differs')
+            diagnostics[key]={'uuid':image_uuid(dwarf),'dwarf_sha256':sha(dwarf),'bundle_entries':len(names)}
+    for data in targets.values():classify(data)
+    return targets,diagnostics
+
+
+def experiment(ipa,ipa_sha,symbols,symbols_sha,output,*,inspect_only=False):
+    require(not output.exists() and not output.is_symlink(),'fresh diagnostic directory required')
+    targets,diagnostics=bind_inputs(ipa,ipa_sha,symbols,symbols_sha)
+    output.mkdir(parents=True)
+    report={'schema':'local-symbol-diagnostic-v1','status':'FAILED','input_ipa_sha256':ipa_sha,
+            'retained_symbols_sha256':symbols_sha,'diagnostics':diagnostics,
+            'workflow_commit':os.environ.get('GITHUB_SHA'),'run_id':os.environ.get('GITHUB_RUN_ID'),
+            'run_attempt':os.environ.get('GITHUB_RUN_ATTEMPT'),'runtime_proven':False,
+            'packaging_approved':False,'ipa_emitted':False,'original_ipa_retained_as_archive_only':True,'signature_verified':False,'targets':{}}
+    try:
+        for key,data in targets.items():
+            shape,removable,protected=classify(data)
+            report['targets'][key]={'before':shape,'eligible_local_records':sum(removable.values()),
+                                    'protected_records':sum(protected.values())}
+        if inspect_only:
+            report['status']='INPUTS_VERIFIED_NO_TRANSFORMATION'
+            return report
+        require(sys.platform=='darwin','Apple strip execution requires macOS')
+        require(os.environ.get('DEVELOPER_DIR')=='/Applications/Xcode_26.4.1.app/Contents/Developer','pinned Xcode required')
+        tool=subprocess.run(['xcrun','--toolchain','default','--find','strip'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True,text=True,timeout=30)
+        strip_path=Path(tool.stdout.strip()).resolve(strict=True)
+        expected=Path(os.environ['DEVELOPER_DIR'])/'Toolchains/XcodeDefault.xctoolchain/usr/bin/strip'
+        require(strip_path==expected.resolve(strict=True),'unrecognized strip tool path')
+        report['strip_tool']={'path':str(strip_path),'sha256':digest(strip_path),'flags':['-x']}
+        # Full original IPA and complete dSYM archive remain in separate retained diagnostics.
+        retained=output/'retained';retained.mkdir()
+        for source,name,expected in ((ipa,'original.ipa',ipa_sha),(symbols,'matching-debug-diagnostics.zip',symbols_sha)):
+            shutil.copyfile(source,retained/name)
+            require(digest(retained/name)==expected,'retained original readback differs')
+        for key,data in targets.items():
+            root=output/key;root.mkdir();original=root/'original';candidate=root/'stripped'
+            original.write_bytes(data)
+            result=subprocess.run(['xcrun','--toolchain','default','strip','-x','-o',str(candidate),str(original)],
+                                  stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False,timeout=120)
+            (root/'strip.log').write_bytes(result.stdout)
+            require(result.returncode==0,'Apple local-symbol strip failed: '+key)
+            require(original.read_bytes()==data,'strip mutated original copy')
+            final=candidate.read_bytes()
+            evidence=verify_local_removal(data,final)
+            require(image_uuid(final)==diagnostics[key]['uuid'],'final dSYM UUID differs')
+            evidence.update(deflated_before_bytes=deflated_size(data),deflated_after_bytes=deflated_size(final),
+                deflated_bytes_saved=deflated_size(data)-deflated_size(final),
+                code_signature_state='UNVERIFIED_MUTATED_DIAGNOSTIC_NOT_DELIVERABLE')
+            report['targets'][key]['measurement']=evidence
+            write(root/'structural.json',evidence)
+        require(digest(ipa)==ipa_sha and digest(symbols)==symbols_sha,'immutable source artifacts changed')
+        report['status']='STRUCTURAL_DIAGNOSTIC_PASS_SIGNING_AND_RUNTIME_UNQUALIFIED'
+        return report
+    finally:
+        write(output/'diagnostic.json',report)
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    for name in ('ipa','symbols','output'):parser.add_argument('--'+name,type=Path,required=True)
+    for name in ('ipa-sha256','symbols-sha256'):parser.add_argument('--'+name,required=True)
+    parser.add_argument('--inspect-only',action='store_true')
+    args=parser.parse_args()
+    experiment(args.ipa.absolute(),args.ipa_sha256,args.symbols.absolute(),args.symbols_sha256,
+               args.output.resolve(),inspect_only=args.inspect_only)
+
+if __name__=='__main__':main()

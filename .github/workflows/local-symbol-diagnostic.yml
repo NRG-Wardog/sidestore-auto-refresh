@@ -1,0 +1,100 @@
+name: Measure local-symbol stripping without packaging
+on:
+  push:
+    branches: [experiment/issue55-local-symbols]
+    paths: ['scripts/*local_symbol*.py', 'tests/*local_symbol*.py', '.github/workflows/local-symbol-diagnostic.yml', 'docs/LOCAL_SYMBOL_DIAGNOSTIC.md']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: local-symbol-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  measure:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/experiment/issue55-local-symbols'
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Verify isolated controls and pinned toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p evidence inputs
+          printf 'run=%s\nattempt=%s\nworkflow_commit=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > evidence/attempt.log
+          xcodebuild -version | tee evidence/xcode.log
+          grep -Fx 'Xcode 26.4.1' evidence/xcode.log
+          python3 -B - <<'PY' 2>&1 | tee evidence/controls.log
+          import unittest
+          suite=unittest.TestLoader().discover('tests',pattern='test_*local_symbol*.py')
+          if suite.countTestCases()<11: raise SystemExit('Required diagnostic controls missing')
+          result=unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.skipped: raise SystemExit('Diagnostic controls failed or skipped')
+          PY
+      - name: Single authorized artifact read attempt with unchanged permissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # No retries, access expansion, alternate tokens or bypass on denial.
+          # curl does not forward Authorization to a different redirect hostname.
+          curl --fail --silent --show-error --location --retry 0 --max-time 180 \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            https://api.github.com/repos/NRG-Wardog/sidestore-auto-refresh/actions/artifacts/12613142238/zip \
+            -o inputs/candidate.zip 2> evidence/candidate-download.log
+          sleep 3  # Serialize GitHub requests even when the preceding download is fast.
+          curl --fail --silent --show-error --location --retry 0 --max-time 180 \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            https://api.github.com/repos/NRG-Wardog/sidestore-auto-refresh/actions/artifacts/12613886029/zip \
+            -o inputs/symbols.zip 2> evidence/symbols-download.log
+          python3 -B - <<'PY'
+          import hashlib, pathlib, zipfile
+          inputs=pathlib.Path('inputs')
+          for name, expected, member, target in [
+              ('candidate.zip','c8940fb4794832acc381257932305245dbbdc8de2b4859d1297c9a220442247d','LiveContainer-SideStore-issues-experimental.ipa','original.ipa'),
+              ('symbols.zip','e86d90bea5ffaa9f12f33de4b0a6628f41a37c4325614d3ff6a0f00115c22540','retained-debug-diagnostics.zip','retained-symbols.zip')]:
+              path=inputs/name
+              assert hashlib.sha256(path.read_bytes()).hexdigest()==expected, 'artifact SHA differs'
+              with zipfile.ZipFile(path) as archive:
+                  assert len(archive.namelist())==len(set(archive.namelist())), 'duplicate artifact member'
+                  (inputs/target).write_bytes(archive.read(member))
+          PY
+      - name: Diagnostic copies only, no app execution or IPA output
+        run: |
+          set -euo pipefail
+          python3 -B scripts/experiment_local_symbols.py \
+            --ipa inputs/original.ipa --ipa-sha256 34e00688c9015d3b6fdd2bf6485fd20aa0396229fbd4962dfeea7ee8406079db \
+            --symbols inputs/retained-symbols.zip --symbols-sha256 7e69f13837974b7983baf342b6a3046e462658e2148a39e84d94448b8036f6d6 \
+            --output local-symbol-products 2>&1 | tee evidence/driver.log
+      - name: Retain only regular diagnostic JSON and logs
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import pathlib, shutil
+          source=pathlib.Path('local-symbol-products'); destination=pathlib.Path('evidence/local-symbols')
+          if source.exists():
+              assert source.is_dir() and not source.is_symlink()
+              for path in source.rglob('*'):
+                  if path.suffix not in ('.json','.log'): continue
+                  assert path.is_file() and not path.is_symlink()
+                  target=destination/path.relative_to(source);target.parent.mkdir(parents=True,exist_ok=True)
+                  shutil.copyfile(path,target)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: local-symbol-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14
