@@ -76,8 +76,10 @@ jobs:
           { xcodebuild -version; xcrun --sdk iphoneos --show-sdk-version; swift --version; uname -a; } > evidence/toolchain.txt
           xcodebuild -version | grep -Fx 'Xcode 26.4.1'
       - name: Verify exact reviewed delta and separate historical source parity
+        id: source_gate
         run: |
           set -euo pipefail
+          python3 -B harness/ci/issues-native/test_workflow_failure_collection.py
           python3 -B harness/ci/issues-native/test_projected_contract_cli.py
           python3 -B harness/ci/issues-native/test_issue_receipt.py
           python3 -B harness/ci/issues-native/test_candidate_graph.py
@@ -85,10 +87,14 @@ jobs:
           python3 -B harness/ci/issues-native/verify_candidate_graph.py
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
       - name: Run issue regression suite without skips
+        id: issue_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/run_issue_tests.py 2>&1 | tee evidence/issue-tests.log
       - name: Check all SideStore source-owned upstream regressions without skips
+        id: upstream_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/verify_upstream_sync.py sidestore-tests \
@@ -98,11 +104,15 @@ jobs:
             2>&1 | tee evidence/AnisetteKit-native-logging-contract.log
           printf '0\n' > evidence/AnisetteKit-native-logging-contract.exit-code.txt
       - name: Check minimuxer extracted-production Swift with fake dependencies only
+        id: minimuxer_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/verify_upstream_sync.py minimuxer-tests \
             --swiftc "$(command -v swiftc)" --output evidence/minimuxer-upstream-sync-tests.json
       - name: Check VPN transport recovery source and runtime matrix without skips
+        id: vpn_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
           VPN_TRANSPORT_SOURCE_ROOT="$GITHUB_WORKSPACE/sources" \
@@ -112,6 +122,8 @@ jobs:
             2>&1 | tee evidence/vpn-transport-recovery.log
           printf '0\n' > evidence/vpn-transport-recovery.exit-code.txt
       - name: Check bounded acquisition diagnostics with fake errors only
+        id: acquisition_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 harness/ci/issues-native/test_acquisition_contract.py \
@@ -122,6 +134,8 @@ jobs:
           swift evidence/acquisition_contract.swift 2>&1 | tee evidence/acquisition-contract.log
           printf '0\n' > evidence/acquisition-contract.exit-code.txt
       - name: Check verified vendor acquisition with fake network data only
+        id: vendor_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 harness/ci/issues-native/test_vendor_contract.py \
@@ -130,6 +144,8 @@ jobs:
           swift evidence/vendor_contract.swift 2>&1 | tee evidence/vendor-contract.log
           printf '0\n' > evidence/vendor-contract.exit-code.txt
       - name: Check comprehensive auth request provenance and real IPC copy with fake boundaries once
+        id: comprehensive_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/verify_comprehensive_diagnostics.py \
@@ -137,6 +153,8 @@ jobs:
             2>&1 | tee evidence/comprehensive-diagnostics.log
           printf '0\n' > evidence/comprehensive-diagnostics.exit-code.txt
       - name: Check setup recovery against exact delivered baseline with fake boundaries once
+        id: setup_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/verify_setup_state_recovery.py run \
@@ -144,6 +162,8 @@ jobs:
             2>&1 | tee evidence/setup-state-recovery.log
           printf '0\n' > evidence/setup-state-recovery.exit-code.txt
       - name: Install pinned transport build prerequisites
+        id: build_tools
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
@@ -156,12 +176,16 @@ jobs:
           test "$(rustc +1.98.1 --version)" = 'rustc 1.98.1 (48a229cea 2026-09-01)'
           test "$(cargo +1.98.1 --version)" = 'cargo 1.98.1 (797e8a9bc 2026-08-05)'
       - name: Run Rust ownership and packet regressions
+        id: rust_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
         run: |
           set -euo pipefail
           cd sources/idevice
           cargo +1.98.1 test --locked -p idevice --lib --no-default-features --features ring,usbmuxd 2>&1 | tee ../../evidence/idevice-tests.log
           cargo +1.98.1 test --locked -p idevice-ffi --lib --no-default-features --features ring,tcp,usbmuxd,house_arrest,mobile_image_mounter,syslog_relay,springboardservices 2>&1 | tee ../../evidence/idevice-ffi-tests.log
       - name: Compile iOS transport and stage local framework
+        id: transport_build
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
         run: |
           set -euo pipefail
           cd sources/idevice
@@ -181,6 +205,8 @@ jobs:
           test ! -e "$mux/IDevice.xcframework"
           cp -R sources/idevice/swift/IDevice.xcframework "$mux/IDevice.xcframework"
       - name: Inspect exact native archive symbols and generated header without execution
+        id: abi_inspection
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.transport_build.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/idevice-abi-gate/verify_native_abi.py \
@@ -189,6 +215,8 @@ jobs:
             --staged-framework sources/SideStore/Dependencies/minimuxer/DeviceGateway/LocalBinary/IDevice.xcframework \
             --output evidence/idevice-abi-inspection.json 2>&1 | tee evidence/idevice-abi-inspection.log
       - name: Capture genuine app lock transition to exact AnisetteKit
+        id: package_resolution
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.abi_inspection.outcome == 'success' }}
         run: |
           set -euo pipefail
           # Fresh Xcode resolution is allowed to update the app lock, then the recorder
@@ -202,6 +230,8 @@ jobs:
           python3 harness/ci/issues-native/record.py verify-resolved
           python3 harness/ci/issues-native/record.py snapshot compiler-inputs
       - name: Compile unsigned LiveContainer app and extensions
+        id: livecontainer_build
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.package_resolution.outcome == 'success' }}
         run: |
           set -euo pipefail
           xcodebuild -project sources/LiveContainer/LiveContainer.xcodeproj -scheme LiveContainer \
@@ -212,6 +242,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee evidence/LiveContainer-build.log
           printf '0\n' > evidence/LiveContainer-build.exit-code.txt
       - name: Compile unsigned SideStore app and extensions
+        id: sidestore_build
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.package_resolution.outcome == 'success' }}
         run: |
           set -euo pipefail
           xcodebuild -project sources/SideStore/AltStore.xcodeproj -scheme SideStore \

@@ -18,7 +18,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "3e69d0b0518df778a6f0dba9122f55f17e4a1863"
+      "dfa525c2f2fb030ec539c07e65c3453a92d32ec7"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -117,14 +117,14 @@
         "tests/host_refresh_bundle/generate_fixture.py": "98dd6bdfa91db2ad2fe0076c4e1f82141aa831e9",
         "tests/host_refresh_bundle/test_contract.py": "ccb7ae6c8d46dab6d4bbc3369c2053957f47443c",
         "tests/provider_sequence/main.swift": "275a64df2e3de10212e6b804a021bd2397ff0b31",
-        "tests/provider_sequence/noncooperative.swift": "a0780887c8595aa8222abb05ac2c7f86a57ca01d",
+        "tests/provider_sequence/noncooperative.swift": "de5bbcb68d805c27d9ce318b24d17f31f78de18d",
         "tests/reuse_main/RegistryCases.swift": "cd5ac91c7f9c2f3684f85fe816f1d9bf396f024e",
         "tests/reuse_main/run.sh": "ff1abdb0b30d00289c3f874a9f743523e3417306",
         "tests/reuse_main/test_contract.py": "f812660a56c20370ab1d3f55ad64916a693b8f79",
-        "tests/test_diagnostic_provider_sequence.py": "97a66e2cf7a8ee7bcedecd4ccd7e30ab188ada07",
+        "tests/test_diagnostic_provider_sequence.py": "d3df41d9fbab0f29b8d60f28326124b79abf4818",
         "tests/upstream_sync/test_iloader_submit_route.py": "4f7e956fe564c12f832d52dea34f108cc5eff0ce"
       },
-      "tree": "0d76ee8c1f336b3a6ab627e5986e60b844ba51f4"
+      "tree": "8196e65e606c292dcb5cecc55582155aa971fa00"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
