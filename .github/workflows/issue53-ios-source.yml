@@ -1,0 +1,89 @@
+name: Qualify generated OpenSSL 3.5 LTS iOS inputs
+on:
+  workflow_dispatch:
+  push:
+    branches: ['test/issue53-ios-source']
+    paths: ['ci/issue53-lts/**', 'ci/issue53-crypto/**', '.github/workflows/issue53-ios-source.yml']
+permissions:
+  contents: read
+concurrency:
+  group: issue53-ios-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  generate:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/test/issue53-ios-source'
+    runs-on: macos-26
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Validate unchanged-source qualification controls
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          printf 'workflow_commit=%s\nrun_id=%s\nstatus=IOS_COMPILE_LINK_ONLY_NOT_RUNTIME\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence/identity.txt
+          cp ci/issue53-lts/source.json evidence/
+          python3 -B -m unittest discover -s ci/issue53-lts -p 'test_*.py' 2>&1 | tee evidence/recipe-controls.log
+          python3 -B -m unittest discover -s ci/issue53-crypto -p 'test_*.py' 2>&1 | tee evidence/crypto-controls.log
+      - name: Generate device and simulator framework with dSYM and provenance
+        id: build
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue53-lts/build_ios.py --output lts-ios-build 2>&1 | tee evidence/ios-build-driver.log
+      - name: Validate generated receipt and package exact reuse inputs
+        id: package
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'ci/issue53-lts')
+          import install_ios
+          install_ios.validate(Path('lts-ios-build'))
+          PY
+          mkdir reusable
+          cp lts-ios-build/ios-build-receipt.json reusable/
+          cp evidence/identity.txt reusable/workflow-identity.txt
+          tar -czf reusable/generated-ios-inputs.tar.gz -C lts-ios-build GeneratedDependencies
+          (cd reusable && shasum -a 256 generated-ios-inputs.tar.gz ios-build-receipt.json workflow-identity.txt > SHA256SUMS)
+          cp reusable/ios-build-receipt.json evidence/
+      - name: Preserve non-secret diagnostic evidence on failure
+        if: always()
+        run: |
+          mkdir -p evidence
+          if test -f lts-ios-build/build-ios.log; then cp lts-ios-build/build-ios.log evidence/; fi
+          for slice in ios-arm64 sim-arm64 sim-x86_64; do
+            if test -f "lts-ios-build/$slice/configdata.txt"; then cp "lts-ios-build/$slice/configdata.txt" "evidence/$slice-configdata.txt"; fi
+          done
+      - name: Upload successful generated inputs only
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue53-ios-generated-${{ github.run_id }}
+          path: reusable/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload diagnostics without keys or provisioning data
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue53-ios-evidence-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14

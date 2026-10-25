@@ -62,3 +62,27 @@ application integration. The next phase must explicitly build/qualify the needed
 iOS/simulator slices and define the generated dependency's Xcode and packaging
 provenance boundary. No device execution, Apple-trusted signing or production
 admission is claimed by these receipts.
+
+## Explicit iOS consumer generation
+
+After the source-equivalent macOS qualification gate, run on macOS/Xcode 26.4.1:
+
+```sh
+python3 -B ci/issue53-lts/build_ios.py --output lts-ios-build
+python3 -B ci/issue53-lts/install_ios.py --built lts-ios-build --consumer path/to/LiveContainer
+```
+
+The installer requires the reviewed PBX file reference to the dedicated generated
+path, refuses existing output and verifies complete output inventory plus source
+and both recipe hashes. It never writes inside the historical `OpenSSL` gitlink.
+Use the generated receipt and `GeneratedDependencies/OpenSSL35/provenance.json`
+in the candidate compiler-input and final package identity manifests. The receipt
+covers both device/simulator slices and dSYMs; signing/post-link changes require
+the existing final executable/UUID identity comparison, not a pre-sign whole-file
+hash alone. Preserve `build-ios.log` and each slice's `configdata.txt` even on
+failure. All three thin and both merged simulator architecture probes compile
+and link real public modules without executing an iOS binary on macOS.
+
+This host migration does not imply embedded SideStore's separate 3.6.2 library
+was upgraded. Its explicit package-owner adapter and actual consumer validation
+remain a separate migration, never deduplication by install-name accident.
