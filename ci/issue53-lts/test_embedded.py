@@ -28,6 +28,24 @@ class EmbeddedTests(unittest.TestCase):
             entries['../escape']=entries['top']
             with self.assertRaisesRegex(ValueError,'Unsafe'):embedded.tree_hash(entries)
 
+    def test_resolver_scaffold_is_presealed_empty_and_mode_exact(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp).resolve();embedded.prepare_resolver_scaffold(root)
+            embedded.validate_resolver_scaffold(root)
+            self.assertEqual((root/'.swiftpm').stat().st_mode&0o777,0o755)
+            self.assertEqual((root/'.swiftpm/xcode').stat().st_mode&0o777,0o755)
+            for location in [root/'.swiftpm',root/'.swiftpm/xcode']:
+                location.chmod(0o777)
+                with self.assertRaisesRegex(ValueError,'mode changed'):embedded.validate_resolver_scaffold(root)
+                location.chmod(0o755)
+            extra=root/'.swiftpm/xcode/unexpected';extra.mkdir()
+            with self.assertRaisesRegex(ValueError,'contents changed'):embedded.validate_resolver_scaffold(root)
+            extra.rmdir();extra.write_text('injected')
+            with self.assertRaisesRegex(ValueError,'contents changed'):embedded.validate_resolver_scaffold(root)
+            extra.unlink()
+            (root/'.swiftpm/xcode').rmdir();(root/'outside').mkdir();(root/'.swiftpm/xcode').symlink_to(root/'outside',target_is_directory=True)
+            with self.assertRaisesRegex(ValueError,'linked'):embedded.validate_resolver_scaffold(root)
+
     def test_source_bound_overlay_stages_once_and_detects_source_drift(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp).resolve();upstream=root/'upstream';upstream.mkdir()
@@ -51,6 +69,12 @@ class EmbeddedTests(unittest.TestCase):
             with patch.object(embedded,'PIN',pin),patch.object(embedded,'TREE',embedded.git(upstream,'rev-parse','HEAD^{tree}').decode().strip()):
                 target=embedded.stage(built,upstream,mux)
                 self.assertEqual(embedded.validate_embedded(mux)[0],target/'GeneratedDependencies/OpenSSL35')
+                embedded.validate_resolver_scaffold(target)
+                original_receipt=(target/'generated-provenance.json').read_bytes()
+                (target/'.swiftpm/xcode').chmod(0o777)
+                with self.assertRaisesRegex(ValueError,'mode changed'):embedded.validate_embedded(mux)
+                self.assertEqual((target/'generated-provenance.json').read_bytes(),original_receipt)
+                (target/'.swiftpm/xcode').chmod(0o755)
                 with self.assertRaisesRegex(ValueError,'existing'):embedded.stage(built,upstream,mux)
                 (target/'src/fixture.c').write_text('changed')
                 with self.assertRaisesRegex(ValueError,'bytes differ'):embedded.validate_embedded(mux)

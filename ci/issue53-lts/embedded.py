@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import build
 import install_ios
@@ -17,6 +18,8 @@ MANIFEST_BLOB='0176e1cd70b13481939eb282d081167a43a5bf17'
 OLD='''            url: "https://github.com/krzyzanowskim/OpenSSL/releases/download/3.6.2000/OpenSSL.xcframework.zip#RemotePairingKit",
             checksum: "37846a8bd302cb2443eff47f1045ab844d0cd40bf82cc6159cfad9aa5c3eff9e"'''
 NEW='''            path: "GeneratedDependencies/OpenSSL35/OpenSSL.xcframework"'''
+
+RESOLVER_SCAFFOLD={'.swiftpm': {'mode':0o755,'children':['xcode']}, '.swiftpm/xcode': {'mode':0o755,'children':[]}}
 
 def sha(data):return hashlib.sha256(data).hexdigest()
 def git(root,*args):
@@ -68,6 +71,26 @@ def source_entries(upstream):
     if entries.get('Package.swift',{}).get('git_blob')!=MANIFEST_BLOB:raise ValueError('Upstream manifest blob differs')
     return tree,entries
 
+def prepare_resolver_scaffold(overlay):
+    # The exact app resolver was observed to create these two empty directories.
+    # Create them with restrictive, stable modes BEFORE sealing; never normalize
+    # an observed post-resolution mutation or admit arbitrary package caches.
+    for name in RESOLVER_SCAFFOLD:
+        path=overlay/name
+        path.mkdir(mode=0o755)
+        path.chmod(0o755)
+    validate_resolver_scaffold(overlay)
+
+def validate_resolver_scaffold(overlay):
+    for name,expected in RESOLVER_SCAFFOLD.items():
+        path=overlay/name
+        if not path.exists() or path.is_symlink() or not stat.S_ISDIR(path.lstat().st_mode):
+            raise ValueError('Resolver scaffold missing or linked')
+        if stat.S_IMODE(path.lstat().st_mode)!=expected['mode']:
+            raise ValueError('Resolver scaffold mode changed')
+        if sorted(child.name for child in path.iterdir())!=expected['children']:
+            raise ValueError('Resolver scaffold contents changed')
+
 def validate_embedded(minimuxer):
     root=Path(minimuxer).resolve(strict=True);overlay=root/'GeneratedDependencies/RemotePairingKit'
     if overlay.is_symlink() or overlay.parent.is_symlink():raise ValueError('Symlinked embedded overlay')
@@ -77,6 +100,8 @@ def validate_embedded(minimuxer):
     if receipt.get('schema')!='issue53-embedded-source-overlay-v1' or receipt.get('source_commit')!=PIN or receipt.get('source_tree')!=TREE or receipt.get('upstream_manifest_blob')!=MANIFEST_BLOB:
         raise ValueError('Unexpected embedded overlay identity')
     if receipt.get('adapter_sha256')!=build.digest(Path(__file__)):raise ValueError('Embedded adapter recipe differs')
+    if receipt.get('resolver_scaffold')!=RESOLVER_SCAFFOLD:raise ValueError('Resolver scaffold policy differs')
+    validate_resolver_scaffold(overlay)
     if receipt.get('source_repository')!='https://github.com/mahee96/RemotePairingKit.git' or any(receipt.get(key) is not False for key in ['upstream_source_modified_except_manifest','host_library_deduplicated','runtime_loader_isolation_proven']):
         raise ValueError('Unexpected upstream origin or qualification claim')
     manifest=root/'DeviceGateway/Package.swift'
@@ -126,13 +151,14 @@ def stage(built,upstream,minimuxer):
         path.write_bytes(data);path.chmod(int(entry['mode'],8)&0o777)
     if original_manifest is None:raise ValueError('Missing pairing manifest')
     shutil.copytree(generated,overlay/'GeneratedDependencies/OpenSSL35')
+    prepare_resolver_scaffold(overlay)
     receipt={'schema':'issue53-embedded-source-overlay-v1','source_repository':'https://github.com/mahee96/RemotePairingKit.git',
         'source_commit':PIN,'source_tree':tree,'upstream_commit_object':git(upstream,'cat-file','commit',PIN).decode(),'upstream_manifest_blob':MANIFEST_BLOB,
         'adapter_sha256':build.digest(Path(__file__)),'consumer_manifest_sha256':build.digest(manifest),
         'upstream_files':entries,'manifest_before_sha256':sha(original_manifest),'manifest_after_sha256':build.digest(overlay/'Package.swift'),
         'manifest_delta':{'before':OLD,'after':NEW,'replacements':1},
         'generated_build_receipt':build_receipt,'generated_build_receipt_sha256':build.digest(Path(built).resolve()/'ios-build-receipt.json'),
-        'overlay_inventory':build.inventory(overlay),'upstream_source_modified_except_manifest':False,
+        'overlay_inventory':build.inventory(overlay),'resolver_scaffold':RESOLVER_SCAFFOLD,'upstream_source_modified_except_manifest':False,
         'host_library_deduplicated':False,'runtime_loader_isolation_proven':False}
     (overlay/'generated-provenance.json').write_text(json.dumps(receipt,indent=2)+'\n')
     validate_embedded(root)

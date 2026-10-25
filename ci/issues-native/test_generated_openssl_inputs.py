@@ -82,12 +82,12 @@ class GeneratedOpenSSLInputsTests(unittest.TestCase):
     def test_bytes_extra_files_modes_and_run_drift_rejected(self):
         self.stage();root=self.consumer/'GeneratedDependencies/OpenSSL35'
         path=root/'LICENSE.txt';data=path.read_bytes();path.write_bytes(b'tampered')
-        with self.assertRaisesRegex(ValueError,'Installed dependency bytes'):recorder.generated_openssl_snapshot(required=True,sealed=True)
+        with self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):recorder.generated_openssl_snapshot(required=True,sealed=True)
         path.write_bytes(data);original_mode=path.stat().st_mode;path.chmod(0o700)
         with self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):recorder.generated_openssl_snapshot(required=True,sealed=True)
         path.chmod(original_mode)
         (root/'unexpected').write_text('extra')
-        with self.assertRaises(ValueError):recorder.generated_openssl_snapshot(required=True,sealed=True)
+        with self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):recorder.generated_openssl_snapshot(required=True,sealed=True)
         (root/'unexpected').unlink()
         with patch.dict(os.environ,{'GITHUB_RUN_ID':'other'}),self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):
             recorder.generated_openssl_snapshot(required=True,sealed=True)
@@ -118,7 +118,7 @@ class GeneratedOpenSSLInputsTests(unittest.TestCase):
         with patch.object(recorder,'S',alias/'sources'),patch.object(recorder,'E',alias/'evidence'),patch.object(recorder,'TMP',alias/'native'):
             self.assertTrue(recorder.verify_generated_openssl_payload()['generated_inputs_unchanged'])
         root=self.consumer/'GeneratedDependencies/OpenSSL35';link=root/'escape';link.symlink_to('/etc/hosts')
-        with self.assertRaises(ValueError):recorder.generated_openssl_snapshot(required=True,sealed=True)
+        with self.assertRaisesRegex(RuntimeError,'Linked generated compiler input'):recorder.generated_openssl_snapshot(required=True,sealed=True)
 
 
 class EmbeddedGeneratedInputsTests(unittest.TestCase):
@@ -164,6 +164,33 @@ class EmbeddedGeneratedInputsTests(unittest.TestCase):
             self.assertFalse(result['historical_gitlink_used_as_payload'])
             (overlay/'unexpected').write_text('compiler input injection')
             with self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):
+                recorder.generated_embedded_snapshot(required=True,sealed=True)
+
+    def test_drift_diagnostic_records_empty_directory_and_modes_without_admitting(self):
+        owner,overlay,installer=self.fixture_overlay()
+        with patch.object(recorder,'generated_installer',return_value=installer), \
+             patch.object(recorder,'tracked',return_value={'source':'unchanged'}), \
+             patch.object(recorder,'git',return_value=recorder.OWNERS[owner][1]):
+            recorder.stage_embedded_openssl(self.built,self.root/'upstream-fixture')
+            sealed=(self.evidence/'generated-embedded-openssl-stage.json').read_bytes()
+            (overlay/'synthetic-empty-directory').mkdir()
+            with self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):
+                recorder.generated_embedded_snapshot(required=True,sealed=True)
+            report=json.loads((self.evidence/'generated-embedded-openssl-stage-drift.json').read_text())
+            self.assertFalse(report['accepted'])
+            self.assertEqual(report['status'],'REJECTED_NOT_RESEALED')
+            self.assertIsNone(report['file_changes']['synthetic-empty-directory']['expected'])
+            self.assertEqual(report['file_changes']['synthetic-empty-directory']['observed']['kind'],'directory')
+            (overlay/'synthetic-empty-directory').rmdir()
+            file=overlay/'GeneratedDependencies/OpenSSL35/LICENSE.txt';original_mode=file.stat().st_mode&0o777;file.chmod(0o444)
+            installer.validate_embedded=lambda consumer: (_ for _ in ()).throw(ValueError('adapter would reject mode'))
+            with self.assertRaisesRegex(RuntimeError,'stage identity/bytes drifted'):
+                recorder.generated_embedded_snapshot(required=True,sealed=True)
+            report=json.loads((self.evidence/'generated-embedded-openssl-stage-drift.json').read_text())
+            self.assertEqual(report['file_changes']['GeneratedDependencies/OpenSSL35/LICENSE.txt']['observed']['mode'],0o444)
+            self.assertEqual((self.evidence/'generated-embedded-openssl-stage.json').read_bytes(),sealed)
+            file.chmod(original_mode)
+            with self.assertRaisesRegex(ValueError,'adapter would reject mode'):
                 recorder.generated_embedded_snapshot(required=True,sealed=True)
 
     def test_native_bundle_presence_without_linked_consumer_is_rejected(self):
