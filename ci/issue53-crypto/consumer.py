@@ -58,8 +58,8 @@ def framework(inputs,owner):
     if actual!=expected: raise ValueError('Framework header bytes differ')
     return base,pins
 
-def zsign(owner,inputs,source,evidence):
-    spec=validate_source(source);base,pins=framework(inputs,owner)
+def zsign(owner,inputs,source,evidence,resolution=None,variant=None):
+    spec=validate_source(source);base,pins=resolution if resolution is not None else framework(inputs,owner)
     with tempfile.TemporaryDirectory() as temp:
         work=Path(temp);env=environment(work);include=work/'include';include.mkdir();(include/'openssl').symlink_to(base/'Headers',target_is_directory=True)
         binary=work/'zsign'
@@ -90,14 +90,15 @@ def zsign(owner,inputs,source,evidence):
         result=execute([str(verifier)],cwd=work,env=env).strip()
         if result!='PASS actual-ZSign-CMS-signature-and-tamper-untrusted-chain': raise ValueError('Security verifier did not complete')
         receipt={'schema':'issue53-actual-zsign-v1','status':'PASS_SYNTHETIC_UNTRUSTED_CHAIN','owner':owner,
-                 'source':spec,'provider_dispatch_images':provider_rows,'library_sha256':pins['binary_sha256'],'loaded_image':image[0],'version':version[0],
+                 'source':spec,'input_variant':variant,'provider_dispatch_images':provider_rows,'library_sha256':pins['binary_sha256'],'loaded_image':image[0],'version':version[0],
                  'cases':cases+['independent-truncation-rejection','Apple-Security-CMS-signature-and-tamper','synthetic-chain-not-trusted'],
                  'probe_sha256':sha(HERE/'zsign_probe.cpp'),'parser_sha256':sha(HERE/'verify_cms.py'),'verifier_sha256':sha(HERE/'verify_zsign.swift'),
                  'trusted_Apple_signing_identity':False,'device_executed':False,'production_app_executed':False}
         (evidence/(owner+'-zsign.json')).write_text(json.dumps(receipt,indent=2)+'\n')
 
-def coload(inputs,evidence):
-    owners={owner:framework(inputs,owner) for owner in ['host','embedded']}
+def coload(inputs,evidence,resolution=None,variant=None):
+    owners=resolution if resolution is not None else {owner:framework(inputs,owner) for owner in ['host','embedded']}
+    if set(owners)!={'host','embedded'}: raise ValueError('Co-load requires exact host and embedded roles')
     with tempfile.TemporaryDirectory() as temp:
         work=Path(temp);env=environment(work);include=work/'include';include.mkdir();(include/'openssl').symlink_to(owners['host'][0]/'Headers',target_is_directory=True)
         binary=work/'coload'
@@ -124,7 +125,7 @@ def coload(inputs,evidence):
                     errors.append({'scope':scope,'order':order,'error':str(error)})
                     (evidence/('coload-'+scope+'-'+order[0]+'-failure.log')).write_text(str(error))
         receipt={'schema':'issue53-coload-v1','status':'FAIL_QUARANTINED' if errors else 'PASS_MACOS_DIAGNOSTIC_ONLY','cold_processes':outcomes,'errors':errors,
-                 'libraries':{o:p[1]['binary_sha256'] for o,p in owners.items()},'probe_sha256':sha(HERE/'coload.c'),
+                 'input_variant':variant,'libraries':{o:p[1]['binary_sha256'] for o,p in owners.items()},'probe_sha256':sha(HERE/'coload.c'),
                  'ios_loader_qualified':False,'production_app_executed':False}
         (evidence/'coload.json').write_text(json.dumps(receipt,indent=2)+'\n')
         if errors: raise ValueError('One or more cold-process bindings failed; see quarantined receipt')
