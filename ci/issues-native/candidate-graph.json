@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "0264cca8f11baf42c60697f92366a61c9cbb68cb"
+      "91663abe9c3280d52a1cfe88375ec9728df23129"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -130,11 +130,11 @@
         "tests/test_guest_input_lifecycle.py": "39bf0e8c348d5da7ea5f24c08851aa51adadfa84",
         "tests/test_guest_safe_area_geometry.py": "396d43c13d8134437f03c7d3eda10c372abe0cf2",
         "tests/test_recovery_banner_layout.py": "e630276bb1dc9f04b579355838ae9fb365322ede",
-        "tests/test_release_size_configuration.py": "8960d36f35e0dfb8bba56f233d974bb6815aa11f",
+        "tests/test_release_size_configuration.py": "d90cee02c203003f839542ee07fe84c46cbdb039",
         "tests/test_russian_localization.py": "14de628975fb9bf2a192c6f91790c6c5ff9ccd25",
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8"
       },
-      "tree": "9833f9867c54fb6fd3c354788b196a612dc7135a"
+      "tree": "c6fc4cc59e80bed6a0f617d6f85d69e6f7fbd9e4"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
