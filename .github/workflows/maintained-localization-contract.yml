@@ -1,0 +1,72 @@
+name: Verify maintained 6.0 compiled localization resources
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check_compiled_localization.py'
+      - 'tests/test_compiled_localization.py'
+      - '.github/workflows/maintained-localization-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  localization-resources:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    timeout-minutes: 10
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Record bounded validation identity
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          printf 'caller_repository=%s\ncaller_commit=%s\nrun_id=%s\nrun_attempt=%s\ncatalog_repository=NRG-Wardog/LiveContainer\ncatalog_commit=8808211d340c6e9e2a6274c0eaa863d7ab09474f\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > evidence/attempt.txt
+      - name: Checkout source-owned checker and synthetic tests
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: checker
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Checkout exact released catalog only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/LiveContainer
+          ref: 8808211d340c6e9e2a6274c0eaa863d7ab09474f
+          path: source
+          persist-credentials: false
+          submodules: false
+          lfs: false
+          sparse-checkout: Resources/Localizable.xcstrings
+          sparse-checkout-cone-mode: false
+      - name: Verify exact catalog and execute synthetic negative controls
+        run: |
+          set -euo pipefail
+          echo 'b28c367b2106668a8bbd42b0ad6b42590583947fa64322d42bb24a71c129e03b  source/Resources/Localizable.xcstrings' | shasum -a 256 -c - | tee evidence/catalog-hash.log
+          python3 -B -m unittest discover -s checker/tests -p test_compiled_localization.py -v 2>&1 | tee evidence/synthetic-tests.log
+      - name: Compile the unmodified current catalog and verify actual resources
+        run: |
+          set -euo pipefail
+          xcodebuild -version | tee evidence/toolchain.txt
+          grep -Fx 'Xcode 26.4.1' evidence/toolchain.txt
+          xcrun --find xcstringstool | tee -a evidence/toolchain.txt
+          mkdir compiled
+          xcrun xcstringstool compile --output-directory compiled source/Resources/Localizable.xcstrings 2>&1 | tee evidence/catalog-compile.log
+          python3 -B checker/scripts/check_compiled_localization.py \
+            --catalog source/Resources/Localizable.xcstrings \
+            --resources compiled --report evidence/compiled-resources.json 2>&1 | tee evidence/resource-check.log
+      - name: Retain resource-only evidence, not UI or device admission
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maintained-localization-resources-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/
+            compiled/
+          if-no-files-found: error
