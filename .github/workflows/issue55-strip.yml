@@ -1,0 +1,187 @@
+name: Issue 55 packaging-only STAB strip experiment
+on:
+  workflow_dispatch:
+  push:
+    branches: ['experiment/issue55-strip-stabs']
+    paths: ['scripts/experiment_strip_stabs.py', 'scripts/macho_stab_guard.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', '.github/workflows/issue55-strip.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: issue55-strip-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  package:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/experiment/issue55-strip-stabs'
+    runs-on: macos-26
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Initialize evidence
+        run: |
+          set -euo pipefail
+          mkdir -p package-evidence inputs
+          printf 'commit=%s\nrun=%s\nattempt=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > package-evidence/attempt.txt
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          path: harness
+      - name: Verify pinned platform and test packaging guards before any strip
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          xcodebuild -version | tee package-evidence/xcode.txt
+          grep -Fx 'Xcode 26.4.1' package-evidence/xcode.txt
+          STRIP_PATH="$(xcrun --find strip)"
+          test -f "$STRIP_PATH"
+          printf '%s\n' "$STRIP_PATH" | tee package-evidence/strip-path.txt
+          shasum -a 256 "$STRIP_PATH" > package-evidence/strip-sha256.txt
+          # Read the Apple tool's embedded version stamp without running a target binary.
+          if /usr/bin/what "$STRIP_PATH" > package-evidence/strip-version.txt; then
+            test -s package-evidence/strip-version.txt
+          else
+            printf 'No embedded version stamp; exact strip SHA256 and Xcode version retained.\n' >> package-evidence/strip-version.txt
+          fi
+          python3 -B - <<'PYTEST' 2>&1 | tee package-evidence/tests.log
+          import sys, unittest
+          suite = unittest.TestSuite()
+          for pattern in ('test_macho_stab_guard.py', 'test_*strip*.py'):
+              tests = unittest.TestLoader().discover('harness/tests', pattern=pattern)
+              if tests.countTestCases() == 0:
+                  raise SystemExit('Required test discovery is empty: ' + pattern)
+              suite.addTests(tests)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(0 if result.wasSuccessful() and not result.skipped else 1)
+          PYTEST
+      - name: Acquire only exact green artifacts with read-only credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import hashlib, json, pathlib, subprocess, time
+          repo = 'NRG-Wardog/sidestore-auto-refresh'
+          run_id = 40213898605
+          head = 'eb1b05b94dee5170b5720c665c806be84e442f96'
+          evidence = pathlib.Path('package-evidence')
+          def api(path):
+              time.sleep(3)
+              return subprocess.check_output(['gh', 'api', 'repos/' + repo + '/' + path])
+          run = json.loads(api('actions/runs/' + str(run_id)))
+          if (run['id'] != run_id or run['head_sha'] != head or run['status'] != 'completed' or
+              run['conclusion'] != 'success' or run['repository']['full_name'] != repo):
+              raise ValueError('Exact green native run identity/status differs')
+          (evidence / 'source-run.json').write_text(json.dumps(run, indent=2))
+          artifacts = [
+              ('candidate', 12606968779, '8b598ca6f9932a2a47c0bfcb986c6ebab66abcb43f22e5e3fdce2d2a44cd9451'),
+              ('LiveContainer', 12606789250, '98e2771d9df6f192a7586de27ee5dfe686987034c422114f2e1514b146ce1e6b'),
+              ('SideStore', 12607103217, '355cb01a44cb5948b4e88411804a88a3b3d85b9282dc03099142a459045ccac9'),
+          ]
+          for name, artifact_id, expected in artifacts:
+              meta = json.loads(api('actions/artifacts/' + str(artifact_id)))
+              if (meta['id'] != artifact_id or meta['expired'] is not False or
+                  meta['workflow_run']['id'] != run_id or meta['workflow_run']['head_sha'] != head):
+                  raise ValueError('Source artifact identity differs: ' + name)
+              (evidence / (name + '-artifact.json')).write_text(json.dumps(meta, indent=2))
+              raw = api('actions/artifacts/' + str(artifact_id) + '/zip')
+              if hashlib.sha256(raw).hexdigest() != expected:
+                  raise ValueError('Artifact SHA256 differs: ' + name)
+              pathlib.Path('inputs', name + '.zip').write_bytes(raw)
+          PYCODE
+      - name: Verify official bottle and perform isolated packaging experiment
+        run: |
+          set -euo pipefail
+          trap 'status=$?; printf "%s\n" "$status" > package-evidence/package.exit-code.txt; exit "$status"' EXIT
+          # Formula metadata is checked before bottle-only acquisition; never fetch the git source.
+          HOMEBREW_NO_AUTO_UPDATE=1 brew info --json=v2 --formula homebrew/core/ldid > package-evidence/ldid-formula.json
+          cat > package-evidence/validate_ldid_bottle.py <<'PY'
+          import json, pathlib, sys
+          
+          BOTTLE_SHA256 = 'b1deffb6e575a4996e31cef6cbc56aa009f5eea67b73b437f6aea597198866a6'
+          SOURCE_REVISION = 'a23f0faadd29ec00a6b7fb2498c3d15af15a7100'
+          
+          def validate(formula_json, receipt=None, keg_version=None):
+              formulas = formula_json['formulae']
+              if len(formulas) != 1: raise ValueError('Unexpected formula count')
+              formula = formulas[0]
+              if formula['name'] != 'ldid' or formula['tap'] != 'homebrew/core':
+                  raise ValueError('Not official Homebrew ldid')
+              source = formula['urls']['stable']
+              if (source['url'] != 'git://git.saurik.com/ldid.git' or source['tag'] != 'v2.1.5' or
+                  source['revision'] != SOURCE_REVISION):
+                  raise ValueError('Reviewed source identity differs; no source fetch is allowed')
+              bottle = formula['bottle']['stable']['files']['arm64_tahoe']
+              if (bottle['sha256'] != BOTTLE_SHA256 or
+                  bottle['url'] != 'https://ghcr.io/v2/homebrew/core/ldid/blobs/sha256:' + BOTTLE_SHA256):
+                  raise ValueError('Reviewed official HTTPS bottle differs')
+              if formula['versions']['stable'] != '2.1.5' or formula['revision'] != 2:
+                  raise ValueError('Reviewed ldid formula version differs')
+              if receipt is not None:
+                  if (receipt['poured_from_bottle'] is not True or receipt['built_as_bottle'] is not True or
+                      receipt['arch'] != 'arm64' or receipt['source']['tap'] != 'homebrew/core' or
+                      receipt['source']['spec'] != 'stable' or receipt['source']['scm_revision'] != SOURCE_REVISION or
+                      receipt['source']['versions']['stable'] != '2.1.5'):
+                      raise ValueError('Installed bottle receipt differs')
+                  installed = [v for v in formula['installed'] if v['version'] == keg_version]
+                  if (keg_version != '2.1.5_2' or len(installed) != 1 or
+                      installed[0]['poured_from_bottle'] is not True):
+                      raise ValueError('Installed ldid keg differs')
+          
+          if __name__ == '__main__':
+              formula = json.load(open('package-evidence/ldid-formula.json'))
+              if len(sys.argv) == 1:
+                  validate(formula)
+              else:
+                  prefix = pathlib.Path(sys.argv[1]).resolve(strict=True)
+                  binary = prefix / 'bin/ldid'
+                  if not binary.is_file() or not binary.resolve(strict=True).is_relative_to(prefix):
+                      raise ValueError('ldid binary is outside official installed keg')
+                  validate(formula, json.load(open('package-evidence/ldid-install-receipt.json')), prefix.name)
+          PY
+          python3 package-evidence/validate_ldid_bottle.py
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install --force-bottle --formula homebrew/core/ldid
+          HOMEBREW_NO_AUTO_UPDATE=1 brew info --json=v2 --formula homebrew/core/ldid > package-evidence/ldid-formula.json
+          LDID_PREFIX="$(brew --prefix homebrew/core/ldid)"
+          cp "$LDID_PREFIX/INSTALL_RECEIPT.json" package-evidence/ldid-install-receipt.json
+          python3 package-evidence/validate_ldid_bottle.py "$LDID_PREFIX"
+          export PATH="$LDID_PREFIX/bin:$PATH"
+          { xcodebuild -version; brew list --versions ldid; shasum -a 256 "$LDID_PREFIX/bin/ldid"; } > package-evidence/toolchain.txt
+          python3 harness/scripts/experiment_strip_stabs.py --artifacts inputs --work strip-work --output product 2>&1 | tee package-evidence/strip.log
+      - name: Upload successful experiment only
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue55-strip-experimental-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            product/*.ipa
+            product/**/*.json
+            product/**/*.log
+            product/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Retain matching full debug symbols separately
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue55-strip-debug-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: product/retained-debug-diagnostics.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Preserve diagnostics on success or failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue55-strip-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            package-evidence/
+            product/**/*.json
+            product/**/*.log
+          if-no-files-found: error
+          retention-days: 14
