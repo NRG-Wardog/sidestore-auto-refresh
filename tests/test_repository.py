@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -113,6 +115,89 @@ def _is_sensitive_reachable_path(path: str) -> bool:
     return False
 
 
+# Exact reviewed CI source objects, not a directory or extension exemption.
+# New bytes at these paths require a fresh content review before adding a digest.
+_REVIEWED_PAIRING_SOURCE_SHA256 = {
+    "ci/issues-native/preflight_comprehensive_pairing.py": "6a77204a2516f0592f078ab6ff03e805fd15720569589ef38f357e9c10e03e27",
+    "ci/issues-native/russian_pairing_projection.py": "3b4995b3f99742536c2f4a780f4d08a63f95cc4880b4e1119dee331520ade7e2",
+    "ci/issues-native/test_russian_pairing_projection.py": "632bae9b89584615a14e2b61a6c3ddd33a9834f185153f96f5b961e2863f3d80",
+}
+_PUBLIC_PAIRING_MANIFEST_PATH = "ci/issues-native/russian-pairing-extension.json"
+_PUBLIC_PAIRING_MANIFEST_INPUTS = {
+    "LiveContainer/.ci/comprehensive-diagnostics/generate_pairing_recovery_fixture.py",
+    "LiveContainer/.ci/comprehensive-diagnostics/generate_wire_fixture.py",
+    "LiveContainer/.ci/comprehensive-diagnostics/pairing_recovery_harness.swift",
+    "LiveContainer/.ci/comprehensive-diagnostics/test_pairing_recovery_contract.py",
+    "LiveContainer/LiveContainerSwiftUI/Utilities/V3Localization.swift",
+    "LiveContainer/Resources/Localizable.xcstrings",
+}
+_PUBLIC_PAIRING_OBJECT_LIMIT = 8192
+
+
+def _unique_json_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate manifest key")
+        value[key] = item
+    return value
+
+
+def _is_reviewed_public_pairing_blob(path: str, object_type: str, content: bytes) -> bool:
+    """Permit only inspected source bytes or a closed hash-only public manifest.
+
+    Never accepts real pairing records, signing material, arbitrary CI JSON,
+    directories, private-path aliases, or a changed Python source object.
+    """
+    if object_type != "blob" or not content or len(content) > _PUBLIC_PAIRING_OBJECT_LIMIT:
+        return False
+    if path in _REVIEWED_PAIRING_SOURCE_SHA256:
+        if hashlib.sha256(content).hexdigest() != _REVIEWED_PAIRING_SOURCE_SHA256[path]:
+            return False
+        try:
+            ast.parse(content.decode("utf-8"))
+        except (UnicodeError, SyntaxError, ValueError):
+            return False
+        return True
+    if path != _PUBLIC_PAIRING_MANIFEST_PATH:
+        return False
+    try:
+        value = json.loads(content.decode("utf-8"), object_pairs_hook=_unique_json_object)
+    except (UnicodeError, ValueError, RecursionError):
+        return False
+    if not isinstance(value, dict) or set(value) != {"schema", "candidate_inputs", "frozen_contract_sha256"}:
+        return False
+    if value["schema"] != "reviewed-russian-pairing-extension-v1":
+        return False
+    if value["frozen_contract_sha256"] != "858106577241aef930f9dc4fb976d74c66625bb86217b78e769f07f0f4fd7750":
+        return False
+    inputs = value["candidate_inputs"]
+    return (isinstance(inputs, dict) and set(inputs) == _PUBLIC_PAIRING_MANIFEST_INPUTS and
+            all(isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+                for digest in inputs.values()))
+
+
+def _reachable_sensitive_objects(rows):
+    """Preserve the all-ref object scan; inspect bytes only for four exact paths."""
+    rejected = []
+    reviewed_paths = set(_REVIEWED_PAIRING_SOURCE_SHA256) | {_PUBLIC_PAIRING_MANIFEST_PATH}
+    for object_id, path in rows:
+        if not _is_sensitive_reachable_path(path):
+            continue
+        if path not in reviewed_paths or re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", object_id) is None:
+            rejected.append(path)
+            continue
+        object_type = subprocess.check_output(["git", "cat-file", "-t", object_id], cwd=ROOT, text=True).strip()
+        size = int(subprocess.check_output(["git", "cat-file", "-s", object_id], cwd=ROOT, text=True))
+        if object_type != "blob" or not 0 < size <= _PUBLIC_PAIRING_OBJECT_LIMIT:
+            rejected.append(path)
+            continue
+        content = subprocess.check_output(["git", "cat-file", "blob", object_id], cwd=ROOT)
+        if not _is_reviewed_public_pairing_blob(path, object_type, content):
+            rejected.append(path)
+    return rejected
+
+
 class RepositoryTests(unittest.TestCase):
     def test_current_files_exist(self):
         self.assertTrue((ROOT / "README.md").is_file())
@@ -198,10 +283,10 @@ class RepositoryTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        reachable_paths = [parts[1] for line in result.stdout.splitlines()
-                           if len(parts := line.split(maxsplit=1)) == 2]
+        reachable_objects = [parts for line in result.stdout.splitlines()
+                             if len(parts := line.split(maxsplit=1)) == 2]
         self.assertFalse(
-            [path for path in reachable_paths if _is_sensitive_reachable_path(path)],
+            _reachable_sensitive_objects(reachable_objects),
             "reachable repository contains sensitive artifact paths",
         )
 
@@ -219,6 +304,51 @@ class RepositoryTests(unittest.TestCase):
                      "docs/CLIENT.P12", "scripts/key.pem", "data/phone.pfx"):
             with self.subTest(path=path):
                 self.assertTrue(_is_sensitive_reachable_path(path))
+
+    def test_public_pairing_manifest_accepts_only_closed_hash_inventory(self):
+        manifest = {
+            "schema": "reviewed-russian-pairing-extension-v1",
+            "frozen_contract_sha256": "858106577241aef930f9dc4fb976d74c66625bb86217b78e769f07f0f4fd7750",
+            "candidate_inputs": {path: "a" * 64 for path in _PUBLIC_PAIRING_MANIFEST_INPUTS},
+        }
+        encoded = json.dumps(manifest).encode()
+        self.assertTrue(_is_reviewed_public_pairing_blob(_PUBLIC_PAIRING_MANIFEST_PATH, "blob", encoded))
+        # Its name remains sensitive without the object-level content check.
+        self.assertTrue(_is_sensitive_reachable_path(_PUBLIC_PAIRING_MANIFEST_PATH))
+        for path in ("ci/other-pairing.json", "private/" + _PUBLIC_PAIRING_MANIFEST_PATH,
+                     _PUBLIC_PAIRING_MANIFEST_PATH + ".pem", "ci/issues-native/pairingFile.json"):
+            self.assertFalse(_is_reviewed_public_pairing_blob(path, "blob", encoded))
+        for kind in ("tree", "commit", "tag"):
+            self.assertFalse(_is_reviewed_public_pairing_blob(_PUBLIC_PAIRING_MANIFEST_PATH, kind, encoded))
+        for field, payload in (("HostPrivateKey", "SYNTHETIC_SECRET"), ("HostCertificate", "SYNTHETIC_CERT"),
+                               ("PairRecordData", "SYNTHETIC_RECORD"), ("EscrowBag", "SYNTHETIC_ESCROW")):
+            altered = dict(manifest, **{field: payload})
+            self.assertFalse(_is_reviewed_public_pairing_blob(_PUBLIC_PAIRING_MANIFEST_PATH, "blob", json.dumps(altered).encode()))
+        for value in ([], None, "SYNTHETIC_PRIVATE_RECORD", {"HostID": "synthetic", "SystemBUID": "synthetic"}):
+            self.assertFalse(_is_reviewed_public_pairing_blob(_PUBLIC_PAIRING_MANIFEST_PATH, "blob", json.dumps(value).encode()))
+        for field in ("schema", "frozen_contract_sha256", "candidate_inputs"):
+            altered = dict(manifest)
+            altered.pop(field)
+            self.assertFalse(_is_reviewed_public_pairing_blob(_PUBLIC_PAIRING_MANIFEST_PATH, "blob", json.dumps(altered).encode()))
+        for value in ("SYNTHETIC_PRIVATE_KEY", "a" * 63, "A" * 64, 0, ["a" * 64], {"hash": "a" * 64}):
+            altered = json.loads(encoded)
+            altered["candidate_inputs"][next(iter(_PUBLIC_PAIRING_MANIFEST_INPUTS))] = value
+            self.assertFalse(_is_reviewed_public_pairing_blob(_PUBLIC_PAIRING_MANIFEST_PATH, "blob", json.dumps(altered).encode()))
+        altered = json.loads(encoded)
+        altered["candidate_inputs"]["private/PairingFile"] = "a" * 64
+        self.assertFalse(_is_reviewed_public_pairing_blob(_PUBLIC_PAIRING_MANIFEST_PATH, "blob", json.dumps(altered).encode()))
+        duplicate = encoded[:-1] + b', "schema": "reviewed-russian-pairing-extension-v1"}'
+        self.assertFalse(_is_reviewed_public_pairing_blob(_PUBLIC_PAIRING_MANIFEST_PATH, "blob", duplicate))
+        for content in (b"", b"\xff", b"[" * 4096, b"x" * (_PUBLIC_PAIRING_OBJECT_LIMIT + 1)):
+            self.assertFalse(_is_reviewed_public_pairing_blob(_PUBLIC_PAIRING_MANIFEST_PATH, "blob", content))
+
+    def test_pairing_source_allowance_is_exact_and_never_a_directory_exemption(self):
+        for path in _REVIEWED_PAIRING_SOURCE_SHA256:
+            self.assertTrue(_is_sensitive_reachable_path(path))
+            for content in (b"print('harmless but unreviewed')\n", b"{\"HostPrivateKey\": \"SYNTHETIC\"}",
+                            b"-----BEGIN PRIVATE KEY-----\nSYNTHETIC\n-----END PRIVATE KEY-----"):
+                self.assertFalse(_is_reviewed_public_pairing_blob(path, "blob", content))
+        self.assertFalse(_is_reviewed_public_pairing_blob("ci/new_pairing.py", "blob", b"pass\n"))
 
     def test_public_docs_do_not_expose_known_private_network_details(self):
         """Generic RFC1918 examples are allowed; known diagnostic addresses are not."""
