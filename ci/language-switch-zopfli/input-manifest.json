@@ -1,6 +1,12 @@
 {
   "schema": "language-switch-green-native-input-v1",
-  "run_id": 0, "run_attempt": 0, "commit": "PENDING_GREEN_NATIVE_RUN",
-  "artifact_id": 0, "artifact_bytes": 0, "artifact_sha256": "PENDING",
-  "ipa_bytes": 0, "ipa_sha256": "PENDING", "entries": 0
+  "run_id": 40379453457,
+  "run_attempt": 1,
+  "commit": "d9da9f951fe2ad0941315b1c537b7f45d3ccd822",
+  "artifact_id": 12679504862,
+  "artifact_bytes": 25519494,
+  "artifact_sha256": "facc5219f5c4bcd9dd0d8af39defe3fa727acc97745bd620398c238bc8fc81f3",
+  "ipa_bytes": 24632146,
+  "ipa_sha256": "71de77db524d7345d2e82ef2cbafae2b3787898a5ad5d2ba3c39ea379614c400",
+  "entries": 274
 }
