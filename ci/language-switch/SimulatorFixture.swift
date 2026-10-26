@@ -78,6 +78,18 @@ struct DiagnosticTableProbe: UIViewRepresentable {
     }
 }
 
+struct UIKitOnlyDiagnosticProbe: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let container=UIView()
+        let table=UITableView(frame:.zero)
+        table.accessibilityIdentifier="standalone-uikit-technical-table"
+        table.semanticContentAttribute = .forceLeftToRight
+        container.addSubview(table)
+        return container
+    }
+    func updateUIView(_ view: UIView, context: Context) {}
+}
+
 struct GuestBoundaryProbe: UIViewRepresentable {
     func makeUIView(context: Context) -> VirtualWindowsHostView {
         let view = VirtualWindowsHostView(); view.accessibilityIdentifier = "guest-boundary"
@@ -103,11 +115,20 @@ struct FixtureRoot: View {
                         Text(V3Localization.string("Checking", language: language.selected))
                         TextField("Draft", text: $model.draft)
                         OpaqueDiagnosticProbe().environment(\.layoutDirection, .leftToRight)
-                        DiagnosticTableProbe().frame(height: 1)
                         if observesCounterfactual {
+                            // Preserve the initially failing implicit boundary for
+                            // attribution. Creation-only UIKit semantics are not
+                            // a persistent SwiftUI environment override.
+                            DiagnosticTableProbe().frame(height: 1)
                             DiagnosticTableProbe(identifier: "swiftui-explicit-ltr-diagnostic-table")
                                 .frame(height: 1).environment(\.layoutDirection, .leftToRight)
+                        } else {
+                            // Production technical details declare LTR in the
+                            // SwiftUI environment, not only in makeUIView.
+                            DiagnosticTableProbe().frame(height: 1)
+                                .environment(\.layoutDirection, .leftToRight)
                         }
+                        UIKitOnlyDiagnosticProbe().frame(height: 1)
                         GuestBoundaryProbe().frame(height: 1)
                     }.navigationTitle("Language fixture")
                 }
@@ -115,7 +136,7 @@ struct FixtureRoot: View {
             Text("Second").tabItem { Label("Second", systemImage: "2.circle") }.tag(1)
         }
         .sheet(isPresented: $model.showSheet) {
-            NavigationStack { Form { RenderedProbe(identifier: "sheet-language-probe"); OpaqueDiagnosticProbe() }.navigationTitle("Sheet") }
+            NavigationStack { Form { RenderedProbe(identifier: "sheet-language-probe"); OpaqueDiagnosticProbe().environment(\.layoutDirection, .leftToRight) }.navigationTitle("Sheet") }
         }
         .environment(\.locale, Locale(identifier: language.selected.rawValue))
         .environment(\.layoutDirection, language.selected.isRightToLeft ? .rightToLeft : .leftToRight)
@@ -214,7 +235,7 @@ struct FixtureFailure: Error { let reason: String }
             let direction: UIUserInterfaceLayoutDirection = selected.isRightToLeft ? .rightToLeft : .leftToRight
             try require(label.effectiveUserInterfaceLayoutDirection == direction,"Rendered label retained wrong direction")
             let chrome=views.filter { view in
-                (view is UINavigationBar || view is UITabBar || view is UITableView || view is UICollectionView) && view.accessibilityIdentifier != "nested-guest-navigation" && view.accessibilityIdentifier != "explicit-ltr-diagnostic-table"
+                (view is UINavigationBar || view is UITabBar || view is UITableView || view is UICollectionView) && view.accessibilityIdentifier != "nested-guest-navigation" && view.accessibilityIdentifier != "explicit-ltr-diagnostic-table" && view.accessibilityIdentifier != "standalone-uikit-technical-table"
             }
             try require(chrome.contains(where:{$0 is UINavigationBar}) && chrome.contains(where:{$0 is UITabBar}),"Missing actual live navigation/tab chrome")
             try require(chrome.contains(where:{$0 is UITableView || $0 is UICollectionView}),"Missing actual live Form chrome")
@@ -223,6 +244,8 @@ struct FixtureFailure: Error { let reason: String }
             try require(diagnostic.effectiveUserInterfaceLayoutDirection == .leftToRight,"Explicit technical direction changed")
             guard let technicalTable=views.first(where:{$0.accessibilityIdentifier == "explicit-ltr-diagnostic-table"}) else { throw FixtureFailure(reason:"Technical table missing") }
             try require(technicalTable.semanticContentAttribute == .forceLeftToRight,"Explicit technical table direction changed")
+            guard let standaloneTable=views.first(where:{$0.accessibilityIdentifier == "standalone-uikit-technical-table"}) else { throw FixtureFailure(reason:"UIKit-only technical table missing") }
+            try require(standaloneTable.semanticContentAttribute == .forceLeftToRight,"UIKit-only explicit technical direction changed")
             guard let guestBar=views.first(where:{$0.accessibilityIdentifier == "nested-guest-navigation"}) else { throw FixtureFailure(reason:"Guest boundary probe missing") }
             try require(guestBar.semanticContentAttribute == .forceRightToLeft,"Nested guest chrome changed")
             try require(guest.semanticContentAttribute == .forceRightToLeft && guest.rootViewController!.view.semanticContentAttribute == .forceRightToLeft,"Separate guest window changed")
@@ -241,6 +264,8 @@ struct FixtureFailure: Error { let reason: String }
             let views=descendants(presented.view)
             let label=views.first(where:{$0.accessibilityIdentifier=="sheet-language-probe"}) as? UILabel
             try require(label?.text==V3Localization.string("Checking",language:selected),"Presented sheet retained stale language")
+            guard let technical=views.first(where:{$0.accessibilityIdentifier=="opaque-diagnostic"}) else { throw FixtureFailure(reason:"Sheet technical probe missing") }
+            try require(technical.effectiveUserInterfaceLayoutDirection == .leftToRight,"Sheet explicit technical direction changed")
             let nav=views.compactMap{$0 as? UINavigationBar}
             try require(!nav.isEmpty,"Sheet navigation chrome missing")
             for bar in nav { try require(bar.effectiveUserInterfaceLayoutDirection == (selected.isRightToLeft ? .rightToLeft : .leftToRight),"Presented sheet retained stale native direction") }
@@ -250,7 +275,7 @@ struct FixtureFailure: Error { let reason: String }
         model.path=[];await settle();model.path=[1];await settle();await settle()
         let reopened=descendants(host.view).first(where:{$0.accessibilityIdentifier=="rendered-language-probe"}) as? UILabel
         try require(reopened?.text==V3Localization.string("Checking",language:.simplifiedChinese),"Reopened screen retained stale language")
-        let reopenedChrome=descendants(host.view).filter { ($0 is UINavigationBar || $0 is UITabBar || $0 is UITableView || $0 is UICollectionView) && $0.accessibilityIdentifier != "nested-guest-navigation" && $0.accessibilityIdentifier != "explicit-ltr-diagnostic-table" }
+        let reopenedChrome=descendants(host.view).filter { ($0 is UINavigationBar || $0 is UITabBar || $0 is UITableView || $0 is UICollectionView) && $0.accessibilityIdentifier != "nested-guest-navigation" && $0.accessibilityIdentifier != "explicit-ltr-diagnostic-table" && $0.accessibilityIdentifier != "standalone-uikit-technical-table" }
         try require(reopenedChrome.count>=3,"Reopened chrome missing")
         for chrome in reopenedChrome { try require(chrome.effectiveUserInterfaceLayoutDirection == .leftToRight,"Reopened native chrome stale direction") }
         // Rapid selection changes must converge without replacing the live root.

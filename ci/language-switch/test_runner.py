@@ -54,6 +54,21 @@ class RunnerTests(unittest.TestCase):
   self.assertIn('validate_runtime_result(data,root)',runner)
   self.assertIn('OBSERVED_COUNTERFACTUAL_NOT_QUALIFICATION',runner)
   self.assertIn("report['counterfactual_sha256'][result.name]",runner)
+ def test_technical_direction_is_explicit_without_waiving_counterfactual(self):
+  fixture=(R.HERE/'SimulatorFixture.swift').read_text()
+  boundary=fixture.split('if observesCounterfactual {',1)[1].split('GuestBoundaryProbe()',1)[0]
+  implicit=boundary.split('DiagnosticTableProbe(identifier:',1)[0]
+  self.assertIn('DiagnosticTableProbe().frame(height: 1)',implicit)
+  self.assertNotIn('.environment(',implicit)
+  default=boundary.split('} else {',1)[1]
+  self.assertIn('.environment(\\.layoutDirection, .leftToRight)',default)
+  self.assertIn('try require(technicalTable.semanticContentAttribute == .forceLeftToRight',fixture)
+  self.assertIn('try require(standaloneTable.semanticContentAttribute == .forceLeftToRight',fixture)
+  self.assertIn('Sheet explicit technical direction changed',fixture)
+  evidence=json.loads((R.HERE/'counterfactual-evidence.json').read_text())
+  self.assertEqual(evidence['creation_only_table_semantic_values'],[4,3,4])
+  self.assertEqual(evidence['explicit_swiftui_ltr_table_semantic_values'],[3,3,3])
+  self.assertIs(evidence['production_source_changed'],False)
  def test_duplicate_json_key_rejected(self):
   with self.assertRaises(ValueError):R.strict([('status','FAILED'),('status','PASS')])
  def test_runtime_source_not_fake_model_and_same_session_required(self):
