@@ -478,7 +478,7 @@
     "LiveContainer/Resources/Localizable.xcstrings": "fc8ad93bcb603138e13e87755f6997f7abb3c00dcf4c47efd6ad6a632acbf414",
     "LiveContainer/LiveContainerSwiftUI/Utilities/V3Localization.swift": "76af17a76bcc59a1dc7f4cc5f6d3d79f29dd876a84ce8758e78055d0d46857fb",
     "LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "f249f7ddaee51d4161242e811391b8844021c2ca4b0fc96efa85e384fdf3db99",
-    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "e3f3725a47a593dccf0c67ef490ae636b6acd3153b8052d6c29edd5cbc411a9a",
+    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "d814c039d51feee3c0e93314d96b5cffa014d0cc46e1d0ed22ec89cbdda51591",
     "LiveContainer/.ci/comprehensive-diagnostics/setup_localization_harness.swift": "c0907f7112050b2f96ee576717bdd179112e0fb8be6110920b3c043c5052eb60",
     "LiveContainer/tests/fixtures/russian_reviewed_existing.json": "fd2259f2e1279d713d81dd24908fe1ff158e35ba0427d13a895ac9e5bc67711d"
   }

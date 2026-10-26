@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "e10559f66088d2fb40fd0ed0939a46e73994b4a3"
+      "c4170ea57caf24e23a0db58f4661c0599e58cd32"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "7651026144fd67f10584ffcab63dbd8e1ad3b1b0"
+      "4539394ee13394bc1838c3234b637077a3609bfb"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -91,7 +91,7 @@
         ".ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "1c6854b27314aaa35d1a067fc2011a4c6b472811",
         ".ci/comprehensive-diagnostics/setup_localization_harness.swift": "685e64c7b6c5726cd8a40fe3e598f96d30f071f6",
         ".ci/comprehensive-diagnostics/test_pairing_recovery_contract.py": "b1e1ff62080b80eb0ac343581b0b682d11956000",
-        ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "e7ce946902228a81b8eb7c01b808462d1412c401",
+        ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "97cdc1d81f2a771349dc98fbfe36f3e8aac29cd6",
         ".ci/extension-selection/Cases.swift": "124f2b2b16d0164f114898a48c6062735443a805",
         ".ci/extension-selection/Doubles.swift": "09aaec3bb1e31ce8948abd0b184d04c822cf051d",
         ".ci/extension-selection/generate_fixture.py": "f524a726714d23df3acd78192b490bb0b8f21798",
@@ -103,19 +103,30 @@
         "LiveContainer.xcodeproj/project.pbxproj": "15db64d7850e96db256404bc1693c2c24e03b1be",
         "LiveContainer/Localization.m": "de9b74a6e6d7b5d93b19021e9d18cbdd6b7892b5",
         "LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift": "207d3c8d79263865d0b984f06dc6b264a2321309",
+        "LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift": "074a8bb2ab4b82e878d144dc38fb67c9620bd71b",
         "LiveContainerSwiftUI/Utilities/V3Localization.swift": "924be8f0143900faef51826fdc0909154ce59a29",
         "LiveContainerSwiftUI/Utilities/V3SourceAppPresentation.swift": "5312f206458345534120fdc82f1021663fb2aa4e",
-        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "061ba27dc21c20cfc7c6c4a7aef63e3a4b7a3131",
+        "LiveContainerSwiftUI/Utilities/ViewExtensions.swift": "4f2f48264d99133aee7531591aaab9bb874f88bb",
+        "LiveContainerSwiftUI/Views/AppList/AppSettings/LCSelectContainerView.swift": "a4fd2358f74bab75ea8e35b0b2509743550f2c2c",
+        "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerView.swift": "1b524fe334c09496985bb25849bffbcd3edeabc3",
+        "LiveContainerSwiftUI/Views/AppList/LCDownloadView.swift": "9a65a6e1d581362487875c4a73911ebe218f5bf7",
+        "LiveContainerSwiftUI/Views/AppList/Sorting/LCCustomSortView.swift": "833508119da6b76afe9bfcf319f2b41e345324ed",
+        "LiveContainerSwiftUI/Views/Settings/DataManagement/LCStorageManagementSections.swift": "1dfa4d431136ff4bf3099264b3b9820c69a91ec9",
+        "LiveContainerSwiftUI/Views/Settings/DataManagement/LCStorageManagementView.swift": "6e94b578d2572be2e2c7e73354d5e56443c6e28b",
+        "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift": "28ce2d6621a5a9512b07da9a79f2336e4ccb36b8",
+        "LiveContainerSwiftUI/Views/Settings/LCMultitaskSettingView.swift": "4edfe376cf5264f31752c515d4c89d72a56174aa",
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "62472cda290c93fb7b10aca7ee09bdde2062fb97",
         "MultitaskSupport/AppSceneViewController.h": "ecc9927a4ebd256346429a6dd60a7ff4c227bb6e",
         "MultitaskSupport/AppSceneViewController.m": "e7d90528c08d375529f58603367543dde2a3199e",
         "MultitaskSupport/DecoratedAppSceneViewController.h": "a6df0d79276542f27c09dda5ef27012854b8cdfa",
-        "MultitaskSupport/DecoratedAppSceneViewController.m": "2707669bd27aa3bc920ad5a0eb271c9dcecc93af",
+        "MultitaskSupport/DecoratedAppSceneViewController.m": "417d58800ab8dbc6ffc507920ba3446d75831717",
         "MultitaskSupport/LCGuestSafeAreaGeometry.h": "b086b34eec7deb97d926f5752e81788f272dfd98",
+        "MultitaskSupport/MultitaskAppWindow.swift": "55d89cd6914d7c3619651c6a99c019c0b18a963b",
         "MultitaskSupport/MultitaskDockView.swift": "308d94b718098c66fb0dc7269ecf076d704192ab",
         "MultitaskSupport/UIKitHooks.m": "9def2e0164f2b3d9910461206bcfffcc18035688",
         "Resources/Localizable.xcstrings": "eb3b1ee02e171226ab2138dae4e420c420fc1a24",
         "Resources/ru.lproj/InfoPlist.strings": "2b181bbb36354e981df0f4746b95eee7b030ade4",
-        "SideStoreSupport/SideStore.swift": "25daba14d201d85ad531d2049533873ba53b9b8f",
+        "SideStoreSupport/SideStore.swift": "9dd175e359543504b1dcd46214f4b4cd41d3e5fb",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
         "docs/integration/GENERATED_OPENSSL35.md": "113c76d38fd59f03050a3faf68285585ce1ca363",
         "docs/localization/RUSSIAN_UI.md": "fa5d4fdea01507775e5eb63a3c390657904ab3e9",
@@ -123,6 +134,7 @@
         "docs/validation/issue47-guest-input-and-safe-area.md": "3a501c138a3904c3eb64f6b6eb3ba8d1265a5abf",
         "docs/validation/issue55-swiftui-size.md": "50a43285403de81cd53a9588d4221e69879d73d0",
         "tests/fixtures/guest_safe_area_geometry.c": "01dbd92f5dd94e67ab3be3bdc9792b2b25be6461",
+        "tests/fixtures/live_language_state.swift": "6719c91b3f0975c042b93aeafa54cc73542491a6",
         "tests/fixtures/russian_localization.swift": "941a6f9ad6e19218cf9816e57e4f9427ba7fe671",
         "tests/fixtures/russian_reviewed_existing.json": "5bfe692f1cbc770eef4d09b6088e628ff21852a9",
         "tests/fixtures/source_app_presentation.swift": "0cba80d4f2de0716fd81d3a980596c07c8be1181",
@@ -131,13 +143,15 @@
         "tests/test_diagnostic_provider_sequence.py": "59b47f64e5841c456fa4f1bba40fb17eaabf2ca0",
         "tests/test_guest_input_lifecycle.py": "39bf0e8c348d5da7ea5f24c08851aa51adadfa84",
         "tests/test_guest_safe_area_geometry.py": "396d43c13d8134437f03c7d3eda10c372abe0cf2",
-        "tests/test_recovery_banner_layout.py": "e630276bb1dc9f04b579355838ae9fb365322ede",
+        "tests/test_live_language_root.py": "9fae07ac84827d1f347b9fd05a98674b3b56f486",
+        "tests/test_live_language_state.py": "fab7a858f848dadbdf47dc9f441a3129184411cc",
+        "tests/test_recovery_banner_layout.py": "27be830c02fa04d34009b50bd3fc9fa46c0f2db1",
         "tests/test_release_size_configuration.py": "b9244eda242a4f789f55ec9cc7c98527a32c726c",
-        "tests/test_russian_localization.py": "14de628975fb9bf2a192c6f91790c6c5ff9ccd25",
+        "tests/test_russian_localization.py": "45fb48a88769803bc693eed63d8d57b45e8f0b4b",
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8",
         "tests/test_startup_diagnostics.py": "c143a729661907fb422f4a1aa4752988024fbc95"
       },
-      "tree": "53619707e28eba9bcf3d5471a20d2fe4a2315a54"
+      "tree": "3eb6afacb667300d58f70b19ec711c022fbe0dc7"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -162,7 +176,7 @@
         "AGENTS.md": null,
         "AltStore.xcodeproj/project.pbxproj": "53a042b65192b1d6c2ed27926fdab69d4a09d51e",
         "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "c0ef6619c1f9971d78c809b9df3ac0e66b72d331",
-        "AltStore/AppDelegate.swift": "384f9d7ba357dd142cc48b72463ca05f12ff1841",
+        "AltStore/AppDelegate.swift": "8c85a27a42d6a56f57494844e91a44d4b04f0b44",
         "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "a7d758c00a1d229af7cd121bbd752ac61e45bd69",
         "Dependencies/SideSign": "aac073a32cc8649b8bb4e604f52e124dc867003e",
         "Dependencies/minimuxer": "aba27533a7c958f4b2692fbb7ad2c778382386f7",
@@ -190,6 +204,8 @@
         "tests/host_refresh_bundle/test_contract.py": "ccb7ae6c8d46dab6d4bbc3369c2053957f47443c",
         "tests/provider_sequence/main.swift": "275a64df2e3de10212e6b804a021bd2397ff0b31",
         "tests/provider_sequence/noncooperative.swift": "de5bbcb68d805c27d9ce318b24d17f31f78de18d",
+        "tests/refresh_recovery/README.md": "4e1dda36ace09662ab24b8b6083a4e51cd1472a6",
+        "tests/refresh_recovery/test_ownerless_snapshot.py": "a33c32bbd817e2ec161cf231ff8924f8029306a8",
         "tests/reuse_main/ExplanationCases.swift": "5a5e49951b1e5e38b466f8b9d3336afd71cfdded",
         "tests/reuse_main/RegistryCases.swift": "cd5ac91c7f9c2f3684f85fe816f1d9bf396f024e",
         "tests/reuse_main/run.sh": "b29d67e12cc2a5d13cb95b15c071ccac32dc2b71",
@@ -199,7 +215,7 @@
         "tests/test_diagnostic_provider_sequence.py": "7aa1b47cb7f6b0c40743a4a5393325037e81743b",
         "tests/upstream_sync/test_iloader_submit_route.py": "89740faba3efc4f71125e560fdf3ef5e6ad29a8d"
       },
-      "tree": "db00ad637ebd3641a0aaff4f2441d9fc3bbc6d33"
+      "tree": "27a6aa7f637f5a3e0846a377d54929fed862d191"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",

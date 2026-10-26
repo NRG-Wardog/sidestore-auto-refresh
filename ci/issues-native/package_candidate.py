@@ -86,7 +86,7 @@ def append_openssl_local_stage(ipa, report, qualification, *, transfer_roots, re
         output=Path('packaging-openssl-local-products'), retained=Path('size-diagnostics/openssl-local'))
 
 
-def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False, same_run_qualified=False):
+def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False, same_run_qualified=False, language_switch=False):
     if same_run_qualified and recover_fixed_native:
         raise ValueError('Same-run qualification cannot use recovery identity')
     if same_run_qualified and not (strip_unsigned_widget and strip_widget_true_locals and strip_openssl_true_locals):
@@ -114,6 +114,15 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         verify_startup_receipt(startup_receipt, Path('sources'), native_identity)
         if receipt.get('evidence_sha256', {}).get(startup_receipt.name) != sha(startup_receipt):
             raise ValueError('Startup regression receipt differs from native receipt')
+    if language_switch:
+        if not same_run_qualified:
+            raise ValueError('Language qualification requires the same-run native size pipeline')
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'language-switch'))
+        from run_language_switch_tests import verify_receipt as verify_language_receipt
+        language_receipt = Path('evidence/language-switch-tests.json')
+        verify_language_receipt(language_receipt, Path('sources'), native_identity)
+        if receipt.get('evidence_sha256', {}).get(language_receipt.name) != sha(language_receipt):
+            raise ValueError('Language runtime receipt differs from native receipt')
     recovery_provenance = None
     for key, expected in [('status', 'COMPILE_ONLY_PASS_REQUIRES_REVIEW'),
                           ('workflow_commit', native_identity['workflow_commit']),
@@ -304,6 +313,12 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         if sha(Path('diagnostic/issue56-startup-tests.json')) != sha(startup_receipt):
             raise ValueError('Retained startup regression receipt differs')
         provenance['issue56_startup_regression_sha256'] = sha(startup_receipt)
+    if language_switch:
+        verify_language_receipt(language_receipt, Path('sources'), native_identity)
+        shutil.copyfile(language_receipt, 'diagnostic/language-switch-tests.json')
+        if sha(Path('diagnostic/language-switch-tests.json')) != sha(language_receipt):
+            raise ValueError('Retained language runtime receipt differs')
+        provenance['language_switch_regression_sha256'] = sha(language_receipt)
     Path('diagnostic/provenance.json').write_text(json.dumps(provenance, indent=2))
     Path('diagnostic/SHA256SUMS').write_text(sha(output) + '  ' + output.name + '\n')
     shutil.copyfile('evidence/receipt.json', 'diagnostic/native-receipt.json')
@@ -350,6 +365,8 @@ def self_test():
 if __name__ == '__main__':
     if sys.argv[1:] == ['--self-test']:
         self_test()
+    elif sys.argv[1:] == ['--same-run-qualified-size', '--language-switch']:
+        main(same_run_qualified=True, strip_unsigned_widget=True, strip_widget_true_locals=True, strip_openssl_true_locals=True, language_switch=True)
     elif sys.argv[1:] == ['--same-run-qualified-size']:
         main(same_run_qualified=True, strip_unsigned_widget=True, strip_widget_true_locals=True, strip_openssl_true_locals=True)
     elif sys.argv[1:] == ['--recover-fixed-native', '--strip-unsigned-widget', '--strip-widget-true-locals', '--strip-openssl-true-locals']:
