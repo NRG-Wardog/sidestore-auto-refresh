@@ -94,6 +94,9 @@ jobs:
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py
           python3 -B harness/ci/issues-native/test_russian_pairing_projection.py
           python3 -B harness/ci/issues-native/verify_candidate_graph.py
+          python3 -B harness/ci/issues-native/test_upstream_candidate_projection.py
+          python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py
+          python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
           python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
       - name: Require source-owned cold VPN readiness regressions

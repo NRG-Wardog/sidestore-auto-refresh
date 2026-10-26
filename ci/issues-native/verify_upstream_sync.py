@@ -162,10 +162,10 @@ def sidestore_tests(sources, output):
     print(json.dumps(report, indent=2, sort_keys=True))
 
 
-def minimuxer_tests(sources, output, swiftc):
+def minimuxer_tests(sources, output, swiftc, expected=None):
     require(swiftc, 'A Swift compiler is required for the fake-only harness')
     root = sources / 'SideStore/Dependencies/minimuxer'
-    expected = SPEC['minimuxer_fake_tests']
+    if expected is None: expected = SPEC['minimuxer_fake_tests']
     manifest = {name: sha(root / name) for name in expected['source_inputs']}
     require(manifest == expected['source_inputs'], 'Minimuxer fake harness source inputs differ')
     report = {'status': 'STARTED_NOT_PASSED', 'source_inputs_sha256': manifest,
@@ -207,7 +207,10 @@ def main():
     elif args.phase == 'sidestore-tests':
         sidestore_tests(sources, args.output)
     else:
-        minimuxer_tests(sources, args.output, args.swiftc)
+        from upstream_candidate_projection import current_spec
+        current, projection = current_spec(sources)
+        write(args.output.with_suffix('.projection.json'), projection)
+        minimuxer_tests(sources, args.output, args.swiftc, current['minimuxer_fake_tests'])
 
 
 if __name__ == '__main__':

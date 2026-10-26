@@ -604,7 +604,10 @@ def verify_resolved():
 
 def verify_vpn_transport_evidence(expected=None):
     if expected is None:
-        expected = json.loads((Path(__file__).resolve().parent / 'upstream-sync-contract.json').read_text())['vpn_transport_regression']
+        from upstream_candidate_projection import current_spec
+        current, projection = current_spec(S)
+        expected = current['vpn_transport_regression']
+        write('upstream-runtime-projection.json', projection)
     root = E / 'vpn-transport-recovery'
     def regular(path):
         require(path.is_file() and not path.is_symlink(), 'Missing/linked VPN transport evidence: ' + str(path))

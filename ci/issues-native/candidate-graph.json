@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "8e7f721a6d048e8f39acbfa6b12235ccff5f0641"
+      "da9bf8fa6f6b1eaf8cf55937c38924e2c34d5c15"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -30,7 +30,7 @@
     ],
     "SideStore/Dependencies/minimuxer": [
       "NRG-Wardog/minimuxer",
-      "e1abd0fd561c1593bce2fc4d290bffb0bebeddd2"
+      "c671f383d335d2720dfbf98b8bbd40ec1b18d115"
     ],
     "idevice": [
       "NRG-Wardog/idevice",
@@ -207,8 +207,9 @@
         "SideStore/MaintenanceManager.swift": "22564c91010663dc2bd618d074b1597cb25cad5d",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
         "tests/appid_expiry/test_appid_expiry_bridge.py": "4e223dabf1e11f5838f6c65a9fd81362443a6414",
-        "tests/cache_compatibility/generate_fixture.py": "b467d1370ba0a211e5342a79a4ea282b3985b1f6",
-        "tests/cache_compatibility/test_host_preservation.py": "0f22996677db078a3026c816368deb06b5418e24",
+        "tests/cache_compatibility/generate_fixture.py": "48bafcb0413a57a674dbd11fecb1591e43fdedb2",
+        "tests/cache_compatibility/reviewed-cold-vpn-host-delta.json": "a8959dd898da998c95b453ff86cf47753444d0ba",
+        "tests/cache_compatibility/test_host_preservation.py": "9f5c6bf314eabae109e687b7eb1373f12e5d4568",
         "tests/cold_vpn_readiness/boundary_doubles.swift": "52da543bc922fe1ace5edacc56af3828de77ef61",
         "tests/cold_vpn_readiness/runtime_cases.swift": "33fdb9f3fbe41510f572c0100e0101a15e8ada6d",
         "tests/cold_vpn_readiness/test_contract.py": "7d5a11c745753adb0d43ff774aedd1279a0657cf",
@@ -230,7 +231,7 @@
         "tests/upstream_sync/test_iloader_submit_route.py": "89740faba3efc4f71125e560fdf3ef5e6ad29a8d",
         "tests/vpn_transport_recovery/generate_fixture.py": "57197e047d007d51e3d2f0a22a0ef86900257d60"
       },
-      "tree": "43650b851fb2fccf674bd144a1135fe54c5b2832"
+      "tree": "79368c0513b972cdc4ac22a2595e20ff8a4147f2"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
@@ -278,8 +279,8 @@
     "SideStore/Dependencies/minimuxer": {
       "baseline": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
       "files": {
-        ".ci/owned-readiness/fixture.swift": "4b1e30e7fd89185796d67b4482e35e12a55707fd",
-        ".ci/test-owned-readiness.py": "db72a9e514433c083ea7ab137bf44477e241a189",
+        ".ci/owned-readiness/fixture.swift": "58f1e274e1bdaf9f63202932e9e07d7c547f3b40",
+        ".ci/test-owned-readiness.py": "b1533c7dadd7fc0eb28191353956224f571faa59",
         ".ci/verify-upstream-sync.py": "6359aca0f6ab81731b3bdbb5af2f363741e9ad82",
         "DeviceGateway/Package.swift": "88e744dc1a1fd6d383025fdb7a60abd5e5180b81",
         "Sources/DeviceProvider.swift": "734bcc3cff9efb3b0377f98db9c1e70593fa385a",
@@ -290,7 +291,7 @@
         "Sources/Services/NetworkObserverService.swift": "16097186fda517732ed95e98d254185056f4b176",
         "docs/integration/GENERATED_PAIRING_CRYPTO.md": "63cbe29c876d99f2471811310d0f6ec1a3bce7ef"
       },
-      "tree": "1662ab3040e4d2a205013342e8d85a986f1e1385"
+      "tree": "ef8246c43a509491d0f29ca631187d1997ba50ba"
     },
     "idevice": {
       "baseline": "774f02a6d29777c85400f4ba7fa69c12b4227fb3",

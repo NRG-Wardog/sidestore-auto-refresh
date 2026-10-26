@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from cold_vpn_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
 from russian_setup_projection import variant as russian_setup_variant
 
 from verify_comprehensive_diagnostics import regular, require, digest, write_json, artifact_inventory, require_marker
@@ -299,7 +300,8 @@ def load_contract(path):
             required.update(paths)
     host_inputs, host_count, _ = host_bundle_variant(value)
     required.update(host_inputs['production'])
-    expected_additive = dict(ADDITIVE_SUITE_INPUTS, **{'host-refresh-bundle': host_inputs})
+    expected_additive = dict(ADDITIVE_SUITE_INPUTS, **{'host-refresh-bundle': host_inputs, 'cache-compatibility': cold_cache_inputs(value, ADDITIVE_SUITE_INPUTS['cache-compatibility'])})
+    if cold_cache_binding(value): required.update(expected_additive['cache-compatibility']['fixture'])
     require(value.get('additive_suite_inputs') == expected_additive, 'Additive exact source path closure differs')
     require(value.get('suite_inputs') == SUITE_INPUTS, 'Setup exact source path closure differs')
     for key in ('input_sha256',):
@@ -562,6 +564,7 @@ def identity_extraction(output, contract):
 
 def additive_extraction(output, contract, suite):
     spec, inputs = ADDITIVE_SPECS[suite], ADDITIVE_SUITE_INPUTS[suite]
+    if suite == 'cache-compatibility': inputs = cold_cache_inputs(contract, inputs)
     root = output / suite
     value = json.loads(regular(root, spec['receipt']).read_text())
     if suite == 'host-refresh-bundle':
@@ -627,8 +630,9 @@ def additive_extraction(output, contract, suite):
                 'candidate_sha256': contract['input_sha256']['SideStore/SideStore/Core/Operations/PipelineRunner.swift'],
                 'insertion_sha256': 'cd11ece003588f8aeac44bab28c1d3797c11dfb5e23e9facd7a947c8a7057af6'},
                 'Cache reviewed host source binding differs')
+            cold = verify_cold_cache_proof(value, contract)
             require(value.get('host_pipeline_byte_identical') is False and
-                value.get('host_pipeline_except_reviewed_reuse_main_byte_identical') is True and
+                (cold is not None or value.get('host_pipeline_except_reviewed_reuse_main_byte_identical') is True) and
                 value.get('reviewed_reuse_main_insertion_sha256') == change['insertion_sha256'],
                 'Cache host changed beyond reviewed ReuseMain insertion')
         require(all(value.get(key) is True for key in ('strict_compute_byte_identical', 'execute_and_pruning_byte_identical', 'original_cache_key_byte_identical_except_symbol', 'original_cache_flow_except_retained_safety_boundaries_symbol_and_logs', 'copy_helper_overwrite_disabled', 'cache_components_lstat_no_follow', 'production_darwin_import_present', 'trusted_apps_root_canonicalized_once', 'alias_regression_uses_production_getter', 'alias_before_reference_byte_identical')),

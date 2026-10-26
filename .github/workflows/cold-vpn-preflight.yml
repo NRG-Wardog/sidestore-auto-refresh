@@ -49,6 +49,9 @@ jobs:
           set -euo pipefail
           python3 -B harness/ci/issues-native/record.py acquire 2>&1 | tee evidence/acquisition.log
           python3 -B harness/ci/issues-native/verify_candidate_graph.py 2>&1 | tee evidence/source-graph.log
+          python3 -B harness/ci/issues-native/test_upstream_candidate_projection.py
+          python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py
+          python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
           { xcodebuild -version; swift --version; xcrun --sdk iphonesimulator --show-sdk-version; } > evidence/toolchain.log
           xcodebuild -version | grep -Fx 'Xcode 26.4.1'
       - name: Mandatory cold VPN source execution and iOS deployment-target typecheck

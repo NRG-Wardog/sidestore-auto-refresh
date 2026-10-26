@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from cold_vpn_cache_projection import PATH as COLD_VPN_CACHE_INPUT, add as add_cold_vpn_cache
 from russian_pairing_projection import add as add_russian_pairing
 from russian_setup_projection import REVIEWED_INPUT as RUSSIAN_REVIEWED_INPUT, add as add_russian_setup
 from verify_candidate_graph import HERE, load_candidate_graph, require, valid_path, git
@@ -71,7 +72,7 @@ def sha(data):
 def project(contract, graph, sources, additional_inputs=()):
     result = copy.deepcopy(contract)
     changes = {}
-    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT}
+    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT}
     require(set(additional_inputs) <= allowed, 'unreviewed additive contract input')
     inputs = dict(contract['input_sha256'])
     for path in additional_inputs:
@@ -111,9 +112,12 @@ def contracts(sources, output, verify=False):
         additional_inputs = ADDITIONAL_INPUTS[name]
         russian = RUSSIAN_REVIEWED_INPUT.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {})
         if russian and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (RUSSIAN_REVIEWED_INPUT,)
+        cold_cache = COLD_VPN_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {})
+        if cold_cache and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (COLD_VPN_CACHE_INPUT,)
         projected, changes = project(json.loads(original.read_text()), graph, sources, additional_inputs)
         if name == 'setup-state-recovery-contract.json':
             projected = add_reviewed_host_coverage(projected)
+            if cold_cache: projected = add_cold_vpn_cache(projected)
             if russian: projected = add_russian_setup(projected)
         elif russian:
             projected = add_russian_pairing(projected)
