@@ -7,7 +7,7 @@ import zipfile
 from experiment_sidebackup_stabs import OUTER, BINARY, transform_bound_nested
 from experiment_strip_stabs import digest, unique_zip, write
 from macho_stab_guard import require, sha, image_uuid
-from optimize_native_candidate import retained_inventory
+from optimize_native_candidate import retained_inventory, admitted_packaging_identity
 
 
 def bind_same_run(ipa, prior_report, transfer, receipt_path, run_identity, expected_manifest_sha):
@@ -56,9 +56,11 @@ def bind_same_run(ipa, prior_report, transfer, receipt_path, run_identity, expec
     return nested,bundle,inventory,diagnostics,seals
 
 
-def optimize_sidebackup_same_run(ipa, *, prior_report, transfer, receipt_path, run_identity, output, retained, expected_manifest_sha):
+def optimize_sidebackup_same_run(ipa, *, prior_report, transfer, receipt_path, run_identity, output, retained, expected_manifest_sha, packaging_identity=None):
     """Explicit callable only; caller must opt in after native qualification."""
     for folder in (output,retained):require(not folder.exists() and not folder.is_symlink(),'fresh third-stage directories required')
+    packaging_identity = admitted_packaging_identity(run_identity, packaging_identity)
+    require(prior_report.get('packaging_run_identity', run_identity) == packaging_identity, 'prior packaging identity differs')
     caller_prior,caller_identity=prior_report,run_identity
     admitted_prior=copy.deepcopy(prior_report);admitted_identity=copy.deepcopy(run_identity)
     prior_report,run_identity=admitted_prior,admitted_identity
@@ -66,7 +68,8 @@ def optimize_sidebackup_same_run(ipa, *, prior_report, transfer, receipt_path, r
     nested,bundle,inventory,diagnostics,seals=bind_same_run(ipa,prior_report,transfer,receipt_path,run_identity,expected_manifest_sha)
     output.mkdir(parents=True);retained.mkdir(parents=True)
     report={'schema':'same-run-sidebackup-debug-stab-v1','status':'FAILED','ipa_emitted':False,
-            'runtime_proven':False,'same_run_identity':run_identity,'input_ipa_sha256':digest(ipa),
+            'runtime_proven':False,'same_run_identity':run_identity,
+            'native_run_identity':dict(run_identity),'packaging_run_identity':dict(packaging_identity),'input_ipa_sha256':digest(ipa),
             'diagnostics':diagnostics, 'native_receipt_sha256':digest(receipt_path)}
     final=output/'SideBackup-debug-qualified.ipa'
     try:
@@ -87,7 +90,7 @@ def optimize_sidebackup_same_run(ipa, *, prior_report, transfer, receipt_path, r
             for relative,row in inventory.items():
                 if row['kind']=='file':require(sha(archive.read('Symbols/'+bundle.name+'/'+relative))==row['sha256'],'retained dSYM bytes differ')
         sidecar_hash=digest(sidecar)
-        immutable_keys=('schema','runtime_proven','same_run_identity','input_ipa_sha256','diagnostics',
+        immutable_keys=('schema','runtime_proven','same_run_identity','native_run_identity','packaging_run_identity','input_ipa_sha256','diagnostics',
                         'native_receipt_sha256','prior_stage_receipt_sha256')
         immutable_fields=copy.deepcopy({key:report[key] for key in immutable_keys})
         admitted_diagnostics=copy.deepcopy(report['diagnostics'])
@@ -114,6 +117,7 @@ def optimize_sidebackup_same_run(ipa, *, prior_report, transfer, receipt_path, r
             'final_ipa_sha256':report['final_ipa_sha256'],'archive_bytes_saved':report['archive_bytes_saved'],
             'receipt_sha256':digest(output/'third-stage-receipt.json'),'retained_diagnostics_sha256':digest(sidecar)}
         cumulative.update(schema='same-run-three-stage-symbol-optimization-v1',
+            native_run_identity=dict(run_identity),packaging_run_identity=dict(packaging_identity),
             status='THREE_STAGE_STRUCTURAL_AND_PACKAGE_CHECKS_PASS_DEVICE_UNVERIFIED',
             final_ipa_sha256=report['final_ipa_sha256'],final_ipa_bytes=final.stat().st_size,
             archive_bytes_saved=prior_report['archive_bytes_saved']+report['archive_bytes_saved'],

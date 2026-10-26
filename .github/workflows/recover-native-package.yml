@@ -1,0 +1,169 @@
+name: Recover fixed native candidate packaging
+on:
+  workflow_dispatch:
+  push:
+    branches: ['recovery/complete-issues-package']
+    paths: ['.github/workflows/recover-native-package.yml', 'ci/issues-native/**', 'scripts/**', 'tests/**']
+permissions:
+  contents: read
+concurrency:
+  group: recover-native-package-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  package:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/recovery/complete-issues-package'
+    runs-on: macos-26
+    timeout-minutes: 40
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact recovery harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/sidestore-auto-refresh
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+      - name: Checkout exact original LiveContainer source for package and language verification
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/LiveContainer
+          ref: 93634e6dd7bae045a9d63f4a4df7ab5f9dd82f49
+          path: sources/LiveContainer
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+      - name: Verify tools and recovery controls
+        id: controls
+        run: |
+          set -euo pipefail
+          mkdir -p recovery-evidence package-evidence diagnostic
+          xcodebuild -version | tee recovery-evidence/toolchain.log
+          xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+          python3 -B harness/ci/issues-native/test_recover_native_artifacts.py
+          python3 -B harness/ci/issues-native/test_recover_native.py
+          python3 -B harness/ci/issues-native/package_candidate.py --self-test
+      - name: Authenticate fixed original artifacts and restore immutable native products
+        id: acquisition
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/recover_native_artifacts.py 2>&1 | tee recovery-evidence/acquisition.log
+      - name: Require complete source-owned size controls without skips
+        id: size_controls
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_SIZE_TESTS' 2>&1 | tee recovery-evidence/native-size-controls.log
+          import pathlib, sys, unittest
+          root = pathlib.Path('harness/tests').resolve(strict=True)
+          sys.path.insert(0, str(root))
+          suite = unittest.TestSuite()
+          for pattern in ('test_macho_stab_guard.py', 'test_experiment_strip_stabs.py',
+                          'test_macho_local_symbol_guard.py', 'test_experiment_local_symbols.py', 'test_local_symbol_packaging.py', 'test_local_symbol_runtime_keep.py',
+                          'test_sidebackup_stabs.py', 'test_sidebackup_same_run.py',
+                          'test_native_size_optimization.py', 'test_combined_packaging.py', 'test_ipa_size_report.py'):
+              tests = unittest.TestLoader().discover(str(root), pattern=pattern)
+              if tests.countTestCases() == 0: raise ValueError('Missing size controls: ' + pattern)
+              suite.addTests(tests)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.skipped: raise SystemExit(1)
+          PY_SIZE_TESTS
+      - name: Package recovered native products under distinct recovery identity
+        id: packaging
+        run: |
+          set -euo pipefail
+          # Formula metadata is checked before bottle-only acquisition; never fetch the git source.
+          HOMEBREW_NO_AUTO_UPDATE=1 brew info --json=v2 --formula homebrew/core/ldid > package-evidence/ldid-formula.json
+          cat > package-evidence/validate_ldid_bottle.py <<'PY'
+          import json, pathlib, sys
+          
+          BOTTLE_SHA256 = 'b1deffb6e575a4996e31cef6cbc56aa009f5eea67b73b437f6aea597198866a6'
+          SOURCE_REVISION = 'a23f0faadd29ec00a6b7fb2498c3d15af15a7100'
+          
+          def validate(formula_json, receipt=None, keg_version=None):
+              formulas = formula_json['formulae']
+              if len(formulas) != 1: raise ValueError('Unexpected formula count')
+              formula = formulas[0]
+              if formula['name'] != 'ldid' or formula['tap'] != 'homebrew/core':
+                  raise ValueError('Not official Homebrew ldid')
+              source = formula['urls']['stable']
+              if (source['url'] != 'git://git.saurik.com/ldid.git' or source['tag'] != 'v2.1.5' or
+                  source['revision'] != SOURCE_REVISION):
+                  raise ValueError('Reviewed source identity differs; no source fetch is allowed')
+              bottle = formula['bottle']['stable']['files']['arm64_tahoe']
+              if (bottle['sha256'] != BOTTLE_SHA256 or
+                  bottle['url'] != 'https://ghcr.io/v2/homebrew/core/ldid/blobs/sha256:' + BOTTLE_SHA256):
+                  raise ValueError('Reviewed official HTTPS bottle differs')
+              if formula['versions']['stable'] != '2.1.5' or formula['revision'] != 2:
+                  raise ValueError('Reviewed ldid formula version differs')
+              if receipt is not None:
+                  if (receipt['poured_from_bottle'] is not True or receipt['built_as_bottle'] is not True or
+                      receipt['arch'] != 'arm64' or receipt['source']['tap'] != 'homebrew/core' or
+                      receipt['source']['spec'] != 'stable' or receipt['source']['scm_revision'] != SOURCE_REVISION or
+                      receipt['source']['versions']['stable'] != '2.1.5'):
+                      raise ValueError('Installed bottle receipt differs')
+                  installed = [v for v in formula['installed'] if v['version'] == keg_version]
+                  if (keg_version != '2.1.5_2' or len(installed) != 1 or
+                      installed[0]['poured_from_bottle'] is not True):
+                      raise ValueError('Installed ldid keg differs')
+          
+          if __name__ == '__main__':
+              formula = json.load(open('package-evidence/ldid-formula.json'))
+              if len(sys.argv) == 1:
+                  validate(formula)
+              else:
+                  prefix = pathlib.Path(sys.argv[1]).resolve(strict=True)
+                  binary = prefix / 'bin/ldid'
+                  if not binary.is_file() or not binary.resolve(strict=True).is_relative_to(prefix):
+                      raise ValueError('ldid binary is outside official installed keg')
+                  validate(formula, json.load(open('package-evidence/ldid-install-receipt.json')), prefix.name)
+          PY
+          python3 package-evidence/validate_ldid_bottle.py
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install --force-bottle --formula homebrew/core/ldid
+          HOMEBREW_NO_AUTO_UPDATE=1 brew info --json=v2 --formula homebrew/core/ldid > package-evidence/ldid-formula.json
+          LDID_PREFIX="$(brew --prefix homebrew/core/ldid)"
+          cp "$LDID_PREFIX/INSTALL_RECEIPT.json" package-evidence/ldid-install-receipt.json
+          python3 package-evidence/validate_ldid_bottle.py "$LDID_PREFIX"
+          export PATH="$LDID_PREFIX/bin:$PATH"
+          { xcodebuild -version; brew list --versions ldid; shasum -a 256 "$LDID_PREFIX/bin/ldid"; } > package-evidence/toolchain.log
+          python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native 2>&1 | tee package-evidence/package.log
+      - name: Upload verified experimental IPA and provenance
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: recovered-experimental-issues-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: diagnostic/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Retain original IPA and matching symbols separately
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: recovered-size-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: size-diagnostics/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Retain recovery diagnostics without changing original evidence
+        if: ${{ !cancelled() && (steps.controls.outcome == 'success' || steps.controls.outcome == 'failure' || steps.acquisition.outcome == 'success' || steps.acquisition.outcome == 'failure' || steps.size_controls.outcome == 'success' || steps.size_controls.outcome == 'failure' || steps.packaging.outcome == 'success' || steps.packaging.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-packaging-recovery-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            recovery-evidence/
+            package-evidence/
+          if-no-files-found: error
+          retention-days: 14

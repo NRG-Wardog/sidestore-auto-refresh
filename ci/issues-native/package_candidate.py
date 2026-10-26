@@ -52,12 +52,20 @@ def copy_size_reports(source, destination):
         if sha(target) != sha(path): raise ValueError('Size report copy differs')
 
 
-def main():
+def main(*, recover_fixed_native=False):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
     receipt = json.loads(Path('evidence/receipt.json').read_text())
+    packaging_identity = dict(workflow_commit=os.environ['GITHUB_SHA'], run_id=os.environ['GITHUB_RUN_ID'],
+                              run_attempt=os.environ['GITHUB_RUN_ATTEMPT'])
+    native_identity = packaging_identity
+    if recover_fixed_native:
+        from recover_native import IDENTITY, SEAL_SHA
+        native_identity = IDENTITY
+    recovery_provenance = None
     for key, expected in [('status', 'COMPILE_ONLY_PASS_REQUIRES_REVIEW'),
-                          ('workflow_commit', os.environ['GITHUB_SHA']),
-                          ('run_id', os.environ['GITHUB_RUN_ID']),
-                          ('run_attempt', os.environ['GITHUB_RUN_ATTEMPT'])]:
+                          ('workflow_commit', native_identity['workflow_commit']),
+                          ('run_id', native_identity['run_id']),
+                          ('run_attempt', native_identity['run_attempt'])]:
         if receipt[key] != expected: raise ValueError('Same-run compile receipt differs: ' + key)
     if receipt.get('evidence_sha256', {}).get('product-hashes.json') != sha(Path('evidence/product-hashes.json')):
         raise ValueError('Product manifest differs from compile receipt')
@@ -69,7 +77,11 @@ def main():
                       for owner in ('LiveContainer', 'SideStore')}
     run_identity = {key: receipt[key] for key in ('workflow_commit', 'run_id', 'run_attempt')}
     seal_path = Path('evidence/native-transfer-seal.json')
-    seal_sha = os.environ['NATIVE_TRANSFER_SEAL_SHA256']
+    seal_sha = SEAL_SHA if recover_fixed_native else os.environ['NATIVE_TRANSFER_SEAL_SHA256']
+    if recover_fixed_native:
+        from recover_native import verify as verify_recovery, verify_acquisition
+        acquisition_sha = verify_acquisition(Path('evidence'), Path('recovery-evidence/acquisition.json'), packaging_identity)
+        _, recovery_provenance = verify_recovery(Path('evidence'), transfer_roots, packaging_identity)
     sealed_manifests = verify_transfer_seal(seal_path, Path('evidence/receipt.json'), transfer_roots,
                                           run_identity, expected_seal_sha=seal_sha)
     expected = json.loads(Path('evidence/product-hashes.json').read_text())
@@ -81,6 +93,11 @@ def main():
         source = Path(os.environ['RUNNER_TEMP']) / ('native-' + owner) / 'Build/Products/Release-iphoneos' / (owner + '.app')
         observed, source_shape = inventory(source)
         if observed != expected[owner]: raise ValueError('Compiled product bytes changed: ' + owner)
+        if recover_fixed_native:
+            from optimize_native_candidate import retained_inventory
+            retained_manifest = json.loads((transfer_roots[owner] / 'retained-files.json').read_text())
+            if retained_inventory(source) != retained_manifest['app']:
+                raise ValueError('Recovered product modes/links differ from original seal: ' + owner)
         target = root / (owner + '.app')
         shutil.copytree(source, target, symlinks=True)
         copied, copied_shape = inventory(target)
@@ -108,17 +125,20 @@ def main():
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
     from optimize_native_candidate import optimize_same_run_ipa
     # Revalidate sealed generated inputs and exact unstripped native products before packaging-only stripping.
-    import record as native_record
-    generated_openssl = {}
-    for embedded, key in ((False, 'OpenSSLHost'), (True, 'OpenSSLEmbedded')):
-        native_record.verify_generated_openssl_payload(embedded=embedded)
-        snapshot = (native_record.generated_embedded_snapshot if embedded else native_record.generated_openssl_snapshot)(required=True, sealed=True)
-        generated_root = native_record.S / snapshot['relative_path']
-        if embedded: generated_root = generated_root / 'GeneratedDependencies/OpenSSL35'
-        framework = native_record.generated_device_framework(generated_root)
-        generated_openssl[key] = {'binary': framework / 'OpenSSL',
-            'dsym': framework.parent / 'dSYMs/OpenSSL.framework.dSYM',
-            'payload_receipt': native_record.E / ('generated-embedded-openssl-payload.json' if embedded else 'generated-openssl-payload.json')}
+    if recover_fixed_native:
+        generated_openssl, recovery_provenance = verify_recovery(Path('evidence'), transfer_roots, packaging_identity)
+    else:
+        import record as native_record
+        generated_openssl = {}
+        for embedded, key in ((False, 'OpenSSLHost'), (True, 'OpenSSLEmbedded')):
+            native_record.verify_generated_openssl_payload(embedded=embedded)
+            snapshot = (native_record.generated_embedded_snapshot if embedded else native_record.generated_openssl_snapshot)(required=True, sealed=True)
+            generated_root = native_record.S / snapshot['relative_path']
+            if embedded: generated_root = generated_root / 'GeneratedDependencies/OpenSSL35'
+            framework = native_record.generated_device_framework(generated_root)
+            generated_openssl[key] = {'binary': framework / 'OpenSSL',
+                'dsym': framework.parent / 'dSYMs/OpenSSL.framework.dSYM',
+                'payload_receipt': native_record.E / ('generated-embedded-openssl-payload.json' if embedded else 'generated-openssl-payload.json')}
     initial_hash = sha(initial)
     try:
         optimized, size_report = optimize_same_run_ipa(initial, expected_sha=initial_hash,
@@ -126,13 +146,15 @@ def main():
             receipt_path=Path('evidence/receipt.json'), work=Path('packaging-size-work'),
             output=Path('packaging-size-products'), retained=Path('size-diagnostics'),
             run_identity=run_identity, generated_openssl=generated_openssl, include_local_symbols=True,
-            expected_transfer_manifests=sealed_manifests)
+            expected_transfer_manifests=sealed_manifests,
+            **({'packaging_identity': packaging_identity} if recover_fixed_native else {}))
         size_report['native_transfer_seal_sha256'] = seal_sha
         from optimize_sidebackup_candidate import optimize_sidebackup_same_run
         optimized, size_report = optimize_sidebackup_same_run(optimized, prior_report=size_report,
             transfer=transfer_roots['SideStore'], receipt_path=Path('evidence/receipt.json'),
             run_identity=run_identity, output=Path('packaging-sidebackup-products'),
-            retained=Path('size-diagnostics/sidebackup'), expected_manifest_sha=sealed_manifests['SideStore'])
+            retained=Path('size-diagnostics/sidebackup'), expected_manifest_sha=sealed_manifests['SideStore'],
+            **({'packaging_identity': packaging_identity} if recover_fixed_native else {}))
         verify_transfer_seal(seal_path, Path('evidence/receipt.json'), transfer_roots,
                              run_identity, expected_seal_sha=seal_sha)
         shutil.copyfile(seal_path, Path('size-diagnostics/native-transfer-seal.json'))
@@ -141,8 +163,11 @@ def main():
     finally:
         copy_size_reports(Path('packaging-size-products'), Path('package-evidence/size-reports'))
         copy_size_reports(Path('packaging-sidebackup-products'), Path('package-evidence/sidebackup-reports'))
-    native_record.verify_generated_openssl_payload()
-    native_record.verify_generated_openssl_payload(embedded=True)
+    if recover_fixed_native:
+        verify_recovery(Path('evidence'), transfer_roots, packaging_identity)
+    else:
+        native_record.verify_generated_openssl_payload()
+        native_record.verify_generated_openssl_payload(embedded=True)
     # The transform never edits compiled products, receipts, or the initial IPA.
     for owner in expected:
         source = Path(os.environ['RUNNER_TEMP']) / ('native-' + owner) / 'Build/Products/Release-iphoneos' / (owner + '.app')
@@ -160,7 +185,7 @@ def main():
         Path('evidence/russian-localization/Russian.bundle/ru.lproj/InfoPlist.strings').read_bytes()))
     Path('diagnostic/russian-localization.json').write_text(json.dumps(russian, indent=2))
     Path('diagnostic/size-optimization.json').write_text(json.dumps(size_report, indent=2))
-    provenance = dict(schema_version=1, native_run_id=os.environ['GITHUB_RUN_ID'], native_run_attempt=os.environ['GITHUB_RUN_ATTEMPT'],
+    provenance = dict(schema_version=1, native_run_id=native_identity['run_id'], native_run_attempt=native_identity['run_attempt'],
                       workflow_commit=os.environ['GITHUB_SHA'], source_graph=receipt['requested_graph'],
                       russian_localization_sha256=sha(Path('diagnostic/russian-localization.json')),
                       ipa_bytes=output.stat().st_size, ipa_sha256=sha(output), channel='experimental',
@@ -170,6 +195,15 @@ def main():
                       native_transfer_seal_sha256=seal_sha,
                       retained_original_ipa_and_symbols_sha256=size_report['retained_debug_sidecar_sha256'],
                       signing_policy='reviewed Apple ad-hoc; original designated requirement replaced; installer resigning required')
+    if recover_fixed_native:
+        if verify_acquisition(Path('evidence'), Path('recovery-evidence/acquisition.json'), packaging_identity) != acquisition_sha:
+            raise ValueError('Acquisition receipt changed during packaging')
+        shutil.copyfile('recovery-evidence/acquisition.json', 'diagnostic/native-artifact-acquisition.json')
+        if sha(Path('diagnostic/native-artifact-acquisition.json')) != acquisition_sha:
+            raise ValueError('Retained acquisition receipt differs')
+        recovery_provenance['artifact_acquisition_receipt_sha256'] = acquisition_sha
+        provenance['native_workflow_commit'] = native_identity['workflow_commit']
+        provenance['packaging_recovery'] = recovery_provenance
     Path('diagnostic/provenance.json').write_text(json.dumps(provenance, indent=2))
     Path('diagnostic/SHA256SUMS').write_text(sha(output) + '  ' + output.name + '\n')
     shutil.copyfile('evidence/receipt.json', 'diagnostic/native-receipt.json')
@@ -216,6 +250,8 @@ def self_test():
 if __name__ == '__main__':
     if sys.argv[1:] == ['--self-test']:
         self_test()
+    elif sys.argv[1:] == ['--recover-fixed-native']:
+        main(recover_fixed_native=True)
     elif sys.argv[1:]:
         raise SystemExit('unknown arguments')
     else:

@@ -120,6 +120,15 @@ class SameRunOptimizationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'sealed native retention manifest changed'):
                 self.call(expected_transfer_manifests=expected)
 
+    def test_recovery_identity_does_not_replace_native_receipt_identity(self):
+        actual={'run_id':'recovery','run_attempt':'4','workflow_commit':'new-source'}
+        receipt=json.loads(self.receipt.read_text());receipt['run_id']='wrong-native';self.receipt.write_text(json.dumps(receipt))
+        with patch.dict(os.environ,{'GITHUB_RUN_ID':'recovery','GITHUB_RUN_ATTEMPT':'4','GITHUB_SHA':'new-source'}), \
+             patch.object(adapter,'transform_verified_inputs') as transform:
+            with self.assertRaisesRegex(ValueError,'native optimization run identity'):
+                self.call(packaging_identity=actual)
+            transform.assert_not_called()
+
     @staticmethod
     def synthetic_transform(original, targets, diagnostics, sidecar, **kwargs):
         output, report = kwargs['output'], kwargs['report']
@@ -293,11 +302,11 @@ class TwoStageAdapterTests(unittest.TestCase):
         adapter.write(out/'diagnostic.json',report)
         return report
 
-    def call(self, driver=None):
+    def call(self, driver=None, packaging_identity=None):
         with patch.object(adapter,'run_local_symbol_stage',side_effect=driver or self.driver), \
                 patch('ipa_size_report.report',return_value={'uncompressed_bundle_bytes':250}):
             return adapter.add_local_symbol_stage(self.initial,self.first,self.sidecar,self.output,
-                                                 self.retained,self.report,self.identity)
+                                                 self.retained,self.report,self.identity,packaging_identity=packaging_identity)
 
     def test_exact_chain_both_receipts_retained_and_actual_total(self):
         initial,first,symbols=map(adapter.digest,(self.initial,self.first,self.sidecar))
@@ -315,6 +324,64 @@ class TwoStageAdapterTests(unittest.TestCase):
         self.assertTrue((self.retained/'local-stage-receipt.json').is_file())
         self.assertEqual(adapter.digest(self.retained/'local-symbol-stage-inputs/original.ipa'),first)
         self.assertEqual(adapter.digest(self.retained/'local-symbol-stage-inputs/matching-debug-diagnostics.zip'),symbols)
+
+    def test_real_macho_snapshot_roundtrip_preserves_json_receipt(self):
+        from macho_stab_guard import snapshot
+        def fake(*args):
+            report=self.driver(*args)
+            report['targets']['SideStore']['before']=snapshot(fixture())
+            self.assertIsInstance(report['targets']['SideStore']['before']['header'],tuple)
+            adapter.write(args[2]/'diagnostic.json',report)
+            self.assertNotEqual(json.loads((args[2]/'diagnostic.json').read_text()),report)
+            return report
+        final=self.call(fake)
+        self.assertTrue(final.is_file())
+        persisted=json.loads((self.retained/'local-stage-receipt.json').read_text())
+        self.assertEqual(persisted['targets']['SideStore']['before']['header'],
+                         list(snapshot(fixture())['header']))
+
+    def test_json_receipt_mutations_types_and_duplicates_fail_closed(self):
+        from macho_stab_guard import snapshot
+        path=self.root/'strict-receipt.json'
+        returned={'snapshot':snapshot(fixture()),'accepted':True,'count':1,'nested':{'list':(1,2)}}
+        adapter.write(path,returned)
+        adapter.verify_persisted_json_receipt(path,returned)
+        for mutate in (
+            lambda row: row['snapshot']['header'].__setitem__(0,0),
+            lambda row: row.__setitem__('accepted',1),
+            lambda row: row.__setitem__('count',True),
+            lambda row: row['nested']['list'].__setitem__(1,3),
+            lambda row: row.pop('nested')):
+            value=json.loads(json.dumps(returned));mutate(value);adapter.write(path,value)
+            with self.assertRaises(ValueError):adapter.verify_persisted_json_receipt(path,returned)
+        path.write_text('{"accepted":false,"accepted":true}')
+        with self.assertRaisesRegex(ValueError,'duplicate'):adapter.verify_persisted_json_receipt(path,{'accepted':True})
+        adapter.write(path,{'number':float('nan')})
+        with self.assertRaises(ValueError):adapter.verify_persisted_json_receipt(path,{'number':float('nan')})
+
+    def test_recovery_packaging_identity_is_actual_environment_not_native(self):
+        packaging={'run_id':'new-run','run_attempt':'2','workflow_commit':'new-workflow'}
+        def fake(*args):
+            report=self.driver(*args);report.update(packaging)
+            adapter.write(args[2]/'diagnostic.json',report);return report
+        with patch.dict(os.environ,{'GITHUB_RUN_ID':'new-run','GITHUB_RUN_ATTEMPT':'2','GITHUB_SHA':'new-workflow'}):
+            final=self.call(fake,packaging_identity=packaging)
+        self.assertTrue(final.is_file())
+        self.assertEqual(self.report['native_run_identity'],self.identity)
+        self.assertEqual(self.report['packaging_run_identity'],packaging)
+
+    def test_spoofed_packaging_identity_rejected_before_tool(self):
+        with patch.dict(os.environ,{'GITHUB_RUN_ID':'actual','GITHUB_RUN_ATTEMPT':'2','GITHUB_SHA':'actual-commit'}), \
+             patch.object(adapter,'run_local_symbol_stage') as run:
+            with self.assertRaisesRegex(ValueError,'actual current workflow'):
+                self.call(packaging_identity={'run_id':'spoof','run_attempt':'2','workflow_commit':'actual-commit'})
+            run.assert_not_called()
+
+    def test_original_native_identity_cannot_impersonate_recovery_output(self):
+        packaging={'run_id':'new-run','run_attempt':'2','workflow_commit':'new-workflow'}
+        with patch.dict(os.environ,{'GITHUB_RUN_ID':'new-run','GITHUB_RUN_ATTEMPT':'2','GITHUB_SHA':'new-workflow'}):
+            with self.assertRaisesRegex(ValueError,'packaging identity'):
+                self.call(packaging_identity=packaging)
 
     def test_unqualified_result_fails_closed(self):
         def fake(*args):

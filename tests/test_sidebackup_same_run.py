@@ -125,3 +125,26 @@ class SameRunSideBackupTests(unittest.TestCase):
                 adapter.optimize_sidebackup_same_run(self.ipa,prior_report=self.prior,transfer=self.transfer,
                     receipt_path=self.receipt,run_identity=self.identity,output=output,retained=self.root/'retained',
                     expected_manifest_sha=self.manifest_sha)
+    def test_recovery_packaging_identity_is_separate_from_native_binding(self):
+        packaging={'run_id':'recovery-run','run_attempt':'2','workflow_commit':'packager-source'}
+        self.prior['packaging_run_identity']=packaging
+        with patch.dict('os.environ',{'GITHUB_RUN_ID':'recovery-run','GITHUB_RUN_ATTEMPT':'2','GITHUB_SHA':'packager-source'}), \
+             patch.object(adapter,'transform_bound_nested',side_effect=ValueError('reached transform')):
+            with self.assertRaisesRegex(ValueError,'reached transform'):
+                adapter.optimize_sidebackup_same_run(self.ipa,prior_report=self.prior,transfer=self.transfer,
+                    receipt_path=self.receipt,run_identity=self.identity,output=self.root/'recovery-output',
+                    retained=self.root/'recovery-retained',expected_manifest_sha=self.manifest_sha,packaging_identity=packaging)
+        report=json.loads((self.root/'recovery-output/experiment.json').read_text())
+        self.assertEqual(report['native_run_identity'],self.identity)
+        self.assertEqual(report['packaging_run_identity'],packaging)
+        self.assertEqual(report['same_run_identity'],self.identity)
+    def test_third_stage_rejects_mismatched_packager(self):
+        packaging={'run_id':'recovery-run','run_attempt':'2','workflow_commit':'packager-source'}
+        self.prior['packaging_run_identity']={**packaging,'run_id':'wrong'}
+        with patch.dict('os.environ',{'GITHUB_RUN_ID':'recovery-run','GITHUB_RUN_ATTEMPT':'2','GITHUB_SHA':'packager-source'}), \
+             patch.object(adapter,'transform_bound_nested') as transform:
+            with self.assertRaisesRegex(ValueError,'prior packaging identity'):
+                adapter.optimize_sidebackup_same_run(self.ipa,prior_report=self.prior,transfer=self.transfer,
+                    receipt_path=self.receipt,run_identity=self.identity,output=self.root/'output',
+                    retained=self.root/'retained',expected_manifest_sha=self.manifest_sha,packaging_identity=packaging)
+            transform.assert_not_called()

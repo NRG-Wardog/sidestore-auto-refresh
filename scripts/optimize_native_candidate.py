@@ -36,7 +36,37 @@ def run_local_symbol_stage(ipa, sidecar, output):
     return experiment(ipa, digest(ipa), sidecar, digest(sidecar), output, qualify_package=True)
 
 
-def add_local_symbol_stage(initial, first, sidecar, output, retained, report, run_identity):
+def verify_persisted_json_receipt(path, returned):
+    """Compare JSON values, including native tuples encoded as JSON arrays."""
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, 'duplicate persisted receipt field')
+            result[key] = value
+        return result
+    persisted = json.loads(path.read_text(), object_pairs_hook=unique_fields)
+    def canonical(value):
+        return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    require(canonical(persisted) == canonical(returned), 'local-stage returned and persisted receipts differ')
+
+
+def admitted_packaging_identity(native_identity, packaging_identity=None):
+    """Recovery runs retain original native identity without spoofing current CI."""
+    keys = {'run_id', 'run_attempt', 'workflow_commit'}
+    require(set(native_identity) == keys, 'native identity fields differ')
+    selected = dict(native_identity if packaging_identity is None else packaging_identity)
+    require(set(selected) == keys and all(isinstance(value, str) and value for value in selected.values()),
+            'packaging identity fields differ')
+    if packaging_identity is not None:
+        actual = {'run_id': os.environ.get('GITHUB_RUN_ID'), 'run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT'),
+                  'workflow_commit': os.environ.get('GITHUB_SHA')}
+        require(selected == actual, 'packaging identity is not actual current workflow')
+    return selected
+
+
+def add_local_symbol_stage(initial, first, sidecar, output, retained, report, run_identity, packaging_identity=None):
+    run_identity = dict(run_identity)
+    packaging_identity = admitted_packaging_identity(run_identity, packaging_identity)
     first_hash, sidecar_hash = digest(first), digest(sidecar)
     require(digest(initial) == report['original_ipa_sha256'], 'original initial IPA binding differs')
     require(report['status'] == 'STRUCTURAL_AND_PACKAGE_CHECKS_PASS_DEVICE_UNVERIFIED',
@@ -53,14 +83,14 @@ def add_local_symbol_stage(initial, first, sidecar, output, retained, report, ru
     local_receipt = local_root / 'diagnostic.json'
     require(final.is_file() and not final.is_symlink() and local_receipt.is_file() and not local_receipt.is_symlink(),
             'local-stage package or receipt is missing/linked')
-    require(json.loads(local_receipt.read_text()) == local, 'local-stage returned and persisted receipts differ')
+    verify_persisted_json_receipt(local_receipt, local)
     require(local['schema'] == 'local-symbol-diagnostic-v1' and
             local['status'] == 'LOCAL_SYMBOL_PACKAGE_QUALIFIED_DEVICE_AND_RELEASE_UNQUALIFIED' and
             local['packaging_approved'] is True and local['signature_verified'] is True and
             local['ipa_emitted'] is True and local['runtime_proven'] is False,
             'local-stage qualification is incomplete')
-    require(all(local[key] == run_identity[key] for key in ('run_id', 'run_attempt', 'workflow_commit')),
-            'local-stage run identity differs')
+    require(all(local[key] == packaging_identity[key] for key in ('run_id', 'run_attempt', 'workflow_commit')),
+            'local-stage packaging identity differs')
     require(local['input_ipa_sha256'] == first_hash and local['retained_symbols_sha256'] == sidecar_hash,
             'local-stage input binding differs')
     require(set(local['targets']) == set(TARGETS) and set(local['diagnostics']) == set(TARGETS),
@@ -90,6 +120,8 @@ def add_local_symbol_stage(initial, first, sidecar, output, retained, report, ru
     for source, name in ((stage1_receipt, 'stab-stage-receipt.json'), (local_receipt, 'local-stage-receipt.json')):
         shutil.copyfile(source, retained/name)
         require(digest(source) == digest(retained/name), 'retained stage receipt differs')
+    report['native_run_identity'] = dict(run_identity)
+    report['packaging_run_identity'] = dict(packaging_identity)
     report['stages'] = {
         'debug_stabs': {'input_ipa_sha256': report['original_ipa_sha256'], 'final_ipa_sha256': first_hash,
                        'archive_bytes_saved': initial.stat().st_size-first.stat().st_size,
@@ -115,7 +147,10 @@ def add_local_symbol_stage(initial, first, sidecar, output, retained, report, ru
 
 def optimize_same_run_ipa(original, *, expected_sha, transfer_roots, receipt_path,
                           work, output, retained, run_identity, generated_openssl=None, include_local_symbols=False,
-                          expected_transfer_manifests=None):
+                          expected_transfer_manifests=None, packaging_identity=None):
+    run_identity = dict(run_identity)
+    explicit_packaging_identity = None if packaging_identity is None else dict(packaging_identity)
+    packaging_identity = admitted_packaging_identity(run_identity, explicit_packaging_identity)
     require(original.is_file() and not original.is_symlink() and digest(original) == expected_sha,
             'same-run initial IPA differs')
     require(set(transfer_roots) == {'LiveContainer', 'SideStore'}, 'native transfer closure differs')
@@ -185,7 +220,8 @@ def optimize_same_run_ipa(original, *, expected_sha, transfer_roots, receipt_pat
     work.mkdir(parents=True); output.mkdir(parents=True)
     sidecar = work / 'retained-debug-diagnostics.zip'
     report = {'schema': 'same-run-debug-stab-optimization-v1', 'status': 'FAILED',
-              'original_ipa_sha256': expected_sha, 'same_run_identity': run_identity,
+              'original_ipa_sha256': expected_sha, 'same_run_identity': dict(run_identity),
+              'native_run_identity': dict(run_identity), 'packaging_run_identity': dict(packaging_identity),
               'native_receipt_sha256': receipt_hash, 'physical_device_execution': False,
               'production_admission': False, 'native_app_rebuild': False, 'transformations': {}}
     try:
@@ -232,7 +268,7 @@ def optimize_same_run_ipa(original, *, expected_sha, transfer_roots, receipt_pat
         retained.mkdir(parents=True)
         final = output / 'LiveContainer-SideStore-debug-stabs-experiment.ipa'
         if include_local_symbols:
-            final = add_local_symbol_stage(original, final, output/sidecar.name, output, retained, report, run_identity)
+            final = add_local_symbol_stage(original, final, output/sidecar.name, output, retained, report, run_identity, packaging_identity=explicit_packaging_identity)
         shutil.move(str(output / sidecar.name), retained / sidecar.name)
         require(digest(retained / sidecar.name) == report['retained_debug_sidecar_sha256'], 'retained sidecar copy differs')
         require(digest(original) == expected_sha and digest(receipt_path) == receipt_hash,
