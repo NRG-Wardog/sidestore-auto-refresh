@@ -57,9 +57,9 @@ def runtime_save_list(data):
                    'six_metadata_access_descriptor_and_type_roots_required':True}
 
 
-def classify(data, *, allow_apple_local_sentinel=False, unsigned_executable=False, preserve_private_externals=False):
+def classify(data, *, allow_apple_local_sentinel=False, unsigned_executable=False, preserve_private_externals=False, host_legacy_dyld=False):
     require(not unsigned_executable or preserve_private_externals, 'unsigned executable local policy must preserve all private externals')
-    shape = snapshot(data, unsigned_executable=unsigned_executable)  # All bounds/ranges, category closure and blob checks first.
+    shape = snapshot(data, unsigned_executable=unsigned_executable, host_legacy_dyld=host_legacy_dyld)  # All bounds/ranges, category closure and blob checks first.
     rows, dysym = symbol_rows(data)
     sentinel = shape['stab_count'] != 0
     if sentinel:
@@ -86,8 +86,8 @@ def classify(data, *, allow_apple_local_sentinel=False, unsigned_executable=Fals
     return shape, Counter(removable), Counter(protected)
 
 
-def verify_local_removal(before, after, *, require_reduction=True, unsigned_executable=False, preserve_private_externals=False):
-    policy = {'unsigned_executable': unsigned_executable, 'preserve_private_externals': preserve_private_externals}
+def verify_local_removal(before, after, *, require_reduction=True, unsigned_executable=False, preserve_private_externals=False, host_legacy_dyld=False):
+    policy = {'unsigned_executable': unsigned_executable, 'preserve_private_externals': preserve_private_externals, 'host_legacy_dyld': host_legacy_dyld}
     old, old_local, old_protected = classify(before, **policy)
     new, new_local, new_protected = classify(after, allow_apple_local_sentinel=True, **policy)
     for key in ('header', 'uuid', 'commands', 'segments', 'sections', 'linkedit_offset',

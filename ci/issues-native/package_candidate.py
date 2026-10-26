@@ -52,7 +52,43 @@ def copy_size_reports(source, destination):
         if sha(target) != sha(path): raise ValueError('Size report copy differs')
 
 
-def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False):
+def admit_openssl_local_qualification(enabled, native_identity, packaging_identity):
+    """Explicit trusted acquisition inputs, checked before any packaging tool."""
+    if not enabled:
+        return None
+    import re
+    raw_path = os.environ.get('OPENSSL_LOCAL_HOST_QUALIFICATION_RECEIPT', '')
+    expected = os.environ.get('OPENSSL_LOCAL_HOST_QUALIFICATION_SHA256', '')
+    if not raw_path or re.fullmatch('[0-9a-f]{64}', expected) is None:
+        raise ValueError('Explicit verified OpenSSL host qualification path and trusted SHA256 required')
+    path = Path(raw_path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError('OpenSSL host qualification must be a regular receipt')
+    from optimize_openssl_local_candidate import verify_host_qualification
+    binding = verify_host_qualification(path, expected, packaging_identity, native_identity)
+    return path, expected, binding
+
+
+def append_openssl_local_stage(ipa, report, qualification, *, transfer_roots, receipt_path,
+                              seal_path, seal_sha, native_identity, packaging_identity):
+    """One narrow caller for the independently guarded fourth-stage adapter."""
+    from optimize_openssl_local_candidate import optimize_openssl_local_candidate
+    from optimize_native_candidate import verify_persisted_json_receipt
+    prior_path = Path('size-diagnostics/sidebackup/cumulative-receipt.json')
+    verify_persisted_json_receipt(prior_path, report)
+    qualification_path, qualification_sha, _ = qualification
+    return optimize_openssl_local_candidate(ipa, prior_report=report, prior_receipt_path=prior_path,
+        expected_prior_receipt_sha=sha(prior_path), transfer_roots=transfer_roots,
+        receipt_path=receipt_path, seal_path=seal_path, expected_seal_sha=seal_sha,
+        native_identity=native_identity, packaging_identity=packaging_identity,
+        original_sidecar=Path('size-diagnostics/retained-debug-diagnostics.zip'),
+        host_qualification_path=qualification_path, expected_host_qualification_sha=qualification_sha,
+        output=Path('packaging-openssl-local-products'), retained=Path('size-diagnostics/openssl-local'))
+
+
+def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False):
+    if strip_openssl_true_locals and not (recover_fixed_native and strip_unsigned_widget and strip_widget_true_locals):
+        raise ValueError('OpenSSL local experiment requires explicit current fixed-native widget qualification path')
     if strip_widget_true_locals and not (recover_fixed_native and strip_unsigned_widget):
         raise ValueError('Widget true-local experiment requires fixed-native recovery and unsigned widget debug stripping')
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
@@ -63,6 +99,7 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
     if recover_fixed_native:
         from recover_native import IDENTITY, SEAL_SHA
         native_identity = IDENTITY
+    openssl_qualification = admit_openssl_local_qualification(strip_openssl_true_locals, native_identity, packaging_identity)
     recovery_provenance = None
     for key, expected in [('status', 'COMPILE_ONLY_PASS_REQUIRES_REVIEW'),
                           ('workflow_commit', native_identity['workflow_commit']),
@@ -169,6 +206,10 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
             run_identity=run_identity, output=Path('packaging-sidebackup-products'),
             retained=Path('size-diagnostics/sidebackup'), expected_manifest_sha=sealed_manifests['SideStore'],
             **({'packaging_identity': packaging_identity} if recover_fixed_native else {}))
+        if openssl_qualification is not None:
+            optimized, size_report = append_openssl_local_stage(optimized, size_report, openssl_qualification,
+                transfer_roots=transfer_roots, receipt_path=Path('evidence/receipt.json'), seal_path=seal_path,
+                seal_sha=seal_sha, native_identity=native_identity, packaging_identity=packaging_identity)
         verify_transfer_seal(seal_path, Path('evidence/receipt.json'), transfer_roots,
                              run_identity, expected_seal_sha=seal_sha)
         shutil.copyfile(seal_path, Path('size-diagnostics/native-transfer-seal.json'))
@@ -177,6 +218,7 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
     finally:
         copy_size_reports(Path('packaging-size-products'), Path('package-evidence/size-reports'))
         copy_size_reports(Path('packaging-sidebackup-products'), Path('package-evidence/sidebackup-reports'))
+        copy_size_reports(Path('packaging-openssl-local-products'), Path('package-evidence/openssl-local-reports'))
     if recover_fixed_native:
         verify_recovery(Path('evidence'), transfer_roots, packaging_identity)
     else:
@@ -221,6 +263,16 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
                       native_transfer_seal_sha256=seal_sha,
                       retained_original_ipa_and_symbols_sha256=size_report['retained_debug_sidecar_sha256'],
                       signing_policy='reviewed Apple ad-hoc; original designated requirement replaced; installer resigning required')
+    if openssl_qualification is not None:
+        stage_receipt = Path('size-diagnostics/openssl-local/fourth-stage-receipt.json')
+        expected_stage_sha = size_report['stages']['openssl_local_symbols']['receipt_sha256']
+        if sha(stage_receipt) != expected_stage_sha:
+            raise ValueError('OpenSSL fourth-stage receipt changed')
+        shutil.copyfile(stage_receipt, 'diagnostic/openssl-local-stage.json')
+        if sha(Path('diagnostic/openssl-local-stage.json')) != expected_stage_sha:
+            raise ValueError('Retained OpenSSL fourth-stage receipt differs')
+        provenance['openssl_local_qualification'] = dict(stage_receipt_sha256=expected_stage_sha,
+            host_qualification_receipt_sha256=openssl_qualification[1], ios_runtime_qualified=False)
     if widget_report is not None:
         provenance['unsigned_widget_prepackaging'] = size_report['prepackaging_unsigned_widget']
     if recover_fixed_native:
@@ -278,6 +330,8 @@ def self_test():
 if __name__ == '__main__':
     if sys.argv[1:] == ['--self-test']:
         self_test()
+    elif sys.argv[1:] == ['--recover-fixed-native', '--strip-unsigned-widget', '--strip-widget-true-locals', '--strip-openssl-true-locals']:
+        main(recover_fixed_native=True, strip_unsigned_widget=True, strip_widget_true_locals=True, strip_openssl_true_locals=True)
     elif sys.argv[1:] == ['--recover-fixed-native', '--strip-unsigned-widget', '--strip-widget-true-locals']:
         main(recover_fixed_native=True, strip_unsigned_widget=True, strip_widget_true_locals=True)
     elif sys.argv[1:] == ['--recover-fixed-native', '--strip-unsigned-widget']:

@@ -9,7 +9,7 @@ NORMAL=(ROOT/'.github/workflows/issues-native.yml').read_text()
 
 class WidgetWorkflowTests(unittest.TestCase):
  def test_only_recovery_packaging_opts_in(self):
-  command='python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native --strip-unsigned-widget --strip-widget-true-locals 2>&1 | tee package-evidence/package.log'
+  command='python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native --strip-unsigned-widget --strip-widget-true-locals --strip-openssl-true-locals 2>&1 | tee package-evidence/package.log'
   self.assertEqual(RECOVERY.count(command),1)
   self.assertNotIn('--strip-unsigned-widget',NORMAL)
   self.assertNotIn('--strip-widget-true-locals',NORMAL)

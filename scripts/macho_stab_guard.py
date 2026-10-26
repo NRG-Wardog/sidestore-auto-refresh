@@ -52,12 +52,17 @@ def symbol_digest(symbols):
     return h.hexdigest()
 
 
-def snapshot(data, *, unsigned_executable=False):
+def snapshot(data, *, unsigned_executable=False, host_legacy_dyld=False):
     header, command_end, rows = commands(data)
     require(header[2] == (2 if unsigned_executable else 6), 'only reviewed Mach-O file type supported')
     if unsigned_executable:
         require(sum(cmd == 0x80000028 for cmd, _ in rows) == 1, 'unsigned executable requires exactly one LC_MAIN')
         require(not any(cmd == 0x1d for cmd, _ in rows), 'unsigned executable must have no signature')
+    if host_legacy_dyld:
+        platforms=[struct.unpack_from('<I', raw, 8)[0] for cmd,raw in rows if cmd==0x32 and len(raw)>=24]
+        require(not unsigned_executable and header[2]==6 and platforms==[1], 'legacy dyld opt-in requires one macOS dylib build-version')
+        require(not any(cmd in (0x80000033,0x80000034) for cmd,_ in rows), 'mixed legacy/modern dyld representation unsupported')
+    legacy_seen=False
     normalized, blobs, ranges, segments, section_rows = [], [], [], [], []
     linkedit = symtab = dysymtab = None
     signature = None
@@ -100,6 +105,18 @@ def snapshot(data, *, unsigned_executable=False):
             require(not any(dysymtab[i] for i in (8, 9, 10, 11, 12, 13, 16, 17, 18, 19)), 'unsupported symbol relocation/module/reference tables')
             norm[8:32] = b'\0' * 24  # symbol category ranges remap with STAB removal
             struct.pack_into('<I', norm, 56, 0)  # indirect table location may move
+        elif command == 0x80000022 and host_legacy_dyld:
+            require(not legacy_seen and len(raw)==48, 'invalid/duplicate legacy dyld info')
+            legacy_seen=True
+            # dyld_info_command has five distinct offset/size pairs. Offsets can
+            # move during stripping; lengths and every payload byte must remain.
+            for index in range(5):
+                offset,size=struct.unpack_from('<II',raw,8+8*index)
+                require((size==0 and offset==0) or (size>0 and offset<=len(data) and size<=len(data)-offset), 'invalid legacy dyld payload bounds')
+                if size:
+                    ranges.append((offset,offset+size,('legacy-dyld',index)))
+                blobs.append((command,index,size,sha(data[offset:offset+size])))
+                struct.pack_into('<I',norm,8+8*index,0)
         elif command in BLOB_COMMANDS or command == 0x1d:
             require(len(raw) == 16, 'invalid linkedit data command')
             offset, size = struct.unpack_from('<II', raw, 8)
@@ -128,6 +145,7 @@ def snapshot(data, *, unsigned_executable=False):
         else:
             raise ValueError('unreviewed load command: ' + hex(command))
         normalized.append((command, bytes(norm).hex()))
+    require(not host_legacy_dyld or legacy_seen, 'host legacy dyld command required')
     require(linkedit is not None and symtab is not None and dysymtab is not None, 'missing linkedit symbol metadata')
     linkoff, linksize = linkedit
     require(command_end <= linkoff and linkoff + linksize == len(data), 'LINKEDIT must cover exact file tail')
@@ -187,8 +205,8 @@ def snapshot(data, *, unsigned_executable=False):
             'command_end': command_end, 'bytes': len(data), 'sha256': sha(data)}
 
 
-def verify(before, after, *, require_reduction=True, preserve_stabs=False, unsigned_executable=False):
-    old, new = snapshot(before, unsigned_executable=unsigned_executable), snapshot(after, unsigned_executable=unsigned_executable)
+def verify(before, after, *, require_reduction=True, preserve_stabs=False, unsigned_executable=False, host_legacy_dyld=False):
+    old, new = snapshot(before, unsigned_executable=unsigned_executable, host_legacy_dyld=host_legacy_dyld), snapshot(after, unsigned_executable=unsigned_executable, host_legacy_dyld=host_legacy_dyld)
     for key in ('header', 'uuid', 'commands', 'segments', 'sections', 'linkedit_offset',
                 'linkedit_blobs', 'symbols', 'symbol_count', 'symbol_groups', 'indirect_symbols'):
         require(old[key] == new[key], 'non-debug image semantics changed: ' + key)

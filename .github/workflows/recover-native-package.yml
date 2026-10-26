@@ -54,6 +54,9 @@ jobs:
           xcodebuild -version | grep -Fx 'Xcode 26.4.1'
           python3 -B harness/ci/issues-native/test_recover_native_artifacts.py
           python3 -B harness/ci/issues-native/test_recover_native.py
+          python3 -B harness/ci/issues-native/test_acquire_openssl_host_qualification.py
+          python3 -B harness/ci/issues-native/test_openssl_host_acquisition_workflow.py
+          python3 -B harness/ci/issues-native/test_openssl_local_packaging.py
           python3 -B harness/ci/issues-native/package_candidate.py --self-test
           python3 -B harness/ci/issues-native/test_unsigned_widget_workflow.py
           python3 - <<'PY_WIDGET_TESTS' 2>&1 | tee recovery-evidence/unsigned-widget-controls.log
@@ -69,6 +72,26 @@ jobs:
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           if not result.wasSuccessful() or result.skipped: raise SystemExit(1)
           PY_WIDGET_TESTS
+          python3 -B harness/ci/issue55-openssl-local/test_host_qualification.py
+          python3 - <<'PY_OPENSSL_TESTS' 2>&1 | tee recovery-evidence/openssl-local-controls.log
+          import pathlib, sys, unittest
+          root = pathlib.Path('harness/tests').resolve(strict=True)
+          sys.path.insert(0, str(root))
+          suite = unittest.TestSuite()
+          for pattern in ('test_openssl_local_symbol_policy.py', 'test_openssl_local_candidate.py'):
+              tests = unittest.TestLoader().discover(str(root), pattern=pattern)
+              if tests.countTestCases() == 0: raise ValueError('Missing OpenSSL controls: ' + pattern)
+              suite.addTests(tests)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.skipped: raise SystemExit(1)
+          PY_OPENSSL_TESTS
+      - name: Acquire exact successful OpenSSL host qualification evidence
+        id: host_qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/acquire_openssl_host_qualification.py 2>&1 | tee recovery-evidence/openssl-host-acquisition.log
       - name: Authenticate fixed original artifacts and restore immutable native products
         id: acquisition
         env:
@@ -153,7 +176,7 @@ jobs:
           python3 package-evidence/validate_ldid_bottle.py "$LDID_PREFIX"
           export PATH="$LDID_PREFIX/bin:$PATH"
           { xcodebuild -version; brew list --versions ldid; shasum -a 256 "$LDID_PREFIX/bin/ldid"; } > package-evidence/toolchain.log
-          python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native --strip-unsigned-widget --strip-widget-true-locals 2>&1 | tee package-evidence/package.log
+          python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native --strip-unsigned-widget --strip-widget-true-locals --strip-openssl-true-locals 2>&1 | tee package-evidence/package.log
       - name: Upload verified experimental IPA and provenance
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -182,7 +205,7 @@ jobs:
           compression-level: 0
           retention-days: 14
       - name: Retain recovery diagnostics without changing original evidence
-        if: ${{ !cancelled() && (steps.controls.outcome == 'success' || steps.controls.outcome == 'failure' || steps.acquisition.outcome == 'success' || steps.acquisition.outcome == 'failure' || steps.size_controls.outcome == 'success' || steps.size_controls.outcome == 'failure' || steps.packaging.outcome == 'success' || steps.packaging.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.controls.outcome == 'success' || steps.controls.outcome == 'failure' || steps.host_qualification.outcome == 'success' || steps.host_qualification.outcome == 'failure' || steps.acquisition.outcome == 'success' || steps.acquisition.outcome == 'failure' || steps.size_controls.outcome == 'success' || steps.size_controls.outcome == 'failure' || steps.packaging.outcome == 'success' || steps.packaging.outcome == 'failure') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: native-packaging-recovery-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}

@@ -1,0 +1,16 @@
+{
+  "schema": "fixed-openssl-host-qualification-artifact-v1",
+  "status": "VERIFIED_GREEN_IMMUTABLE_ARTIFACT",
+  "repository": "NRG-Wardog/sidestore-auto-refresh",
+  "run_id": 40258937747,
+  "run_attempt": 1,
+  "head_sha": "b4df64eb41701fdc554a40feb9d4fddff8278a0b",
+  "workflow": ".github/workflows/openssl-local-host-diagnostic.yml",
+  "branch": "diagnostic/openssl-local-host",
+  "artifact_id": 12623956072,
+  "artifact_name": "openssl-local-host-evidence-40258937747",
+  "artifact_size": 216511,
+  "artifact_sha256": "f1b8c39f8cbd34e4ad9d32e9716cd9da876992d914b1867d82792472a958c90e",
+  "receipt_path": "qualification/host-local-qualification.json",
+  "receipt_sha256": "b5234e18bec1d95bc7ac8b505e560c1c25a49de8e19b59b085c6117b15ac22a1"
+}

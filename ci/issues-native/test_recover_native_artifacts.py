@@ -93,7 +93,7 @@ class RecoveryArtifactTests(unittest.TestCase):
   begin='          # Formula metadata is checked'
   expected=original[original.index(begin):original.index('      - name: Upload experimental candidate')]
   actual=recovery[recovery.index(begin):recovery.index('      - name: Upload verified experimental IPA')]
-  recovery_cli='package_candidate.py --recover-fixed-native --strip-unsigned-widget --strip-widget-true-locals'
+  recovery_cli='package_candidate.py --recover-fixed-native --strip-unsigned-widget --strip-widget-true-locals --strip-openssl-true-locals'
   self.assertEqual(actual.count(recovery_cli),1)
   self.assertEqual(actual.replace(recovery_cli,'package_candidate.py'),expected)
  def test_checkout_trust_and_diagnostics_are_scoped_to_attempted_owned_steps(self):
@@ -101,10 +101,10 @@ class RecoveryArtifactTests(unittest.TestCase):
   self.assertEqual(text.count('uses: actions/checkout@'),2)
   self.assertEqual(text.count('set-safe-directory: false'),2)
   block=text.split('      - name: Retain recovery diagnostics without changing original evidence\n',1)[1]
-  expected="        if: ${{ !cancelled() && ("+' || '.join("steps."+step+".outcome == '"+outcome+"'" for step in ('controls','acquisition','size_controls','packaging') for outcome in ('success','failure'))+") }}"
+  expected="        if: ${{ !cancelled() && ("+' || '.join("steps."+step+".outcome == '"+outcome+"'" for step in ('controls','host_qualification','acquisition','size_controls','packaging') for outcome in ('success','failure'))+") }}"
   self.assertIn(expected,block)
   self.assertNotIn('always()',text)
-  for step in ('controls','acquisition','size_controls','packaging'):
+  for step in ('controls','host_qualification','acquisition','size_controls','packaging'):
    self.assertEqual(text.count('        id: '+step+'\n'),1)
  def test_workflow_exact_boundaries_no_rebuild_no_identity_spoof(self):
   root=Path(__file__).resolve().parents[2];text=(root/'.github/workflows/recover-native-package.yml').read_text()
