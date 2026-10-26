@@ -1,4 +1,8 @@
 import copy
+import ast
+import os
+import plistlib
+import types
 import importlib.util
 import json
 from pathlib import Path
@@ -52,7 +56,7 @@ class ReceiptTests(unittest.TestCase):
           'transformed/local-host-zsign.json':{'status':'PASS_SYNTHETIC_UNTRUSTED_CHAIN','library_sha256':self.new,'cases':['Apple-Security-CMS-signature-and-tamper'],'version':source['version_text'],'loaded_image':'/owned/runtime/OpenSSL'},
           'transformed/coload.json':{'status':'PASS_MACOS_DIAGNOSTIC_ONLY','errors':[],'libraries':{'host':self.new}},
           'transformed/paired-identical.json':{'status':'PASS_BASELINE_EQUIVALENT_BINDINGS','matrices':{k:{x:{} for x in ('local-AB','local-BA','global-AB','global-BA')} for k in ('original','transformed')}},
-          'transform.json':{'original_sha256':self.old,'unsigned_sha256':self.unsigned,'runtime_sha256':self.new,'dwarf_sha256':'e'*64},
+          'transform.json':{'original_sha256':self.old,'unsigned_sha256':self.unsigned,'runtime_sha256':self.new,'dwarf_sha256':'e'*64,'original_framework_inventory':{'Versions/A/OpenSSL':{'kind':'file','mode':493,'sha256':self.old}},'transformed_framework_inventory':{'Versions/A/OpenSSL':{'kind':'file','mode':493,'sha256':self.new}}},
           'build-receipt.json':{'source':source,'optimization':'Os','recipe_sha256':m.sources()['ci/issue53-lts/build.py'],'library_sha256':self.old,'tools_sha256':{'/trusted/clang':'e'*64},'generated_inventory':{'OpenSSL.framework.dSYM/Contents/Resources/DWARF/OpenSSL':'e'*64,'OpenSSL.framework.dSYM/Contents/Info.plist':'f'*64,'OpenSSL.framework/Versions/A/OpenSSL':self.old}}}
         rows={'GLOBAL':None}
         for i in ('0','1'):
@@ -101,6 +105,53 @@ class ReceiptTests(unittest.TestCase):
     def test_symlink_support(self):
         p=self.root/'transform.json'; data=p.read_bytes();p.unlink();target=self.root/'other';target.write_bytes(data);p.symlink_to(target)
         with self.assertRaises(ValueError):self.verify()
+
+class FrameworkCopyTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name).resolve()
+        self.library=self.root/'source/OpenSSL.framework/Versions/A/OpenSSL'
+        self.library.parent.mkdir(parents=True);self.library.write_bytes(b'fixture-not-executable');self.library.chmod(0o755)
+        (self.library.parent/'Headers').mkdir();(self.library.parent/'Headers/ssl.h').write_text('fixture header')
+        (self.library.parent/'Resources').mkdir();(self.library.parent/'Resources/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'OpenSSL','DTPlatformName':'macosx'}))
+        self.destination=self.root/'copy/OpenSSL.framework/Versions/A/OpenSSL'
+    def test_full_layout_and_unchanged_real_consumer_prefix(self):
+        before=m.copy_framework(self.library,self.destination)
+        self.assertEqual(before,m.validate_framework_layout(self.destination))
+        # Execute only the unchanged source-owned admission prefix, never crypto,
+        # subprocesses or the synthetic library bytes. This is not runtime proof.
+        tree=ast.parse((m.ROOT/'ci/issue53-crypto/run.py').read_text())
+        fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='run')
+        prefix=fn.body[:6]
+        self.assertIsInstance(prefix[-1],ast.If);self.assertIsInstance(prefix[-1].test,ast.Name);self.assertEqual(prefix[-1].test.id,'framework')
+        fn.body=prefix;module=ast.Module(body=[fn],type_ignores=[]);ast.fix_missing_locations(module)
+        namespace={'Path':Path,'plistlib':plistlib,'platform':types.SimpleNamespace(system=lambda:'Darwin'),'digest':m.sha}
+        exec(compile(module,'reviewed-consumer-admission-prefix','exec'),namespace)
+        namespace['run'](types.SimpleNamespace(output=self.root/'unused.json',library=self.destination,sha256=m.sha(self.destination),builtin_providers=True))
+        self.assertFalse((self.destination.parents[2]/'Info.plist').exists())
+    def test_binary_only_delta(self):
+        before=m.copy_framework(self.library,self.destination);old=m.sha(self.destination);self.destination.write_bytes(b'changed')
+        m.verify_framework_delta(before,m.framework_inventory(self.destination.parents[2]),old,m.sha(self.destination))
+    def test_metadata_header_mode_or_added_file_rejected(self):
+        before=m.copy_framework(self.library,self.destination);digest=m.sha(self.destination)
+        for path in (self.destination.parent/'Resources/Info.plist',self.destination.parent/'Headers/ssl.h'):
+            original=path.read_bytes();path.write_bytes(original+b'changed')
+            with self.assertRaises(ValueError):m.verify_framework_delta(before,m.framework_inventory(self.destination.parents[2]),digest,digest)
+            path.write_bytes(original)
+        self.destination.chmod(0o600)
+        with self.assertRaises(ValueError):m.verify_framework_delta(before,m.framework_inventory(self.destination.parents[2]),digest,digest)
+    def test_missing_or_wrong_platform_metadata_rejected_before_copy(self):
+        plist=self.library.parent/'Resources/Info.plist';plist.write_bytes(plistlib.dumps({'CFBundleExecutable':'OpenSSL','DTPlatformName':'iphoneos'}))
+        with self.assertRaises(ValueError):m.copy_framework(self.library,self.destination)
+        self.assertFalse(self.destination.parents[2].exists())
+    def test_internal_links_preserved_external_rejected(self):
+        link=self.library.parents[2]/'Headers';link.symlink_to('Versions/A/Headers',target_is_directory=True)
+        m.copy_framework(self.library,self.destination)
+        self.assertEqual(os.readlink(self.destination.parents[2]/'Headers'),'Versions/A/Headers')
+        link.unlink();link.symlink_to(self.root,target_is_directory=True)
+        with self.assertRaises(ValueError):m.validate_framework_layout(self.library)
+    def test_existing_destination_not_overwritten(self):
+        self.destination.parents[2].mkdir(parents=True)
+        with self.assertRaises(ValueError):m.copy_framework(self.library,self.destination)
 
 class WorkflowTests(unittest.TestCase):
     def test_scoped_native_diagnostic(self):

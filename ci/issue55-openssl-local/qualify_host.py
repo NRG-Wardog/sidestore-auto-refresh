@@ -9,6 +9,8 @@ import hashlib
 import importlib.util
 import json
 import os
+import plistlib
+import stat
 from pathlib import Path
 import re
 import shutil
@@ -115,8 +117,7 @@ def paired(consumer, original, transformed, version, work, evidence):
     for variant, library in [('original',original),('transformed',transformed)]:
         paths={}
         for owner in ('A','B'):
-            path=work/variant/owner/'OpenSSL.framework/Versions/A/OpenSSL'; path.parent.mkdir(parents=True)
-            shutil.copy2(library,path); paths[owner]=path
+            path=work/variant/owner/'OpenSSL.framework/Versions/A/OpenSSL'; copy_framework(library,path); paths[owner]=path
         matrices[variant]={}; observations[variant]=[]
         for scope in ('local','global'):
             for order in (('A','B'),('B','A')):
@@ -130,10 +131,50 @@ def paired(consumer, original, transformed, version, work, evidence):
     write(evidence/'paired-identical.json',result)
     return result
 
+def framework_inventory(root):
+    require(root.is_dir() and not root.is_symlink(),'real framework root required')
+    anchor=root.resolve(strict=True); result={}
+    for path in [root,*sorted(root.rglob('*'))]:
+        mode=path.lstat().st_mode; row={'mode':stat.S_IMODE(mode)}
+        if stat.S_ISLNK(mode):
+            target=os.readlink(path)
+            require(not os.path.isabs(target) and path.resolve(strict=True).is_relative_to(anchor),'framework link escapes root')
+            row.update(kind='symlink',target=target)
+        elif stat.S_ISDIR(mode):row['kind']='directory'
+        elif stat.S_ISREG(mode):row.update(kind='file',sha256=sha(path))
+        else:raise ValueError('unsupported framework node')
+        result[path.relative_to(root).as_posix()]=row
+    return result
+
+def validate_framework_layout(library):
+    root=library.parents[2]
+    require(root.name=='OpenSSL.framework' and library.relative_to(root).as_posix()=='Versions/A/OpenSSL','framework library layout differs')
+    require(library.is_file() and not library.is_symlink() and (library.parent/'Headers').is_dir(),'framework binary/headers missing')
+    plist=library.parent/'Resources/Info.plist'
+    if not plist.is_file():plist=root/'Info.plist'
+    info=plistlib.loads(plist.read_bytes())
+    require(info.get('DTPlatformName')=='macosx' and info.get('CFBundleExecutable')=='OpenSSL','macOS framework metadata differs')
+    return framework_inventory(root)
+
+def copy_framework(library,destination):
+    before=validate_framework_layout(library)
+    root=destination.parents[2]
+    require(not root.exists() and not root.is_symlink(),'refusing existing framework destination')
+    root.parent.mkdir(parents=True,exist_ok=True)
+    shutil.copytree(library.parents[2],root,symlinks=True,copy_function=shutil.copy2)
+    require(validate_framework_layout(destination)==before,'framework copy metadata/bytes differ')
+    require(validate_framework_layout(library)==before,'original framework changed during copy')
+    return before
+
+def verify_framework_delta(before,after,original_sha,final_sha):
+    key='Versions/A/OpenSSL'
+    require(type(before) is dict and type(after) is dict and before.get(key,{}).get('sha256')==original_sha,'framework original binding differs')
+    expected={name:dict(row) for name,row in before.items()}
+    expected[key]['sha256']=final_sha
+    require(after==expected,'framework delta exceeds binary bytes')
+
 def transform(library, dwarf, destination, guard, policy, evidence):
-    destination.parent.mkdir(parents=True)
-    shutil.copy2(library,destination)
-    shutil.copytree(library.parent/'Headers',destination.parent/'Headers')
+    copied_inventory=copy_framework(library,destination)
     original=destination.read_bytes(); stages={}
     if guard.snapshot(original,host_legacy_dyld=True)['signature_sha256'] is not None:
         subprocess.run(['/usr/bin/codesign','--remove-signature',str(destination)],check=True,timeout=30)
@@ -153,6 +194,10 @@ def transform(library, dwarf, destination, guard, policy, evidence):
     # Reverse comparison: removing signature may shrink LINKEDIT allocation.
     stages['signature_only_reseal']=guard.verify(destination.read_bytes(),locals_removed,preserve_stabs=True,require_reduction=False,host_legacy_dyld=True)
     stages.update({'original_sha256':sha(library),'unsigned_sha256':hashlib.sha256(locals_removed).hexdigest(),'runtime_sha256':sha(destination),'dwarf_sha256':sha(dwarf),'strip_sha256':sha(strip),'codesign_sha256':sha('/usr/bin/codesign')})
+    final_inventory=validate_framework_layout(destination)
+    verify_framework_delta(copied_inventory,final_inventory,sha(library),sha(destination))
+    require(validate_framework_layout(library)==copied_inventory,'original framework changed during transform')
+    stages.update(original_framework_inventory=copied_inventory,transformed_framework_inventory=final_inventory)
     write(evidence/'transform.json',stages)
     return stages
 
@@ -188,6 +233,7 @@ def verify_host_local_qualification(receipt_path, expected_sha256, packaging_ide
     require(signer['library_sha256']==receipt['transformed_runtime_sha256'] and coload['libraries']['host']==receipt['transformed_runtime_sha256'],'runtime library differs')
     require(pair['status']=='PASS_BASELINE_EQUIVALENT_BINDINGS' and pair['matrices']['original']==pair['matrices']['transformed'] and set(pair['matrices']['original'])=={'local-AB','local-BA','global-AB','global-BA'},'paired topology differs')
     validate_matrices(pair['matrices'],receipt['source']['version_text'])
+    verify_framework_delta(stages['original_framework_inventory'],stages['transformed_framework_inventory'],receipt['original_library_sha256'],receipt['transformed_runtime_sha256'])
     require(stages['dwarf_sha256']==built['generated_inventory'].get('OpenSSL.framework.dSYM/Contents/Resources/DWARF/OpenSSL') and 'OpenSSL.framework.dSYM/Contents/Info.plist' in built['generated_inventory'],'full original DWARF binding differs')
     require(built['generated_inventory'].get('OpenSSL.framework/Versions/A/OpenSSL')==receipt['original_library_sha256'],'original generated binary binding differs')
     require(stages['original_sha256']==receipt['original_library_sha256'] and stages['unsigned_sha256']==receipt['transformed_unsigned_sha256'] and stages['runtime_sha256']==receipt['transformed_runtime_sha256'],'transform chain differs')
@@ -219,6 +265,8 @@ def run(built, inputs, evidence, work):
     qualify.validate_generated(built)
     require(sources()==initial_sources,'qualification sources changed during execution')
     require(sha(target)==stages['runtime_sha256'],'transformed runtime changed during qualification')
+    require(validate_framework_layout(library)==stages['original_framework_inventory'],'original framework metadata changed during qualification')
+    require(validate_framework_layout(target)==stages['transformed_framework_inventory'],'transformed framework metadata changed during qualification')
     report={'schema':'openssl-true-local-host-qualification-v1','status':'PASS_MACOS_SYNTHETIC_ONLY','qualification_identity':identity({'workflow_commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'run_attempt':os.environ['GITHUB_RUN_ATTEMPT']}),'native_comparison_identity':NATIVE,'source':pins,'optimization':'Os','source_sha256':sources(),'actual_compile_evidence':compile_evidence(evidence,receipt),'runtime_library_path':str(target),'statuses':STATUS,'device_executed':False,'original_library_sha256':sha(library),'transformed_unsigned_sha256':stages['unsigned_sha256'],'transformed_runtime_sha256':sha(target),'evidence_sha256':{str(p.relative_to(evidence)):sha(p) for p in sorted(evidence.rglob('*')) if p.is_file()}}
     destination=evidence/'host-local-qualification.json';write(destination,report)
     verify_host_local_qualification(destination,sha(destination),report['qualification_identity'],NATIVE)
