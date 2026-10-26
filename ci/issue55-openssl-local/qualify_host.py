@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 NATIVE = {'workflow_commit':'0205f33ff50a024d4e125b6b404e989911ac5eb2', 'run_id':'40245615437', 'run_attempt':'1'}
 DEVELOPER = '/Applications/Xcode_26.4.1.app/Contents/Developer'
 STATUS = {'original_qualification':'PASS', 'transformed_crypto':'PASS', 'actual_ZSign_Apple_Security':'PASS', 'mixed_version_cold_orders':'PASS', 'identical_pair_binding_equivalence':'PASS', 'structural_transform':'PASS'}
-SOURCES = ('ci/issue55-openssl-local/qualify_host.py', 'ci/issue53-lts/build.py', 'ci/issue53-lts/qualify.py', 'ci/issue53-lts/source.json', 'ci/issue53-crypto/acquire.py', 'ci/issue53-crypto/consumer.py', 'ci/issue53-crypto/run.py', 'ci/issue53-crypto/probe.c', 'ci/issue53-crypto/verify.swift', 'ci/issue53-crypto/host-headers.json', 'ci/issue53-crypto/embedded-headers.json', 'ci/issue53-crypto/coload.c', 'ci/issue53-crypto/zsign_probe.cpp', 'ci/issue53-crypto/zsign-source.json', 'ci/issue53-crypto/verify_cms.py', 'ci/issue53-crypto/verify_zsign.swift', 'ci/issue53-crypto/pinned-inputs.json', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/openssl_local_symbol_policy.py', 'scripts/optimize_native_candidate.py', 'scripts/experiment_strip_stabs.py', 'scripts/audit_ipa_signing.py', 'scripts/ipa_size_report.py', 'scripts/packaging_adapters.py', 'ci/issue55-openssl-size/command_evidence.py', 'scripts/package_livecontainer_combined.py', '.github/workflows/openssl-local-host-diagnostic.yml')
+SOURCES = ('ci/issue55-openssl-local/qualify_host.py', 'ci/issue55-openssl-local/framework_seal.py', 'ci/issue53-lts/build.py', 'ci/issue53-lts/qualify.py', 'ci/issue53-lts/source.json', 'ci/issue53-crypto/acquire.py', 'ci/issue53-crypto/consumer.py', 'ci/issue53-crypto/run.py', 'ci/issue53-crypto/probe.c', 'ci/issue53-crypto/verify.swift', 'ci/issue53-crypto/host-headers.json', 'ci/issue53-crypto/embedded-headers.json', 'ci/issue53-crypto/coload.c', 'ci/issue53-crypto/zsign_probe.cpp', 'ci/issue53-crypto/zsign-source.json', 'ci/issue53-crypto/verify_cms.py', 'ci/issue53-crypto/verify_zsign.swift', 'ci/issue53-crypto/pinned-inputs.json', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/openssl_local_symbol_policy.py', 'scripts/optimize_native_candidate.py', 'scripts/experiment_strip_stabs.py', 'scripts/audit_ipa_signing.py', 'scripts/ipa_size_report.py', 'scripts/packaging_adapters.py', 'ci/issue55-openssl-size/command_evidence.py', 'scripts/package_livecontainer_combined.py', '.github/workflows/openssl-local-host-diagnostic.yml')
 
 def require(ok, message):
     if not ok: raise ValueError(message)
@@ -44,6 +44,11 @@ def compile_evidence(evidence, built):
     compilers=[p for p in built['tools_sha256'] if Path(p).name=='clang']
     require(len(compilers)==1,'compiler closure differs')
     return module.verify(evidence/'build.log',{'macOS':evidence/'configdata.txt'},compilers[0],{'macOS':None})
+
+def seal_module():
+    spec=importlib.util.spec_from_file_location('_host_framework_seal',Path(__file__).with_name('framework_seal.py'))
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    return module
 
 def load_dependencies():
     # All imports are rooted in this checkout, never cwd or an external plugin.
@@ -173,13 +178,16 @@ def verify_framework_delta(before,after,original_sha,final_sha):
     expected[key]['sha256']=final_sha
     require(after==expected,'framework delta exceeds binary bytes')
 
-def record_framework_delta(path,before,after,original_sha,final_sha):
+def observe_framework_delta(path,before,after,original_sha,final_sha):
     # Persist rejected evidence before asserting. No observed extra file or mode
     # is normalized away or treated as admitted by this diagnostic receipt.
     added={key:after[key] for key in sorted(set(after)-set(before))}
     removed={key:before[key] for key in sorted(set(before)-set(after))}
     changed={key:{'before':before[key],'after':after[key]} for key in sorted(set(before)&set(after)) if before[key]!=after[key]}
     write(path,{'schema':'host-framework-observed-delta-v1','status':'OBSERVED_NOT_ADMITTED','before':before,'after':after,'added':added,'removed':removed,'changed':changed,'expected_original_binary_sha256':original_sha,'expected_final_binary_sha256':final_sha})
+
+def record_framework_delta(path,before,after,original_sha,final_sha):
+    observe_framework_delta(path,before,after,original_sha,final_sha)
     verify_framework_delta(before,after,original_sha,final_sha)
 
 def verify_actual_signature(path,label,evidence):
@@ -231,12 +239,21 @@ def transform(library, dwarf, destination, guard, policy, evidence):
     write(evidence/'framework-inventory-after-x.json',framework_inventory(destination.parents[2]))
     locals_removed=destination.read_bytes()
     stages['locals']=policy.verify_openssl_local_removal(post_s,locals_removed,expected_before_sha256=hashlib.sha256(post_s).hexdigest(),dwarf=dwarf.read_bytes(),expected_dwarf_sha256=sha(dwarf),host_legacy_dyld=True)
-    isolated_codesign(destination,'adhoc-sign',guard,evidence)
+    # Apple TN2206 'Signing Frameworks': sign/validate each actual Versions/A
+    # context, not a root requiring aliases absent from this generated fixture.
+    # https://developer.apple.com/library/archive/technotes/tn2206/_index.html
+    subprocess.run(['/usr/bin/codesign','--force','--sign','-','--timestamp=none',str(destination.parent)],check=True,timeout=30)
+    final_inventory=validate_framework_layout(destination)
+    observe_framework_delta(evidence/'framework-inventory-delta.json',copied_inventory,final_inventory,sha(library),sha(destination))
+    verify_actual_signature(destination.parent,'actual-framework-version',evidence)
+    verify_actual_signature(destination,'actual-framework-target',evidence)
     # Reverse comparison: removing signature may shrink LINKEDIT allocation.
     stages['signature_only_reseal']=guard.verify(destination.read_bytes(),locals_removed,preserve_stabs=True,require_reduction=False,host_legacy_dyld=True)
     stages.update({'original_sha256':sha(library),'unsigned_sha256':hashlib.sha256(locals_removed).hexdigest(),'runtime_sha256':sha(destination),'dwarf_sha256':sha(dwarf),'strip_sha256':sha(strip),'codesign_sha256':sha('/usr/bin/codesign')})
     final_inventory=validate_framework_layout(destination)
-    record_framework_delta(evidence/'framework-inventory-delta.json',copied_inventory,final_inventory,sha(library),sha(destination))
+    stages['framework_seal']=seal_module().verify(destination.parents[2],copied_inventory,final_inventory,guard)
+    shutil.copy2(destination.parents[2]/'Versions/A/_CodeSignature/CodeResources',evidence/'framework-CodeResources.plist')
+    shutil.copy2(destination.parent/'Resources/Info.plist',evidence/'framework-Info.plist')
     require(validate_framework_layout(library)==copied_inventory,'original framework changed during transform')
     stages.update(original_framework_inventory=copied_inventory,transformed_framework_inventory=final_inventory)
     write(evidence/'transform.json',stages)
@@ -258,7 +275,7 @@ def verify_host_local_qualification(receipt_path, expected_sha256, packaging_ide
         require(file.is_file() and not file.is_symlink() and all(not p.is_symlink() for p in file.parents if p!=path.parent.parent),'linked evidence')
         require(sha(file)==digest,'supporting evidence changed')
     baseline=read(path.parent/'baseline/lts-qualification.json'); crypto=read(path.parent/'transformed/crypto.json'); signer=read(path.parent/'transformed/local-host-zsign.json'); coload=read(path.parent/'transformed/coload.json'); pair=read(path.parent/'transformed/paired-identical.json'); stages=read(path.parent/'transform.json')
-    required={'baseline/lts-qualification.json','transformed/crypto.json','transformed/local-host-zsign.json','transformed/coload.json','transformed/paired-identical.json','transform.json','build-receipt.json','build.log','configdata.txt','headers.json'}
+    required={'baseline/lts-qualification.json','transformed/crypto.json','transformed/local-host-zsign.json','transformed/coload.json','transformed/paired-identical.json','transform.json','build-receipt.json','build.log','configdata.txt','headers.json','framework-CodeResources.plist','framework-Info.plist'}
     require(required<=set(inventory),'required supporting receipt missing')
     require(baseline['status']=='PASS_MACOS_SYNTHETIC_ONLY' and baseline['failures']==[] and baseline['library_sha256']==receipt['original_library_sha256'],'original qualification differs')
     require(crypto['status']=='PASS_SYNTHETIC_ONLY' and signer['status']=='PASS_SYNTHETIC_UNTRUSTED_CHAIN' and coload['status']=='PASS_MACOS_DIAGNOSTIC_ONLY' and coload['errors']==[],'runtime component failed')
@@ -274,7 +291,11 @@ def verify_host_local_qualification(receipt_path, expected_sha256, packaging_ide
     require(signer['library_sha256']==receipt['transformed_runtime_sha256'] and coload['libraries']['host']==receipt['transformed_runtime_sha256'],'runtime library differs')
     require(pair['status']=='PASS_BASELINE_EQUIVALENT_BINDINGS' and pair['matrices']['original']==pair['matrices']['transformed'] and set(pair['matrices']['original'])=={'local-AB','local-BA','global-AB','global-BA'},'paired topology differs')
     validate_matrices(pair['matrices'],receipt['source']['version_text'])
-    verify_framework_delta(stages['original_framework_inventory'],stages['transformed_framework_inventory'],receipt['original_library_sha256'],receipt['transformed_runtime_sha256'])
+    seal=seal_module();seal.verify_inventory(stages['original_framework_inventory'],stages['transformed_framework_inventory'])
+    require(stages['original_framework_inventory'][seal.BINARY]['sha256']==receipt['original_library_sha256'] and stages['transformed_framework_inventory'][seal.BINARY]['sha256']==receipt['transformed_runtime_sha256'],'framework binary inventory binding differs')
+    proof=stages['framework_seal']
+    require(proof['schema']=='host-framework-resource-seal-v1' and proof['ios_policy_changed'] is False and proof['only_original_binary_and_exact_seal_changed'] is True,'host-only seal admission differs')
+    require(proof['signature']['binary_sha256']==receipt['transformed_runtime_sha256'] and proof['signature']['special_slots_verified']==[1,2,3] and proof['signature']['info_plist_sha256']==sha(path.parent/'framework-Info.plist')==stages['original_framework_inventory'][seal.INFO]['sha256'] and proof['signature']['code_resources_sha256']==sha(path.parent/'framework-CodeResources.plist')==stages['transformed_framework_inventory'][seal.SEAL_FILE]['sha256'],'host resource signature proof differs')
     require(stages['dwarf_sha256']==built['generated_inventory'].get('OpenSSL.framework.dSYM/Contents/Resources/DWARF/OpenSSL') and 'OpenSSL.framework.dSYM/Contents/Info.plist' in built['generated_inventory'],'full original DWARF binding differs')
     require(built['generated_inventory'].get('OpenSSL.framework/Versions/A/OpenSSL')==receipt['original_library_sha256'],'original generated binary binding differs')
     require(stages['original_sha256']==receipt['original_library_sha256'] and stages['unsigned_sha256']==receipt['transformed_unsigned_sha256'] and stages['runtime_sha256']==receipt['transformed_runtime_sha256'],'transform chain differs')

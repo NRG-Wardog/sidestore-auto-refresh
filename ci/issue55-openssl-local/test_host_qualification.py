@@ -58,6 +58,15 @@ class ReceiptTests(unittest.TestCase):
           'transformed/paired-identical.json':{'status':'PASS_BASELINE_EQUIVALENT_BINDINGS','matrices':{k:{x:{} for x in ('local-AB','local-BA','global-AB','global-BA')} for k in ('original','transformed')}},
           'transform.json':{'original_sha256':self.old,'unsigned_sha256':self.unsigned,'runtime_sha256':self.new,'dwarf_sha256':'e'*64,'original_framework_inventory':{'Versions/A/OpenSSL':{'kind':'file','mode':493,'sha256':self.old}},'transformed_framework_inventory':{'Versions/A/OpenSSL':{'kind':'file','mode':493,'sha256':self.new}}},
           'build-receipt.json':{'source':source,'optimization':'Os','recipe_sha256':m.sources()['ci/issue53-lts/build.py'],'library_sha256':self.old,'tools_sha256':{'/trusted/clang':'e'*64},'generated_inventory':{'OpenSSL.framework.dSYM/Contents/Resources/DWARF/OpenSSL':'e'*64,'OpenSSL.framework.dSYM/Contents/Info.plist':'f'*64,'OpenSSL.framework/Versions/A/OpenSSL':self.old}}}
+        (self.root/'framework-Info.plist').write_bytes(b'synthetic info')
+        (self.root/'framework-CodeResources.plist').write_bytes(b'synthetic resources')
+        seal=m.seal_module();stage=files['transform.json']
+        info_sha=m.sha(self.root/'framework-Info.plist');resources_sha=m.sha(self.root/'framework-CodeResources.plist')
+        stage['original_framework_inventory'][seal.INFO]={'kind':'file','mode':420,'sha256':info_sha}
+        stage['transformed_framework_inventory'][seal.INFO]={'kind':'file','mode':420,'sha256':info_sha}
+        stage['transformed_framework_inventory'][seal.SEAL_DIR]={'kind':'directory','mode':493}
+        stage['transformed_framework_inventory'][seal.SEAL_FILE]={'kind':'file','mode':420,'sha256':resources_sha}
+        stage['framework_seal']={'schema':'host-framework-resource-seal-v1','ios_policy_changed':False,'only_original_binary_and_exact_seal_changed':True,'signature':{'binary_sha256':self.new,'special_slots_verified':[1,2,3],'info_plist_sha256':info_sha,'code_resources_sha256':resources_sha}}
         rows={'GLOBAL':None}
         for i in ('0','1'):
             rows.update({'HANDLE:'+i:'A','VERSION:'+i:source['version_text']})
@@ -70,7 +79,7 @@ class ReceiptTests(unittest.TestCase):
         files['build-receipt.json'].update(configuration_sha256=m.sha(self.root/'configdata.txt'),header_inventory_sha256=m.sha(self.root/'headers.json'))
         for name,value in files.items():
             p=self.root/name;p.parent.mkdir(exist_ok=True,parents=True);m.write(p,value)
-        self.receipt={'schema':'openssl-true-local-host-qualification-v1','status':'PASS_MACOS_SYNTHETIC_ONLY','qualification_identity':self.identity,'native_comparison_identity':m.NATIVE,'source':source,'optimization':'Os','source_sha256':m.sources(),'actual_compile_evidence':m.compile_evidence(self.root,files['build-receipt.json']),'runtime_library_path':'/owned/runtime/OpenSSL','statuses':m.STATUS,'device_executed':False,'original_library_sha256':self.old,'transformed_unsigned_sha256':self.unsigned,'transformed_runtime_sha256':self.new,'evidence_sha256':{name:m.sha(self.root/name) for name in list(files)+['build.log','configdata.txt','headers.json']}}
+        self.receipt={'schema':'openssl-true-local-host-qualification-v1','status':'PASS_MACOS_SYNTHETIC_ONLY','qualification_identity':self.identity,'native_comparison_identity':m.NATIVE,'source':source,'optimization':'Os','source_sha256':m.sources(),'actual_compile_evidence':m.compile_evidence(self.root,files['build-receipt.json']),'runtime_library_path':'/owned/runtime/OpenSSL','statuses':m.STATUS,'device_executed':False,'original_library_sha256':self.old,'transformed_unsigned_sha256':self.unsigned,'transformed_runtime_sha256':self.new,'evidence_sha256':{name:m.sha(self.root/name) for name in list(files)+['build.log','configdata.txt','headers.json','framework-Info.plist','framework-CodeResources.plist']}}
         self.path=self.root/'host-local-qualification.json'
     def verify(self,receipt=None):
         m.write(self.path,receipt or self.receipt)
@@ -209,10 +218,19 @@ class FrameworkCopyTests(unittest.TestCase):
         self.destination.parents[2].mkdir(parents=True)
         with self.assertRaises(ValueError):m.copy_framework(self.library,self.destination)
 
+class VersionCommandTests(unittest.TestCase):
+    def test_actual_version_context_and_binary_are_both_verified(self):
+        tree=ast.parse(Path(m.__file__).read_text());fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='transform')
+        calls=[node for node in ast.walk(fn) if isinstance(node,ast.Call)]
+        signs=[node for node in calls if isinstance(node.func,ast.Attribute) and node.func.attr=='run' and node.args and isinstance(node.args[0],ast.List) and any(isinstance(x,ast.Constant) and x.value=='--sign' for x in node.args[0].elts)]
+        self.assertEqual(len(signs),1);self.assertEqual(ast.unparse(signs[0].args[0].elts[-1]),'str(destination.parent)')
+        verifies={node.args[1].value:ast.unparse(node.args[0]) for node in calls if isinstance(node.func,ast.Name) and node.func.id=='verify_actual_signature'}
+        self.assertEqual(verifies,{'actual-framework-version':'destination.parent','actual-framework-target':'destination'})
+
 class WorkflowTests(unittest.TestCase):
     def test_scoped_native_diagnostic(self):
         text=(m.ROOT/'.github/workflows/openssl-local-host-diagnostic.yml').read_text()
-        for required in ('contents: read','set-safe-directory: false','persist-credentials: false','Xcode_26.4.1','--optimization Os','test_host_qualification.py','test_host_legacy_dyld_policy.py','transformed-NOT-ADMITTED','path: host-transform/runtime/OpenSSL.framework/',"steps.build.outcome == 'success'",'--evidence qualification --work host-transform'):
+        for required in ('contents: read','set-safe-directory: false','persist-credentials: false','Xcode_26.4.1','--optimization Os','test_host_qualification.py','test_framework_seal.py','test_host_legacy_dyld_policy.py','transformed-NOT-ADMITTED','path: host-transform/runtime/OpenSSL.framework/',"steps.build.outcome == 'success'",'--evidence qualification --work host-transform'):
             self.assertIn(required,text)
         for forbidden in ('actions: write','always()','build_ios.py','package_candidate.py','--location-trusted'):
             self.assertNotIn(forbidden,text)
