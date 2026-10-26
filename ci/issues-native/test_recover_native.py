@@ -144,7 +144,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_explicit_recovery_and_original_normal_guard_remain(self):
         source=Path(__file__).with_name('package_candidate.py').read_text()
-        self.assertIn('def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False):', source)
+        self.assertIn('def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False, same_run_qualified=False):', source)
         self.assertIn("if strip_unsigned_widget and owner == 'SideStore':", source)
         self.assertIn("elif sys.argv[1:] == ['--recover-fixed-native', '--strip-unsigned-widget']:", source)
         self.assertIn("sys.argv[1:] == ['--recover-fixed-native']", source)

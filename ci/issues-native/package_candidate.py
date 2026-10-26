@@ -86,10 +86,15 @@ def append_openssl_local_stage(ipa, report, qualification, *, transfer_roots, re
         output=Path('packaging-openssl-local-products'), retained=Path('size-diagnostics/openssl-local'))
 
 
-def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False):
-    if strip_openssl_true_locals and not (recover_fixed_native and strip_unsigned_widget and strip_widget_true_locals):
+def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False, same_run_qualified=False):
+    if same_run_qualified and recover_fixed_native:
+        raise ValueError('Same-run qualification cannot use recovery identity')
+    if same_run_qualified and not (strip_unsigned_widget and strip_widget_true_locals and strip_openssl_true_locals):
+        raise ValueError('Same-run qualified mode requires the complete reviewed size pipeline')
+    qualified_context = recover_fixed_native or same_run_qualified
+    if strip_openssl_true_locals and not (qualified_context and strip_unsigned_widget and strip_widget_true_locals):
         raise ValueError('OpenSSL local experiment requires explicit current fixed-native widget qualification path')
-    if strip_widget_true_locals and not (recover_fixed_native and strip_unsigned_widget):
+    if strip_widget_true_locals and not (qualified_context and strip_unsigned_widget):
         raise ValueError('Widget true-local experiment requires fixed-native recovery and unsigned widget debug stripping')
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
     receipt = json.loads(Path('evidence/receipt.json').read_text())
@@ -100,6 +105,15 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         from recover_native import IDENTITY, SEAL_SHA
         native_identity = IDENTITY
     openssl_qualification = admit_openssl_local_qualification(strip_openssl_true_locals, native_identity, packaging_identity)
+    if same_run_qualified:
+        if openssl_qualification[2]['schema'] != 'qualified-openssl-local-same-run-host-binding-v1':
+            raise ValueError('Same-run size mode requires fresh same-run host qualification')
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'issue56-startup'))
+        from run_startup_tests import verify_receipt as verify_startup_receipt
+        startup_receipt = Path('evidence/issue56-startup-tests.json')
+        verify_startup_receipt(startup_receipt, Path('sources'), native_identity)
+        if receipt.get('evidence_sha256', {}).get(startup_receipt.name) != sha(startup_receipt):
+            raise ValueError('Startup regression receipt differs from native receipt')
     recovery_provenance = None
     for key, expected in [('status', 'COMPILE_ONLY_PASS_REQUIRES_REVIEW'),
                           ('workflow_commit', native_identity['workflow_commit']),
@@ -284,6 +298,12 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         recovery_provenance['artifact_acquisition_receipt_sha256'] = acquisition_sha
         provenance['native_workflow_commit'] = native_identity['workflow_commit']
         provenance['packaging_recovery'] = recovery_provenance
+    if same_run_qualified:
+        verify_startup_receipt(startup_receipt, Path('sources'), native_identity)
+        shutil.copyfile(startup_receipt, 'diagnostic/issue56-startup-tests.json')
+        if sha(Path('diagnostic/issue56-startup-tests.json')) != sha(startup_receipt):
+            raise ValueError('Retained startup regression receipt differs')
+        provenance['issue56_startup_regression_sha256'] = sha(startup_receipt)
     Path('diagnostic/provenance.json').write_text(json.dumps(provenance, indent=2))
     Path('diagnostic/SHA256SUMS').write_text(sha(output) + '  ' + output.name + '\n')
     shutil.copyfile('evidence/receipt.json', 'diagnostic/native-receipt.json')
@@ -330,6 +350,8 @@ def self_test():
 if __name__ == '__main__':
     if sys.argv[1:] == ['--self-test']:
         self_test()
+    elif sys.argv[1:] == ['--same-run-qualified-size']:
+        main(same_run_qualified=True, strip_unsigned_widget=True, strip_widget_true_locals=True, strip_openssl_true_locals=True)
     elif sys.argv[1:] == ['--recover-fixed-native', '--strip-unsigned-widget', '--strip-widget-true-locals', '--strip-openssl-true-locals']:
         main(recover_fixed_native=True, strip_unsigned_widget=True, strip_widget_true_locals=True, strip_openssl_true_locals=True)
     elif sys.argv[1:] == ['--recover-fixed-native', '--strip-unsigned-widget', '--strip-widget-true-locals']:

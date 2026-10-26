@@ -32,7 +32,13 @@ def canonical(value):return json.dumps(value,sort_keys=True,separators=(',',':')
 
 def verify_host_qualification(path, expected_sha, packaging_identity, native_identity):
     # Source-owned verifier is mandatory; missing module/receipt never becomes success.
-    module_path=Path(__file__).resolve().parents[1]/'ci/issue55-openssl-local/qualify_host.py'
+    require(path.is_file() and not path.is_symlink() and digest(path)==expected_sha,'host qualification receipt SHA differs')
+    schema=json.loads(path.read_text()).get('schema')
+    if schema=='openssl-true-local-same-run-host-qualification-v1':
+        module_path=Path(__file__).resolve().parents[1]/'ci/issue56-startup/qualify_host.py'
+    else:
+        require(schema=='openssl-true-local-host-qualification-v1','unknown host qualification schema')
+        module_path=Path(__file__).resolve().parents[1]/'ci/issue55-openssl-local/qualify_host.py'
     spec=importlib.util.spec_from_file_location('reviewed_openssl_host_qualification',module_path)
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     return module.verify_host_local_qualification(path,expected_sha256=expected_sha,

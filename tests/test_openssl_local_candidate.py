@@ -104,6 +104,9 @@ class OpenSSLCandidateTests(unittest.TestCase):
         def mutate(*a):self.prior['archive_bytes_saved']=99;return self.after,{}
         with self.assertRaisesRegex(ValueError,'caller provenance'):self.call(strip=mutate)
     def test_missing_host_module_is_not_success(self):
+        # Admit only the known historical schema before testing absent verifier.
+        self.host.write_text('{"schema":"openssl-true-local-host-qualification-v1"}')
+        self.host_sha=adapter.digest(self.host)
         with patch.object(adapter,'__file__',str(self.root/'scripts/adapter.py')):
             with self.assertRaises(FileNotFoundError):adapter.verify_host_qualification(self.host,self.host_sha,self.packaging,self.identity)
 

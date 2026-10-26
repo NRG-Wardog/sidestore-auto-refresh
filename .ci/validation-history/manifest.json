@@ -56,18 +56,7 @@
   "archived_workflows_sha256": {
     "migration/historical/ssa-validation/issue25-rendering.yml": "848011e873a34f2a31941db1908f0bde27c8201f73209da05e6b2795fe6f4135",
     "migration/historical/ssa-validation/p0-livecontainer-build.yml": "cd63506fbaa4eeee8f571aacfd058616d9b41aaf2c502b6e5ccf0de57270e4d0",
-    "migration/historical/ssa-validation/p2-alert-lifecycle.yml": "42c5baf96a2adb99c0a8c949adc768072cbd684ba1233606cc97864db1b1a2a8",
-    "migration/historical/ssa-validation/p2-composed-host.yml": "7857ee08661f6d6069ab1ca824db1c9e774f1656f5380e0a36c13fdfbcf74f98",
-    "migration/historical/ssa-validation/p2-direction-host.yml": "2065b70836c729f9bac6ec325ac2e71aa917e1cf1c2fd56aa20320cb49560c9f",
-    "migration/historical/ssa-validation/p2-direction-rebuild.yml": "5511cd319fcc063ba3985973b731608fadaea4cc6a2cd4704fc89603fcfcaf45",
-    "migration/historical/ssa-validation/p2-direction-ui.yml": "c3f40157ed41dfc7296743947b6522792039981281b52022192bfe011b58e6a9",
-    "migration/historical/ssa-validation/p2-form-direction.yml": "411b563afc5afb542326748085117bb29704d2cc6aa4c5a658a285192d97a5eb",
-    "migration/historical/ssa-validation/p2-host-reuse.yml": "0c3a35c830d9910940d4d1f9df378f35eb3c546143e990f8c2f10e14221b31a8",
-    "migration/historical/ssa-validation/p2-host-settings-probe.yml": "19cfab1bafca0dbef359268ad18473a0f9d37ed0e1fe1ea981fe8df1c7f09599",
-    "migration/historical/ssa-validation/p2-livecontainer-build.yml": "106738e461bb9fac9c83f4720ebc5308a733af9c4e2f16385b78ef4877689684",
-    "migration/historical/ssa-validation/p2-localization-preflight.yml": "b0813118645d06a5d7bc36d56b6c4aafc6f5b762bf7fd17f8c557babe0d6dfaa",
-    "migration/historical/ssa-validation/p2-runner-capability.yml": "b3815762b9a6f5aa94efe4d19ad7541162a7471159d3058fcc2704a8013659e8",
-    "migration/historical/ssa-validation/p2-settings-interaction.yml": "148b12e77b378144f3ef843834eb0f8278116eab0bf11234949fc4f6f36f51bb"
+    "migration/historical/ssa-validation/p2-livecontainer-build.yml": "106738e461bb9fac9c83f4720ebc5308a733af9c4e2f16385b78ef4877689684"
   },
   "excluded_research_paths": [
     "diagnostics/cellular-refresh",
