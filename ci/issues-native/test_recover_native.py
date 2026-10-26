@@ -94,6 +94,54 @@ class RecoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'tree changed'):
                 recovery.verify_acquisition(evidence,path,identity)
 
+    def test_historical_parser_snapshot_and_current_host_binding(self):
+        import hashlib, shutil, types
+        import acquire_openssl_host_qualification as host
+        source = Path(__file__).resolve().parents[2]
+        policy = json.loads((source/'ci/issues-native/historical-source-map.json').read_text())
+        row = policy['sources']['scripts/macho_stab_guard.py']
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve(strict=True)
+            for name in ('ci/issues-native/historical-source-map.json', row['historical_file'], 'scripts/macho_stab_guard.py'):
+                target=root/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source/name,target)
+            (root/'unchanged.txt').write_text('original')
+            mapping={'scripts/macho_stab_guard.py':row['historical_sha256'],'unchanged.txt':recovery.digest(root/'unchanged.txt')}
+            pin=host.manifest()
+            receipt={'qualification_identity':{'workflow_commit':pin['head_sha'],'run_id':str(pin['run_id']),'run_attempt':str(pin['run_attempt'])},
+                     'source_sha256':{'scripts/macho_stab_guard.py':row['current_sha256']}}
+            receipt_path=root/'host.json';receipt_path.write_text(json.dumps(receipt));pin={**pin,'receipt_sha256':recovery.digest(receipt_path)}
+            actual=host.qualification_module()
+            fake=types.SimpleNamespace(SOURCES=actual.SOURCES,NATIVE=actual.NATIVE,
+                verify_host_local_qualification=lambda *args:{'fixture_only':True})
+            identity=dict(workflow_commit='1'*40,run_id='2',run_attempt='1')
+            with patch.object(host,'manifest',return_value=pin),patch.object(host,'qualification_module',return_value=fake):
+                result=recovery.verify_qualification_sources(root,mapping,identity,receipt_path)
+                self.assertFalse(result['current_parser_is_historical_parser'])
+                for name in (row['historical_file'],'scripts/macho_stab_guard.py','unchanged.txt'):
+                    target=root/name;original=target.read_bytes();target.write_bytes(original+b'changed')
+                    with self.subTest(name=name),self.assertRaisesRegex(ValueError,'Historical evidence changed'):
+                        recovery.verify_qualification_sources(root,mapping,identity,receipt_path)
+                    target.write_bytes(original)
+                for field,value in [('sources',{**policy['sources'],'extra':row}),('native_commit','0'*40)]:
+                    changed={**policy,field:value};(root/'ci/issues-native/historical-source-map.json').write_text(json.dumps(changed))
+                    with self.assertRaisesRegex(ValueError,'mapping closure'):
+                        recovery.verify_qualification_sources(root,mapping,identity,receipt_path)
+                (root/'ci/issues-native/historical-source-map.json').write_text(json.dumps(policy))
+                with self.assertRaisesRegex(ValueError,'Original qualification parser'):
+                    recovery.verify_qualification_sources(root,{**mapping,'scripts/macho_stab_guard.py':'0'*64},identity,receipt_path)
+                receipt_path.write_text('{}')
+                with self.assertRaisesRegex(ValueError,'receipt hash'):
+                    recovery.verify_qualification_sources(root,mapping,identity,receipt_path)
+                receipt_path.write_text(json.dumps(receipt))
+                bad={**receipt,'source_sha256':{'scripts/macho_stab_guard.py':'0'*64}}
+                receipt_path.write_text(json.dumps(bad));saved_digest=pin['receipt_sha256'];pin['receipt_sha256']=recovery.digest(receipt_path)
+                with self.assertRaisesRegex(ValueError,'Current parser not bound'):
+                    recovery.verify_qualification_sources(root,mapping,identity,receipt_path)
+                receipt_path.write_text(json.dumps(receipt));pin['receipt_sha256']=saved_digest
+                fake.verify_host_local_qualification=lambda *args: (_ for _ in ()).throw(ValueError('full verifier rejected'))
+                with self.assertRaisesRegex(ValueError,'full verifier rejected'):
+                    recovery.verify_qualification_sources(root,mapping,identity,receipt_path)
+
     def test_explicit_recovery_and_original_normal_guard_remain(self):
         source=Path(__file__).with_name('package_candidate.py').read_text()
         self.assertIn('def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False):', source)

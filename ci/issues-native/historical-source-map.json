@@ -1,0 +1,11 @@
+{
+  "schema": "fixed-native-historical-source-map-v1",
+  "native_commit": "0205f33ff50a024d4e125b6b404e989911ac5eb2",
+  "sources": {
+    "scripts/macho_stab_guard.py": {
+      "historical_file": "ci/issues-native/historical/0205f33ff50a024d4e125b6b404e989911ac5eb2/macho_stab_guard.py.txt",
+      "historical_sha256": "918a2a2938297850c47c3ece6a79292cafd85ab6749ebab6f461f16bee48b8bb",
+      "current_sha256": "0e5affdfe37ddd49adfc004692349fa2a1c1aae06e638445a478170f2e819178"
+    }
+  }
+}
