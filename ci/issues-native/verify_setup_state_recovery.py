@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from early_readiness_projection import inputs as early_readiness_inputs
+from early_readiness_projection import inputs as early_readiness_inputs, verify_static as verify_early_static
 from current_vpn_guard_projection import verify as verify_current_vpn_guard
 from cold_vpn_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
 from russian_setup_projection import variant as russian_setup_variant
@@ -676,13 +676,7 @@ def all_evidence(output, contract):
         regular(output, 'setup-localization/cases.json'), 'setup-localization-cases-v1',
         contract['case_names']['setup-localization'])
     early_static = json.loads(regular(output, 'early-refresh-boundaries/contract.json').read_text())
-    require(early_static.get('schema') == 'early-refresh-portable-contract-v1' and
-            early_static.get('status') == 'STATIC_PASS_RUNTIME_NOT_RUN' and
-            early_static.get('check_count') == len(early_static.get('checks', [])) == 102 and
-            early_static.get('expected_generic_baseline_cases') == 12 and
-            early_static.get('variants') == ['baseline', 'candidate'] and
-            early_static.get('swift_compiled') is False and early_static.get('swift_executed') is False,
-            'Early-refresh static controls differ')
+    verify_early_static(early_static, contract)
     portal_static = json.loads(regular(output, 'certificate-portal-evidence/static-controls.json').read_text())
     require(portal_static.get('schema') == 'portal-portability-controls-v1' and portal_static.get('status') == 'pass' and
             portal_static.get('check_count') == len(portal_static.get('checks', [])) == 6 and

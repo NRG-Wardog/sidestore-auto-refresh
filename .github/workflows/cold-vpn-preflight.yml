@@ -75,16 +75,14 @@ jobs:
             --sources sources --swiftc "$(command -v swiftc)" --output evidence/setup-state-recovery --contract evidence/candidate-contracts/setup-state-recovery-contract.json \
             2>&1 | tee evidence/setup-state-recovery.log
           printf '0\n' > evidence/setup-state-recovery.exit-code.txt
-      - name: Preserve immediate setup compiler or runtime failure evidence
+      - name: Preserve complete owned setup failure evidence, not app products
         if: ${{ !cancelled() && steps.setup_tests.outcome == 'failure' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: focused-setup-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             evidence/setup-state-recovery.log
-            evidence/setup-state-recovery/**/*.log
-            evidence/setup-state-recovery/**/*.json
-            evidence/setup-state-recovery/**/*.swift
+            evidence/setup-state-recovery/
           if-no-files-found: error
           retention-days: 14
       - name: Execute same-session language simulator and iOS deployment-target checks
@@ -107,9 +105,7 @@ jobs:
             evidence/cold-vpn/*.log
             evidence/cold-vpn/*.json
             evidence/candidate-contracts/*.json
-            evidence/setup-state-recovery/**/*.log
-            evidence/setup-state-recovery/**/*.json
-            evidence/setup-state-recovery/**/*.swift
+            evidence/setup-state-recovery/
             evidence/language-switch/*.log
             evidence/language-switch/*.json
           if-no-files-found: error

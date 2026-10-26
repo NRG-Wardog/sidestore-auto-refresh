@@ -15,6 +15,15 @@ class EarlyDependencyTests(unittest.TestCase):
    with self.assertRaises(ValueError):P.binding({**new,P.KEY:{**new[P.KEY],key:value}})
   with self.assertRaises(ValueError):P.add(new)
   with self.assertRaises(ValueError):P.inputs(new,new['suite_inputs']['early-refresh-boundaries'])
+ def test_current_static_names_exact_and_original102_preserved(self):
+  contract=P.add(self.old);contract['input_sha256'][P.TEST_SOURCE]=P.TEST_SOURCE_SHA
+  names=P.static_names();value={'schema':'early-refresh-portable-contract-v1','status':'STATIC_PASS_RUNTIME_NOT_RUN','checks':names,'check_count':115,'expected_generic_baseline_cases':12,'variants':['baseline','candidate'],'swift_compiled':False,'swift_executed':False}
+  P.verify_static(value,contract)
+  for changed in [names[:-1],names[::-1],names[:-1]+[names[0]],names[:-1]+['unreviewed replacement']]:
+   with self.assertRaises(ValueError):P.verify_static({**value,'checks':changed,'check_count':len(changed)},contract)
+  with self.assertRaises(ValueError):P.verify_static({**value,'check_count':True},contract)
+  contract['input_sha256'][P.TEST_SOURCE]='0'*64
+  with self.assertRaises(ValueError):P.verify_static(value,contract)
  def test_historical_dependency_closure_unchanged(self):
   old=copy.deepcopy(self.old);old['input_sha256'][P.GENERATOR]='c'*64
   self.assertEqual(P.inputs(old,old['suite_inputs']['early-refresh-boundaries']),old['suite_inputs']['early-refresh-boundaries'])

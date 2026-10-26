@@ -29,6 +29,8 @@ class FocusedRuntimeTests(unittest.TestCase):
   self.assertLess(text.index('project_candidate_contracts.py'),text.index('verify_setup_state_recovery.py run'))
   self.assertNotIn('continue-on-error',text);self.assertNotIn('package_candidate.py',text);self.assertNotIn('build_ios.py',text)
   self.assertIn("steps.setup_tests.outcome == 'failure'",text)
+  self.assertEqual(text.count("            evidence/setup-state-recovery/\n"),2)
+  self.assertNotIn("evidence/setup-state-recovery/**/*.log",text)
   for identifier in ['setup_tests','language_switch_tests']:
    step=next(x for x in fs if x.get('id')==identifier)
    self.assertEqual(step['if'],"${{ !cancelled() && steps.source_gate.outcome == 'success' }}")
