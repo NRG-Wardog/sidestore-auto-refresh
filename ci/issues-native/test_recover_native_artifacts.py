@@ -93,7 +93,7 @@ class RecoveryArtifactTests(unittest.TestCase):
   begin='          # Formula metadata is checked'
   expected=original[original.index(begin):original.index('      - name: Upload experimental candidate')]
   actual=recovery[recovery.index(begin):recovery.index('      - name: Upload verified experimental IPA')]
-  self.assertEqual(actual.replace('package_candidate.py --recover-fixed-native','package_candidate.py'),expected)
+  self.assertEqual(actual.replace('package_candidate.py --recover-fixed-native --strip-unsigned-widget','package_candidate.py'),expected)
  def test_checkout_trust_and_diagnostics_are_scoped_to_attempted_owned_steps(self):
   root=Path(__file__).resolve().parents[2];text=(root/'.github/workflows/recover-native-package.yml').read_text()
   self.assertEqual(text.count('uses: actions/checkout@'),2)

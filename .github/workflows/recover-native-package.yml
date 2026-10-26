@@ -55,6 +55,20 @@ jobs:
           python3 -B harness/ci/issues-native/test_recover_native_artifacts.py
           python3 -B harness/ci/issues-native/test_recover_native.py
           python3 -B harness/ci/issues-native/package_candidate.py --self-test
+          python3 -B harness/ci/issues-native/test_unsigned_widget_workflow.py
+          python3 - <<'PY_WIDGET_TESTS' 2>&1 | tee recovery-evidence/unsigned-widget-controls.log
+          import pathlib, sys, unittest
+          if sys.platform != 'darwin': raise RuntimeError('macOS widget controls required')
+          root = pathlib.Path('harness/tests').resolve(strict=True)
+          sys.path.insert(0, str(root))
+          suite = unittest.TestSuite()
+          for pattern in ('test_unsigned_widget_optimization.py', 'test_widget_signature_policy.py'):
+              tests = unittest.TestLoader().discover(str(root), pattern=pattern)
+              if tests.countTestCases() == 0: raise ValueError('Missing widget controls: ' + pattern)
+              suite.addTests(tests)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.skipped: raise SystemExit(1)
+          PY_WIDGET_TESTS
       - name: Authenticate fixed original artifacts and restore immutable native products
         id: acquisition
         env:
@@ -139,7 +153,7 @@ jobs:
           python3 package-evidence/validate_ldid_bottle.py "$LDID_PREFIX"
           export PATH="$LDID_PREFIX/bin:$PATH"
           { xcodebuild -version; brew list --versions ldid; shasum -a 256 "$LDID_PREFIX/bin/ldid"; } > package-evidence/toolchain.log
-          python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native 2>&1 | tee package-evidence/package.log
+          python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native --strip-unsigned-widget 2>&1 | tee package-evidence/package.log
       - name: Upload verified experimental IPA and provenance
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -155,6 +169,15 @@ jobs:
         with:
           name: recovered-size-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: size-diagnostics/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Retain original widget and matching debug symbols separately
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: recovered-widget-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: widget-diagnostics/
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

@@ -52,7 +52,7 @@ def copy_size_reports(source, destination):
         if sha(target) != sha(path): raise ValueError('Size report copy differs')
 
 
-def main(*, recover_fixed_native=False):
+def main(*, recover_fixed_native=False, strip_unsigned_widget=False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
     receipt = json.loads(Path('evidence/receipt.json').read_text())
     packaging_identity = dict(workflow_commit=os.environ['GITHUB_SHA'], run_id=os.environ['GITHUB_RUN_ID'],
@@ -89,6 +89,7 @@ def main(*, recover_fixed_native=False):
     root = Path('packaging-inputs')
     if root.exists() or root.is_symlink(): raise ValueError('Packaging inputs must be fresh')
     records = []
+    widget_report = None
     for owner in expected:
         source = Path(os.environ['RUNNER_TEMP']) / ('native-' + owner) / 'Build/Products/Release-iphoneos' / (owner + '.app')
         observed, source_shape = inventory(source)
@@ -103,6 +104,16 @@ def main(*, recover_fixed_native=False):
         copied, copied_shape = inventory(target)
         if copied_shape != source_shape: raise ValueError('Packaging copy modes/links differ: ' + owner)
         if copied != expected[owner]: raise ValueError('Packaging input copy differs: ' + owner)
+        if strip_unsigned_widget and owner == 'SideStore':
+            sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+            from optimize_unsigned_widget import strip_unsigned_widget as optimize_widget
+            try:
+                widget_report = optimize_widget(target, transfer=transfer_roots['SideStore'],
+                    receipt_path=Path('evidence/receipt.json'), expected_manifest_sha=sealed_manifests['SideStore'],
+                    native_identity=native_identity, packaging_identity=packaging_identity,
+                    work=Path('packaging-widget-work'), retained=Path('widget-diagnostics'))
+            finally:
+                copy_size_reports(Path('packaging-widget-work'), Path('package-evidence/widget-reports'))
         for path in [target / 'Info.plist', *sorted(target.glob('PlugIns/*.appex/Info.plist'))]:
             if path.is_symlink(): raise ValueError('Linked application metadata')
             before = path.read_bytes()
@@ -184,6 +195,14 @@ def main(*, recover_fixed_native=False):
     russian = verify_russian_ipa(output, Path('sources/LiveContainer'), expected_permissions=plistlib.loads(
         Path('evidence/russian-localization/Russian.bundle/ru.lproj/InfoPlist.strings').read_bytes()))
     Path('diagnostic/russian-localization.json').write_text(json.dumps(russian, indent=2))
+    if widget_report is not None:
+        from optimize_unsigned_widget import verify_final_widget
+        widget_receipt = Path('widget-diagnostics/unsigned-widget-receipt.json')
+        size_report['prepackaging_unsigned_widget'] = verify_final_widget(initial,output,widget_receipt,widget_report,
+            Path('widget-diagnostics/unsigned-widget-original-and-symbols.zip'))
+        shutil.copyfile(widget_receipt, 'diagnostic/unsigned-widget-receipt.json')
+        if sha(Path('diagnostic/unsigned-widget-receipt.json')) != sha(widget_receipt):
+            raise ValueError('Retained widget receipt differs')
     Path('diagnostic/size-optimization.json').write_text(json.dumps(size_report, indent=2))
     provenance = dict(schema_version=1, native_run_id=native_identity['run_id'], native_run_attempt=native_identity['run_attempt'],
                       workflow_commit=os.environ['GITHUB_SHA'], source_graph=receipt['requested_graph'],
@@ -195,6 +214,8 @@ def main(*, recover_fixed_native=False):
                       native_transfer_seal_sha256=seal_sha,
                       retained_original_ipa_and_symbols_sha256=size_report['retained_debug_sidecar_sha256'],
                       signing_policy='reviewed Apple ad-hoc; original designated requirement replaced; installer resigning required')
+    if widget_report is not None:
+        provenance['unsigned_widget_prepackaging'] = size_report['prepackaging_unsigned_widget']
     if recover_fixed_native:
         if verify_acquisition(Path('evidence'), Path('recovery-evidence/acquisition.json'), packaging_identity) != acquisition_sha:
             raise ValueError('Acquisition receipt changed during packaging')
@@ -250,6 +271,8 @@ def self_test():
 if __name__ == '__main__':
     if sys.argv[1:] == ['--self-test']:
         self_test()
+    elif sys.argv[1:] == ['--recover-fixed-native', '--strip-unsigned-widget']:
+        main(recover_fixed_native=True, strip_unsigned_widget=True)
     elif sys.argv[1:] == ['--recover-fixed-native']:
         main(recover_fixed_native=True)
     elif sys.argv[1:]:
