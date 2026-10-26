@@ -1,1 +1,12 @@
-{"schema":"issue56-green-native-input-v1","run_id":0,"run_attempt":0,"commit":"PENDING_SUCCESSFUL_NATIVE_BUILD","artifact_id":0,"artifact_bytes":0,"artifact_sha256":"PENDING","ipa_bytes":0,"ipa_sha256":"PENDING","entries":0}
+{
+  "artifact_bytes": 25480278,
+  "artifact_id": 12643857430,
+  "artifact_sha256": "ccfefb44f8d728fdb8730072680a5710c3ee28a04dc83608d234f7600fc18600",
+  "commit": "e91ae9202f4e974eb295aecce20b0a170e96fd3f",
+  "entries": 274,
+  "ipa_bytes": 24620126,
+  "ipa_sha256": "242361f24816e8ee44c4d43ace4b4fc6c5c212097be2ae8e42b838e75d2d0425",
+  "run_attempt": 1,
+  "run_id": 40305707458,
+  "schema": "issue56-green-native-input-v1"
+}
