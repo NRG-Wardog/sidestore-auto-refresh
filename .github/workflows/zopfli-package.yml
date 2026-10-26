@@ -1,0 +1,81 @@
+name: Bounded copy-only Zopfli packaging qualification
+on:
+  push:
+    branches: [validation/zopfli-package]
+    paths: ['ci/issue55-zopfli/**', '.github/workflows/zopfli-package.yml']
+permissions:
+  contents: read
+concurrency:
+  group: zopfli-packaging-one-approved-replay
+  cancel-in-progress: false
+jobs:
+  package:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/zopfli-package'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Source-owned controls before acquisition
+        id: controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir zopfli-evidence workspace
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s ci/issue55-zopfli -p 'test_*.py' -v 2>&1 | tee zopfli-evidence/controls.log
+      - name: Acquire only fixed successful IPA and approved official source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue55-zopfli/acquire.py
+      - name: Verify source blobs and compile only reviewed C with existing compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp ci/issue55-zopfli/{verify_inputs.py,recompress.py,limited_exec.py,independent_verify.py,official-tree.json,official-commit.json} workspace/
+          python3 -B workspace/verify_inputs.py 2>&1 | tee zopfli-evidence/input-verification.log
+          test -x /usr/bin/cc
+          { /usr/bin/cc --version; sha256sum "$(readlink -f /usr/bin/cc)"; } > zopfli-evidence/compiler.log
+          (ulimit -v 2097152; ulimit -t 60; ulimit -c 0; timeout --kill-after=5s 60s /usr/bin/cc workspace/source/src/zopfli/*.c -O2 -std=c99 -Wall -Wextra -Wno-unused-function -lm -o workspace/zopfli) 2>&1 | tee zopfli-evidence/build.log
+      - name: Bounded two-worker compression and complete independent byte audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --kill-after=5s 1600s python3 -B workspace/recompress.py 2>&1 | tee zopfli-evidence/compression.log
+          python3 -B workspace/independent_verify.py --root workspace 2>&1 | tee zopfli-evidence/independent-audit.log
+          (cd workspace; sha256sum recompressed.ipa > SHA256SUMS)
+      - name: Upload qualified copy and provenance only after all gates
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: zopfli-qualified-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            workspace/recompressed.ipa
+            workspace/result.json
+            workspace/input-verification.json
+            workspace/independent-audit.json
+            workspace/provenance.json
+            workspace/acquisition.json
+            workspace/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Retain bounded non-secret reports even after failure
+        if: ${{ !cancelled() && (steps.controls.outcome == 'success' || steps.controls.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: zopfli-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            zopfli-evidence/*.json
+            zopfli-evidence/*.log
+            workspace/*.json
+            workspace/*.log
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 14
