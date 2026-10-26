@@ -1,3 +1,4 @@
+# Recovery registration checkpoint: immutable native run 40245615437, packaging only.
 name: Recover fixed native candidate packaging
 on:
   workflow_dispatch:
