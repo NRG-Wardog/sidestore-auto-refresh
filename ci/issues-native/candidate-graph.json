@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "da9bf8fa6f6b1eaf8cf55937c38924e2c34d5c15"
+      "9795832408e1d6a92f4f7f2663df99bbf449ab22"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -188,7 +188,7 @@
         "AltStore/AppDelegate.swift": "8c85a27a42d6a56f57494844e91a44d4b04f0b44",
         "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "a7d758c00a1d229af7cd121bbd752ac61e45bd69",
         "Dependencies/SideSign": "aac073a32cc8649b8bb4e604f52e124dc867003e",
-        "Dependencies/minimuxer": "aba27533a7c958f4b2692fbb7ad2c778382386f7",
+        "Dependencies/minimuxer": "c671f383d335d2720dfbf98b8bbd40ec1b18d115",
         "SideStore/Core/Anisette/AnisetteProvider.swift": "9899b064e45a6d8f005c000f15453b3b11730452",
         "SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift": "475c914fd4342bfdf33a8ac8d10f301e94b435e5",
         "SideStore/Core/Auth/AuthManager.swift": "61c36d4ee026391c014fc720d84e0dadf4882d48",
@@ -231,7 +231,7 @@
         "tests/upstream_sync/test_iloader_submit_route.py": "89740faba3efc4f71125e560fdf3ef5e6ad29a8d",
         "tests/vpn_transport_recovery/generate_fixture.py": "57197e047d007d51e3d2f0a22a0ef86900257d60"
       },
-      "tree": "79368c0513b972cdc4ac22a2595e20ff8a4147f2"
+      "tree": "54b58797ac862c498b2f6e89712fc56ab310f66c"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
