@@ -51,6 +51,7 @@ jobs:
           python3 -B harness/ci/issues-native/verify_candidate_graph.py 2>&1 | tee evidence/source-graph.log
           python3 -B harness/ci/issues-native/test_upstream_candidate_projection.py
           python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py
+          python3 -B harness/ci/issues-native/test_current_vpn_guard_projection.py
           python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
           { xcodebuild -version; swift --version; xcrun --sdk iphonesimulator --show-sdk-version; } > evidence/toolchain.log
           xcodebuild -version | grep -Fx 'Xcode 26.4.1'

@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from current_vpn_guard_projection import verify as verify_current_vpn_guard
 from cold_vpn_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
 from russian_setup_projection import variant as russian_setup_variant
 
@@ -601,10 +602,7 @@ def additive_extraction(output, contract, suite):
         prefix = 'SideStore/Dependencies/minimuxer/'
         require(all(p.startswith(prefix) for p in support_hashes), 'VPN support path scope differs')
         support_hashes = {p[len(prefix):]: value for p, value in support_hashes.items()}
-        require(value.get('cold_guard_provenance') == 'actual_unchanged_guard_blocks_and_historical_baseline' and
-                value.get('baseline_classifier_sha256') == contract['input_sha256'][
-                    VPN_RECOVERY + '/OriginalRefreshReadinessFacts.swift'],
-                'VPN actual dependency or original classifier proof differs')
+        verify_current_vpn_guard(value, contract)
     require(value.get('support_inputs_sha256', {}) == support_hashes,
             'Additive support source hashes differ')
     if suite == 'vpn-refresh-recovery':
