@@ -1,0 +1,85 @@
+name: Qualify copied OpenSSL true-local removal on macOS
+on:
+  workflow_dispatch:
+  push:
+    branches: ['diagnostic/openssl-local-host']
+    paths: ['ci/issue55-openssl-local/**', 'scripts/openssl_local_symbol_policy.py', '.github/workflows/openssl-local-host-diagnostic.yml']
+permissions:
+  contents: read
+concurrency:
+  group: openssl-local-host-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/diagnostic/openssl-local-host'
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Source-owned qualification controls
+        id: controls
+        run: |
+          set -euo pipefail
+          mkdir diagnostics
+          python3 -B ci/issue55-openssl-local/test_host_qualification.py 2>&1 | tee diagnostics/host-controls.log
+          python3 -B -m unittest discover -s tests -p test_openssl_local_symbol_policy.py -v 2>&1 | tee diagnostics/policy-controls.log
+          python3 -B ci/issue53-lts/test_recipe.py 2>&1 | tee diagnostics/recipe-controls.log
+          python3 -B ci/issue53-crypto/test_controls.py 2>&1 | tee diagnostics/crypto-controls.log
+          python3 -B ci/issue53-crypto/test_consumer_contract.py 2>&1 | tee diagnostics/consumer-controls.log
+      - name: Build unchanged official Os macOS dylib and full symbols
+        id: build
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue53-lts/build.py --output lts-build --optimization Os 2>&1 | tee diagnostics/build-driver.log
+      - name: Acquire unchanged comparison and pinned actual signer source
+        id: inputs
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue53-crypto/acquire.py --output inputs 2>&1 | tee diagnostics/comparison-acquisition.log
+          python3 -B ci/issue53-crypto/consumer.py acquire --inputs inputs 2>&1 | tee diagnostics/signer-acquisition.log
+      - name: Qualify original and transformed actual dylibs and observed pair bindings
+        id: qualify
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue55-openssl-local/qualify_host.py --built lts-build --inputs inputs \
+            --evidence qualification --work host-transform 2>&1 | tee diagnostics/qualification-driver.log
+      - name: Retain immutable original framework and full matching symbols
+        if: ${{ !cancelled() && steps.qualify.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: openssl-local-host-original-${{ github.run_id }}
+          path: |
+            lts-build/generated/
+            lts-build/build-receipt.json
+            lts-build/configdata.txt
+            lts-build/headers.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain bounded evidence even on owned-step failure
+        if: ${{ !cancelled() && (steps.controls.outcome == 'success' || steps.controls.outcome == 'failure' || steps.build.outcome == 'failure' || steps.inputs.outcome == 'failure' || steps.qualify.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: openssl-local-host-evidence-${{ github.run_id }}
+          path: |
+            diagnostics/
+            qualification/
+            lts-build/build.log
+            lts-build/configdata.txt
+          if-no-files-found: error
+          retention-days: 14
