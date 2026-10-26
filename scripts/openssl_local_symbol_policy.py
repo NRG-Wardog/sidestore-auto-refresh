@@ -21,15 +21,15 @@ def _digest(value):
 
 
 def verify_openssl_local_removal(before, after, *, expected_before_sha256,
-                                 dwarf, expected_dwarf_sha256):
+                                 dwarf, expected_dwarf_sha256, host_legacy_dyld=False):
     require(sha(before) == _digest(expected_before_sha256), 'OpenSSL source bytes differ')
     require(sha(dwarf) == _digest(expected_dwarf_sha256), 'OpenSSL DWARF bytes differ')
-    old, _, _ = classify(before)
+    old, _, _ = classify(before, host_legacy_dyld=host_legacy_dyld)
     require(old['signature_sha256'] is None, 'OpenSSL source must remain unsigned')
     rows, _ = symbol_rows(before)
     require(not any(row[1] & 0x10 for row in rows), 'unexpected OpenSSL private-extern policy')
     require(image_uuid(dwarf) == old['uuid'], 'OpenSSL full DWARF UUID differs')
-    result = verify_local_removal(before, after)
+    result = verify_local_removal(before, after, host_legacy_dyld=host_legacy_dyld)
     require(result['after']['signature_sha256'] is None, 'OpenSSL stripped output must remain unsigned')
     return {'schema':'unsigned-openssl-local-symbol-policy-v1',
             'before_sha256':sha(before),'after_sha256':sha(after),'dwarf_sha256':sha(dwarf),

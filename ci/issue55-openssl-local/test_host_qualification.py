@@ -105,7 +105,7 @@ class ReceiptTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     def test_scoped_native_diagnostic(self):
         text=(m.ROOT/'.github/workflows/openssl-local-host-diagnostic.yml').read_text()
-        for required in ('contents: read','set-safe-directory: false','persist-credentials: false','Xcode_26.4.1','--optimization Os','test_host_qualification.py','--evidence qualification --work host-transform'):
+        for required in ('contents: read','set-safe-directory: false','persist-credentials: false','Xcode_26.4.1','--optimization Os','test_host_qualification.py','test_host_legacy_dyld_policy.py',"steps.build.outcome == 'success'",'--evidence qualification --work host-transform'):
             self.assertIn(required,text)
         for forbidden in ('actions: write','always()','build_ios.py','package_candidate.py','--location-trusted'):
             self.assertNotIn(forbidden,text)

@@ -38,6 +38,7 @@ jobs:
           set -euo pipefail
           mkdir diagnostics
           python3 -B ci/issue55-openssl-local/test_host_qualification.py 2>&1 | tee diagnostics/host-controls.log
+          python3 -B -m unittest discover -s tests -p test_host_legacy_dyld_policy.py -v 2>&1 | tee diagnostics/legacy-dyld-controls.log
           python3 -B -m unittest discover -s tests -p test_openssl_local_symbol_policy.py -v 2>&1 | tee diagnostics/policy-controls.log
           python3 -B ci/issue53-lts/test_recipe.py 2>&1 | tee diagnostics/recipe-controls.log
           python3 -B ci/issue53-crypto/test_controls.py 2>&1 | tee diagnostics/crypto-controls.log
@@ -60,7 +61,7 @@ jobs:
           python3 -B ci/issue55-openssl-local/qualify_host.py --built lts-build --inputs inputs \
             --evidence qualification --work host-transform 2>&1 | tee diagnostics/qualification-driver.log
       - name: Retain immutable original framework and full matching symbols
-        if: ${{ !cancelled() && steps.qualify.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: openssl-local-host-original-${{ github.run_id }}

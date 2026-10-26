@@ -135,23 +135,23 @@ def transform(library, dwarf, destination, guard, policy, evidence):
     shutil.copy2(library,destination)
     shutil.copytree(library.parent/'Headers',destination.parent/'Headers')
     original=destination.read_bytes(); stages={}
-    if guard.snapshot(original)['signature_sha256'] is not None:
+    if guard.snapshot(original,host_legacy_dyld=True)['signature_sha256'] is not None:
         subprocess.run(['/usr/bin/codesign','--remove-signature',str(destination)],check=True,timeout=30)
     unsigned=destination.read_bytes()
-    stages['signature_removal']=guard.verify(original,unsigned,preserve_stabs=True,require_reduction=False)
-    require(guard.snapshot(unsigned)['signature_sha256'] is None,'signature remains')
+    stages['signature_removal']=guard.verify(original,unsigned,preserve_stabs=True,require_reduction=False,host_legacy_dyld=True)
+    require(guard.snapshot(unsigned,host_legacy_dyld=True)['signature_sha256'] is None,'signature remains')
     strip=subprocess.check_output(['xcrun','--toolchain','default','--find','strip'],text=True,timeout=30).strip()
     expected_strip=Path(DEVELOPER)/'Toolchains/XcodeDefault.xctoolchain/usr/bin/strip'
     require(os.environ.get('DEVELOPER_DIR')==DEVELOPER and Path(strip).resolve()==expected_strip.resolve() and expected_strip.is_file(),'Apple strip tool identity differs')
     subprocess.run([strip,'-S',str(destination)],check=True,timeout=30)
-    post_s=destination.read_bytes(); stages['debug']=guard.verify(unsigned,post_s,require_reduction=False)
+    post_s=destination.read_bytes(); stages['debug']=guard.verify(unsigned,post_s,require_reduction=False,host_legacy_dyld=True)
     subprocess.run([strip,'-x',str(destination)],check=True,timeout=30)
     locals_removed=destination.read_bytes()
-    stages['locals']=policy.verify_openssl_local_removal(post_s,locals_removed,expected_before_sha256=hashlib.sha256(post_s).hexdigest(),dwarf=dwarf.read_bytes(),expected_dwarf_sha256=sha(dwarf))
+    stages['locals']=policy.verify_openssl_local_removal(post_s,locals_removed,expected_before_sha256=hashlib.sha256(post_s).hexdigest(),dwarf=dwarf.read_bytes(),expected_dwarf_sha256=sha(dwarf),host_legacy_dyld=True)
     subprocess.run(['/usr/bin/codesign','--force','--sign','-','--timestamp=none',str(destination)],check=True,timeout=30)
     subprocess.run(['/usr/bin/codesign','--verify','--strict',str(destination)],check=True,timeout=30)
     # Reverse comparison: removing signature may shrink LINKEDIT allocation.
-    stages['signature_only_reseal']=guard.verify(destination.read_bytes(),locals_removed,preserve_stabs=True,require_reduction=False)
+    stages['signature_only_reseal']=guard.verify(destination.read_bytes(),locals_removed,preserve_stabs=True,require_reduction=False,host_legacy_dyld=True)
     stages.update({'original_sha256':sha(library),'unsigned_sha256':hashlib.sha256(locals_removed).hexdigest(),'runtime_sha256':sha(destination),'dwarf_sha256':sha(dwarf),'strip_sha256':sha(strip),'codesign_sha256':sha('/usr/bin/codesign')})
     write(evidence/'transform.json',stages)
     return stages
