@@ -24,6 +24,13 @@ def command(args,*,cwd=None,timeout=120):
   if isinstance(detail,bytes):detail=detail.decode('utf-8','replace')
   if detail:print(detail,file=sys.stderr,flush=True)
   raise
+def source_test_result(result,log,label):
+ if result.returncode!=0:
+  # These source-owned synthetic fixtures use no account, pairing or signing
+  # material. Bound the failure tail; preserve full log in private CI evidence.
+  print('SOURCE_FIXTURE_FAILURE '+label+'\n'+log.read_text()[-16000:],file=sys.stderr,flush=True)
+ require(result.returncode==0,'Source-owned '+label+' tests failed')
+
 def extract(text,start,end):
  require(text.count(start)==1 and text.count(end)==1,'Production marker closure differs')
  section=text.split(start,1)[1].split(end,1)[0]
@@ -56,17 +63,50 @@ def recovery_hashes(sources):
   result[owner+'/'+name]=sha(path)
  return result
 
+def runtime_number(version):
+ require(type(version) is str and re.fullmatch(r'[0-9]+(?:\.[0-9]+){0,2}',version),'Invalid simulator runtime version')
+ parts=[int(x) for x in version.split('.')]+[0,0]
+ require(parts[0]<=65535 and parts[1]<=255 and parts[2]<=255,'Runtime version out of bounds')
+ return (parts[0]<<16)|(parts[1]<<8)|parts[2]
+
 def available_device(catalog):
  require(isinstance(catalog,dict),'Invalid simulator inventory')
  runtimes=[r for r in catalog['runtimes'] if r.get('isAvailable') is True and r.get('identifier','').startswith('com.apple.CoreSimulator.SimRuntime.iOS-')]
  require(runtimes,'No installed available iOS Simulator runtime; do not download one implicitly')
- runtime=sorted(runtimes,key=lambda r:tuple(int(x) for x in r['version'].split('.')),reverse=True)[0]
- types=[d for d in catalog['devicetypes'] if d.get('productFamily')=='iPhone' or d.get('name','').startswith('iPhone')]
- require(types,'No installed iPhone simulator device type')
- # The runtime itself validates compatibility on creation. Latest iPhone supported
- # by installed Xcode is selected, without touching any pre-existing device.
- device=types[-1]
- return runtime,device
+ # productFamily alone is insufficient: simctl classifies iPod touch as iPhone.
+ phones=[d for d in catalog['devicetypes'] if d.get('name','').startswith('iPhone ') and d.get('identifier','').startswith('com.apple.CoreSimulator.SimDeviceType.iPhone-') and d.get('productFamily')=='iPhone']
+ require(phones,'No installed explicit iPhone simulator device type')
+ for runtime in sorted(runtimes,key=lambda r:runtime_number(r['version']),reverse=True):
+  version=runtime_number(runtime['version'])
+  if version<runtime_number('16.0'):continue
+  supported=None
+  if 'supportedDeviceTypes' in runtime:
+   rows=runtime['supportedDeviceTypes'];require(type(rows) is list,'Invalid runtime supported-device inventory')
+   supported=set()
+   for row in rows:
+    identifier=row if type(row) is str else row.get('identifier') if type(row) is dict else None
+    require(type(identifier) is str,'Invalid supported device identity');supported.add(identifier)
+  devices=catalog.get('devices',{});require(type(devices) is dict,'Invalid existing simulator inventory')
+  existing=devices.get(runtime['identifier'],[]);require(type(existing) is list,'Invalid runtime device inventory')
+  available_types={d.get('deviceTypeIdentifier') for d in existing if type(d) is dict and d.get('isAvailable') is True and type(d.get('deviceTypeIdentifier')) is str}
+  eligible=[]
+  for device in phones:
+   lower=device.get('minRuntimeVersion');upper=device.get('maxRuntimeVersion')
+   bounds=type(lower) is int and type(upper) is int and 0<=lower<=upper<=4294967295
+   if ('minRuntimeVersion' in device or 'maxRuntimeVersion' in device) and not bounds:continue
+   if bounds and not lower<=version<=upper:continue
+   if supported is not None:
+    if device['identifier'] not in supported:continue
+   else:
+    # Older simctl schemas can omit explicit supported identities. Accept
+    # authoritative bounds or an available existing device's exact type under
+    # this runtime only. Never reuse or mutate the existing device itself.
+    if not bounds and device['identifier'] not in available_types:continue
+   eligible.append(device)
+  if eligible:
+   # Prefer the newest compatible generation by minimum runtime, not array order.
+   return runtime,max(eligible,key=lambda d:(d.get('minRuntimeVersion') if type(d.get('minRuntimeVersion')) is int else 0,d['identifier']))
+ raise ValueError('No installed iPhone device type has verified compatibility with an available iOS16+ runtime')
 
 TRANSITIONS=['he','en','he','ru','he','zh-Hans','he','zh-Hant','en','he','ru','en']
 def validate_runtime_result(data,root):
@@ -98,26 +138,28 @@ def run(sources,output):
   recovery_log=work/'refresh-recovery-tests.log'
   with recovery_log.open('x') as stream:
    recovered=subprocess.run([sys.executable,'-B',sources/'SideStore/tests/refresh_recovery/test_ownerless_snapshot.py'],cwd=work,env={**os.environ,'REQUIRE_SWIFT_REFRESH_RECOVERY_TESTS':'1','LIVE_CONTAINER_SOURCE_ROOT':str(root)},stdout=stream,stderr=subprocess.STDOUT,timeout=180)
-  require(recovered.returncode==0,'Source-owned refresh recovery tests failed')
+  source_test_result(recovered,recovery_log,'refresh recovery')
   recovery_text=recovery_log.read_text();require(re.search(r'^OK\s*$',recovery_text,re.M) is not None and re.search(r'^(?:FAILED|OK \()',recovery_text,re.M) is None,'Refresh recovery tests skipped or failed')
   report['refresh_recovery_test_log_sha256']=sha(recovery_log)
   root_log=work/'root-tests.log'
   with root_log.open('x') as stream:
    rooted=subprocess.run([sys.executable,'-B',root/'tests/test_live_language_root.py'],cwd=work,stdout=stream,stderr=subprocess.STDOUT,timeout=180)
-  require(rooted.returncode==0,'Source-owned language root tests failed')
+  source_test_result(rooted,root_log,'language root')
   root_text=root_log.read_text();require(re.search(r'^OK\s*$',root_text,re.M) is not None and re.search(r'^(?:FAILED|OK \()',root_text,re.M) is None,'Language root tests skipped or failed')
   report['source_root_test_log_sha256']=sha(root_log)
   state_log=work/'state-tests.log'
   with state_log.open('x') as stream:
    tested=subprocess.run([sys.executable,'-B',root/'tests/test_live_language_state.py'],cwd=work,stdout=stream,stderr=subprocess.STDOUT,timeout=180)
-  require(tested.returncode==0,'Source-owned language state tests failed')
+  source_test_result(tested,state_log,'language state')
   state_text=state_log.read_text();require(re.search(r'^OK\s*$',state_text,re.M) is not None and re.search(r'^(?:FAILED|OK \()',state_text,re.M) is None,'Language state tests skipped or failed')
   report['source_state_test_log_sha256']=sha(state_log)
   settings=(root/SOURCES[0]).read_text();localization=(root/SOURCES[1]).read_text()
   require('// V3_LIVE_HOST_LANGUAGE_BEGIN' in settings,'Missing reviewed live state/bridge')
   generated=localization+'\n'+settings+'\n'+(HERE/'SimulatorFixture.swift').read_text()
   source=work/'main.swift';source.write_text(generated)
-  catalog=json.loads(command(['xcrun','simctl','list','-j']))
+  inventory_text=command(['xcrun','simctl','list','-j'])
+  (work/'simulator-inventory.json').write_text(inventory_text)
+  catalog=json.loads(inventory_text,object_pairs_hook=strict)
   runtime,device=available_device(catalog)
   sdk=command(['xcrun','--sdk','iphonesimulator','--show-sdk-path']).strip()
   architecture=platform.machine();require(architecture in ('arm64','x86_64'),'Unsupported simulator host architecture')

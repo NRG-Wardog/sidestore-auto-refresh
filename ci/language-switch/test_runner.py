@@ -1,13 +1,29 @@
 from pathlib import Path
-import json,tempfile,unittest,copy,sys
+import json,tempfile,unittest,copy,sys,io,contextlib,subprocess
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import run_language_switch_tests as R
 class RunnerTests(unittest.TestCase):
- def test_device_selection_rejects_missing_installed_runtime(self):
+ def test_device_selection_requires_verified_runtime_compatibility(self):
   with self.assertRaises(ValueError):R.available_device({'runtimes':[],'devicetypes':[]})
-  runtime={'identifier':'com.apple.CoreSimulator.SimRuntime.iOS-26-4','version':'26.4','isAvailable':True}
-  device={'identifier':'com.apple.CoreSimulator.SimDeviceType.iPhone-17','name':'iPhone 17','productFamily':'iPhone'}
-  self.assertEqual(R.available_device({'runtimes':[runtime],'devicetypes':[device]}),(runtime,device))
+  runtime={'identifier':'com.apple.CoreSimulator.SimRuntime.iOS-26-5','version':'26.5','isAvailable':True}
+  device={'identifier':'com.apple.CoreSimulator.SimDeviceType.iPhone-17','name':'iPhone 17','productFamily':'iPhone','minRuntimeVersion':R.runtime_number('26.0'),'maxRuntimeVersion':4294967295}
+  ipod={'identifier':'com.apple.CoreSimulator.SimDeviceType.iPod-touch--7th-generation-','name':'iPod touch (7th generation)','productFamily':'iPhone','minRuntimeVersion':R.runtime_number('12.2'),'maxRuntimeVersion':R.runtime_number('15.9')}
+  old={**device,'identifier':'com.apple.CoreSimulator.SimDeviceType.iPhone-6s','name':'iPhone 6s','minRuntimeVersion':R.runtime_number('9.0'),'maxRuntimeVersion':R.runtime_number('15.9')}
+  future={**device,'identifier':'com.apple.CoreSimulator.SimDeviceType.iPhone-future','name':'iPhone future','minRuntimeVersion':R.runtime_number('27.0')}
+  self.assertEqual(R.available_device({'runtimes':[runtime],'devicetypes':[future,device,old,ipod]}),(runtime,device))
+  for devices in ([ipod],[old],[future],[{k:v for k,v in device.items() if 'RuntimeVersion' not in k}]):
+   with self.assertRaises(ValueError):R.available_device({'runtimes':[runtime],'devicetypes':devices})
+  explicit={**runtime,'supportedDeviceTypes':[{'identifier':device['identifier']}]}
+  self.assertEqual(R.available_device({'runtimes':[explicit],'devicetypes':[future,device,old,ipod]}),(explicit,device))
+  with self.assertRaises(ValueError):R.available_device({'runtimes':[{**runtime,'supportedDeviceTypes':[]}],'devicetypes':[device]})
+  with self.assertRaises(ValueError):R.available_device({'runtimes':[runtime],'devicetypes':[{**device,'minRuntimeVersion':True}]})
+  unbounded={k:v for k,v in device.items() if 'RuntimeVersion' not in k}
+  existing={'deviceTypeIdentifier':device['identifier'],'isAvailable':True,'udid':'EXISTING-DO-NOT-USE'}
+  catalog={'runtimes':[runtime],'devicetypes':[unbounded,ipod],'devices':{runtime['identifier']:[existing]}}
+  self.assertEqual(R.available_device(catalog),(runtime,unbounded))
+  for devices in ({'other-runtime':[existing]},{runtime['identifier']:[{**existing,'isAvailable':False}]}):
+   with self.assertRaises(ValueError):R.available_device({**catalog,'devices':devices})
+  with self.assertRaises(ValueError):R.available_device({**catalog,'devicetypes':[{**unbounded,'minRuntimeVersion':True}]})
  def test_actual_transition_proof_and_stale_wrong_direction_rejected(self):
   with tempfile.TemporaryDirectory() as t:
    root=Path(t).resolve();(root/'Resources').mkdir()
@@ -21,6 +37,15 @@ class RunnerTests(unittest.TestCase):
    for key,value in [('visible_string','visible-he'),('direction','rtl'),('chrome_count',True)]:
     bad=copy.deepcopy(data);bad['records'][1][key]=value
     with self.assertRaises(ValueError):R.validate_runtime_result(bad,root)
+ def test_source_failure_tail_is_bounded_and_does_not_mask_failure(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   log=Path(tmp)/'synthetic.log';log.write_text('a'*20000+'synthetic failure')
+   stream=io.StringIO()
+   with contextlib.redirect_stderr(stream),self.assertRaises(ValueError):
+    R.source_test_result(subprocess.CompletedProcess([],1),log,'synthetic')
+   self.assertLess(len(stream.getvalue()),16100)
+   self.assertTrue(stream.getvalue().endswith('synthetic failure\n'))
+   R.source_test_result(subprocess.CompletedProcess([],0),log,'synthetic')
  def test_duplicate_json_key_rejected(self):
   with self.assertRaises(ValueError):R.strict([('status','FAILED'),('status','PASS')])
  def test_runtime_source_not_fake_model_and_same_session_required(self):

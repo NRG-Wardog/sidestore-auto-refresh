@@ -17,6 +17,12 @@ class WorkflowTests(unittest.TestCase):
    part=new.split('      - name: '+title+'\n')[1].split('      - name: ',1)[0]
    self.assertIn('        if: success()\n',part)
   self.assertLess(new.index('id: language_switch_tests'),new.index('id: livecontainer_build'))
+  self.assertLess(new.index('Retain immediate language and recovery failure diagnostics'),new.index('id: owned_oda_tests'))
+  immediate=new.split('      - name: Retain immediate language and recovery failure diagnostics\n')[1].split('      - name: ',1)[0]
+  self.assertIn("steps.language_switch_tests.outcome == 'failure'",immediate)
+  self.assertIn('evidence/language-switch/*.log',immediate)
+  self.assertIn('evidence/language-switch/*.json',immediate)
+  self.assertNotIn('path: evidence/',immediate)
   # Exact unchanged native command blocks are a parity guard, not proof of execution.
   for title in ('Compile unsigned LiveContainer app and extensions','Compile unsigned SideStore app and extensions'):
    self.assertEqual(old.split('      - name: '+title+'\n')[1].split('      - name: ',1)[0],new.split('      - name: '+title+'\n')[1].split('      - name: ',1)[0])

@@ -113,6 +113,18 @@ jobs:
           python3 -B -m unittest discover -s harness/ci/language-switch -p 'test_*.py' -v
           python3 -B harness/ci/language-switch/run_language_switch_tests.py --sources sources --output evidence \
             2>&1 | tee evidence/language-switch-driver.log
+      - name: Retain immediate language and recovery failure diagnostics
+        if: ${{ !cancelled() && steps.language_switch_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: language-recovery-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/language-switch/*.log
+            evidence/language-switch/*.json
+            evidence/language-switch-driver.log
+            evidence/language-switch-tests.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Qualify exact owned ODA source and verified local startup
         id: owned_oda_tests
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
