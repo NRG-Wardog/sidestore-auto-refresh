@@ -62,7 +62,7 @@ jobs:
           root = pathlib.Path('harness/tests').resolve(strict=True)
           sys.path.insert(0, str(root))
           suite = unittest.TestSuite()
-          for pattern in ('test_unsigned_widget_optimization.py', 'test_widget_signature_policy.py'):
+          for pattern in ('test_unsigned_widget_optimization.py', 'test_widget_signature_policy.py', 'test_widget_local_symbols.py', 'test_widget_local_packaging_wiring.py'):
               tests = unittest.TestLoader().discover(str(root), pattern=pattern)
               if tests.countTestCases() == 0: raise ValueError('Missing widget controls: ' + pattern)
               suite.addTests(tests)
@@ -153,7 +153,7 @@ jobs:
           python3 package-evidence/validate_ldid_bottle.py "$LDID_PREFIX"
           export PATH="$LDID_PREFIX/bin:$PATH"
           { xcodebuild -version; brew list --versions ldid; shasum -a 256 "$LDID_PREFIX/bin/ldid"; } > package-evidence/toolchain.log
-          python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native --strip-unsigned-widget 2>&1 | tee package-evidence/package.log
+          python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native --strip-unsigned-widget --strip-widget-true-locals 2>&1 | tee package-evidence/package.log
       - name: Upload verified experimental IPA and provenance
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

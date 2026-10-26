@@ -57,8 +57,9 @@ def runtime_save_list(data):
                    'six_metadata_access_descriptor_and_type_roots_required':True}
 
 
-def classify(data, *, allow_apple_local_sentinel=False):
-    shape = snapshot(data)  # All bounds/ranges, category closure and blob checks first.
+def classify(data, *, allow_apple_local_sentinel=False, unsigned_executable=False, preserve_private_externals=False):
+    require(not unsigned_executable or preserve_private_externals, 'unsigned executable local policy must preserve all private externals')
+    shape = snapshot(data, unsigned_executable=unsigned_executable)  # All bounds/ranges, category closure and blob checks first.
     rows, dysym = symbol_rows(data)
     sentinel = shape['stab_count'] != 0
     if sentinel:
@@ -79,13 +80,16 @@ def classify(data, *, allow_apple_local_sentinel=False):
         is_local = local_start <= index < local_start + local_count
         runtime_adapter = is_runtime_adapter_name(row[0]) and bool(kind & 0x11)
         eligible = not runtime_adapter and is_local and not kind & 1 and (kind & 0x0e) in (2, 0x0e) and index not in protected_indices
+        if preserve_private_externals:
+            eligible = eligible and not kind & 0x10 and (kind & 0x0e) == 0x0e and row[2] > 0
         (removable if eligible else protected).append(row)
     return shape, Counter(removable), Counter(protected)
 
 
-def verify_local_removal(before, after, *, require_reduction=True):
-    old, old_local, old_protected = classify(before)
-    new, new_local, new_protected = classify(after, allow_apple_local_sentinel=True)
+def verify_local_removal(before, after, *, require_reduction=True, unsigned_executable=False, preserve_private_externals=False):
+    policy = {'unsigned_executable': unsigned_executable, 'preserve_private_externals': preserve_private_externals}
+    old, old_local, old_protected = classify(before, **policy)
+    new, new_local, new_protected = classify(after, allow_apple_local_sentinel=True, **policy)
     for key in ('header', 'uuid', 'commands', 'segments', 'sections', 'linkedit_offset',
                 'linkedit_blobs', 'indirect_symbols'):
         require(old[key] == new[key], 'local-strip invariant changed: ' + key)

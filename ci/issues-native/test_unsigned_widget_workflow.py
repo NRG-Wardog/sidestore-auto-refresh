@@ -9,9 +9,10 @@ NORMAL=(ROOT/'.github/workflows/issues-native.yml').read_text()
 
 class WidgetWorkflowTests(unittest.TestCase):
  def test_only_recovery_packaging_opts_in(self):
-  command='python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native --strip-unsigned-widget 2>&1 | tee package-evidence/package.log'
+  command='python3 harness/ci/issues-native/package_candidate.py --recover-fixed-native --strip-unsigned-widget --strip-widget-true-locals 2>&1 | tee package-evidence/package.log'
   self.assertEqual(RECOVERY.count(command),1)
   self.assertNotIn('--strip-unsigned-widget',NORMAL)
+  self.assertNotIn('--strip-widget-true-locals',NORMAL)
   for name in ('GITHUB_SHA','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT'):
    self.assertNotIn('export '+name+'=',RECOVERY)
    self.assertNotIn(name+':',RECOVERY)
@@ -27,7 +28,7 @@ class WidgetWorkflowTests(unittest.TestCase):
   tree=ast.parse(code)
   loops=[node for node in ast.walk(tree) if isinstance(node,ast.For) and isinstance(node.target,ast.Name) and node.target.id=='pattern']
   self.assertEqual(len(loops),1)
-  self.assertEqual(ast.literal_eval(loops[0].iter),('test_unsigned_widget_optimization.py', 'test_widget_signature_policy.py'))
+  self.assertEqual(ast.literal_eval(loops[0].iter),('test_unsigned_widget_optimization.py', 'test_widget_signature_policy.py', 'test_widget_local_symbols.py', 'test_widget_local_packaging_wiring.py'))
  def test_widget_sidecar_is_success_only_fresh_and_separate(self):
   block=RECOVERY.split('      - name: Retain original widget and matching debug symbols separately\n',1)[1].split('      - name:',1)[0]
   self.assertIn('if: success()',block)

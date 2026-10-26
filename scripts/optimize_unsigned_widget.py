@@ -43,7 +43,7 @@ def apple_strip(before, work, report):
 
 
 def strip_unsigned_widget(staged_app, *, transfer, receipt_path, expected_manifest_sha,
-                          native_identity, packaging_identity, work, retained):
+                          native_identity, packaging_identity, work, retained, include_true_locals=False):
     current_identity=admitted_packaging_identity(native_identity,packaging_identity)
     require(not receipt_path.is_symlink() and receipt_path.is_file(),'linked native receipt')
     receipt_hash=digest(receipt_path);receipt=json.loads(receipt_path.read_text())
@@ -94,6 +94,11 @@ def strip_unsigned_widget(staged_app, *, transfer, receipt_path, expected_manife
         changed=apple_strip(before,work,report)
         report['observed_after']=snapshot(changed,unsigned_executable=True)
         report['structural']=verify(before,changed,unsigned_executable=True)
+        report['debug_only_stage']={'input_sha256':sha(before),'output_sha256':sha(changed),
+                                    'raw_bytes_saved':len(before)-len(changed)}
+        if include_true_locals:
+            from widget_local_symbols import transform as strip_true_locals
+            changed=strip_true_locals(changed,work,report)
         require(binary.read_bytes()==before,'widget packaging input mutated')
         require(retained_inventory(staged_app)==staged_before,'unapproved staged app mutation before install')
         require(all(digest(path)==value for path,value in seals.items()) and retained_inventory(bundle)==symbols,'sealed native/widget symbols mutated')

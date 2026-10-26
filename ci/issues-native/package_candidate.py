@@ -52,7 +52,9 @@ def copy_size_reports(source, destination):
         if sha(target) != sha(path): raise ValueError('Size report copy differs')
 
 
-def main(*, recover_fixed_native=False, strip_unsigned_widget=False):
+def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False):
+    if strip_widget_true_locals and not (recover_fixed_native and strip_unsigned_widget):
+        raise ValueError('Widget true-local experiment requires fixed-native recovery and unsigned widget debug stripping')
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
     receipt = json.loads(Path('evidence/receipt.json').read_text())
     packaging_identity = dict(workflow_commit=os.environ['GITHUB_SHA'], run_id=os.environ['GITHUB_RUN_ID'],
@@ -111,7 +113,8 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False):
                 widget_report = optimize_widget(target, transfer=transfer_roots['SideStore'],
                     receipt_path=Path('evidence/receipt.json'), expected_manifest_sha=sealed_manifests['SideStore'],
                     native_identity=native_identity, packaging_identity=packaging_identity,
-                    work=Path('packaging-widget-work'), retained=Path('widget-diagnostics'))
+                    work=Path('packaging-widget-work'), retained=Path('widget-diagnostics'),
+                    include_true_locals=strip_widget_true_locals)
             finally:
                 copy_size_reports(Path('packaging-widget-work'), Path('package-evidence/widget-reports'))
         for path in [target / 'Info.plist', *sorted(target.glob('PlugIns/*.appex/Info.plist'))]:
@@ -200,6 +203,10 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False):
         widget_receipt = Path('widget-diagnostics/unsigned-widget-receipt.json')
         size_report['prepackaging_unsigned_widget'] = verify_final_widget(initial,output,widget_receipt,widget_report,
             Path('widget-diagnostics/unsigned-widget-original-and-symbols.zip'))
+        size_report['prepackaging_unsigned_widget']['raw_stage_savings'] = {
+            'debug_stabs': widget_report['debug_only_stage']['raw_bytes_saved'],
+            'true_locals': widget_report.get('true_local_stage', {}).get('raw_bytes_saved', 0)}
+        size_report['prepackaging_unsigned_widget']['true_local_experiment_enabled'] = strip_widget_true_locals
         shutil.copyfile(widget_receipt, 'diagnostic/unsigned-widget-receipt.json')
         if sha(Path('diagnostic/unsigned-widget-receipt.json')) != sha(widget_receipt):
             raise ValueError('Retained widget receipt differs')
@@ -271,6 +278,8 @@ def self_test():
 if __name__ == '__main__':
     if sys.argv[1:] == ['--self-test']:
         self_test()
+    elif sys.argv[1:] == ['--recover-fixed-native', '--strip-unsigned-widget', '--strip-widget-true-locals']:
+        main(recover_fixed_native=True, strip_unsigned_widget=True, strip_widget_true_locals=True)
     elif sys.argv[1:] == ['--recover-fixed-native', '--strip-unsigned-widget']:
         main(recover_fixed_native=True, strip_unsigned_widget=True)
     elif sys.argv[1:] == ['--recover-fixed-native']:
