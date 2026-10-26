@@ -25,9 +25,19 @@ class RecoveryTests(unittest.TestCase):
                 recovery.verify_evidence(Path(temp), {'missing':'0'*64})
 
     def test_external_path_rejected(self):
-        for name in ('../receipt.json', '/receipt.json'):
-            with self.assertRaisesRegex(ValueError, 'Unsafe'):
-                recovery.verify_evidence(Path('/tmp'), {name:'0'*64})
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve(strict=True)
+            for name in ('../receipt.json', '/receipt.json'):
+                with self.assertRaisesRegex(ValueError, 'Unsafe'):
+                    recovery.verify_evidence(root, {name:'0'*64})
+
+    def test_linked_root_rejected_before_member_inspection(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve(strict=True)
+            real = root/'real'; real.mkdir()
+            link = root/'linked'; link.symlink_to(real, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'Expected real evidence root'):
+                recovery.verify_evidence(link, {'../receipt.json':'0'*64})
 
     def test_symlink_evidence_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
