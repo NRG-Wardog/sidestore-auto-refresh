@@ -72,6 +72,14 @@ jobs:
             lts-build/headers.json
           if-no-files-found: error
           retention-days: 14
+      - name: Retain transformed framework for inspection only, not admission
+        if: ${{ !cancelled() && (steps.qualify.outcome == 'success' || steps.qualify.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: openssl-local-host-transformed-NOT-ADMITTED-${{ github.run_id }}
+          path: host-transform/runtime/OpenSSL.framework/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Retain bounded evidence even on owned-step failure
         if: ${{ !cancelled() && (steps.controls.outcome == 'success' || steps.controls.outcome == 'failure' || steps.build.outcome == 'failure' || steps.inputs.outcome == 'failure' || steps.qualify.outcome == 'failure') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

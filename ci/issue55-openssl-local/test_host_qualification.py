@@ -149,6 +149,62 @@ class FrameworkCopyTests(unittest.TestCase):
         self.assertEqual(os.readlink(self.destination.parents[2]/'Headers'),'Versions/A/Headers')
         link.unlink();link.symlink_to(self.root,target_is_directory=True)
         with self.assertRaises(ValueError):m.validate_framework_layout(self.library)
+    def test_rejected_delta_persisted_before_assertion(self):
+        before=m.copy_framework(self.library,self.destination);digest=m.sha(self.destination)
+        added=self.destination.parent/'unexpected';added.write_text('diagnostic')
+        after=m.framework_inventory(self.destination.parents[2]);report=self.root/'delta.json'
+        with self.assertRaises(ValueError):m.record_framework_delta(report,before,after,digest,digest)
+        observed=m.read(report)
+        self.assertEqual(observed['status'],'OBSERVED_NOT_ADMITTED')
+        self.assertEqual(set(observed['added']),{'Versions/A/unexpected'})
+        self.assertEqual(observed['before'],before);self.assertEqual(observed['after'],after)
+    def test_isolated_signing_only_copies_guarded_bytes_and_verifies_actual_target(self):
+        m.copy_framework(self.library,self.destination);evidence=self.root/'evidence';evidence.mkdir();calls=[]
+        old=self.destination.read_bytes();new=b'fake-signed-bytes'
+        def tool(command,**kwargs):
+            calls.append(command);path=Path(command[-1])
+            self.assertNotIn('--ignore-resources',command)
+            if '--verify' in command:
+                self.assertEqual(path.read_bytes(),new)
+                return types.SimpleNamespace(returncode=0,stdout='synthetic strict verify')
+            self.assertEqual(path.name,'OpenSSL');self.assertNotIn(self.destination.parents[2],path.parents)
+            path.write_bytes(new);(path.parent/'_CodeSignature').mkdir();(path.parent/'_CodeSignature/resource').write_text('isolated side effect')
+            return types.SimpleNamespace(returncode=0)
+        guard=types.SimpleNamespace(verify=mock.Mock(return_value={'synthetic':True}))
+        with mock.patch.object(m.subprocess,'run',side_effect=tool):m.isolated_codesign(self.destination,'adhoc-sign',guard,evidence)
+        self.assertEqual(self.destination.read_bytes(),new);self.assertEqual(calls[-1][-1],str(self.destination))
+        guard.verify.assert_called_once_with(new,old,preserve_stabs=True,require_reduction=False,host_legacy_dyld=True)
+        self.assertFalse((self.destination.parents[2]/'_CodeSignature').exists())
+        self.assertEqual(m.read(evidence/'adhoc-sign-copyback-delta.json')['added'],{})
+    def test_guard_rejection_never_copies_back(self):
+        m.copy_framework(self.library,self.destination);evidence=self.root/'evidence';evidence.mkdir();old=self.destination.read_bytes()
+        def tool(command,**kwargs):
+            if '--verify' not in command:Path(command[-1]).write_bytes(b'bad')
+            return types.SimpleNamespace(returncode=0,stdout='synthetic')
+        guard=types.SimpleNamespace(verify=mock.Mock(side_effect=ValueError('structural rejected')))
+        with mock.patch.object(m.subprocess,'run',side_effect=tool),self.assertRaisesRegex(ValueError,'structural'):
+            m.isolated_codesign(self.destination,'adhoc-sign',guard,evidence)
+        self.assertEqual(self.destination.read_bytes(),old)
+    def test_actual_target_verification_failure_retains_exact_evidence(self):
+        m.copy_framework(self.library,self.destination);evidence=self.root/'evidence';evidence.mkdir()
+        def tool(command,**kwargs):
+            path=Path(command[-1])
+            if '--verify' not in command:path.write_bytes(b'fake-signed')
+            return types.SimpleNamespace(returncode=1 if '--verify' in command and path==self.destination else 0,stdout='synthetic target verification failed')
+        guard=types.SimpleNamespace(verify=mock.Mock(return_value={'synthetic':True}))
+        with mock.patch.object(m.subprocess,'run',side_effect=tool),self.assertRaisesRegex(ValueError,'actual-framework-target'):
+            m.isolated_codesign(self.destination,'adhoc-sign',guard,evidence)
+        self.assertTrue((evidence/'adhoc-sign-copyback-delta.json').is_file())
+        self.assertIn('failed',(evidence/'actual-framework-target-codesign-verify.log').read_text())
+    def test_signature_removal_also_isolated(self):
+        m.copy_framework(self.library,self.destination);evidence=self.root/'evidence';evidence.mkdir();old=self.destination.read_bytes()
+        def tool(command,**kwargs):
+            self.assertIn('--remove-signature',command);self.assertNotIn(self.destination.parents[2],Path(command[-1]).parents)
+            Path(command[-1]).write_bytes(b'unsigned');return types.SimpleNamespace(returncode=0)
+        guard=types.SimpleNamespace(verify=mock.Mock(return_value={'synthetic':True}))
+        with mock.patch.object(m.subprocess,'run',side_effect=tool):m.isolated_codesign(self.destination,'remove-signature',guard,evidence)
+        guard.verify.assert_called_once_with(old,b'unsigned',preserve_stabs=True,require_reduction=False,host_legacy_dyld=True)
+
     def test_existing_destination_not_overwritten(self):
         self.destination.parents[2].mkdir(parents=True)
         with self.assertRaises(ValueError):m.copy_framework(self.library,self.destination)
@@ -156,7 +212,7 @@ class FrameworkCopyTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     def test_scoped_native_diagnostic(self):
         text=(m.ROOT/'.github/workflows/openssl-local-host-diagnostic.yml').read_text()
-        for required in ('contents: read','set-safe-directory: false','persist-credentials: false','Xcode_26.4.1','--optimization Os','test_host_qualification.py','test_host_legacy_dyld_policy.py',"steps.build.outcome == 'success'",'--evidence qualification --work host-transform'):
+        for required in ('contents: read','set-safe-directory: false','persist-credentials: false','Xcode_26.4.1','--optimization Os','test_host_qualification.py','test_host_legacy_dyld_policy.py','transformed-NOT-ADMITTED','path: host-transform/runtime/OpenSSL.framework/',"steps.build.outcome == 'success'",'--evidence qualification --work host-transform'):
             self.assertIn(required,text)
         for forbidden in ('actions: write','always()','build_ios.py','package_candidate.py','--location-trusted'):
             self.assertNotIn(forbidden,text)

@@ -173,11 +173,51 @@ def verify_framework_delta(before,after,original_sha,final_sha):
     expected[key]['sha256']=final_sha
     require(after==expected,'framework delta exceeds binary bytes')
 
+def record_framework_delta(path,before,after,original_sha,final_sha):
+    # Persist rejected evidence before asserting. No observed extra file or mode
+    # is normalized away or treated as admitted by this diagnostic receipt.
+    added={key:after[key] for key in sorted(set(after)-set(before))}
+    removed={key:before[key] for key in sorted(set(before)-set(after))}
+    changed={key:{'before':before[key],'after':after[key]} for key in sorted(set(before)&set(after)) if before[key]!=after[key]}
+    write(path,{'schema':'host-framework-observed-delta-v1','status':'OBSERVED_NOT_ADMITTED','before':before,'after':after,'added':added,'removed':removed,'changed':changed,'expected_original_binary_sha256':original_sha,'expected_final_binary_sha256':final_sha})
+    verify_framework_delta(before,after,original_sha,final_sha)
+
+def verify_actual_signature(path,label,evidence):
+    result=subprocess.run(['/usr/bin/codesign','--verify','--strict',str(path)],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=30)
+    (evidence/(label+'-codesign-verify.log')).write_text(result.stdout)
+    require(result.returncode==0,'Apple strict signature verification failed: '+label)
+
+def isolated_codesign(destination, operation, guard, evidence):
+    require(operation in ('remove-signature','adhoc-sign'),'unsupported signature operation')
+    original=destination.read_bytes();before_inventory=framework_inventory(destination.parents[2])
+    # Same basename, but outside the framework: Apple signing cannot implicitly
+    # update resources in the retained framework. Only verified bytes return.
+    with tempfile.TemporaryDirectory(prefix='bare-sign-',dir=destination.parents[3]) as temporary:
+        bare=Path(temporary)/destination.name;shutil.copy2(destination,bare)
+        command=['/usr/bin/codesign']
+        command += ['--remove-signature'] if operation=='remove-signature' else ['--force','--sign','-','--timestamp=none']
+        subprocess.run([*command,str(bare)],check=True,timeout=30)
+        result=bare.read_bytes()
+        if operation=='adhoc-sign':
+            verify_actual_signature(bare,'bare',evidence)
+            proof=guard.verify(result,original,preserve_stabs=True,require_reduction=False,host_legacy_dyld=True)
+        else:proof=guard.verify(original,result,preserve_stabs=True,require_reduction=False,host_legacy_dyld=True)
+        require(destination.read_bytes()==original,'framework binary changed during isolated signing')
+        destination.write_bytes(result)
+        require(destination.read_bytes()==result,'verified signed bytes changed during copyback')
+        write(evidence/('isolated-'+operation+'.json'),{'operation':operation,'source_sha256':hashlib.sha256(original).hexdigest(),'result_sha256':sha(destination),'signature_only':proof,'bare_same_basename':True,'framework_resource_mutation_authorized':False})
+        record_framework_delta(evidence/(operation+'-copyback-delta.json'),before_inventory,framework_inventory(destination.parents[2]),hashlib.sha256(original).hexdigest(),sha(destination))
+        if operation=='adhoc-sign':
+            # Verify actual target after copyback too; no ignore-resources flags.
+            verify_actual_signature(destination,'actual-framework-target',evidence)
+
 def transform(library, dwarf, destination, guard, policy, evidence):
     copied_inventory=copy_framework(library,destination)
     original=destination.read_bytes(); stages={}
+    write(evidence/'framework-inventory-before.json',copied_inventory)
     if guard.snapshot(original,host_legacy_dyld=True)['signature_sha256'] is not None:
-        subprocess.run(['/usr/bin/codesign','--remove-signature',str(destination)],check=True,timeout=30)
+        isolated_codesign(destination,'remove-signature',guard,evidence)
+    write(evidence/'framework-inventory-after-remove-signature.json',framework_inventory(destination.parents[2]))
     unsigned=destination.read_bytes()
     stages['signature_removal']=guard.verify(original,unsigned,preserve_stabs=True,require_reduction=False,host_legacy_dyld=True)
     require(guard.snapshot(unsigned,host_legacy_dyld=True)['signature_sha256'] is None,'signature remains')
@@ -185,17 +225,18 @@ def transform(library, dwarf, destination, guard, policy, evidence):
     expected_strip=Path(DEVELOPER)/'Toolchains/XcodeDefault.xctoolchain/usr/bin/strip'
     require(os.environ.get('DEVELOPER_DIR')==DEVELOPER and Path(strip).resolve()==expected_strip.resolve() and expected_strip.is_file(),'Apple strip tool identity differs')
     subprocess.run([strip,'-S',str(destination)],check=True,timeout=30)
+    write(evidence/'framework-inventory-after-S.json',framework_inventory(destination.parents[2]))
     post_s=destination.read_bytes(); stages['debug']=guard.verify(unsigned,post_s,require_reduction=False,host_legacy_dyld=True)
     subprocess.run([strip,'-x',str(destination)],check=True,timeout=30)
+    write(evidence/'framework-inventory-after-x.json',framework_inventory(destination.parents[2]))
     locals_removed=destination.read_bytes()
     stages['locals']=policy.verify_openssl_local_removal(post_s,locals_removed,expected_before_sha256=hashlib.sha256(post_s).hexdigest(),dwarf=dwarf.read_bytes(),expected_dwarf_sha256=sha(dwarf),host_legacy_dyld=True)
-    subprocess.run(['/usr/bin/codesign','--force','--sign','-','--timestamp=none',str(destination)],check=True,timeout=30)
-    subprocess.run(['/usr/bin/codesign','--verify','--strict',str(destination)],check=True,timeout=30)
+    isolated_codesign(destination,'adhoc-sign',guard,evidence)
     # Reverse comparison: removing signature may shrink LINKEDIT allocation.
     stages['signature_only_reseal']=guard.verify(destination.read_bytes(),locals_removed,preserve_stabs=True,require_reduction=False,host_legacy_dyld=True)
     stages.update({'original_sha256':sha(library),'unsigned_sha256':hashlib.sha256(locals_removed).hexdigest(),'runtime_sha256':sha(destination),'dwarf_sha256':sha(dwarf),'strip_sha256':sha(strip),'codesign_sha256':sha('/usr/bin/codesign')})
     final_inventory=validate_framework_layout(destination)
-    verify_framework_delta(copied_inventory,final_inventory,sha(library),sha(destination))
+    record_framework_delta(evidence/'framework-inventory-delta.json',copied_inventory,final_inventory,sha(library),sha(destination))
     require(validate_framework_layout(library)==copied_inventory,'original framework changed during transform')
     stages.update(original_framework_inventory=copied_inventory,transformed_framework_inventory=final_inventory)
     write(evidence/'transform.json',stages)
