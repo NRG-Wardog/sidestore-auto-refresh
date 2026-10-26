@@ -46,6 +46,14 @@ class RunnerTests(unittest.TestCase):
    self.assertLess(len(stream.getvalue()),16100)
    self.assertTrue(stream.getvalue().endswith('synthetic failure\n'))
    R.source_test_result(subprocess.CompletedProcess([],0),log,'synthetic')
+ def test_counterfactual_observations_never_replace_default_qualification(self):
+  runner=(R.HERE/'run_language_switch_tests.py').read_text()
+  self.assertIn("('--counterfactual-no-bridge','without')",runner)
+  self.assertIn("('--counterfactual-with-bridge','with')",runner)
+  self.assertIn("result=launch_result([],'language-switch-result.json',120)",runner)
+  self.assertIn('validate_runtime_result(data,root)',runner)
+  self.assertIn('OBSERVED_COUNTERFACTUAL_NOT_QUALIFICATION',runner)
+  self.assertIn("report['counterfactual_sha256'][result.name]",runner)
  def test_duplicate_json_key_rejected(self):
   with self.assertRaises(ValueError):R.strict([('status','FAILED'),('status','PASS')])
  def test_runtime_source_not_fake_model_and_same_session_required(self):
@@ -53,7 +61,9 @@ class RunnerTests(unittest.TestCase):
   runner=(R.HERE/'run_language_switch_tests.py').read_text()
   self.assertIn("generated=localization+'\\n'+settings",runner)
   self.assertIn('language.select(selected)',fixture)
-  self.assertIn('.background(V3HostLanguageUIKitBridge(language: language.selected))',fixture)
+  self.assertIn('if bridgeEnabled { V3HostLanguageUIKitBridge(language: language.selected) }',fixture)
+  self.assertIn('var bridgeEnabled = true',fixture)
+  self.assertIn('bridgeEnabled: !withoutBridge',fixture)
   self.assertIn('host.presentedViewController',fixture)
   self.assertIn('model.path=[]',fixture)
   self.assertNotIn('.id(language',fixture)

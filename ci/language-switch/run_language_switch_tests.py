@@ -179,11 +179,28 @@ def run(sources,output):
   udid=command(['xcrun','simctl','create','NRG-LanguageSwitch-'+os.environ['GITHUB_RUN_ID'],device['identifier'],runtime['identifier']]).strip()
   require(re.fullmatch('[A-Fa-f0-9-]{36}',udid),'Invalid created simulator identity')
   command(['xcrun','simctl','boot',udid]);command(['xcrun','simctl','bootstatus',udid,'-b'],timeout=180)
-  command(['xcrun','simctl','install',udid,app]);(work/'launch.log').write_text(command(['xcrun','simctl','launch',udid,bundle]))
+  command(['xcrun','simctl','install',udid,app])
   container=Path(command(['xcrun','simctl','get_app_container',udid,bundle,'data']).strip()).resolve(strict=True)
-  result=container/'Documents/language-switch-result.json';deadline=time.monotonic()+120
-  while not result.is_file() and time.monotonic()<deadline:time.sleep(.2)
-  require(result.is_file(),'Simulator fixture did not complete within120seconds')
+  def launch_result(arguments,filename,timeout):
+   result=container/'Documents'/filename
+   require(not result.exists() and not result.is_symlink(),'Fresh simulator result required')
+   launch=command(['xcrun','simctl','launch','--terminate-running-process',udid,bundle,*arguments])
+   (work/(filename+'.launch.log')).write_text(launch)
+   deadline=time.monotonic()+timeout
+   while not result.is_file() and time.monotonic()<deadline:time.sleep(.2)
+   require(result.is_file() and not result.is_symlink(),'Simulator fixture did not complete: '+filename)
+   return result
+  # Same compiled production helpers + exact initially failing fixture boundary.
+  # Counterfactual observations do not qualify or waive the default assertions.
+  report['counterfactual_sha256']={}
+  for mode,label in [('--counterfactual-no-bridge','without'),('--counterfactual-with-bridge','with')]:
+   result=launch_result([mode],'counterfactual-'+label+'-bridge.json',45)
+   (work/result.name).write_bytes(result.read_bytes())
+   observation=read(result)
+   require(observation.get('status')=='OBSERVED_COUNTERFACTUAL_NOT_QUALIFICATION','Missing counterfactual observation')
+   require(observation.get('bridge_enabled') is (label=='with'),'Counterfactual bridge mode differs')
+   report['counterfactual_sha256'][result.name]=sha(work/result.name)
+  result=launch_result([],'language-switch-result.json',120)
   payload=result.read_bytes();(work/'simulator-result.json').write_bytes(payload)
   data=json.loads(payload,object_pairs_hook=strict)
   validate_runtime_result(data,root)
@@ -218,6 +235,12 @@ def verify_receipt(path,sources,native_identity):
  require(d['refresh_recovery_source_sha256']==recovery_hashes(sources),'Refresh recovery source differs')
  require(d['refresh_recovery_test_log_sha256']==sha(path.parent/'language-switch/refresh-recovery-tests.log'),'Refresh recovery test log differs')
  validate_runtime_result(read(result),root)
+ require(set(d['counterfactual_sha256'])=={'counterfactual-without-bridge.json','counterfactual-with-bridge.json'},'Counterfactual receipt closure differs')
+ for name,digest in d['counterfactual_sha256'].items():
+  observation=path.parent/'language-switch'/name
+  require(observation.is_file() and not observation.is_symlink() and sha(observation)==digest,'Counterfactual bytes differ')
+  data=read(observation)
+  require(data.get('status')=='OBSERVED_COUNTERFACTUAL_NOT_QUALIFICATION' and data.get('bridge_enabled') is (name=='counterfactual-with-bridge.json'),'Counterfactual scope differs')
  return d
 
 if __name__=='__main__':

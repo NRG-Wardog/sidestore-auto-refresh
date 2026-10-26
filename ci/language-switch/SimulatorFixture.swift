@@ -54,12 +54,28 @@ struct OpaqueDiagnosticProbe: UIViewRepresentable {
     func updateUIView(_ label: UILabel, context: Context) {}
 }
 
-struct DiagnosticTableProbe: UIViewRepresentable {
-    func makeUIView(context: Context) -> UITableView {
-        let table=UITableView();table.accessibilityIdentifier="explicit-ltr-diagnostic-table"
-        table.semanticContentAttribute = .forceLeftToRight;return table
+@MainActor enum DiagnosticTableTrace {
+    static var enabled = false
+    static var events = [[String:Any]]()
+    static func record(_ phase: String, view: UITableView) {
+        guard enabled, events.count < 100 else { return }
+        events.append(["phase":phase,"identifier":view.accessibilityIdentifier ?? "missing",
+                       "selected_language":V3AppLanguage.selected.rawValue,
+                       "semantic":view.semanticContentAttribute.rawValue,
+                       "effective":view.effectiveUserInterfaceLayoutDirection.rawValue])
     }
-    func updateUIView(_ view: UITableView, context: Context) {}
+}
+struct DiagnosticTableProbe: UIViewRepresentable {
+    var identifier = "explicit-ltr-diagnostic-table"
+    func makeUIView(context: Context) -> UITableView {
+        let table=UITableView();table.accessibilityIdentifier=identifier
+        table.semanticContentAttribute = .forceLeftToRight
+        DiagnosticTableTrace.record("make_after_explicit_ltr", view:table)
+        return table
+    }
+    func updateUIView(_ view: UITableView, context: Context) {
+        DiagnosticTableTrace.record("update_no_assignment", view:view)
+    }
 }
 
 struct GuestBoundaryProbe: UIViewRepresentable {
@@ -75,6 +91,8 @@ struct GuestBoundaryProbe: UIViewRepresentable {
 struct FixtureRoot: View {
     @ObservedObject var language: V3HostLanguageState
     @ObservedObject var model: FixtureModel
+    var bridgeEnabled = true
+    var observesCounterfactual = false
     var body: some View {
         TabView(selection: $model.tab) {
             NavigationStack(path: $model.path) {
@@ -86,6 +104,10 @@ struct FixtureRoot: View {
                         TextField("Draft", text: $model.draft)
                         OpaqueDiagnosticProbe().environment(\.layoutDirection, .leftToRight)
                         DiagnosticTableProbe().frame(height: 1)
+                        if observesCounterfactual {
+                            DiagnosticTableProbe(identifier: "swiftui-explicit-ltr-diagnostic-table")
+                                .frame(height: 1).environment(\.layoutDirection, .leftToRight)
+                        }
                         GuestBoundaryProbe().frame(height: 1)
                     }.navigationTitle("Language fixture")
                 }
@@ -97,7 +119,9 @@ struct FixtureRoot: View {
         }
         .environment(\.locale, Locale(identifier: language.selected.rawValue))
         .environment(\.layoutDirection, language.selected.isRightToLeft ? .rightToLeft : .leftToRight)
-        .background(V3HostLanguageUIKitBridge(language: language.selected))
+        .background {
+            if bridgeEnabled { V3HostLanguageUIKitBridge(language: language.selected) }
+        }
     }
 }
 
@@ -115,7 +139,14 @@ struct FixtureFailure: Error { let reason: String }
         V3Localization.hostDefaults.set("he", forKey: V3AppLanguage.storageKey)
         let language = V3HostLanguageState(defaults: V3Localization.hostDefaults)
         let model = FixtureModel()
-        let root = FixtureRoot(language: language, model: model)
+        let arguments = ProcessInfo.processInfo.arguments
+        let withoutBridge = arguments.contains("--counterfactual-no-bridge")
+        let withBridge = arguments.contains("--counterfactual-with-bridge")
+        let counterfactual = withoutBridge || withBridge
+        DiagnosticTableTrace.enabled = counterfactual
+        let counterfactualFilename = withoutBridge ? "counterfactual-without-bridge.json" : "counterfactual-with-bridge.json"
+        let root = FixtureRoot(language: language, model: model, bridgeEnabled: !withoutBridge,
+                               observesCounterfactual: counterfactual)
         let host = UIHostingController(rootView: root)
         let window = UIWindow(frame: UIScreen.main.bounds); self.window = window
         window.rootViewController = host; window.makeKeyAndVisible()
@@ -124,10 +155,40 @@ struct FixtureFailure: Error { let reason: String }
         guest.rootViewController = UIViewController();guest.rootViewController!.view.semanticContentAttribute = .forceRightToLeft
         self.guestWindow = guest
         Task { @MainActor in
-            do { try await self.exercise(language: language, model: model, host: host, guest: guest) }
-            catch { self.finish(["status":"FAILED", "failure": (error as? FixtureFailure)?.reason ?? String(describing:error), "synthetic_ui_hierarchy": self.diagnosticHierarchy(host)]) }
+            do {
+                try require(!(withoutBridge && withBridge), "Ambiguous counterfactual mode")
+                if counterfactual {
+                    try await self.observeCounterfactual(language:language, host:host,
+                        bridgeEnabled:!withoutBridge, filename:counterfactualFilename)
+                } else {
+                    try await self.exercise(language: language, model: model, host: host, guest: guest)
+                }
+            }
+            catch { self.finish(["status":"FAILED", "failure": (error as? FixtureFailure)?.reason ?? String(describing:error), "synthetic_ui_hierarchy": self.diagnosticHierarchy(host)],
+                filename:counterfactual ? counterfactualFilename : "language-switch-result.json") }
         }
         return true
+    }
+    @MainActor func observeCounterfactual(language:V3HostLanguageState,
+        host:UIHostingController<FixtureRoot>, bridgeEnabled:Bool, filename:String) async throws {
+        await settle();await settle()
+        var observations=[[String:Any]]()
+        for selected in [V3AppLanguage.hebrew, .english, .hebrew] {
+            language.select(selected)
+            await settle();host.view.layoutIfNeeded();await settle()
+            let views=descendants(host.view)
+            for identifier in ["explicit-ltr-diagnostic-table", "swiftui-explicit-ltr-diagnostic-table"] {
+                guard let table=views.first(where:{$0.accessibilityIdentifier == identifier}) as? UITableView else {
+                    throw FixtureFailure(reason:"Counterfactual table missing: " + identifier)
+                }
+                observations.append(["language":selected.rawValue,"identifier":identifier,
+                    "semantic":table.semanticContentAttribute.rawValue,
+                    "effective":table.effectiveUserInterfaceLayoutDirection.rawValue])
+            }
+        }
+        finish(["status":"OBSERVED_COUNTERFACTUAL_NOT_QUALIFICATION", "bridge_enabled":bridgeEnabled,
+            "observations":observations,"table_lifecycle_events":DiagnosticTableTrace.events,
+            "synthetic_ui_hierarchy":diagnosticHierarchy(host),"physical_device_execution":false], filename:filename)
     }
     @MainActor func exercise(language: V3HostLanguageState, model: FixtureModel, host: UIHostingController<FixtureRoot>, guest: UIWindow) async throws {
         let stateID = ObjectIdentifier(language), hostID = ObjectIdentifier(host), operation = model.operationIdentity
@@ -228,8 +289,8 @@ struct FixtureFailure: Error { let reason: String }
         }
         visit(host,0);return result
     }
-    @MainActor func finish(_ report:[String:Any]) {
-        let url=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent("language-switch-result.json")
+    @MainActor func finish(_ report:[String:Any], filename:String = "language-switch-result.json") {
+        let url=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent(filename)
         do { try JSONSerialization.data(withJSONObject:report,options:[.sortedKeys,.prettyPrinted]).write(to:url,options:.atomic) }
         catch { NSLog("Fixture evidence write failed") }
     }

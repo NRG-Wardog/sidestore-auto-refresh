@@ -26,4 +26,15 @@ class WorkflowTests(unittest.TestCase):
   # Exact unchanged native command blocks are a parity guard, not proof of execution.
   for title in ('Compile unsigned LiveContainer app and extensions','Compile unsigned SideStore app and extensions'):
    self.assertEqual(old.split('      - name: '+title+'\n')[1].split('      - name: ',1)[0],new.split('      - name: '+title+'\n')[1].split('      - name: ',1)[0])
+ def test_focused_runtime_has_no_native_rebuild_or_delivery(self):
+  text=(ROOT/'.github/workflows/language-switch-ui.yml').read_text()
+  self.assertIn("refs/heads/validation/language-switch-ui",text)
+  self.assertIn('record.py acquire',text)
+  self.assertIn('verify_candidate_graph.py',text)
+  self.assertIn('run_language_switch_tests.py',text)
+  self.assertNotIn('package_candidate.py',text)
+  self.assertNotIn('cargo ',text)
+  self.assertNotIn('brew ',text)
+  self.assertNotIn('continue-on-error',text)
+  self.assertIn('evidence/language-switch/*.json',text)
 if __name__=='__main__':unittest.main(verbosity=2)
