@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "c4170ea57caf24e23a0db58f4661c0599e58cd32"
+      "ec6a85eccc9982e27fbf5abbc91437176c156d46"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -91,7 +91,7 @@
         ".ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "1c6854b27314aaa35d1a067fc2011a4c6b472811",
         ".ci/comprehensive-diagnostics/setup_localization_harness.swift": "685e64c7b6c5726cd8a40fe3e598f96d30f071f6",
         ".ci/comprehensive-diagnostics/test_pairing_recovery_contract.py": "b1e1ff62080b80eb0ac343581b0b682d11956000",
-        ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "97cdc1d81f2a771349dc98fbfe36f3e8aac29cd6",
+        ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "c032fcea27d979ed19cb9615153c1a5f462e5a49",
         ".ci/extension-selection/Cases.swift": "124f2b2b16d0164f114898a48c6062735443a805",
         ".ci/extension-selection/Doubles.swift": "09aaec3bb1e31ce8948abd0b184d04c822cf051d",
         ".ci/extension-selection/generate_fixture.py": "f524a726714d23df3acd78192b490bb0b8f21798",
@@ -103,7 +103,7 @@
         "LiveContainer.xcodeproj/project.pbxproj": "15db64d7850e96db256404bc1693c2c24e03b1be",
         "LiveContainer/Localization.m": "de9b74a6e6d7b5d93b19021e9d18cbdd6b7892b5",
         "LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift": "207d3c8d79263865d0b984f06dc6b264a2321309",
-        "LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift": "074a8bb2ab4b82e878d144dc38fb67c9620bd71b",
+        "LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift": "54a6141f98cc5a289687480977a3a91687d07b16",
         "LiveContainerSwiftUI/Utilities/V3Localization.swift": "924be8f0143900faef51826fdc0909154ce59a29",
         "LiveContainerSwiftUI/Utilities/V3SourceAppPresentation.swift": "5312f206458345534120fdc82f1021663fb2aa4e",
         "LiveContainerSwiftUI/Utilities/ViewExtensions.swift": "4f2f48264d99133aee7531591aaab9bb874f88bb",
@@ -143,6 +143,7 @@
         "tests/test_diagnostic_provider_sequence.py": "59b47f64e5841c456fa4f1bba40fb17eaabf2ca0",
         "tests/test_guest_input_lifecycle.py": "39bf0e8c348d5da7ea5f24c08851aa51adadfa84",
         "tests/test_guest_safe_area_geometry.py": "396d43c13d8134437f03c7d3eda10c372abe0cf2",
+        "tests/test_live_language_availability.py": "e4cfb47bd2d12da43db8e675b6164cf566b8e10b",
         "tests/test_live_language_root.py": "9fae07ac84827d1f347b9fd05a98674b3b56f486",
         "tests/test_live_language_state.py": "fab7a858f848dadbdf47dc9f441a3129184411cc",
         "tests/test_recovery_banner_layout.py": "27be830c02fa04d34009b50bd3fc9fa46c0f2db1",
@@ -151,7 +152,7 @@
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8",
         "tests/test_startup_diagnostics.py": "c143a729661907fb422f4a1aa4752988024fbc95"
       },
-      "tree": "3eb6afacb667300d58f70b19ec711c022fbe0dc7"
+      "tree": "682789ebbf7d1a6ffce049d9a63612dfccf3c911"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",

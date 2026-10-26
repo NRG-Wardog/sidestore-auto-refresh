@@ -45,7 +45,8 @@ def identity():
 SOURCES=('LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift',
  'LiveContainerSwiftUI/Utilities/V3Localization.swift',
  'LiveContainerSwiftUI/Views/V3UnifiedShell.swift',
- 'Resources/Localizable.xcstrings', 'tests/test_live_language_state.py', 'tests/fixtures/live_language_state.swift', 'tests/test_live_language_root.py')
+ 'Resources/Localizable.xcstrings', 'tests/test_live_language_state.py', 'tests/fixtures/live_language_state.swift', 'tests/test_live_language_root.py', 'tests/test_live_language_availability.py',
+ 'MultitaskSupport/AppSceneViewController.h', 'MultitaskSupport/DecoratedAppSceneViewController.h', 'MultitaskSupport/VirtualWindowsHostView.h')
 
 def source_hashes(root):
  result={}
@@ -135,6 +136,12 @@ def run(sources,output):
  udid=None
  try:
   require(platform.system()=='Darwin','Actual Apple UIKit/SwiftUI runtime requires macOS with installed iOS Simulator')
+  availability_log=work/'availability-tests.log'
+  with availability_log.open('x') as stream:
+   available=subprocess.run([sys.executable,'-B',root/'tests/test_live_language_availability.py'],cwd=work,env={**os.environ,'REQUIRE_IOS_AVAILABILITY_TESTS':'1'},stdout=stream,stderr=subprocess.STDOUT,timeout=420)
+  source_test_result(available,availability_log,'iOS15 language availability')
+  availability_text=availability_log.read_text();require(re.search(r'^OK\s*$',availability_text,re.M) is not None and re.search(r'^(?:FAILED|OK \()',availability_text,re.M) is None,'Language availability tests skipped or failed')
+  report['source_availability_test_log_sha256']=sha(availability_log)
   recovery_log=work/'refresh-recovery-tests.log'
   with recovery_log.open('x') as stream:
    recovered=subprocess.run([sys.executable,'-B',sources/'SideStore/tests/refresh_recovery/test_ownerless_snapshot.py'],cwd=work,env={**os.environ,'REQUIRE_SWIFT_REFRESH_RECOVERY_TESTS':'1','LIVE_CONTAINER_SOURCE_ROOT':str(root)},stdout=stream,stderr=subprocess.STDOUT,timeout=180)
@@ -232,6 +239,7 @@ def verify_receipt(path,sources,native_identity):
  require(d['fixture_source_sha256']==sha(HERE/'SimulatorFixture.swift'),'Fixture source differs')
  require(d['source_state_test_log_sha256']==sha(path.parent/'language-switch/state-tests.log'),'Language source test log differs')
  require(d['source_root_test_log_sha256']==sha(path.parent/'language-switch/root-tests.log'),'Language root test log differs')
+ require(d['source_availability_test_log_sha256']==sha(path.parent/'language-switch/availability-tests.log'),'Language availability test log differs')
  require(d['refresh_recovery_source_sha256']==recovery_hashes(sources),'Refresh recovery source differs')
  require(d['refresh_recovery_test_log_sha256']==sha(path.parent/'language-switch/refresh-recovery-tests.log'),'Refresh recovery test log differs')
  validate_runtime_result(read(result),root)

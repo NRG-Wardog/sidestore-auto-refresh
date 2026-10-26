@@ -2,9 +2,12 @@
 import UIKit
 import SwiftUI
 
+@available(iOS 16.0, *)
 final class VirtualWindowsHostView: UIView {}
 // Exact production Objective-C class boundaries, without any guest execution.
+@available(iOS 16.0, *)
 class AppSceneViewController: UIViewController {}
+@available(iOS 16.0, *)
 class DecoratedAppSceneViewController: UIViewController {}
 
 @MainActor final class FixtureModel: ObservableObject {

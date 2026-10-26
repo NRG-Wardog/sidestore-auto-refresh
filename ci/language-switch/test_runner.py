@@ -69,6 +69,19 @@ class RunnerTests(unittest.TestCase):
   self.assertEqual(evidence['creation_only_table_semantic_values'],[4,3,4])
   self.assertEqual(evidence['explicit_swiftui_ltr_table_semantic_values'],[3,3,3])
   self.assertIs(evidence['production_source_changed'],False)
+ def test_ios15_availability_is_mandatory_and_source_bound(self):
+  runner=(R.HERE/'run_language_switch_tests.py').read_text()
+  fixture=(R.HERE/'SimulatorFixture.swift').read_text()
+  self.assertIn("'REQUIRE_IOS_AVAILABILITY_TESTS':'1'",runner)
+  self.assertIn("source_test_result(available,availability_log",runner)
+  self.assertIn('Language availability tests skipped or failed',runner)
+  self.assertIn("report['source_availability_test_log_sha256']=sha(availability_log)",runner)
+  self.assertIn("d['source_availability_test_log_sha256']==sha(path.parent/'language-switch/availability-tests.log')",runner)
+  self.assertIn('tests/test_live_language_availability.py',R.SOURCES)
+  for name in ['AppSceneViewController','DecoratedAppSceneViewController','VirtualWindowsHostView']:
+   self.assertIn('MultitaskSupport/'+name+'.h',R.SOURCES)
+   self.assertRegex(fixture,r'@available\(iOS 16\.0, \*\)\n(?:final )?class '+name+r':')
+  self.assertLess(runner.index("availability_log=work/"),runner.index("inventory_text=command("))
  def test_duplicate_json_key_rejected(self):
   with self.assertRaises(ValueError):R.strict([('status','FAILED'),('status','PASS')])
  def test_runtime_source_not_fake_model_and_same_session_required(self):
