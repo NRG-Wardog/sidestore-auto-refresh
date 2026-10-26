@@ -86,7 +86,7 @@ def append_openssl_local_stage(ipa, report, qualification, *, transfer_roots, re
         output=Path('packaging-openssl-local-products'), retained=Path('size-diagnostics/openssl-local'))
 
 
-def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False, same_run_qualified=False, language_switch=False):
+def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False, same_run_qualified=False, language_switch=False, cold_vpn=False):
     if same_run_qualified and recover_fixed_native:
         raise ValueError('Same-run qualification cannot use recovery identity')
     if same_run_qualified and not (strip_unsigned_widget and strip_widget_true_locals and strip_openssl_true_locals):
@@ -123,6 +123,15 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         verify_language_receipt(language_receipt, Path('sources'), native_identity)
         if receipt.get('evidence_sha256', {}).get(language_receipt.name) != sha(language_receipt):
             raise ValueError('Language runtime receipt differs from native receipt')
+    if cold_vpn:
+        if not (same_run_qualified and language_switch):
+            raise ValueError('Cold VPN qualification requires same-run size and language qualification')
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'cold-vpn'))
+        from run_cold_vpn_tests import verify_receipt as verify_cold_vpn_receipt
+        cold_vpn_receipt = Path('evidence/cold-vpn-tests.json')
+        verify_cold_vpn_receipt(cold_vpn_receipt, Path('sources'), native_identity)
+        if receipt.get('evidence_sha256', {}).get(cold_vpn_receipt.name) != sha(cold_vpn_receipt):
+            raise ValueError('Cold VPN regression receipt differs from native receipt')
     recovery_provenance = None
     for key, expected in [('status', 'COMPILE_ONLY_PASS_REQUIRES_REVIEW'),
                           ('workflow_commit', native_identity['workflow_commit']),
@@ -319,6 +328,12 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         if sha(Path('diagnostic/language-switch-tests.json')) != sha(language_receipt):
             raise ValueError('Retained language runtime receipt differs')
         provenance['language_switch_regression_sha256'] = sha(language_receipt)
+    if cold_vpn:
+        verify_cold_vpn_receipt(cold_vpn_receipt, Path('sources'), native_identity)
+        shutil.copyfile(cold_vpn_receipt, 'diagnostic/cold-vpn-tests.json')
+        if sha(Path('diagnostic/cold-vpn-tests.json')) != sha(cold_vpn_receipt):
+            raise ValueError('Retained cold VPN regression receipt differs')
+        provenance['cold_vpn_regression_sha256'] = sha(cold_vpn_receipt)
     Path('diagnostic/provenance.json').write_text(json.dumps(provenance, indent=2))
     Path('diagnostic/SHA256SUMS').write_text(sha(output) + '  ' + output.name + '\n')
     shutil.copyfile('evidence/receipt.json', 'diagnostic/native-receipt.json')
@@ -365,6 +380,8 @@ def self_test():
 if __name__ == '__main__':
     if sys.argv[1:] == ['--self-test']:
         self_test()
+    elif sys.argv[1:] == ['--same-run-qualified-size', '--language-switch', '--cold-vpn']:
+        main(same_run_qualified=True, strip_unsigned_widget=True, strip_widget_true_locals=True, strip_openssl_true_locals=True, language_switch=True, cold_vpn=True)
     elif sys.argv[1:] == ['--same-run-qualified-size', '--language-switch']:
         main(same_run_qualified=True, strip_unsigned_widget=True, strip_widget_true_locals=True, strip_openssl_true_locals=True, language_switch=True)
     elif sys.argv[1:] == ['--same-run-qualified-size']:
