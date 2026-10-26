@@ -1,8 +1,10 @@
 # SSA validation history consolidation
 
 The retained P0 and P2 validation histories are consolidated through real merge
-commits. Their source, regression fixtures and provenance are retained; this is
+commits. Their original source and provenance remain in Git history; this is
 not a new application release and does not reactivate an old release builder.
+Unused experimental harnesses and their obsolete capture-generation helpers have
+been removed from the current tree. Maintained build and regression gates remain.
 
 ## Exact sources
 
@@ -23,14 +25,16 @@ P2-only commits outside the baseline main ancestry. Consolidation preserves all
 - **Historical patch and diagnostic library:** `scripts/patch_*`, v3 templates,
   rendering harnesses and associated tests retain their old source contracts.
   They are not the application source selected by the current native wrappers.
-- **Historical evidence:** `migration/` and `ci/p2/` include exact old pins,
+- **Retained historical evidence:** `migration/` includes exact old pins,
   contracts, captured fixtures and reports. These describe their original
-  experiments, not current release acceptance. Old admission flags must not be
+  experiments, not current release acceptance. Original removed harnesses remain
+  available at their historical commits. Old admission flags must not be
   interpreted as permission to activate an experiment.
 - **Inactive workflow provenance:** definitions introduced by the validation
-  histories are archived under `migration/historical/ssa-validation/`, outside
-  GitHub Actions' active workflow directory. The original conflicting P0 and P2
-  build recipes and the P0 README are preserved there. No legacy workflow is
+  histories that are still retained are under `migration/historical/ssa-validation/`,
+  outside GitHub Actions' active workflow directory. The original conflicting P0
+  and P2 build recipes and the P0 README are preserved there; obsolete experimental
+  workflow definitions whose harnesses were removed remain only in Git history. No legacy workflow is
   restored as an automatic or manual production build entrypoint.
 - **Research excluded:** the dedicated cellular feasibility branch and its
   `diagnostics/cellular-refresh` / research-plan files remain separate. Some
