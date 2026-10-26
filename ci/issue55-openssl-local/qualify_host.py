@@ -110,7 +110,13 @@ def validate_matrices(matrices, version):
             require(set(rows)==expected,'normalized pair row closure differs')
             for key,value in rows.items():
                 require(value==version if key.startswith('VERSION:') else value in ('A','B',None) if key=='GLOBAL' else value in ('A','B'),'invalid normalized binding')
-            require(rows['GLOBAL'] is None if case.startswith('local-') else rows['GLOBAL'] in ('A','B'),'global visibility differs')
+            if case.startswith('global-'):require(rows['GLOBAL'] in ('A','B'),'global visibility differs')
+            # This probe initializes OpenSSL before RTLD_DEFAULT lookup. Its
+            # retention path can reopen itself without RTLD_LOCAL; Darwin then
+            # defaults to RTLD_GLOBAL (possible mechanism, not syscall-traced).
+            # Compare observed bindings, not an assumed
+            # LOCAL=>NONE invariant. Every selected image remains SHA/path-bound.
+            # https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/dlopen.3.html
     require(matrices['original']==matrices['transformed'],'identical-image binding behavior changed')
 
 def paired(consumer, original, transformed, version, work, evidence):
@@ -131,8 +137,9 @@ def paired(consumer, original, transformed, version, work, evidence):
                 (evidence/(variant+'-pair-'+label+'.log')).write_text(output)
                 matrices[variant][label]=parse_pair(output,paths,sha(library),version)
                 observations[variant].append({'scope':scope,'requested_order':list(order),'requested_paths':{k:str(v) for k,v in paths.items()},'selected':matrices[variant][label]})
+    write(evidence/'paired-identical-observed.json',{'status':'OBSERVED_NOT_ADMITTED','matrices':matrices,'observations':observations})
     validate_matrices(matrices,version)
-    result={'status':'PASS_BASELINE_EQUIVALENT_BINDINGS','matrices':matrices,'observations':observations,'distinct_images_required':False,'uuid_or_install_name_rewritten':False}
+    result={'status':'PASS_BASELINE_EQUIVALENT_BINDINGS','matrices':matrices,'observations':observations,'distinct_images_required':False,'uuid_or_install_name_rewritten':False,'local_visibility_isolation_proven':False,'observed_baseline_globals':{case:rows['GLOBAL'] for case,rows in matrices['original'].items()}}
     write(evidence/'paired-identical.json',result)
     return result
 
@@ -291,6 +298,7 @@ def verify_host_local_qualification(receipt_path, expected_sha256, packaging_ide
     require(signer['library_sha256']==receipt['transformed_runtime_sha256'] and coload['libraries']['host']==receipt['transformed_runtime_sha256'],'runtime library differs')
     require(pair['status']=='PASS_BASELINE_EQUIVALENT_BINDINGS' and pair['matrices']['original']==pair['matrices']['transformed'] and set(pair['matrices']['original'])=={'local-AB','local-BA','global-AB','global-BA'},'paired topology differs')
     validate_matrices(pair['matrices'],receipt['source']['version_text'])
+    require(pair['local_visibility_isolation_proven'] is False and pair['observed_baseline_globals']=={case:rows['GLOBAL'] for case,rows in pair['matrices']['original'].items()},'baseline visibility disclosure differs')
     seal=seal_module();seal.verify_inventory(stages['original_framework_inventory'],stages['transformed_framework_inventory'])
     require(stages['original_framework_inventory'][seal.BINARY]['sha256']==receipt['original_library_sha256'] and stages['transformed_framework_inventory'][seal.BINARY]['sha256']==receipt['transformed_runtime_sha256'],'framework binary inventory binding differs')
     proof=stages['framework_seal']

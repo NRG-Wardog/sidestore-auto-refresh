@@ -1,0 +1,16 @@
+HANDLE	0	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/B/OpenSSL.framework/Versions/A/OpenSSL
+VERSION	0	OpenSSL 3.5.9 29 Sep 2026
+SYMBOL	0	PKCS12_parse	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/B/OpenSSL.framework/Versions/A/OpenSSL
+SYMBOL	0	EVP_DigestSignInit	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/B/OpenSSL.framework/Versions/A/OpenSSL
+SYMBOL	0	OSSL_PROVIDER_load	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/B/OpenSSL.framework/Versions/A/OpenSSL
+PROVIDER	0	default	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/B/OpenSSL.framework/Versions/A/OpenSSL
+PROVIDER	0	legacy	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/B/OpenSSL.framework/Versions/A/OpenSSL
+HANDLE	1	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/A/OpenSSL.framework/Versions/A/OpenSSL
+VERSION	1	OpenSSL 3.5.9 29 Sep 2026
+SYMBOL	1	PKCS12_parse	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/A/OpenSSL.framework/Versions/A/OpenSSL
+SYMBOL	1	EVP_DigestSignInit	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/A/OpenSSL.framework/Versions/A/OpenSSL
+SYMBOL	1	OSSL_PROVIDER_load	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/A/OpenSSL.framework/Versions/A/OpenSSL
+PROVIDER	1	default	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/A/OpenSSL.framework/Versions/A/OpenSSL
+PROVIDER	1	legacy	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/A/OpenSSL.framework/Versions/A/OpenSSL
+GLOBAL	/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/transformed/B/OpenSSL.framework/Versions/A/OpenSSL	OpenSSL 3.5.9 29 Sep 2026
+PASS cold-process-two-library-probe

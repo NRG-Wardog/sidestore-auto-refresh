@@ -45,6 +45,48 @@ class PairTests(unittest.TestCase):
     def test_conflicting_global(self):
         with self.assertRaises(ValueError):self.parse(self.text()+'\nGLOBAL\tNONE')
 
+class ActualPairLogTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name).resolve()
+        self.fixture=Path(m.__file__).parent/'fixtures/pair-40258078067';self.manifest=m.read(self.fixture/'manifest.json')
+        self.version=m.read(m.ROOT/'ci/issue53-lts/source.json')['version_text'];self.matrices={}
+        for variant in ('original','transformed'):
+            self.matrices[variant]={};paths={owner:self.root/variant/owner/'OpenSSL' for owner in ('A','B')}
+            for path in paths.values():path.parent.mkdir(parents=True);path.write_bytes(variant.encode())
+            for scope in ('local','global'):
+                for order in ('AB','BA'):
+                    name=variant+'-pair-'+scope+'-'+order+'.log';path=self.fixture/name
+                    self.assertEqual(m.sha(path),self.manifest['logs_sha256'][name]);text=path.read_text()
+                    for owner,target in paths.items():
+                        old='/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/host-transform/pair/'+variant+'/'+owner+'/OpenSSL.framework/Versions/A/OpenSSL'
+                        text=text.replace(old,str(target))
+                    self.matrices[variant][scope+'-'+order]=m.parse_pair(text,paths,m.sha(paths['A']),self.version)
+        self.assertEqual(len(self.manifest['logs_sha256']),8)
+        self.assertEqual(self.manifest['probe_sha256'],m.sha(m.ROOT/'ci/issue53-crypto/coload.c'))
+    def test_real_all_eight_logs_exact_equivalence_not_local_isolation(self):
+        m.validate_matrices(self.matrices,self.version)
+        self.assertEqual(self.matrices['original'],self.matrices['transformed'])
+        self.assertEqual(self.matrices['original']['local-AB']['GLOBAL'],'A')
+        self.assertEqual(self.matrices['original']['local-BA']['GLOBAL'],'B')
+    def test_changed_global_or_provider_binding_rejected(self):
+        for key in ('GLOBAL','PROVIDER:0:legacy','HANDLE:0','SYMBOL:0:PKCS12_parse'):
+            changed=copy.deepcopy(self.matrices);changed['transformed']['local-AB'][key]='B'
+            with self.subTest(key=key),self.assertRaisesRegex(ValueError,'behavior changed'):m.validate_matrices(changed,self.version)
+    def test_missing_case_unknown_image_version_rejected(self):
+        for mutate in (lambda v:v['transformed'].pop('local-AB'),lambda v:v['transformed']['global-BA'].update(GLOBAL='unknown'),lambda v:v['transformed']['global-AB'].update({'VERSION:1':'wrong'})):
+            changed=copy.deepcopy(self.matrices);mutate(changed)
+            with self.assertRaises(ValueError):m.validate_matrices(changed,self.version)
+    def test_both_variants_global_none_still_rejected(self):
+        changed=copy.deepcopy(self.matrices)
+        for variant in changed:changed[variant]['global-AB']['GLOBAL']=None
+        with self.assertRaisesRegex(ValueError,'global visibility'):m.validate_matrices(changed,self.version)
+    def test_observations_persist_before_admission(self):
+        tree=ast.parse(Path(m.__file__).read_text());fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='paired')
+        statements=[ast.unparse(node) for node in fn.body]
+        observed=next(i for i,text in enumerate(statements) if 'paired-identical-observed.json' in text)
+        admitted=next(i for i,text in enumerate(statements) if text.startswith('validate_matrices('))
+        self.assertLess(observed,admitted)
+
 class ReceiptTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name).resolve()
@@ -74,6 +116,8 @@ class ReceiptTests(unittest.TestCase):
             rows.update({'PROVIDER:'+i+':'+k:'A' for k in ('default','legacy')})
         for cases in files['transformed/paired-identical.json']['matrices'].values():
             for case in cases:cases[case]={**rows,'GLOBAL':'A' if case.startswith('global') else None}
+        pair=files['transformed/paired-identical.json'];pair['local_visibility_isolation_proven']=False
+        pair['observed_baseline_globals']={case:rows['GLOBAL'] for case,rows in pair['matrices']['original'].items()}
         for name,content in {'build.log':'/trusted/clang -Os -DSTATIC_LEGACY -c providers/defltprov.c\n/trusted/clang -Os -DSTATIC_LEGACY -c providers/legacyprov.c\n','configdata.txt':'CFLAGS = -Os\n','headers.json':'{}'}.items():
             (self.root/name).write_text(content)
         files['build-receipt.json'].update(configuration_sha256=m.sha(self.root/'configdata.txt'),header_inventory_sha256=m.sha(self.root/'headers.json'))
