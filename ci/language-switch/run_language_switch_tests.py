@@ -7,6 +7,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE.parent/'issues-native'))
 from verify_candidate_graph import load_candidate_graph
+from boot_evidence import validate_boot, verify_language_boot
 
 def require(ok,message):
  if not ok:raise ValueError(message)
@@ -24,6 +25,54 @@ def command(args,*,cwd=None,timeout=120):
   if isinstance(detail,bytes):detail=detail.decode('utf-8','replace')
   if detail:print(detail,file=sys.stderr,flush=True)
   raise
+def wait_owned_simulator_boot(udid,work,*,clock=None,run=None):
+ # Only continue a timed-out readiness observation of this invocation's already
+ # created simulator. Never retry creation, app launch, assertions, or boot itself.
+ require(re.fullmatch('[A-Fa-f0-9-]{36}',udid),'Invalid owned simulator identity')
+ clock=time.monotonic if clock is None else clock
+ run=subprocess.check_output if run is None else run
+ started=clock();deadline=started+360.0
+ receipt=work/'boot-readiness.json';require(not receipt.exists(),'Fresh boot evidence required')
+ report={'schema':'owned-simulator-boot-readiness-v1','udid':udid,'budget_seconds':360,'maximum_attempts':2,'attempts':[],'status':'FAILED'}
+ for attempt in (1,2):
+  remaining=deadline-clock();require(remaining>0,'Owned simulator boot readiness budget exhausted')
+  timeout=min(180.0,remaining);output='';state='command_error';code=None;error_detail=None
+  args=['xcrun','simctl','bootstatus',udid,'-b']
+  try:
+   output=run(args,text=True,stderr=subprocess.STDOUT,timeout=timeout)
+   if clock()>deadline:
+    state='budget_exhausted';raise ValueError('Owned simulator boot completed outside readiness budget')
+   state='ready';code=0
+  except subprocess.TimeoutExpired as error:
+   output=error.output or '';state='timeout';error_detail={'type':type(error).__name__,'message':str(error)}
+   if attempt==2:raise
+  except subprocess.CalledProcessError as error:
+   output=error.output or '';code=error.returncode;error_detail={'type':type(error).__name__,'message':str(error)};raise
+  except OSError as error:
+   error_detail={'type':type(error).__name__,'message':str(error)};raise
+  finally:
+   if isinstance(output,bytes):output=output.decode('utf-8','replace')
+   log=work/('bootstatus-attempt-'+str(attempt)+'.log')
+   with log.open('x') as stream:stream.write(output)
+   report['attempts'].append({'attempt':attempt,'timeout_seconds':timeout,'status':state,'exit_code':code,'output_sha256':sha(log),'error':error_detail})
+   report['status']='READY' if state=='ready' else 'FAILED'
+   report['elapsed_seconds']=max(0,clock()-started)
+   receipt.write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+   if state!='ready':print('OWNED_SIMULATOR_BOOT_'+state.upper()+' attempt='+str(attempt)+'\n'+output[-16000:],file=sys.stderr,flush=True)
+  if state=='ready':return report
+ # Both timeout paths must remain failures, not successful fixture execution.
+ raise ValueError('Owned simulator boot readiness not established')
+
+def verify_boot_readiness(path,udid):
+ require(path.is_file() and not path.is_symlink(),'Missing/linked boot readiness receipt')
+ data=read(path);rows=data['attempts'];require(type(rows) is list and 1<=len(rows)<=2,'Boot attempt count differs')
+ logs={}
+ # Paths derive only from bounded indices, never receipt-controlled strings.
+ for index in range(1,len(rows)+1):
+  log=path.parent/('bootstatus-attempt-'+str(index)+'.log')
+  require(log.is_file() and not log.is_symlink(),'Missing/linked boot attempt output');logs[log.name]=log.read_text()
+ return validate_boot(path.read_text(),logs,udid,sha(path))
+
 def source_test_result(result,log,label):
  if result.returncode!=0:
   # These source-owned synthetic fixtures use no account, pairing or signing
@@ -185,7 +234,12 @@ def run(sources,output):
   (work/'codesign.log').write_text(command(['/usr/bin/codesign','--force','--sign','-',app]))
   udid=command(['xcrun','simctl','create','NRG-LanguageSwitch-'+os.environ['GITHUB_RUN_ID'],device['identifier'],runtime['identifier']]).strip()
   require(re.fullmatch('[A-Fa-f0-9-]{36}',udid),'Invalid created simulator identity')
-  command(['xcrun','simctl','boot',udid]);command(['xcrun','simctl','bootstatus',udid,'-b'],timeout=180)
+  command(['xcrun','simctl','boot',udid])
+  wait_owned_simulator_boot(udid,work)
+  report['boot_readiness_sha256']=sha(work/'boot-readiness.json')
+  report['boot_readiness_json']=(work/'boot-readiness.json').read_text()
+  boot_data=verify_boot_readiness(work/'boot-readiness.json',udid)
+  report['boot_attempt_logs']={('bootstatus-attempt-'+str(i)+'.log'):(work/('bootstatus-attempt-'+str(i)+'.log')).read_text() for i in range(1,len(boot_data['attempts'])+1)}
   command(['xcrun','simctl','install',udid,app])
   container=Path(command(['xcrun','simctl','get_app_container',udid,bundle,'data']).strip()).resolve(strict=True)
   def launch_result(arguments,filename,timeout):
@@ -237,6 +291,12 @@ def verify_receipt(path,sources,native_identity):
  require(result.is_file() and not result.is_symlink() and sha(result)==d['fixture_result_sha256'],'Simulator evidence differs')
  require(d['simulator_execution'] is True and d['physical_device_execution'] is False,'Incorrect runtime scope')
  require(d['fixture_source_sha256']==sha(HERE/'SimulatorFixture.swift'),'Fixture source differs')
+ boot=path.parent/'language-switch/boot-readiness.json'
+ require(boot.is_file() and not boot.is_symlink() and sha(boot)==d['boot_readiness_sha256'],'Boot readiness evidence differs')
+ verify_boot_readiness(boot,d['simulator']['udid'])
+ verify_language_boot(d)
+ require(d['boot_readiness_json']==boot.read_text(),'Embedded boot receipt differs')
+ for name,text in d['boot_attempt_logs'].items():require(text==(boot.parent/name).read_text(),'Embedded boot output differs')
  require(d['source_state_test_log_sha256']==sha(path.parent/'language-switch/state-tests.log'),'Language source test log differs')
  require(d['source_root_test_log_sha256']==sha(path.parent/'language-switch/root-tests.log'),'Language root test log differs')
  require(d['source_availability_test_log_sha256']==sha(path.parent/'language-switch/availability-tests.log'),'Language availability test log differs')

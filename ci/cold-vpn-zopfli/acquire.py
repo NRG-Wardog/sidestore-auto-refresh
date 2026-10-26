@@ -5,6 +5,8 @@ from contract import manifest,require,SHA,PIN,SOURCE_SHA,REPO,WORKFLOW,IPA
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'ci/issues-native'))
 from recover_native_artifacts import API
+sys.path.insert(0,str(ROOT/'ci/language-switch'))
+from boot_evidence import verify_language_boot
 RECEIPTS={'provenance.json','native-receipt.json','size-optimization.json','russian-localization.json','unsigned-widget-receipt.json','openssl-local-stage.json','issue56-startup-tests.json','language-switch-tests.json','cold-vpn-tests.json'}
 def validate_metadata(m,run,artifact):
     require(run.get('id')==m['run_id'] and run.get('run_attempt')==m['run_attempt'] and run.get('head_sha')==m['commit'] and run.get('status')=='completed' and run.get('conclusion')=='success','native run must be exact completed green')
@@ -35,6 +37,7 @@ def unpack(m,archive,out):
     require(p.get('issue56_startup_regression_sha256')==SHA((out/'issue56-startup-tests.json').read_bytes()),'startup regression receipt mismatch')
     require(p.get('language_switch_regression_sha256')==SHA((out/'language-switch-tests.json').read_bytes()),'language regression receipt mismatch')
 
+    verify_language_boot(read_json(out/'language-switch-tests.json'))
     require(p.get('cold_vpn_regression_sha256')==SHA((out/'cold-vpn-tests.json').read_bytes()),'cold VPN regression receipt mismatch')
 
 def main():

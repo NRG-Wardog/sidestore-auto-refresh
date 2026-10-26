@@ -1,9 +1,9 @@
-name: Focused cold VPN source qualification
+name: Focused cold VPN and setup runtime qualification
 on:
   workflow_dispatch:
   push:
     branches: ['validation/cold-vpn-preflight']
-    paths: ['ci/cold-vpn/**', 'ci/issues-native/candidate-graph.json', '.github/workflows/cold-vpn-preflight.yml']
+    paths: ['ci/cold-vpn/**', 'ci/language-switch/**', 'ci/issues-native/**', '.github/workflows/cold-vpn-preflight.yml']
 permissions:
   contents: read
 concurrency:
@@ -45,6 +45,7 @@ jobs:
           test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
           python3 -B -m unittest discover -s harness/ci/cold-vpn -p 'test_*.py' -v 2>&1 | tee evidence/controls.log
       - name: Acquire and verify same immutable candidate source graph
+        id: source_gate
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/record.py acquire 2>&1 | tee evidence/acquisition.log
@@ -52,7 +53,10 @@ jobs:
           python3 -B harness/ci/issues-native/test_upstream_candidate_projection.py
           python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py
           python3 -B harness/ci/issues-native/test_current_vpn_guard_projection.py
+          python3 -B harness/ci/issues-native/test_early_readiness_projection.py
           python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
+          python3 -B harness/ci/issues-native/project_candidate_contracts.py
+          python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
           { xcodebuild -version; swift --version; xcrun --sdk iphonesimulator --show-sdk-version; } > evidence/toolchain.log
           xcodebuild -version | grep -Fx 'Xcode 26.4.1'
       - name: Mandatory cold VPN source execution and iOS deployment-target typecheck
@@ -60,6 +64,38 @@ jobs:
           set -euo pipefail
           python3 -B harness/ci/cold-vpn/run_cold_vpn_tests.py --sources sources --output evidence \
             2>&1 | tee evidence/cold-vpn-driver.log
+      - name: Compile and execute complete setup recovery suite against delivered baseline
+        id: setup_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/test_setup_state_recovery_contract.py
+          python3 -B harness/ci/issues-native/verify_setup_state_recovery.py run \
+            --sources sources --swiftc "$(command -v swiftc)" --output evidence/setup-state-recovery --contract evidence/candidate-contracts/setup-state-recovery-contract.json \
+            2>&1 | tee evidence/setup-state-recovery.log
+          printf '0\n' > evidence/setup-state-recovery.exit-code.txt
+      - name: Preserve immediate setup compiler or runtime failure evidence
+        if: ${{ !cancelled() && steps.setup_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: focused-setup-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/setup-state-recovery.log
+            evidence/setup-state-recovery/**/*.log
+            evidence/setup-state-recovery/**/*.json
+            evidence/setup-state-recovery/**/*.swift
+          if-no-files-found: error
+          retention-days: 14
+      - name: Execute same-session language simulator and iOS deployment-target checks
+        id: language_switch_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s harness/ci/language-switch -p 'test_*.py' -v
+          python3 -B harness/ci/language-switch/run_language_switch_tests.py --sources sources --output evidence \
+            2>&1 | tee evidence/language-switch-driver.log
       - name: Preserve observations and runtime failure evidence only
         if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -70,5 +106,11 @@ jobs:
             evidence/*.json
             evidence/cold-vpn/*.log
             evidence/cold-vpn/*.json
+            evidence/candidate-contracts/*.json
+            evidence/setup-state-recovery/**/*.log
+            evidence/setup-state-recovery/**/*.json
+            evidence/setup-state-recovery/**/*.swift
+            evidence/language-switch/*.log
+            evidence/language-switch/*.json
           if-no-files-found: error
           retention-days: 14

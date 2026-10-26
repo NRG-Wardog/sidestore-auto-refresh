@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "be3f345a4a5e59f3eaba7b932f4e16ca56f06f20"
+      "9ddbbd68c121920fb4fefa09a198bb54f500ffa2"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -95,6 +95,10 @@
         ".ci/comprehensive-diagnostics/setup_localization_harness.swift": "685e64c7b6c5726cd8a40fe3e598f96d30f071f6",
         ".ci/comprehensive-diagnostics/test_pairing_recovery_contract.py": "b1e1ff62080b80eb0ac343581b0b682d11956000",
         ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "c032fcea27d979ed19cb9615153c1a5f462e5a49",
+        ".ci/early-refresh-boundaries/early_cases.swift": "8ace99364dff25993bb071e3b7efc36c91f415a4",
+        ".ci/early-refresh-boundaries/early_doubles.swift": "8aa0533a9939f81fa0abd71d65e7c904fd4dea62",
+        ".ci/early-refresh-boundaries/generate_regression.py": "2342afc7ada6391c4473767b6fa786dd4e043464",
+        ".ci/early-refresh-boundaries/test_contract.py": "4562f42bbd04d53539bdee2302c80e90527638bc",
         ".ci/extension-selection/Cases.swift": "124f2b2b16d0164f114898a48c6062735443a805",
         ".ci/extension-selection/Doubles.swift": "09aaec3bb1e31ce8948abd0b184d04c822cf051d",
         ".ci/extension-selection/generate_fixture.py": "f524a726714d23df3acd78192b490bb0b8f21798",
@@ -160,7 +164,7 @@
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8",
         "tests/test_startup_diagnostics.py": "c143a729661907fb422f4a1aa4752988024fbc95"
       },
-      "tree": "a1fa36d2d92c202b20dfb7713a3772f7fd4dd193"
+      "tree": "ff907c8fc80e817aefcf479dbe1efcff7598eee9"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",

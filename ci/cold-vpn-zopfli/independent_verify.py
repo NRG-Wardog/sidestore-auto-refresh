@@ -1,5 +1,7 @@
 """Independent read-only final archive audit; no driver parser or compressor execution."""
-import argparse,hashlib,io,json,pathlib,struct,tarfile,zipfile,zlib
+import argparse,hashlib,io,json,pathlib,struct,tarfile,zipfile,zlib,sys
+sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent.parent/"language-switch"))
+from boot_evidence import verify_language_boot
 from contract import manifest,read_json,require,SHA,PIN,BUDGET,ITERATIONS,SOURCE_SHA
 if not __debug__: raise RuntimeError('Python optimization forbidden')
 parser=argparse.ArgumentParser();parser.add_argument('--root',type=pathlib.Path,default=pathlib.Path(__file__).resolve().parent);args=parser.parse_args()
@@ -34,6 +36,7 @@ ru=json.loads((R/'russian-localization.json').read_text())
 for n,h in ru['resource_sha256'].items():assert sha(b.read(n))==h
 widget='Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/LiveWidgetExtension';prov=json.loads((R/'provenance.json').read_text());assert sha(b.read(widget))==prov['unsigned_widget_prepackaging']['initial_and_final_signed_binary_sha256']
 language_report=read_json(R/'language-switch-tests.json')
+verify_language_boot(language_report)
 assert prov['language_switch_regression_sha256']==sha((R/'language-switch-tests.json').read_bytes())
 assert language_report['schema']=='live-language-switch-v1' and language_report['status']=='PASS_SAME_SESSION_IOS_SIMULATOR_NOT_PHYSICAL_DEVICE'
 assert language_report['run_identity']=={'workflow_commit':input_manifest['commit'],'run_id':str(input_manifest['run_id']),'run_attempt':str(input_manifest['run_attempt'])}

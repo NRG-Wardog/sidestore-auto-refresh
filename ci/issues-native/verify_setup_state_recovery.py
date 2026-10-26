@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from early_readiness_projection import inputs as early_readiness_inputs
 from current_vpn_guard_projection import verify as verify_current_vpn_guard
 from cold_vpn_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
 from russian_setup_projection import variant as russian_setup_variant
@@ -301,10 +302,10 @@ def load_contract(path):
             required.update(paths)
     host_inputs, host_count, _ = host_bundle_variant(value)
     required.update(host_inputs['production'])
-    expected_additive = dict(ADDITIVE_SUITE_INPUTS, **{'host-refresh-bundle': host_inputs, 'cache-compatibility': cold_cache_inputs(value, ADDITIVE_SUITE_INPUTS['cache-compatibility'])})
+    expected_additive = dict(ADDITIVE_SUITE_INPUTS, **{'host-refresh-bundle': host_inputs, 'cache-compatibility': cold_cache_inputs(value, ADDITIVE_SUITE_INPUTS['cache-compatibility']), 'profile-preconditions': early_readiness_inputs(value, ADDITIVE_SUITE_INPUTS['profile-preconditions'], profile=True)})
     if cold_cache_binding(value): required.update(expected_additive['cache-compatibility']['fixture'])
     require(value.get('additive_suite_inputs') == expected_additive, 'Additive exact source path closure differs')
-    require(value.get('suite_inputs') == SUITE_INPUTS, 'Setup exact source path closure differs')
+    require(value.get('suite_inputs') == dict(SUITE_INPUTS, **{'early-refresh-boundaries': early_readiness_inputs(value, SUITE_INPUTS['early-refresh-boundaries'])}), 'Setup exact source path closure differs')
     for key in ('input_sha256',):
         hashes = value.get(key)
         require(isinstance(hashes, dict) and required <= set(hashes), 'Incomplete setup source hashes')
@@ -505,6 +506,7 @@ def variant_extraction(output, contract, suite, variant):
     require(value.get('expected_case_names') == names and value.get('expected_case_count') == len(names),
             'Variant extraction case closure differs')
     spec = SUITE_INPUTS[suite]
+    if suite == 'early-refresh-boundaries': spec = early_readiness_inputs(contract, spec)
     production = contract['delivered_baseline']['input_sha256'] if variant == 'baseline' else contract['input_sha256']
     require(value.get('inputs_sha256') == {p: production[p] for p in spec['production']},
             'Variant actual-source inputs differ')
@@ -566,6 +568,7 @@ def identity_extraction(output, contract):
 def additive_extraction(output, contract, suite):
     spec, inputs = ADDITIVE_SPECS[suite], ADDITIVE_SUITE_INPUTS[suite]
     if suite == 'cache-compatibility': inputs = cold_cache_inputs(contract, inputs)
+    if suite == 'profile-preconditions': inputs = early_readiness_inputs(contract, inputs, profile=True)
     root = output / suite
     value = json.loads(regular(root, spec['receipt']).read_text())
     if suite == 'host-refresh-bundle':

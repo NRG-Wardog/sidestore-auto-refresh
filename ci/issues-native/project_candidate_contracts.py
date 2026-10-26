@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from early_readiness_projection import GENERATOR as EARLY_READINESS_GENERATOR, GENERATOR_SHA as EARLY_READINESS_SHA, add as add_early_readiness
 from current_vpn_guard_projection import PATH as CURRENT_VPN_GUARD_INPUT, add as add_current_vpn_guard
 from cold_vpn_cache_projection import PATH as COLD_VPN_CACHE_INPUT, add as add_cold_vpn_cache
 from russian_pairing_projection import add as add_russian_pairing
@@ -117,6 +118,7 @@ def contracts(sources, output, verify=False):
         if cold_cache and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (COLD_VPN_CACHE_INPUT,)
         projected, changes = project(json.loads(original.read_text()), graph, sources, additional_inputs)
         if name == 'setup-state-recovery-contract.json':
+            if projected['input_sha256'][EARLY_READINESS_GENERATOR] == EARLY_READINESS_SHA: projected = add_early_readiness(projected)
             if projected['input_sha256'][CURRENT_VPN_GUARD_INPUT] != json.loads(original.read_text())['input_sha256'][CURRENT_VPN_GUARD_INPUT]:
                 projected = add_current_vpn_guard(projected)
             projected = add_reviewed_host_coverage(projected)
