@@ -7,7 +7,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE.parent/'issues-native'))
 from verify_candidate_graph import load_candidate_graph
-from boot_evidence import validate_boot, verify_language_boot
+from boot_evidence import validate_boot, verify_language_boot, runtime_number, available_device, selection_evidence, verify_selection
 
 def require(ok,message):
  if not ok:raise ValueError(message)
@@ -113,50 +113,6 @@ def recovery_hashes(sources):
   result[owner+'/'+name]=sha(path)
  return result
 
-def runtime_number(version):
- require(type(version) is str and re.fullmatch(r'[0-9]+(?:\.[0-9]+){0,2}',version),'Invalid simulator runtime version')
- parts=[int(x) for x in version.split('.')]+[0,0]
- require(parts[0]<=65535 and parts[1]<=255 and parts[2]<=255,'Runtime version out of bounds')
- return (parts[0]<<16)|(parts[1]<<8)|parts[2]
-
-def available_device(catalog):
- require(isinstance(catalog,dict),'Invalid simulator inventory')
- runtimes=[r for r in catalog['runtimes'] if r.get('isAvailable') is True and r.get('identifier','').startswith('com.apple.CoreSimulator.SimRuntime.iOS-')]
- require(runtimes,'No installed available iOS Simulator runtime; do not download one implicitly')
- # productFamily alone is insufficient: simctl classifies iPod touch as iPhone.
- phones=[d for d in catalog['devicetypes'] if d.get('name','').startswith('iPhone ') and d.get('identifier','').startswith('com.apple.CoreSimulator.SimDeviceType.iPhone-') and d.get('productFamily')=='iPhone']
- require(phones,'No installed explicit iPhone simulator device type')
- for runtime in sorted(runtimes,key=lambda r:runtime_number(r['version']),reverse=True):
-  version=runtime_number(runtime['version'])
-  if version<runtime_number('16.0'):continue
-  supported=None
-  if 'supportedDeviceTypes' in runtime:
-   rows=runtime['supportedDeviceTypes'];require(type(rows) is list,'Invalid runtime supported-device inventory')
-   supported=set()
-   for row in rows:
-    identifier=row if type(row) is str else row.get('identifier') if type(row) is dict else None
-    require(type(identifier) is str,'Invalid supported device identity');supported.add(identifier)
-  devices=catalog.get('devices',{});require(type(devices) is dict,'Invalid existing simulator inventory')
-  existing=devices.get(runtime['identifier'],[]);require(type(existing) is list,'Invalid runtime device inventory')
-  available_types={d.get('deviceTypeIdentifier') for d in existing if type(d) is dict and d.get('isAvailable') is True and type(d.get('deviceTypeIdentifier')) is str}
-  eligible=[]
-  for device in phones:
-   lower=device.get('minRuntimeVersion');upper=device.get('maxRuntimeVersion')
-   bounds=type(lower) is int and type(upper) is int and 0<=lower<=upper<=4294967295
-   if ('minRuntimeVersion' in device or 'maxRuntimeVersion' in device) and not bounds:continue
-   if bounds and not lower<=version<=upper:continue
-   if supported is not None:
-    if device['identifier'] not in supported:continue
-   else:
-    # Older simctl schemas can omit explicit supported identities. Accept
-    # authoritative bounds or an available existing device's exact type under
-    # this runtime only. Never reuse or mutate the existing device itself.
-    if not bounds and device['identifier'] not in available_types:continue
-   eligible.append(device)
-  if eligible:
-   # Prefer the newest compatible generation by minimum runtime, not array order.
-   return runtime,max(eligible,key=lambda d:(d.get('minRuntimeVersion') if type(d.get('minRuntimeVersion')) is int else 0,d['identifier']))
- raise ValueError('No installed iPhone device type has verified compatibility with an available iOS16+ runtime')
 
 TRANSITIONS=['he','en','he','ru','he','zh-Hans','he','zh-Hant','en','he','ru','en']
 def validate_runtime_result(data,root):
@@ -216,8 +172,10 @@ def run(sources,output):
   inventory_text=command(['xcrun','simctl','list','-j'])
   (work/'simulator-inventory.json').write_text(inventory_text)
   catalog=json.loads(inventory_text,object_pairs_hook=strict)
-  runtime,device=available_device(catalog)
+  sdk_version=command(['xcrun','--sdk','iphonesimulator','--show-sdk-version']).strip()
   sdk=command(['xcrun','--sdk','iphonesimulator','--show-sdk-path']).strip()
+  runtime,device=available_device(catalog,sdk_version)
+  report['simulator_selection']=selection_evidence(inventory_text,sdk_version,sdk,runtime,device)
   architecture=platform.machine();require(architecture in ('arm64','x86_64'),'Unsupported simulator host architecture')
   app=work/'LanguageSwitchFixture.app';app.mkdir()
   bundle='org.nrg.language-switch-fixture'
@@ -295,6 +253,8 @@ def verify_receipt(path,sources,native_identity):
  require(boot.is_file() and not boot.is_symlink() and sha(boot)==d['boot_readiness_sha256'],'Boot readiness evidence differs')
  verify_boot_readiness(boot,d['simulator']['udid'])
  verify_language_boot(d)
+ inventory=path.parent/'language-switch/simulator-inventory.json'
+ require(inventory.is_file() and not inventory.is_symlink() and inventory.read_text()==d['simulator_selection']['inventory_json'],'Simulator inventory evidence differs')
  require(d['boot_readiness_json']==boot.read_text(),'Embedded boot receipt differs')
  for name,text in d['boot_attempt_logs'].items():require(text==(boot.parent/name).read_text(),'Embedded boot output differs')
  require(d['source_state_test_log_sha256']==sha(path.parent/'language-switch/state-tests.log'),'Language source test log differs')

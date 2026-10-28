@@ -61,6 +61,11 @@ class BootReadinessTests(unittest.TestCase):
   with contextlib.redirect_stderr(io.StringIO()):data=action()
   raw=(work/'boot-readiness.json').read_text()
   report={'boot_readiness_json':raw,'boot_readiness_sha256':hashlib.sha256(raw.encode()).hexdigest(),'boot_attempt_logs':{p.name:p.read_text() for p in work.glob('bootstatus-attempt-*.log')},'simulator':{'udid':UUID}}
+  device={'identifier':'com.apple.CoreSimulator.SimDeviceType.iPhone-17','name':'iPhone 17','productFamily':'iPhone','minRuntimeVersion':R.runtime_number('26.0'),'maxRuntimeVersion':4294967295}
+  runtime={'identifier':'com.apple.CoreSimulator.SimRuntime.iOS-26-4','version':'26.4','buildversion':'23E100','isAvailable':True}
+  sdk='/Applications/Xcode.app/SDKs/iPhoneSimulator26.4.sdk'
+  report['simulator'].update(runtime=runtime,device_type=device,sdk=sdk)
+  report['simulator_selection']=R.selection_evidence(json.dumps({'runtimes':[runtime],'devicetypes':[device]}),'26.4',sdk,runtime,device)
   verify_language_boot(report)
   for logs in [{},{**report['boot_attempt_logs'],'extra.log':'unexpected'},{**report['boot_attempt_logs'],'bootstatus-attempt-1.log':'tampered'}]:
    with self.assertRaises(ValueError):verify_language_boot({**report,'boot_attempt_logs':logs})

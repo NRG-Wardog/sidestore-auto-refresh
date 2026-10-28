@@ -4,26 +4,70 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 import run_language_switch_tests as R
 class RunnerTests(unittest.TestCase):
  def test_device_selection_requires_verified_runtime_compatibility(self):
-  with self.assertRaises(ValueError):R.available_device({'runtimes':[],'devicetypes':[]})
+  with self.assertRaises(ValueError):R.available_device({'runtimes':[],'devicetypes':[]},'26.5')
   runtime={'identifier':'com.apple.CoreSimulator.SimRuntime.iOS-26-5','version':'26.5','isAvailable':True}
   device={'identifier':'com.apple.CoreSimulator.SimDeviceType.iPhone-17','name':'iPhone 17','productFamily':'iPhone','minRuntimeVersion':R.runtime_number('26.0'),'maxRuntimeVersion':4294967295}
   ipod={'identifier':'com.apple.CoreSimulator.SimDeviceType.iPod-touch--7th-generation-','name':'iPod touch (7th generation)','productFamily':'iPhone','minRuntimeVersion':R.runtime_number('12.2'),'maxRuntimeVersion':R.runtime_number('15.9')}
   old={**device,'identifier':'com.apple.CoreSimulator.SimDeviceType.iPhone-6s','name':'iPhone 6s','minRuntimeVersion':R.runtime_number('9.0'),'maxRuntimeVersion':R.runtime_number('15.9')}
   future={**device,'identifier':'com.apple.CoreSimulator.SimDeviceType.iPhone-future','name':'iPhone future','minRuntimeVersion':R.runtime_number('27.0')}
-  self.assertEqual(R.available_device({'runtimes':[runtime],'devicetypes':[future,device,old,ipod]}),(runtime,device))
+  self.assertEqual(R.available_device({'runtimes':[runtime],'devicetypes':[future,device,old,ipod]},'26.5'),(runtime,device))
   for devices in ([ipod],[old],[future],[{k:v for k,v in device.items() if 'RuntimeVersion' not in k}]):
-   with self.assertRaises(ValueError):R.available_device({'runtimes':[runtime],'devicetypes':devices})
+   with self.assertRaises(ValueError):R.available_device({'runtimes':[runtime],'devicetypes':devices},'26.5')
   explicit={**runtime,'supportedDeviceTypes':[{'identifier':device['identifier']}]}
-  self.assertEqual(R.available_device({'runtimes':[explicit],'devicetypes':[future,device,old,ipod]}),(explicit,device))
-  with self.assertRaises(ValueError):R.available_device({'runtimes':[{**runtime,'supportedDeviceTypes':[]}],'devicetypes':[device]})
-  with self.assertRaises(ValueError):R.available_device({'runtimes':[runtime],'devicetypes':[{**device,'minRuntimeVersion':True}]})
+  self.assertEqual(R.available_device({'runtimes':[explicit],'devicetypes':[future,device,old,ipod]},'26.5'),(explicit,device))
+  with self.assertRaises(ValueError):R.available_device({'runtimes':[{**runtime,'supportedDeviceTypes':[]}],'devicetypes':[device]},'26.5')
+  with self.assertRaises(ValueError):R.available_device({'runtimes':[runtime],'devicetypes':[{**device,'minRuntimeVersion':True}]},'26.5')
   unbounded={k:v for k,v in device.items() if 'RuntimeVersion' not in k}
   existing={'deviceTypeIdentifier':device['identifier'],'isAvailable':True,'udid':'EXISTING-DO-NOT-USE'}
   catalog={'runtimes':[runtime],'devicetypes':[unbounded,ipod],'devices':{runtime['identifier']:[existing]}}
-  self.assertEqual(R.available_device(catalog),(runtime,unbounded))
+  self.assertEqual(R.available_device(catalog,'26.5'),(runtime,unbounded))
   for devices in ({'other-runtime':[existing]},{runtime['identifier']:[{**existing,'isAvailable':False}]}):
-   with self.assertRaises(ValueError):R.available_device({**catalog,'devices':devices})
-  with self.assertRaises(ValueError):R.available_device({**catalog,'devicetypes':[{**unbounded,'minRuntimeVersion':True}]})
+   with self.assertRaises(ValueError):R.available_device({**catalog,'devices':devices},'26.5')
+  with self.assertRaises(ValueError):R.available_device({**catalog,'devicetypes':[{**unbounded,'minRuntimeVersion':True}]},'26.5')
+ def selection_fixture(self):
+  device={'identifier':'com.apple.CoreSimulator.SimDeviceType.iPhone-17','name':'iPhone 17','productFamily':'iPhone','minRuntimeVersion':R.runtime_number('26.0'),'maxRuntimeVersion':4294967295}
+  def runtime(version):return {'identifier':'com.apple.CoreSimulator.SimRuntime.iOS-'+version.replace('.','-'),'version':version,'buildversion':'23E100','isAvailable':True,'supportedDeviceTypes':[device['identifier']]}
+  catalog={'runtimes':[runtime(v) for v in ['26.5','26.4','26.4.1','26.3.9']],'devicetypes':[device]}
+  return catalog,device
+ def test_sdk_family_selects_highest_patch_not_newest_global(self):
+  catalog,device=self.selection_fixture()
+  for runtimes in [catalog['runtimes'],list(reversed(catalog['runtimes']))]:
+   selected,_=R.available_device({**catalog,'runtimes':runtimes},'26.4')
+   self.assertEqual(selected['version'],'26.4.1')
+   self.assertEqual(R.available_device({**catalog,'runtimes':runtimes},'26.4.2')[0],selected)
+ def test_runtime_tie_is_deterministic_and_duplicate_identities_fail(self):
+  catalog,device=self.selection_fixture();runtime=catalog['runtimes'][2]
+  other={**runtime,'identifier':runtime['identifier']+'-B','buildversion':'23E101'}
+  for rows in [[runtime,other],[other,runtime]]:
+   self.assertEqual(R.available_device({**catalog,'runtimes':rows},'26.4')[0],other)
+  with self.assertRaises(ValueError):R.available_device({**catalog,'runtimes':[runtime,runtime]},'26.4')
+  with self.assertRaises(ValueError):R.available_device({**catalog,'devicetypes':[device,device]},'26.4')
+ def test_missing_unavailable_wrong_family_or_malformed_sdk_fails_closed(self):
+  catalog,device=self.selection_fixture()
+  for sdk in ['26','26.4beta','26.4.1.2','26.4\n',26.4,True,'15.4','65536.0','26.256','26.-1']:
+   with self.subTest(sdk=sdk),self.assertRaises(ValueError):R.available_device(catalog,sdk)
+  for runtimes in [[],[catalog['runtimes'][0]],[{**r,'isAvailable':False} for r in catalog['runtimes']]]:
+   with self.assertRaises(ValueError):R.available_device({**catalog,'runtimes':runtimes},'26.4')
+ def test_selection_receipt_binds_inventory_sdk_build_and_executed_identity(self):
+  catalog,device=self.selection_fixture();runtime,_=R.available_device(catalog,'26.4')
+  evidence=R.selection_evidence(json.dumps(catalog),'26.4','/Applications/Xcode.app/SDKs/iPhoneSimulator26.4.sdk',runtime,device)
+  report={'simulator_selection':evidence,'simulator':{'runtime':runtime,'device_type':device,'sdk':evidence['sdk_path']}}
+  R.verify_selection(report)
+  alias=copy.deepcopy(report);alias['simulator']['sdk']='/Applications/Xcode.app/SDKs/iPhoneSimulator.sdk';alias['simulator_selection']['sdk_path']=alias['simulator']['sdk'];R.verify_selection(alias)
+  for key,value in [('policy_version','old'),('sdk_version','26.5'),('runtime_version','26.5'),('runtime_build','other'),('runtime_identifier','other'),('inventory_sha256','0'*64),('sdk_path','relative.sdk'),('sdk_path','/Applications/Xcode.app/SDKs/iPhoneSimulator26.5.sdk'),('inventory_json','{}')]:
+   changed=copy.deepcopy(report);changed['simulator_selection'][key]=value
+   with self.subTest(key=key),self.assertRaises(ValueError):R.verify_selection(changed)
+  changed=copy.deepcopy(report);changed['simulator']['runtime']=catalog['runtimes'][0]
+  with self.assertRaises(ValueError):R.verify_selection(changed)
+  changed=copy.deepcopy(report);changed['simulator_selection']['unknown']=True
+  with self.assertRaises(ValueError):R.verify_selection(changed)
+ def test_sdk_query_precedes_selection_and_no_execution_failure_fallback(self):
+  source=(R.HERE/'run_language_switch_tests.py').read_text()
+  self.assertIn("sdk_version=command(['xcrun','--sdk','iphonesimulator','--show-sdk-version']).strip()",source)
+  self.assertLess(source.index('sdk_version=command('),source.index('runtime,device=available_device('))
+  self.assertEqual(source.count('runtime,device=available_device('),1)
+  self.assertEqual(source.count("'simctl','create'"),1)
+  self.assertIn("architecture+'-apple-ios16.0-simulator'",source)
  def test_actual_transition_proof_and_stale_wrong_direction_rejected(self):
   with tempfile.TemporaryDirectory() as t:
    root=Path(t).resolve();(root/'Resources').mkdir()
