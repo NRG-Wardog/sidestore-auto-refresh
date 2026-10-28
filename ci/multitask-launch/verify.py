@@ -22,7 +22,7 @@ def verify(source,evidence,expected_identity=None,*,validated_native_inventory=N
     require(completion['schema']=='multitask-completion-ci-v1' and completion['status']=='PASS_ACTUAL_OBJC_BOUNDARY_NOT_DEVICE','Completion runtime did not qualify')
     fixture=evidence/'guest-launch-completion/fixture/report.json';require(sha(fixture)==completion['fixture_sha256'],'Completion fixture evidence changed')
     require(sha(evidence/'guest-launch-completion/driver.log')==completion['driver_log_sha256'],'Completion log changed')
-    run_completion.validate(read(fixture),source)
+    run_completion.validate(read(fixture),source,validated_native_inventory=validated_native_inventory)
     expected_logs={'compile.log','runtime.log','nil-guard-compile.log','nil-guard-runtime.log','synchronous-interruption-compile.log','synchronous-interruption-runtime.log'}
     require(set(completion['native_log_sha256'])==expected_logs,'Native log closure differs')
     for name,digest in completion['native_log_sha256'].items():require(sha(fixture.parent/name)==digest,'Native runtime/compiler log changed')

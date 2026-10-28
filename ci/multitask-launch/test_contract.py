@@ -4,6 +4,26 @@ from unittest.mock import patch
 HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
 import contract,run_attachment,run_completion,diagnostics_contract
+class NestedCompletionReplayTests(unittest.TestCase):
+ def test_native_inventory_reaches_completion_and_actual_hashes_remain_required(self):
+  with tempfile.TemporaryDirectory() as folder:
+   root=Path(folder);tracked={};hashes={}
+   for name in run_completion.EXPECTED_SOURCES:
+    path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('controlled source fixture\n');hashes[name]=contract.sha(path);tracked[name]={'mode':'100644','sha256':hashes[name]}
+   data={'schema':'guest-launch-completion-v1','status':'PASS','native_compiled':True,'native_executed':True,'cases':list(run_completion.EXPECTED_CASES),'counterfactuals':run_completion.EXPECTED_COUNTERFACTUALS,'source_sha256':hashes}
+   with patch.object(run_completion,'inventory',side_effect=ValueError('Source worktree is not clean')) as pristine:
+    self.assertIs(run_completion.validate(data,root,validated_native_inventory=tracked),data);pristine.assert_not_called()
+    with self.assertRaisesRegex(ValueError,'not clean'):run_completion.validate(data,root)
+    (root/run_completion.EXPECTED_SOURCES[0]).write_text('tampered')
+    with self.assertRaisesRegex(ValueError,'source bytes differ'):run_completion.validate(data,root,validated_native_inventory=tracked)
+ def test_complete_replay_forwards_native_context_to_nested_validator(self):
+  import ast
+  tree=ast.parse((HERE/'verify.py').read_text())
+  calls=[node for node in ast.walk(tree) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and isinstance(node.func.value,ast.Name) and node.func.value.id=='run_completion' and node.func.attr=='validate']
+  self.assertEqual(len(calls),1)
+  forwarding=[kw for kw in calls[0].keywords if kw.arg=='validated_native_inventory']
+  self.assertEqual(len(forwarding),1);self.assertIsInstance(forwarding[0].value,ast.Name);self.assertEqual(forwarding[0].value.id,'validated_native_inventory')
+
 class ContractTests(unittest.TestCase):
  def test_duplicate_json_rejected(self):
   with self.assertRaises(ValueError):json.loads('{"status":1,"status":2}',object_pairs_hook=contract.strict)

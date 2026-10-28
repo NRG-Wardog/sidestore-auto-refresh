@@ -8,14 +8,14 @@ EXPECTED_CASES=('nil-extension-no-error', 'nil-extension-with-error', 'nonnull-e
 EXPECTED_SOURCES=('MultitaskSupport/AppSceneViewController.m', 'MultitaskSupport/DecoratedAppSceneViewController.m', 'tests/guest_launch_completion/fixture.m', 'tests/run_guest_launch_completion.py', 'LiveContainerSwiftUI/Models/LCAppModel.swift', 'LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerViewController.swift')
 EXPECTED_COUNTERFACTUALS={'nil-guard':{'rejected':True,'expected_failure':'FAIL: lookup result'},'synchronous-interruption':{'rejected':True,'expected_failure':'FAIL: synchronous interruption settled before constructor return'}}
 
-def validate(data,root):
+def validate(data,root,*,validated_native_inventory=None):
     require(data['schema']=='guest-launch-completion-v1' and data['status']=='PASS','Completion fixture did not pass')
     require(data['native_compiled'] is True and data['native_executed'] is True,'Actual Objective-C execution required')
     require(EXPECTED_CASES and data['cases']==list(EXPECTED_CASES),'Completion runtime case closure differs')
     require(data['counterfactuals']==EXPECTED_COUNTERFACTUALS,'Counterfactual rejection evidence differs')
     require(all(row['rejected'] is True for row in data['counterfactuals'].values()),'Counterfactual rejection must be a boolean')
     hashes=data['source_sha256'];require(type(hashes) is dict and set(hashes)==set(EXPECTED_SOURCES),'Production source hash closure differs')
-    tracked=inventory(root)
+    tracked=inventory(root) if validated_native_inventory is None else validated_native_inventory
     for name,digest in hashes.items():
         require(type(name) is str and name in tracked,'Unknown source input')
         path=root/name;require(path.is_file() and not path.is_symlink() and sha(path)==digest,'Production fixture source bytes differ')

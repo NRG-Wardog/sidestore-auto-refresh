@@ -129,6 +129,7 @@ class WorkflowTests(unittest.TestCase):
   guest=next(b for b in blocks if 'id: multitask_tests\n' in b)
   self.assertNotIn('continue-on-error',guest);self.assertNotIn('if:',guest);self.assertIn('set -euo pipefail',guest)
   self.assertIn('multitask_receipt.py run --sources sources --evidence evidence/multitask-launch --output evidence/multitask-launch-tests.json',guest)
+  self.assertIn('replay_retained_native_evidence.py --source sources/LiveContainer --evidence evidence/multitask-launch',guest)
   self.assertLess(s.index('id: multitask_tests'),s.index('id: livecontainer_build'))
   final=next(b for b in blocks if b.startswith('Package same-run reviewed candidate'))
   self.assertIn('if: success()',final);self.assertIn('--cold-vpn --multitask',final)
