@@ -9,7 +9,7 @@ Native Swift execution is mandatory. Skips, expected failures, missing suites,
 source drift and stale/mismatched receipts fail closed. The LC and SS tests also
 typecheck their extracted production helpers with the actual iOS 15 simulator
 SDK; minimuxer additionally checks its iOS 14 deployment target. Full native integration compilation remains a separate mandatory gate.
-The 97-case host VPN fixture (all original 89 cases plus eight exact grace-recovery cases) is also generated, compiled and executed
+The 105-case host VPN fixture (all original 89 cases, eight grace-recovery cases and eight required-Wi-Fi cases) is also generated, compiled and executed
 in this focused stage; its exact case list and execution marker are mandatory.
 
 The runner hashes complete tracked source inventories for all three owners,
@@ -29,5 +29,5 @@ Quick lossless packaging is separate and cannot start until exact green native
 artifact metadata replaces the intentionally invalid input manifest.
 
 The grace-recovery extension extracts the actual backend wait and host activation
-policy. It preserves every original case and binds the eight additional ordered
+policy. It preserves every original case and binds the sixteen additional ordered
 cases to exact generator/case-file hashes; this is not a real VPN device test.

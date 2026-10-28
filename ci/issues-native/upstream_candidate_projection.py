@@ -5,6 +5,7 @@ import copy,hashlib,importlib.util,json
 from pathlib import Path
 from project_candidate_contracts import project
 from verify_candidate_graph import HERE,load_candidate_graph,require
+from local_wifi_fixture_projection import PATH as WIFI_PATH, SHA as WIFI_SHA, ROLE as WIFI_ROLE, TEST_PATH as WIFI_TEST_PATH, TEST_SHA as WIFI_TEST_SHA
 MM='SideStore/Dependencies/minimuxer/'
 ALLOWED_MM={MM+p for p in ('.ci/verify-upstream-sync.py','Sources/DeviceProvider.swift','Sources/MinimuxerApi.swift')}
 ALLOWED_VPN={MM+p for p in ('Sources/MinimuxerApi.swift','Sources/MinimuxerImpl.swift','Sources/Services/NetworkObserverService.swift')}|{'SideStore/SideStore/Core/Operations/PipelineExecutor.swift','SideStore/tests/vpn_transport_recovery/generate_fixture.py'}
@@ -13,13 +14,24 @@ def bind(inputs,allowed,graph,sources):
  result,changes=project({'input_sha256':inputs},graph,sources)
  require(set(changes)<=allowed,'Unreviewed upstream runtime input change')
  return result['input_sha256'],changes
+def reviewed_vpn_rows(original):
+ require(WIFI_ROLE not in original,'Duplicate Wi-Fi fixture role')
+ result=copy.deepcopy(original)
+ require(all(row['path']!=WIFI_PATH for row in result.values()),'Duplicate Wi-Fi fixture path')
+ result[WIFI_ROLE]={'path':WIFI_PATH,'sha256':WIFI_SHA}
+ return result
 def current_spec(sources,graph=None):
  sources=Path(sources).resolve(strict=True);graph=load_candidate_graph() if graph is None else graph
  frozen_path=HERE/'upstream-sync-contract.json';frozen=json.loads(frozen_path.read_text());result=copy.deepcopy(frozen)
  mm_inputs={MM+k:v for k,v in frozen['minimuxer_fake_tests']['source_inputs'].items()}
  mm,mm_changes=bind(mm_inputs,ALLOWED_MM,graph,sources)
  result['minimuxer_fake_tests']['source_inputs']={k.removeprefix(MM):v for k,v in mm.items()}
- vpn,vpn_changes=bind(frozen['vpn_transport_regression']['source_inputs'],ALLOWED_VPN,graph,sources)
+ vpn_inputs=dict(frozen['vpn_transport_regression']['source_inputs'])
+ require(WIFI_PATH not in vpn_inputs,'Duplicate Wi-Fi dependency in frozen baseline')
+ require(sha((sources/WIFI_PATH).read_bytes())==WIFI_SHA,'Unreviewed Wi-Fi fixture dependency bytes')
+ require(sha((sources/WIFI_TEST_PATH).read_bytes())==WIFI_TEST_SHA,'Unreviewed additive Wi-Fi extraction control bytes')
+ vpn_inputs[WIFI_PATH]=None
+ vpn,vpn_changes=bind(vpn_inputs,ALLOWED_VPN|{WIFI_PATH,WIFI_TEST_PATH},graph,sources)
  target=result['vpn_transport_regression'];target['source_inputs']=vpn
  generator=sources/'SideStore/tests/vpn_transport_recovery/generate_fixture.py'
  module_spec=importlib.util.spec_from_file_location('_reviewed_vpn_projection_generator',generator)
@@ -28,7 +40,7 @@ def current_spec(sources,graph=None):
  # These fixture cases and platform doubles are NOT allowlisted for changes.
  generated+=(generator.parent/'policy_cases.swift').read_text()
  rows={k:{'path':p.relative_to(sources).as_posix(),'sha256':sha(p.read_bytes())} for k,p in paths.items()}
- original=frozen['vpn_transport_regression']['input_rows']
+ original=reviewed_vpn_rows(frozen['vpn_transport_regression']['input_rows'])
  require(set(rows)==set(original),'VPN fixture input role closure changed')
  for name,row in rows.items():
   require(row['path']==original[name]['path'],'VPN fixture role path changed')

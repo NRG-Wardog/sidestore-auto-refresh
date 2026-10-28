@@ -22,6 +22,14 @@ class ProjectionTests(unittest.TestCase):
   self.assertEqual(len(P.ALLOWED_MM),3);self.assertEqual(len(P.ALLOWED_VPN),5)
   for path in P.ALLOWED_MM|P.ALLOWED_VPN:
    self.assertNotIn('policy_cases.swift',path);self.assertNotIn('Original',path);self.assertNotIn('baseline-receipt',path);self.assertNotIn('interface_doubles',path)
+ def test_exact_additive_wifi_role_preserves_original_roles(self):
+  original={'producer':{'path':'fixed/producer.swift','sha256':'1'*64}}
+  value=P.reviewed_vpn_rows(original)
+  self.assertEqual(value['producer'],original['producer'])
+  self.assertEqual(set(value),set(original)|{P.WIFI_ROLE})
+  self.assertEqual(value[P.WIFI_ROLE],{'path':P.WIFI_PATH,'sha256':P.WIFI_SHA})
+  with self.assertRaises(ValueError):P.reviewed_vpn_rows(value)
+  with self.assertRaises(ValueError):P.reviewed_vpn_rows({'other':{'path':P.WIFI_PATH,'sha256':P.WIFI_SHA}})
  def test_cli_and_native_receipt_use_current_projection(self):
   verify=(P.HERE/'verify_upstream_sync.py').read_text();record=(P.HERE/'record.py').read_text()
   self.assertIn("current['minimuxer_fake_tests']",verify)
@@ -31,4 +39,6 @@ class ProjectionTests(unittest.TestCase):
   self.assertIn("if not vpn_changes:require(target['generated_sha256']==frozen",helper)
   self.assertIn("row['path']==original[name]['path']",helper)
   self.assertIn("row['sha256']==vpn[row['path']]",helper)
+  self.assertIn("sha((sources/WIFI_TEST_PATH).read_bytes())==WIFI_TEST_SHA",helper)
+  self.assertEqual(P.WIFI_TEST_PATH,'SideStore/tests/vpn_transport_recovery/test_contract.py')
 if __name__=='__main__':unittest.main(verbosity=2)

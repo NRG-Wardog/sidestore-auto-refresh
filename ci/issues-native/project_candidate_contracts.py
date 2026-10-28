@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from local_wifi_fixture_projection import PATH as LOCAL_WIFI_FIXTURE_INPUT, add as add_local_wifi_fixture
 from grace_recovery_projection import add as add_grace_recovery
 from early_readiness_projection import GENERATOR as EARLY_READINESS_GENERATOR, GENERATOR_SHA as EARLY_READINESS_SHA, add as add_early_readiness
 from current_vpn_guard_projection import PATH as CURRENT_VPN_GUARD_INPUT, add as add_current_vpn_guard
@@ -75,7 +76,7 @@ def sha(data):
 def project(contract, graph, sources, additional_inputs=()):
     result = copy.deepcopy(contract)
     changes = {}
-    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT}
+    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT}
     require(set(additional_inputs) <= allowed, 'unreviewed additive contract input')
     inputs = dict(contract['input_sha256'])
     for path in additional_inputs:
@@ -116,13 +117,14 @@ def contracts(sources, output, verify=False):
         russian = RUSSIAN_REVIEWED_INPUT.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {})
         if russian and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (RUSSIAN_REVIEWED_INPUT,)
         cold_cache = COLD_VPN_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {})
-        if cold_cache and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (COLD_VPN_CACHE_INPUT,)
+        if cold_cache and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT)
         projected, changes = project(json.loads(original.read_text()), graph, sources, additional_inputs)
         if name == 'setup-state-recovery-contract.json':
             if projected['input_sha256'][EARLY_READINESS_GENERATOR] == EARLY_READINESS_SHA: projected = add_early_readiness(projected)
             if projected['input_sha256'][CURRENT_VPN_GUARD_INPUT] != json.loads(original.read_text())['input_sha256'][CURRENT_VPN_GUARD_INPUT]:
                 projected = add_current_vpn_guard(projected)
                 projected = add_grace_recovery(projected)
+                projected = add_local_wifi_fixture(projected)
             projected = add_reviewed_host_coverage(projected)
             if cold_cache: projected = add_cold_vpn_cache(projected)
             if russian: projected = add_russian_setup(projected)

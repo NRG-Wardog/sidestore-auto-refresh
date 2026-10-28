@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from local_wifi_fixture_projection import inputs as local_wifi_fixture_inputs
 from grace_recovery_projection import count as grace_recovery_count
 from early_readiness_projection import inputs as early_readiness_inputs, verify_static as verify_early_static
 from current_vpn_guard_projection import verify as verify_current_vpn_guard
@@ -303,7 +304,8 @@ def load_contract(path):
             required.update(paths)
     host_inputs, host_count, _ = host_bundle_variant(value)
     required.update(host_inputs['production'])
-    expected_additive = dict(ADDITIVE_SUITE_INPUTS, **{'host-refresh-bundle': host_inputs, 'cache-compatibility': cold_cache_inputs(value, ADDITIVE_SUITE_INPUTS['cache-compatibility']), 'profile-preconditions': early_readiness_inputs(value, ADDITIVE_SUITE_INPUTS['profile-preconditions'], profile=True)})
+    expected_additive = dict(ADDITIVE_SUITE_INPUTS, **{'vpn-refresh-recovery': local_wifi_fixture_inputs(value, ADDITIVE_SUITE_INPUTS['vpn-refresh-recovery']), 'host-refresh-bundle': host_inputs, 'cache-compatibility': cold_cache_inputs(value, ADDITIVE_SUITE_INPUTS['cache-compatibility']), 'profile-preconditions': early_readiness_inputs(value, ADDITIVE_SUITE_INPUTS['profile-preconditions'], profile=True)})
+    required.update(expected_additive['vpn-refresh-recovery']['transport_fixture'])
     if cold_cache_binding(value): required.update(expected_additive['cache-compatibility']['fixture'])
     require(value.get('additive_suite_inputs') == expected_additive, 'Additive exact source path closure differs')
     require(value.get('suite_inputs') == dict(SUITE_INPUTS, **{'early-refresh-boundaries': early_readiness_inputs(value, SUITE_INPUTS['early-refresh-boundaries'])}), 'Setup exact source path closure differs')
@@ -569,6 +571,7 @@ def identity_extraction(output, contract):
 
 def additive_extraction(output, contract, suite):
     spec, inputs = ADDITIVE_SPECS[suite], ADDITIVE_SUITE_INPUTS[suite]
+    if suite == 'vpn-refresh-recovery': inputs = local_wifi_fixture_inputs(contract, inputs)
     if suite == 'cache-compatibility': inputs = cold_cache_inputs(contract, inputs)
     if suite == 'profile-preconditions': inputs = early_readiness_inputs(contract, inputs, profile=True)
     root = output / suite

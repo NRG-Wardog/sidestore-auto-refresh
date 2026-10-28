@@ -17,7 +17,7 @@ class Controls(unittest.TestCase):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp).resolve();(root/'cold-vpn').mkdir();p=root/'cold-vpn-tests.json'
    for name in R.SUITES:(root/'cold-vpn'/(name+'.log')).write_text('Ran 2 tests\nOK\n')
-   for name in ['historical-vpn.log','historical-vpn-sources.json','historical-vpn-cases.json']:(root/'cold-vpn'/name).write_text('VPN_REFRESH_RECOVERY_PASS cases=97\n' if name.endswith('.log') else '{}')
+   for name in ['historical-vpn.log','historical-vpn-sources.json','historical-vpn-cases.json']:(root/'cold-vpn'/name).write_text('VPN_REFRESH_RECOVERY_PASS cases=105\n' if name.endswith('.log') else '{}')
    ident={'workflow_commit':'a'*40,'run_id':'1','run_attempt':'1'}
    data={'schema':'cold-vpn-source-regressions-v1','status':'PASS_SOURCE_EXECUTION_NOT_DEVICE_VPN','run_identity':ident,'source_graph':{'owner':['repo','a'*40]},'source_owner_inventory_sha256':{'owner':'b'*64},'physical_device_execution':False,'real_vpn_execution':False,'historical_vpn_sha256':{n:R.sha(root/'cold-vpn'/n) for n in ['historical-vpn.log','historical-vpn-sources.json','historical-vpn-cases.json']},'suite_log_sha256':{n:R.sha(root/'cold-vpn'/(n+'.log')) for n in R.SUITES}}
    with mock.patch.object(R,'load_candidate_graph',return_value={'owners':data['source_graph']}),mock.patch.object(R,'source_hashes',return_value=data['source_owner_inventory_sha256']):
