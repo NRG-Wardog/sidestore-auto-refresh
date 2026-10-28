@@ -7,10 +7,12 @@ import run_attachment,run_completion,diagnostics_contract
 from boot_evidence import verify_selection
 from run_language_switch_tests import verify_boot_readiness
 
-def verify(source,evidence,expected_identity=None):
+def verify(source,evidence,expected_identity=None,*,validated_native_inventory=None):
     source=source.resolve(strict=True);evidence=evidence.resolve(strict=True)
     expected=identity() if expected_identity is None else expected_identity
-    tracked=inventory(source);owner=manifest()
+    # Native caller validates unchanged tracked bytes plus the exact sealed generated overlay.
+    # Standalone focused CLI always retains its pristine-checkout requirement.
+    tracked=inventory(source) if validated_native_inventory is None else validated_native_inventory;owner=manifest()
     acquired=read(evidence/'source.json')
     require(acquired['schema']=='multitask-source-acquisition-v1' and acquired['source']==owner and acquired['identity']==expected and acquired['inventory']==tracked,'Source acquisition evidence differs')
     completion=read(evidence/'guest-launch-completion.json');attachment=read(evidence/'multitask-attachment.json');diagnostics=read(evidence/'guest-launch-diagnostics.json')
