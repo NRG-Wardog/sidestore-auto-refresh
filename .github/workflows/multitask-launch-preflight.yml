@@ -56,17 +56,24 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B harness/ci/multitask-launch/run_completion.py --source sources/LiveContainer --output evidence 2>&1 | tee evidence/completion.log
-      - name: Observe real UIKit host attachment without guest execution
+      - name: Actual bounded diagnostic recorder and offline copy policy
+        id: diagnostics
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/multitask-launch/run_diagnostics.py --source sources/LiveContainer --output evidence 2>&1 | tee evidence/diagnostics.log
+      - name: Qualify actual UIKit attachment and host ownership without guest execution
         id: attachment
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/multitask-launch/run_attachment.py --source sources/LiveContainer --output evidence 2>&1 | tee evidence/attachment.log
-      - name: Require both focused stages
+      - name: Require every focused stage
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           test '${{ steps.completion.outcome }}' = success
           test '${{ steps.attachment.outcome }}' = success
+          test '${{ steps.diagnostics.outcome }}' = success
           python3 -B harness/ci/multitask-launch/verify.py --source sources/LiveContainer --evidence evidence
       - name: Preserve synthetic diagnostics on success or failure
         if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
@@ -78,3 +85,4 @@ jobs:
           path: |
             evidence/**/*.json
             evidence/**/*.log
+            evidence/multitask-attachment/*.png

@@ -5,8 +5,8 @@
 @interface DecoratedAppSceneViewController : UIViewController
 @property(nonatomic,strong) AppSceneViewController *appSceneVC;
 @end
-@interface VirtualWindowsHostView : UIView
-@property(nonatomic) BOOL shouldForwardTapAction;
+#import "VirtualWindowsHostView.h"
+@interface BaselineVirtualWindowsHostView : VirtualWindowsHostView
 @end
 
 @interface UIView (FixturePrivateView)
