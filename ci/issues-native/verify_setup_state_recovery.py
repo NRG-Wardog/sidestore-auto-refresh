@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from grace_recovery_projection import count as grace_recovery_count
 from early_readiness_projection import inputs as early_readiness_inputs, verify_static as verify_early_static
 from current_vpn_guard_projection import verify as verify_current_vpn_guard
 from cold_vpn_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
@@ -321,6 +322,7 @@ def load_contract(path):
                          ('certificate-portal-evidence', 19), ('remote-identity-reuse', IDENTITY_CASE_COUNT),
                          *((suite, spec['case_count']) for suite, spec in ADDITIVE_SPECS.items())]:
         if suite == 'host-refresh-bundle': count = host_count
+        if suite == 'vpn-refresh-recovery': count = grace_recovery_count(value)
         if suite == 'setup-localization': count = russian_setup_variant(value)['cases']
         names = value.get('case_names', {}).get(suite)
         require(isinstance(names, list) and len(names) == count and len(set(names)) == count and
@@ -596,7 +598,7 @@ def additive_extraction(output, contract, suite):
     for key in ('swift_compiled', 'swift_executed', 'native_provider_executed', 'network_executed'):
         require(value.get(key) is False, 'Unbounded additive generation: ' + key)
     require(value.get('expected_case_names') == contract['case_names'][suite] and
-            value.get('expected_case_count') == spec['case_count'], 'Additive exact source case closure differs')
+            value.get('expected_case_count') == (grace_recovery_count(contract) if suite == 'vpn-refresh-recovery' else spec['case_count']), 'Additive exact source case closure differs')
     require(value.get('inputs_sha256') == {p: contract['input_sha256'][p] for p in inputs['production']},
             'Additive production source hashes differ')
     support_hashes = {p: contract['input_sha256'][p] for p in inputs['support']}
@@ -709,7 +711,7 @@ def all_evidence(output, contract):
 def markers(contract=None):
     result = {'localization-run': 'SETUP_LOCALIZATION_RENDERER_PASS cases=' + str(LOCALIZATION_CASE_COUNT if contract is None else russian_setup_variant(contract)['cases']),
               'connection-run': 'SETUP_CONNECTION_EVIDENCE_PASS cases=25',
-              'vpn-recovery-run': 'VPN_REFRESH_RECOVERY_PASS cases=89',
+              'vpn-recovery-run': 'VPN_REFRESH_RECOVERY_PASS cases=' + str(89 if contract is None else grace_recovery_count(contract)),
               'identity-controls': 'OK',
               'cache-compatibility-run': 'CACHE_COMPATIBILITY_CASES_PASS',
               'identity-run': 'REMOTE_IDENTITY_REUSE_RUNTIME_PASS cases=' + str(IDENTITY_CASE_COUNT)}

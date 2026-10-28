@@ -1,7 +1,7 @@
 """Exact additive cache preservation proof for the reviewed cold VPN delta."""
 import copy
 PATH='SideStore/tests/cache_compatibility/reviewed-cold-vpn-host-delta.json'
-SHA='7c10bae55feec2ebaf8f70eddc1c0a470804a5e5d0bb6cf3442c91ec890ff7e9'
+SHA='923df9acc16531a738f8ac9a3f5e6df6a4b29228d955f213f7a75c8c681fdc6f'
 KEY='reviewed_cold_vpn_cache_host_change'
 def require(ok,why):
  if not ok:raise ValueError(why)

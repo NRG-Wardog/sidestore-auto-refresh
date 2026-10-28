@@ -4,6 +4,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE.parent/'issues-native'))
 from verify_candidate_graph import load_candidate_graph
+from grace_recovery_projection import expected_names as grace_case_names
 MM='SideStore/Dependencies/minimuxer'
 SUITES={
  'host':('LiveContainer','.ci/cold-vpn-observation/test_contract.py','REQUIRE_SWIFT_COLD_VPN_TESTS'),
@@ -84,12 +85,12 @@ def historical_vpn(sources,work):
    stream.flush()
    if result.returncode:
     print(log.read_text()[-16000:],file=sys.stderr,flush=True)
-    raise ValueError('Existing 89-case VPN fixture failed')
+    raise ValueError('Reviewed 97-case VPN fixture failed')
   cases=read(generated/'cases.json');definition=read(generated/'sources.json')
   require(cases['schema']=='vpn-refresh-recovery-cases-v1' and cases['status']=='pass','Historical VPN fixture failed')
-  require(cases['case_count']==89 and len(cases['cases'])==89 and len(set(cases['cases']))==89 and cases['cases']==definition['expected_case_names'],'Historical VPN cases differ')
+  require(cases['case_count']==97 and len(cases['cases'])==97 and len(set(cases['cases']))==97 and cases['cases']==definition['expected_case_names']==grace_case_names(),'Historical VPN cases differ')
   require(cases['network_executed'] is False and cases['native_provider_executed'] is False,'Historical VPN scope differs')
-  require(log.read_text().splitlines().count('VPN_REFRESH_RECOVERY_PASS cases=89')==1,'Historical VPN marker missing/duplicate')
+  require(log.read_text().splitlines().count('VPN_REFRESH_RECOVERY_PASS cases=97')==1,'Historical VPN marker missing/duplicate')
   for name in ['sources.json','cases.json']:(work/('historical-vpn-'+name)).write_bytes((generated/name).read_bytes())
  return {name:sha(work/name) for name in ['historical-vpn.log','historical-vpn-sources.json','historical-vpn-cases.json']}
 def run(sources,output):
@@ -130,7 +131,7 @@ def verify_receipt(path,sources,native_identity):
  require(set(d['historical_vpn_sha256'])=={'historical-vpn.log','historical-vpn-sources.json','historical-vpn-cases.json'},'Historical VPN closure differs')
  for name,digest in d['historical_vpn_sha256'].items():
   p=path.parent/'cold-vpn'/name;require(p.is_file() and not p.is_symlink() and sha(p)==digest,'Historical VPN evidence differs')
- require((path.parent/'cold-vpn/historical-vpn.log').read_text().splitlines().count('VPN_REFRESH_RECOVERY_PASS cases=89')==1,'Historical VPN execution missing')
+ require((path.parent/'cold-vpn/historical-vpn.log').read_text().splitlines().count('VPN_REFRESH_RECOVERY_PASS cases=97')==1,'Historical VPN execution missing')
  return d
 if __name__=='__main__':
  p=argparse.ArgumentParser();p.add_argument('--sources',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();run(a.sources,a.output)

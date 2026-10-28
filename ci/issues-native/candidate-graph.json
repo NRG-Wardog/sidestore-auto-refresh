@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "9ddbbd68c121920fb4fefa09a198bb54f500ffa2"
+      "19aa646cfa10785735b551a28d729a943e3f8be6"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "9795832408e1d6a92f4f7f2663df99bbf449ab22"
+      "b41153d96c8fc1e5ba9962a369e516fcbe42c418"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -104,9 +104,9 @@
         ".ci/extension-selection/generate_fixture.py": "f524a726714d23df3acd78192b490bb0b8f21798",
         ".ci/owned-oda-note/test_source.py": "47858793600ed76f6dd220b899a733744bad33ab",
         ".ci/vpn-refresh-recovery/PlatformDoubles.swift": "1e773086bfdc8f4d7d50fe55b3bc0ac233fb4e28",
-        ".ci/vpn-refresh-recovery/cases.swift": "6bf481f801df83ea6a5cbe528614cc0415cf968e",
+        ".ci/vpn-refresh-recovery/cases.swift": "8fe4f9001a3137db0ab204242c4041ec27925d3c",
         ".ci/vpn-refresh-recovery/cold-peer-source.json": "d5979feca26c824928a8b4c9375ed27de03dfa14",
-        ".ci/vpn-refresh-recovery/generate_fixture.py": "f5d8fb9a373d1d6c657643124d04861030948533",
+        ".ci/vpn-refresh-recovery/generate_fixture.py": "ca69047d8982e0ace57cfbc03f9e5d9e950d8d07",
         ".github/workflows/build.yml": "7d17217482f45cb96cc8d9393be2799a071bd026",
         ".github/workflows/native-app-compile.yml": "704a7faf9d48b8b586a70f0c2d935aa35ba85d80",
         ".github/workflows/package-diagnostic.yml": "fe77d4c7665195b7703dd05d65fdb8f081261eae",
@@ -164,7 +164,7 @@
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8",
         "tests/test_startup_diagnostics.py": "c143a729661907fb422f4a1aa4752988024fbc95"
       },
-      "tree": "ff907c8fc80e817aefcf479dbe1efcff7598eee9"
+      "tree": "34d3bccc4b811b09f8b34335366fd6b82baba881"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -206,17 +206,17 @@
         "SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift": "0d57288f5cac18eaed6857df3ed3f1612330faf2",
         "SideStore/Core/Operations/PipelineOperations/RemoveAppExtensionsOperation.swift": "a4fec8ef0e66faa799159cc99526510cac97cd33",
         "SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift": "8bfda475e9604e54644f403891aa39bce79fec25",
-        "SideStore/Core/Operations/PipelineRunner.swift": "70d969c7f1bd963cf1623a814348ff68a9fbd99d",
+        "SideStore/Core/Operations/PipelineRunner.swift": "d926b297f7324c41e3cc5e219d9ac6c79836e32e",
         "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": "7b485e94bc6d8c96633903b2509bf6ed8e45cd3f",
         "SideStore/MaintenanceManager.swift": "22564c91010663dc2bd618d074b1597cb25cad5d",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
         "tests/appid_expiry/test_appid_expiry_bridge.py": "4e223dabf1e11f5838f6c65a9fd81362443a6414",
-        "tests/cache_compatibility/generate_fixture.py": "48bafcb0413a57a674dbd11fecb1591e43fdedb2",
-        "tests/cache_compatibility/reviewed-cold-vpn-host-delta.json": "a8959dd898da998c95b453ff86cf47753444d0ba",
+        "tests/cache_compatibility/generate_fixture.py": "c2fc48b797fcae157a4d1787101a4c5e731e785c",
+        "tests/cache_compatibility/reviewed-cold-vpn-host-delta.json": "3c2fa15bf65e3aa1c6515fa8a688daf309ffee7e",
         "tests/cache_compatibility/test_host_preservation.py": "9f5c6bf314eabae109e687b7eb1373f12e5d4568",
         "tests/cold_vpn_readiness/boundary_doubles.swift": "52da543bc922fe1ace5edacc56af3828de77ef61",
-        "tests/cold_vpn_readiness/runtime_cases.swift": "33fdb9f3fbe41510f572c0100e0101a15e8ada6d",
-        "tests/cold_vpn_readiness/test_contract.py": "7d5a11c745753adb0d43ff774aedd1279a0657cf",
+        "tests/cold_vpn_readiness/runtime_cases.swift": "cbbb3cda5c7daf152251ba526900ad4398468d77",
+        "tests/cold_vpn_readiness/test_contract.py": "777deb5b6030c71e65d1e16f3c65808309c42ffd",
         "tests/host_refresh_bundle/BoundaryDoubles.swift": "3f7d7afbba9a1fa4130b02105b912a32864baf67",
         "tests/host_refresh_bundle/Cases.swift": "ade098623e814df80b53b5c7106bf93696d8a398",
         "tests/host_refresh_bundle/generate_fixture.py": "98dd6bdfa91db2ad2fe0076c4e1f82141aa831e9",
@@ -235,7 +235,7 @@
         "tests/upstream_sync/test_iloader_submit_route.py": "89740faba3efc4f71125e560fdf3ef5e6ad29a8d",
         "tests/vpn_transport_recovery/generate_fixture.py": "57197e047d007d51e3d2f0a22a0ef86900257d60"
       },
-      "tree": "54b58797ac862c498b2f6e89712fc56ab310f66c"
+      "tree": "dbd6c4c3951fe18494ecd186a33e33df3a567179"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
