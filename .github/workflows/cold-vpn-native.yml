@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['validation/cold-vpn']
-    paths: ['ci/cold-vpn/**', 'ci/language-switch/**', 'ci/issue56-startup/**', 'ci/issues-native/**', '.github/workflows/cold-vpn-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
+    paths: ['ci/cold-vpn/**', 'ci/multitask-launch/**', 'ci/language-switch/**', 'ci/issue56-startup/**', 'ci/issues-native/**', '.github/workflows/cold-vpn-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
 permissions:
   contents: read
 concurrency:
@@ -103,6 +103,26 @@ jobs:
           python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
           python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
+      - name: Require actual guest completion diagnostics and UIKit attachment qualification
+        id: multitask_tests
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/test_multitask_native_binding.py
+          python3 -B harness/ci/multitask-launch/test_contract.py
+          python3 -B harness/ci/issues-native/multitask_receipt.py run --sources sources --evidence evidence/multitask-launch --output evidence/multitask-launch-tests.json 2>&1 | tee evidence/multitask-launch-driver.log
+      - name: Preserve early guest qualification diagnostics
+        if: ${{ !cancelled() && steps.multitask_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: multitask-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/multitask-launch/**/*.json
+            evidence/multitask-launch/**/*.log
+            evidence/multitask-launch/**/*.png
+            evidence/multitask-launch-driver.log
+          if-no-files-found: error
+          retention-days: 14
       - name: Require source-owned cold VPN readiness regressions
         id: cold_vpn_tests
         timeout-minutes: 24
@@ -706,7 +726,7 @@ jobs:
           python3 package-evidence/validate_ldid_bottle.py "$LDID_PREFIX"
           export PATH="$LDID_PREFIX/bin:$PATH"
           { xcodebuild -version; brew list --versions ldid; shasum -a 256 "$LDID_PREFIX/bin/ldid"; } > package-evidence/toolchain.log
-          python3 harness/ci/issues-native/package_candidate.py --same-run-qualified-size --language-switch --cold-vpn 2>&1 | tee package-evidence/package.log
+          python3 harness/ci/issues-native/package_candidate.py --same-run-qualified-size --language-switch --cold-vpn --multitask 2>&1 | tee package-evidence/package.log
       - name: Upload experimental candidate IPA and provenance
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

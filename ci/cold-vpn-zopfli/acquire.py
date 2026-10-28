@@ -7,7 +7,7 @@ sys.path.insert(0,str(ROOT/'ci/issues-native'))
 from recover_native_artifacts import API
 sys.path.insert(0,str(ROOT/'ci/language-switch'))
 from boot_evidence import verify_language_boot
-RECEIPTS={'provenance.json','native-receipt.json','size-optimization.json','russian-localization.json','unsigned-widget-receipt.json','openssl-local-stage.json','issue56-startup-tests.json','language-switch-tests.json','cold-vpn-tests.json'}
+RECEIPTS={'provenance.json','native-receipt.json','size-optimization.json','russian-localization.json','unsigned-widget-receipt.json','openssl-local-stage.json','issue56-startup-tests.json','language-switch-tests.json','cold-vpn-tests.json','multitask-launch-tests.json'}
 def validate_metadata(m,run,artifact):
     require(run.get('id')==m['run_id'] and run.get('run_attempt')==m['run_attempt'] and run.get('head_sha')==m['commit'] and run.get('status')=='completed' and run.get('conclusion')=='success','native run must be exact completed green')
     require(run.get('path')==WORKFLOW and run.get('repository',{}).get('full_name')==REPO and run.get('head_repository',{}).get('full_name')==REPO,'native workflow or ownership mismatch')
@@ -39,6 +39,13 @@ def unpack(m,archive,out):
 
     verify_language_boot(read_json(out/'language-switch-tests.json'))
     require(p.get('cold_vpn_regression_sha256')==SHA((out/'cold-vpn-tests.json').read_bytes()),'cold VPN regression receipt mismatch')
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'issues-native'))
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'multitask-launch'))
+    from multitask_receipt import verify_portable
+    guest=read_json(out/'multitask-launch-tests.json');native=read_json(out/'native-receipt.json')
+    guest_sha=SHA((out/'multitask-launch-tests.json').read_bytes())
+    require(p.get('multitask_launch_regression_sha256')==guest_sha and native['evidence_sha256'].get('multitask-launch-tests.json')==guest_sha,'guest qualification receipt mismatch')
+    verify_portable(guest,native['requested_graph'],{'workflow_commit':m['commit'],'run_id':str(m['run_id']),'run_attempt':str(m['run_attempt'])})
 
 def main():
     require(len(sys.argv)==1,'arbitrary acquisition inputs forbidden')

@@ -86,7 +86,7 @@ def append_openssl_local_stage(ipa, report, qualification, *, transfer_roots, re
         output=Path('packaging-openssl-local-products'), retained=Path('size-diagnostics/openssl-local'))
 
 
-def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False, same_run_qualified=False, language_switch=False, cold_vpn=False):
+def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_openssl_true_locals=False, same_run_qualified=False, language_switch=False, cold_vpn=False, multitask=False):
     if same_run_qualified and recover_fixed_native:
         raise ValueError('Same-run qualification cannot use recovery identity')
     if same_run_qualified and not (strip_unsigned_widget and strip_widget_true_locals and strip_openssl_true_locals):
@@ -132,6 +132,15 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         verify_cold_vpn_receipt(cold_vpn_receipt, Path('sources'), native_identity)
         if receipt.get('evidence_sha256', {}).get(cold_vpn_receipt.name) != sha(cold_vpn_receipt):
             raise ValueError('Cold VPN regression receipt differs from native receipt')
+    if multitask:
+        if not (same_run_qualified and language_switch and cold_vpn):
+            raise ValueError('Guest qualification requires same-run size, language and cold VPN qualification')
+        from multitask_receipt import verify_local as verify_multitask
+        from verify_candidate_graph import load_candidate_graph
+        multitask_receipt = Path('evidence/multitask-launch-tests.json')
+        verify_multitask(multitask_receipt, Path('sources'), Path('evidence/multitask-launch'), load_candidate_graph()['owners'], native_identity)
+        if receipt.get('evidence_sha256', {}).get(multitask_receipt.name) != sha(multitask_receipt):
+            raise ValueError('Guest qualification receipt differs from native receipt')
     recovery_provenance = None
     for key, expected in [('status', 'COMPILE_ONLY_PASS_REQUIRES_REVIEW'),
                           ('workflow_commit', native_identity['workflow_commit']),
@@ -334,6 +343,12 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         if sha(Path('diagnostic/cold-vpn-tests.json')) != sha(cold_vpn_receipt):
             raise ValueError('Retained cold VPN regression receipt differs')
         provenance['cold_vpn_regression_sha256'] = sha(cold_vpn_receipt)
+    if multitask:
+        verify_multitask(multitask_receipt, Path('sources'), Path('evidence/multitask-launch'), load_candidate_graph()['owners'], native_identity)
+        shutil.copyfile(multitask_receipt, 'diagnostic/multitask-launch-tests.json')
+        if sha(Path('diagnostic/multitask-launch-tests.json')) != sha(multitask_receipt):
+            raise ValueError('Retained guest qualification receipt differs')
+        provenance['multitask_launch_regression_sha256'] = sha(multitask_receipt)
     Path('diagnostic/provenance.json').write_text(json.dumps(provenance, indent=2))
     Path('diagnostic/SHA256SUMS').write_text(sha(output) + '  ' + output.name + '\n')
     shutil.copyfile('evidence/receipt.json', 'diagnostic/native-receipt.json')
@@ -380,6 +395,8 @@ def self_test():
 if __name__ == '__main__':
     if sys.argv[1:] == ['--self-test']:
         self_test()
+    elif sys.argv[1:] == ['--same-run-qualified-size', '--language-switch', '--cold-vpn', '--multitask']:
+        main(same_run_qualified=True, strip_unsigned_widget=True, strip_widget_true_locals=True, strip_openssl_true_locals=True, language_switch=True, cold_vpn=True, multitask=True)
     elif sys.argv[1:] == ['--same-run-qualified-size', '--language-switch', '--cold-vpn']:
         main(same_run_qualified=True, strip_unsigned_widget=True, strip_widget_true_locals=True, strip_openssl_true_locals=True, language_switch=True, cold_vpn=True)
     elif sys.argv[1:] == ['--same-run-qualified-size', '--language-switch']:

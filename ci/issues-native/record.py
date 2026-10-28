@@ -646,6 +646,10 @@ def working_app_lock_differs():
 
 
 def receipt():
+    if os.environ.get('GITHUB_REF') == 'refs/heads/validation/cold-vpn' or (E / 'multitask-launch-tests.json').exists():
+        from multitask_receipt import verify_local as verify_multitask
+        verify_multitask(E / 'multitask-launch-tests.json', S, E / 'multitask-launch', {k:list(v) for k,v in OWNERS.items()},
+                        {k: os.environ[v] for k,v in [('workflow_commit','GITHUB_SHA'),('run_id','GITHUB_RUN_ID'),('run_attempt','GITHUB_RUN_ATTEMPT')]})
     from verify_russian_localization import verify_receipt as verify_russian_receipt
     russian_report = E / 'russian-localization/receipt.json'
     verify_russian_receipt(russian_report, S / 'LiveContainer')
