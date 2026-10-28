@@ -1,0 +1,80 @@
+name: Focused multitasking launch completion and attachment diagnostics
+on:
+  workflow_dispatch:
+  push:
+    branches: ['validation/multitask-launch-preflight']
+    paths: ['ci/multitask-launch/**', '.github/workflows/multitask-launch-preflight.yml']
+permissions:
+  contents: read
+concurrency:
+  group: multitask-launch-preflight-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/multitask-launch-preflight'
+    runs-on: macos-26
+    timeout-minutes: 22
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Initialize bounded synthetic evidence
+        id: initialized
+        run: mkdir -p evidence sources
+      - name: Checkout exact harness only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/sidestore-auto-refresh
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Source-owned portable controls
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s harness/ci/multitask-launch -p 'test_*.py' -v 2>&1 | tee evidence/controls.log
+      - name: Acquire exact LC owner without submodules or hooks
+        id: source_gate
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/multitask-launch/acquire.py --output sources/LiveContainer --evidence evidence/source.json
+          { xcodebuild -version; xcrun --sdk iphonesimulator --show-sdk-version; } > evidence/toolchain.log
+          xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Actual Objective-C launch completion boundary
+        id: completion
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/multitask-launch/run_completion.py --source sources/LiveContainer --output evidence 2>&1 | tee evidence/completion.log
+      - name: Observe real UIKit host attachment without guest execution
+        id: attachment
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/multitask-launch/run_attachment.py --source sources/LiveContainer --output evidence 2>&1 | tee evidence/attachment.log
+      - name: Require both focused stages
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          test '${{ steps.completion.outcome }}' = success
+          test '${{ steps.attachment.outcome }}' = success
+          python3 -B harness/ci/multitask-launch/verify.py --source sources/LiveContainer --evidence evidence
+      - name: Preserve synthetic diagnostics on success or failure
+        if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: multitask-launch-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            evidence/**/*.json
+            evidence/**/*.log

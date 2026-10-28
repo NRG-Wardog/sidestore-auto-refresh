@@ -1,0 +1,9 @@
+# Baseline attachment observation
+
+Read-only source pin dcb98b6eeff937cedffd5e0c30aa286ada14a618. This is NOT guest-launch qualification and contains no native extension execution. Run prepare.py against exact clean LC checkout. Production VirtualWindowsHostView implementation and language bridge struct are extracted; imports and boundary-only AppScene types are explicitly inventoried. The attachment target selection is projected from the exact existing one-liner, with optional first child to report absence rather than trap.
+
+Use the existing SDK-family-matched owned simulator runner. Compile two Objective-C files using ARC, and compile/link Swift files with the boundary header imported. iOS16 minimum. Set UIApplicationSceneManifest.UIApplicationSupportsMultipleScenes true; the application creates its scene delegate through configurationForConnecting. Read Documents/attachment-result.json after one app launch. Do not retry assertion/app launch.
+
+Expected execution schema: multitask-attachment-baseline-v1, OBSERVED_NOT_PRODUCT_QUALIFICATION, physical_guest_execution=false, exactly five cases. Four use real UIHostingController with TabView/NavigationStack/List and the exact production language bridge toggled; fifth is an opaque sibling negative control. `marker_hit` records true or false, not a predetermined production pass. The negative control must return false, confirming occlusion measurement. `overlay_frame`, first-child frame/interaction/hidden state, actual hit class, attachment and target-parent identity are recorded. No user names, paths, identifiers, content or accounts enter the fixture.
+
+Fixture includes four 100ms layout-settling yields per root to let SwiftUI install UIKit hierarchy. These are diagnostic fixture scheduling only, not product readiness logic. No claim this representative root equals the complete production V3UnifiedShell. Its real hierarchy observation narrows a hypothesis, not physical-device attribution.
