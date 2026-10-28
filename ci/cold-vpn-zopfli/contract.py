@@ -8,7 +8,8 @@ REPO='NRG-Wardog/sidestore-auto-refresh'
 WORKFLOW='.github/workflows/cold-vpn-native.yml'
 IPA='LiveContainer-SideStore-issues-experimental.ipa'
 BUDGET=1500
-ITERATIONS=(5,)
+ITERATIONS=(5,10)
+TARGET_BYTES=24000000
 SHA=lambda value:hashlib.sha256(value).hexdigest()
 def require(value,message):
     if not value: raise ValueError(message)
@@ -29,3 +30,25 @@ def manifest(path):
     for key,length in [('commit',40),('artifact_sha256',64),('ipa_sha256',64)]:
         require(isinstance(value[key],str) and re.fullmatch('[0-9a-f]{'+str(length)+'}',value[key]) is not None,'input manifest digest: '+key)
     return value
+
+
+def verify_round_schedule(result,original_bytes,final_bytes):
+    """Audit complete-round stopping independently from compressor execution."""
+    rounds=result['rounds'];attempts=result['results'];stop=result['stop_reason']
+    require(type(rounds) is list and 1<=len(rounds)<=len(ITERATIONS),'round count')
+    require([r['iterations'] for r in rounds]==list(ITERATIONS)[:len(rounds)],'round schedule prefix')
+    size=original_bytes
+    for index,row in enumerate(rounds):
+        iteration=row['iterations']
+        require(type(iteration) is int and type(row['attempts']) is int and row['attempts']>=0,'round types')
+        selected=[a for a in attempts if a['iterations']==iteration]
+        require(row['attempts']==len(selected) and type(row['elapsed_seconds']) in (int,float) and 0<=row['elapsed_seconds']<=BUDGET+5,'round accounting')
+        size-=sum(a['saved_vs_previous'] for a in selected)
+        if size<=TARGET_BYTES:
+            require(index==len(rounds)-1 and stop=='size_target_met','must stop after first target-reaching round')
+    require(size==final_bytes,'round savings differ from final archive')
+    require(stop in ('size_target_met','iteration_schedule_exhausted','aggregate_budget_reached','remaining_candidates_plateau_or_estimated_cost_exceeds_bounds'),'round stop reason')
+    if stop=='size_target_met':require(final_bytes<=TARGET_BYTES,'target stop without target')
+    if stop=='aggregate_budget_reached':require(result['elapsed_seconds']>=BUDGET-3,'early budget stop')
+    if stop=='iteration_schedule_exhausted':require(len(rounds)==len(ITERATIONS),'incomplete exhausted schedule')
+    if stop=='remaining_candidates_plateau_or_estimated_cost_exceeds_bounds':require(rounds[-1]['attempts']==0,'plateau has attempts')

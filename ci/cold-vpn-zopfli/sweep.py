@@ -1,7 +1,7 @@
 """Bounded best-of Zopfli sweep; originals and earlier verified improvements survive timeouts."""
 import concurrent.futures as cf
 import json,pathlib,struct,subprocess,sys,time,zipfile,zlib
-from contract import require,manifest,SHA,PIN,BUDGET,ITERATIONS
+from contract import require,manifest,SHA,PIN,BUDGET,ITERATIONS,TARGET_BYTES
 from zip32 import parse
 ROOT=pathlib.Path(__file__).resolve().parent
 
@@ -97,6 +97,9 @@ def main():
                     print(json.dumps({'event':'attempt_complete',**result}),flush=True)
                     submit()
         rounds.append({'iterations':iterations,'attempts':round_count,'elapsed_seconds':time.monotonic()-round_start})
+        # ZIP framing is unchanged; only selected stream lengths alter total size.
+        selected_bytes=len(data)-sum(len(r['stream'])-best[r['index']]['bytes'] for r in rows)
+        if selected_bytes<=TARGET_BYTES:stop='size_target_met';break
         if time.monotonic()>=deadline-3:stop='aggregate_budget_reached';break
         if not candidates:stop='remaining_candidates_plateau_or_estimated_cost_exceeds_bounds';break
     elapsed=time.monotonic()-start
@@ -106,7 +109,7 @@ def main():
     with (ROOT/'recompressed.ipa').open('xb') as handle:handle.write(output)
     with zipfile.ZipFile(ROOT/'recompressed.ipa') as archive:require(archive.testzip() is None,'final CRC')
     require(SHA(original.read_bytes())==m['ipa_sha256'] and SHA((ROOT/'zopfli').read_bytes())==binary_hash,'input or compressor modified')
-    report={'schema':'cold-vpn-zopfli-quick-v1','source_commit':PIN,'binary_sha256':binary_hash,'compiler_sha256':compiler_hash,'original_bytes':len(data),'original_sha256':SHA(data),'final_bytes':len(output),'final_sha256':SHA(output),'saved_bytes':len(data)-len(output),'entries':len(rows),'eligible_entries':len(eligible),'workers':2,'process_memory_limit':2*1024**3,'entry_timeout_seconds':600,'aggregate_timeout_seconds':BUDGET,'elapsed_seconds':elapsed,'approved_total_budget_seconds':1800,'iterations_schedule':list(ITERATIONS),'rounds':rounds,'stop_reason':stop,'best':best,'results':results,'device_executed':False,'target_met':len(output)<=24000000}
+    report={'schema':'cold-vpn-zopfli-quick-v1','source_commit':PIN,'binary_sha256':binary_hash,'compiler_sha256':compiler_hash,'original_bytes':len(data),'original_sha256':SHA(data),'final_bytes':len(output),'final_sha256':SHA(output),'saved_bytes':len(data)-len(output),'entries':len(rows),'eligible_entries':len(eligible),'workers':2,'process_memory_limit':2*1024**3,'entry_timeout_seconds':600,'aggregate_timeout_seconds':BUDGET,'elapsed_seconds':elapsed,'approved_total_budget_seconds':1800,'iterations_schedule':list(ITERATIONS),'rounds':rounds,'stop_reason':stop,'best':best,'results':results,'device_executed':False,'target_met':len(output)<=TARGET_BYTES}
     (ROOT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps({key:value for key,value in report.items() if key not in ('best','results')}),flush=True)
 if __name__=='__main__':main()

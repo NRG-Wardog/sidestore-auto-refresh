@@ -1,10 +1,20 @@
 """Adversarial archives must fail before any optional provenance/source file access."""
 import json,pathlib,struct,subprocess,sys,tempfile,unittest
-from contract import PIN,SHA,BUDGET,ITERATIONS
+from contract import PIN,SHA,BUDGET,ITERATIONS,verify_round_schedule
 from test_sweep import sample
 from zip32 import parse
 ROOT=pathlib.Path(__file__).resolve().parent
 class AuditControls(unittest.TestCase):
+    def test_round_stop_audit_rejects_false_target_extra_round_or_incomplete_schedule(self):
+        def report(savings,stop):
+            return {'rounds':[{'iterations':iteration,'attempts':1,'elapsed_seconds':1} for iteration in ITERATIONS[:len(savings)]],
+                    'results':[{'iterations':iteration,'saved_vs_previous':saved} for iteration,saved in zip(ITERATIONS,savings)],'stop_reason':stop,'elapsed_seconds':2}
+        verify_round_schedule(report([2],'size_target_met'),24000001,23999999)
+        verify_round_schedule(report([0,2],'size_target_met'),24000001,23999999)
+        verify_round_schedule(report([0,0],'iteration_schedule_exhausted'),24000001,24000001)
+        for savings,stop in [([0],'size_target_met'),([2,0],'size_target_met'),([0],'iteration_schedule_exhausted'),([0,2],'iteration_schedule_exhausted')]:
+            with self.subTest(savings=savings,stop=stop),self.assertRaises(ValueError):
+                verify_round_schedule(report(savings,stop),24000001,24000001-sum(savings))
     def fixture(self,root,data,changed):
         (root/'original.ipa').write_bytes(data);(root/'recompressed.ipa').write_bytes(changed)
         m={'schema':'cold-vpn-green-native-input-v1','run_id':1,'run_attempt':1,'artifact_id':2,'artifact_bytes':100,'ipa_bytes':len(data),'entries':2,'commit':'a'*40,'artifact_sha256':'b'*64,'ipa_sha256':SHA(data)}

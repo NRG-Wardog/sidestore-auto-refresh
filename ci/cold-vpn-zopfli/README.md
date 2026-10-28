@@ -5,7 +5,10 @@ is deliberately invalid until the new cold-vpn-native workflow is fully
 green and its actual downloaded native artifact supplies IDs, hashes and sizes.
 
 Reuses the reviewed issue56 compressor/ZIP auditor with a narrower execution
-schedule: five iterations once, two workers, 2 GiB/process, 600 seconds maximum
+schedule: five iterations first, then at most one ten-iteration round only if the
+size target is still unmet. Stop after the first complete round meeting the target;
+retain the smallest verified stream from the original and either round. No further
+rounds. Two workers, 2 GiB/process, 600 seconds maximum
 per attempt, 1500 seconds aggregate compression. Compilation60seconds and audit
 180seconds fit within the existing30minute approval, not the prior2hour sweep.
 
