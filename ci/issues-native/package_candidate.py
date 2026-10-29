@@ -212,8 +212,11 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
     initial = initial_root / 'initial-combined.ipa'
     if initial.exists() or initial.is_symlink(): raise ValueError('Initial IPA must be fresh')
     if output.exists() or output.is_symlink(): raise ValueError('IPA output must be fresh')
-    subprocess.run([sys.executable, 'harness/scripts/package_livecontainer_combined.py', '--root', 'sources/LiveContainer',
-                    '--host', str(root / 'LiveContainer.app'), '--side', str(root / 'SideStore.app'), '--output', str(initial)], check=True)
+    from packaging_workspace import run as run_isolated_packager
+    workspace_receipt = run_isolated_packager(Path('sources/LiveContainer'), root / 'LiveContainer.app',
+        root / 'SideStore.app', initial, Path('packaging-upstream-work'),
+        Path('harness/scripts/package_livecontainer_combined.py'))
+    Path('package-evidence/packaging-workspace.json').write_text(json.dumps(workspace_receipt, indent=2))
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
     from optimize_native_candidate import optimize_same_run_ipa
     # Revalidate sealed generated inputs and exact unstripped native products before packaging-only stripping.

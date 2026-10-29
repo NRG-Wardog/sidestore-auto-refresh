@@ -88,6 +88,7 @@ jobs:
           python3 -B harness/ci/issue53-lts/test_embedded.py 2>&1 | tee evidence/embedded-openssl-scaffold-controls.log
           python3 -B harness/ci/issues-native/test_workflow_failure_collection.py
           python3 -B harness/ci/issues-native/test_complete_workflow_packaging.py
+          python3 -B harness/ci/issues-native/test_packaging_workspace.py
           python3 -B harness/ci/issues-native/test_projected_contract_cli.py
           python3 -B harness/ci/issues-native/test_issue_receipt.py
           python3 -B harness/ci/issues-native/test_candidate_graph.py
