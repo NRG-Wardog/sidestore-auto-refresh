@@ -41,8 +41,22 @@ def run(command,log,expect=0,timeout=90,required_token=None):
     if required_token is not None:require(required_token in result.stdout,'expected rejection phase/code absent: '+log.name)
     return result.stdout
 
+def verify_negative(result,mode):
+    require(result['schema']=='coredata-isolated-helper-negative-v1' and result['mode']==mode,'negative process identity differs')
+    for key in ('main_bundle_is_isolated_host','owner_is_requested_framework','current_model_is_v17_7'):
+        require(result[key] is True,'negative fixture invalid: '+key)
+    for key in ('source_model_found_before_framework_load','baseline_source_model_found',
+                'current_model_matches_old_metadata','production_source_model_found','physical_lc_bootstrap_executed'):
+        require(result[key] is False,'isolated negative failed: '+key)
+    for key in ('main_bundle_model_resources_before','main_bundle_model_resources_after'):
+        require(type(result[key]) is int and result[key]==0,'negative main resource contamination')
+
 def verify_discovery(result):
     require(result['schema']=='coredata-owned-framework-discovery-v3','discovery schema differs')
+    require(set(result['isolated_negative_processes'])=={'nil-owner','wrong-version','unknown'},'missing independent negative processes')
+    for mode,row in result['isolated_negative_processes'].items():verify_negative(row,mode)
+    for mode,field in [('nil-owner','production_nil_owner_source_model_found'),('wrong-version','production_wrong_version_source_model_found'),('unknown','production_unknown_source_model_found')]:
+        require(result[field] is result['isolated_negative_processes'][mode]['production_source_model_found'],'negative projection differs')
     require(result['main_bundle_is_isolated_host'] is True,'main bundle is not isolated host')
     for field in ('main_bundle_model_resources_before','main_bundle_model_resources_after'):
         require(type(result[field]) is int and result[field]==0,'main bundle contains model resources')
@@ -103,8 +117,14 @@ def main():
         (resource/'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':'org.example.schema-qualification.'+package,'CFBundleName':'SchemaFixture','CFBundleExecutable':'SchemaFixture','CFBundlePackageType':package,'CFBundleVersion':'1'}))
         executable=framework/'SchemaFixture'
         run(['xcrun','swiftc','-emit-library',ROOT/'anchor.swift','-o',executable],output/(package+'-anchor-compile.log'),timeout=180)
-        text=run([discovery,framework,executable,output/'discovery-original.sqlite',host,output/'discovery-unknown.sqlite',wrong],output/(package+'-discovery.log'))
-        result=json.loads(text);verify_discovery(result)
+        text=run([discovery,framework,executable,output/'discovery-original.sqlite',host,output/'discovery-unknown.sqlite',wrong,'owned'],output/(package+'-discovery.log'))
+        result=json.loads(text);negatives={}
+        for mode,field in [('nil-owner','production_nil_owner_source_model_found'),('wrong-version','production_wrong_version_source_model_found'),('unknown','production_unknown_source_model_found')]:
+            negative_text=run([discovery,framework,executable,output/'discovery-original.sqlite',host,output/'discovery-unknown.sqlite',wrong,mode],output/(package+'-'+mode+'-discovery.log'))
+            negative=json.loads(negative_text);verify_negative(negative,mode)
+            negatives[mode]=negative;result[field]=negative['production_source_model_found']
+        result['isolated_negative_processes']=negatives
+        verify_discovery(result)
         discovery_results[package+'-'+layout]=result
     cases=[]
     for journal in ('delete','wal'):

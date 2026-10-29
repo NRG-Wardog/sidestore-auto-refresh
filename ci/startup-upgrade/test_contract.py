@@ -41,8 +41,20 @@ class ContractTests(unittest.TestCase):
         self.assertIn('Bundle.allBundles',text);self.assertIn('Bundle(for: anchor)',text)
         self.assertIn('physical_lc_bootstrap_executed": false',text)
         self.assertIn("[('FMWK','resources'),('APPL','flat')]",(ROOT/'run.py').read_text())
+    def negative_result(self,mode):
+        return {'schema':'coredata-isolated-helper-negative-v1','mode':mode,
+                **{k:True for k in ('main_bundle_is_isolated_host','owner_is_requested_framework','current_model_is_v17_7')},
+                **{k:False for k in ('source_model_found_before_framework_load','baseline_source_model_found','current_model_matches_old_metadata','production_source_model_found','physical_lc_bootstrap_executed')},
+                'main_bundle_model_resources_before':0,'main_bundle_model_resources_after':0}
+    def test_negative_processes_are_independent_and_strict(self):
+        for mode in ('nil-owner','wrong-version','unknown'):
+            q.verify_negative(self.negative_result(mode),mode)
+            with self.assertRaises(ValueError):q.verify_negative(dict(self.negative_result(mode),production_source_model_found=True),mode)
+        text=(ROOT/'discovery.swift').read_text()
+        self.assertLess(text.index('if mode != "owned"'),text.index('let explicit ='))
+        self.assertIn('return\n    }\n    let explicit',text)
     def discovery_result(self,baseline=False):
-        return {'schema':'coredata-owned-framework-discovery-v3','main_bundle_is_isolated_host':True,
+        return {'isolated_negative_processes':{m:self.negative_result(m) for m in ('nil-owner','wrong-version','unknown')},'schema':'coredata-owned-framework-discovery-v3','main_bundle_is_isolated_host':True,
                 'main_bundle_model_resources_before':0,'main_bundle_model_resources_after':0,
                 'source_model_found_before_framework_load':False,'unknown_source_model_found_in_explicit_owner':False,
                 'owner_is_requested_framework':True,'main_is_requested_framework':False,
