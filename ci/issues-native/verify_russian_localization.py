@@ -23,6 +23,8 @@ COUNTS = (0, 1, 2, 5, 11, 12, 14, 21, 22, 25, 101, 111)
 CATEGORIES = {'one', 'few', 'many', 'other'}
 STATUS = 'RUSSIAN_COMPILED_RESOURCES_AND_PRODUCTION_RENDERER_PASS_NOT_DEVICE_VISUAL_PROOF'
 OTHER_DISCLOSURE = 'compiled value verified; not selected naturally by Int64 Russian cardinal rules'
+REFRESH_TRUTH_PLURAL = 'Profile renewal was verified for the attempted targets; %lld running app(s) were skipped. Future launch and certificate trust are not guaranteed.'
+REFRESH_TRUTH_RUSSIAN_SHA256 = '9ab2adcd246e067e3dd300635a5cd323fc936e9855dbfcc406942ac149640718'
 
 def require(ok, message):
     if not ok: raise ValueError(message)
@@ -72,7 +74,12 @@ def russian_catalog(catalog):
             plurals[key] = {'kind': 'compound', 'format': outer, 'substitutions': substitutions}
         else: raise ValueError('Unknown Russian catalog row: ' + key)
     require(len(scalars) + len(plurals) == len(entries) and len(entries) >= 2100, 'Incomplete Russian catalog coverage')
-    require(sum(v['kind'] == 'simple' for v in plurals.values()) == 6 and sum(v['kind'] == 'compound' for v in plurals.values()) == 1, 'Reviewed plural inventory differs')
+    added = int(REFRESH_TRUTH_PLURAL in entries)
+    if added:
+        row = entries[REFRESH_TRUTH_PLURAL]['localizations']['ru']
+        require(hashlib.sha256(json.dumps(row, sort_keys=True, separators=(',', ':')).encode()).hexdigest() == REFRESH_TRUTH_RUSSIAN_SHA256, 'Reviewed refresh truth Russian plural differs')
+        require(plurals.get(REFRESH_TRUTH_PLURAL, {}).get('kind') == 'simple', 'Refresh truth plural shape differs')
+    require(sum(v['kind'] == 'simple' for v in plurals.values()) == 6 + added and sum(v['kind'] == 'compound' for v in plurals.values()) == 1, 'Reviewed plural inventory differs')
     return scalars, plurals
 
 def check_rule(actual, values, position=None):
@@ -103,7 +110,7 @@ def verify_tables(catalog, strings, dictionary):
                 expected = expected.replace('%#@' + name + '@', '%' + str(rule['position']) + '$#@' + name + '@')
                 check_rule(actual[name], rule['values'], rule['position'])
             require(fmt == expected, 'Compiled Russian compound argument positions differ')
-    return {'catalog_keys': len(scalars) + len(plurals), 'scalar_keys': len(scalars), 'simple_plurals': 6, 'compound_plurals': 1, 'categories': sorted(CATEGORIES)}
+    return {'catalog_keys': len(scalars) + len(plurals), 'scalar_keys': len(scalars), 'simple_plurals': sum(v['kind'] == 'simple' for v in plurals.values()), 'compound_plurals': 1, 'categories': sorted(CATEGORIES)}
 
 def category(n):
     if n % 10 == 1 and n % 100 != 11: return 'one'

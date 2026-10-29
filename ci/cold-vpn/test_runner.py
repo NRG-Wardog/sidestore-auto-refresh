@@ -20,7 +20,7 @@ class Controls(unittest.TestCase):
    for name in ['historical-vpn.log','historical-vpn-sources.json','historical-vpn-cases.json']:(root/'cold-vpn'/name).write_text('VPN_REFRESH_RECOVERY_PASS cases=105\n' if name.endswith('.log') else '{}')
    ident={'workflow_commit':'a'*40,'run_id':'1','run_attempt':'1'}
    data={'schema':'cold-vpn-source-regressions-v1','status':'PASS_SOURCE_EXECUTION_NOT_DEVICE_VPN','run_identity':ident,'source_graph':{'owner':['repo','a'*40]},'source_owner_inventory_sha256':{'owner':'b'*64},'physical_device_execution':False,'real_vpn_execution':False,'historical_vpn_sha256':{n:R.sha(root/'cold-vpn'/n) for n in ['historical-vpn.log','historical-vpn-sources.json','historical-vpn-cases.json']},'suite_log_sha256':{n:R.sha(root/'cold-vpn'/(n+'.log')) for n in R.SUITES}}
-   with mock.patch.object(R,'load_candidate_graph',return_value={'owners':data['source_graph']}),mock.patch.object(R,'source_hashes',return_value=data['source_owner_inventory_sha256']):
+   with mock.patch.object(R,'load_candidate_graph',return_value={'owners':data['source_graph']}),mock.patch.object(R,'source_hashes',return_value=data['source_owner_inventory_sha256']),mock.patch.object(R,'validate_historical_vpn'):
     p.write_text(json.dumps(data));R.verify_receipt(p,root,ident)
     for key,value in [('status','FAILED'),('run_identity',{}),('source_graph',{}),('source_owner_inventory_sha256',{}),('suite_log_sha256',{}),('real_vpn_execution',True)]:
      p.write_text(json.dumps({**data,key:value}))
@@ -29,6 +29,22 @@ class Controls(unittest.TestCase):
     with self.assertRaises(ValueError):R.verify_receipt(p,root,ident)
     data['suite_log_sha256']['host']=R.sha(root/'cold-vpn/host.log');p.write_text(json.dumps(data))
     with self.assertRaises(ValueError):R.verify_receipt(p,root,ident)
+ def test_exact_truth_extension_preserves_all_prior_cases_and_rejects_drift(self):
+  expected=R.grace_case_names()+[R.truth_flow.ADDED['vpn-refresh-recovery']]
+  report={'schema':'vpn-refresh-recovery-cases-v1','status':'pass','case_count':106,'cases':expected,'network_executed':False,'native_provider_executed':False}
+  with mock.patch.object(R,'expected_vpn_names',return_value=expected):
+   R.validate_historical_vpn(Path('/unused'),report,{'expected_case_names':expected},'VPN_REFRESH_RECOVERY_PASS cases=106\n')
+   for changed in [expected[:-1],expected[:-2]+[expected[-1],expected[-2]],expected[:-1]+['unreviewed']]:
+    with self.assertRaises(ValueError):R.validate_historical_vpn(Path('/unused'),{**report,'cases':changed,'case_count':len(changed)},{'expected_case_names':changed},f'VPN_REFRESH_RECOVERY_PASS cases={len(changed)}\n')
+   with self.assertRaises(ValueError):R.validate_historical_vpn(Path('/unused'),report,{'expected_case_names':expected},'VPN_REFRESH_RECOVERY_PASS cases=105\n')
+ def test_truth_extension_inputs_are_hash_bound(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp).resolve();p=root/'input';p.write_text('reviewed')
+   extension={'candidate_inputs':{'input':R.sha(p)}}
+   with mock.patch.object(R.truth_flow,'extension',return_value=(extension,'digest')):
+    self.assertEqual(len(R.expected_vpn_names(root)),106)
+    p.write_text('changed')
+    with self.assertRaises(ValueError):R.expected_vpn_names(root)
  def test_exact_reviewed_lock_transition_only(self):
   with tempfile.TemporaryDirectory() as tmp:
    root=Path(tmp).resolve();repo=root/'repo';repo.mkdir();evidence=root/'evidence';evidence.mkdir()

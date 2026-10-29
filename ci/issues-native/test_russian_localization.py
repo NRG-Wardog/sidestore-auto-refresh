@@ -28,6 +28,21 @@ class RussianGateTests(unittest.TestCase):
     def setUp(self): self.catalog,self.strings,self.plurals=fixture()
     def verify(self): return r.verify_tables(self.catalog,self.strings,self.plurals)
     def test_full_exact_compiled_inventory(self): self.assertEqual(self.verify()['catalog_keys'],2100)
+    def test_only_exact_additive_refresh_truth_plural_is_admitted(self):
+        value = 'Продление профилей для обработанных целей подтверждено; пропущено работающих приложений: %lld. Запуск и доверие к сертификату в будущем не гарантируются.'
+        row = {'variations': {'plural': {k: unit(value) for k in r.CATEGORIES}}}
+        self.catalog['strings'][r.REFRESH_TRUTH_PLURAL] = {'localizations': {'ru': row}}
+        self.plurals[r.REFRESH_TRUTH_PLURAL] = {'NSStringLocalizedFormatKey': '%#@arg1@', 'arg1': {'NSStringFormatSpecTypeKey': 'NSStringPluralRuleType', 'NSStringFormatValueTypeKey': 'lld', **{k:value for k in r.CATEGORIES}}}
+        self.assertEqual(self.verify()['simple_plurals'], 7)
+        self.assertEqual(len(r.cases(self.catalog)), 228)
+        row['variations']['plural']['one'] = unit('Changed %lld')
+        with self.assertRaisesRegex(ValueError, 'refresh truth Russian plural differs'): self.verify()
+    def test_unreviewed_seventh_plural_and_removed_legacy_plural_rejected(self):
+        self.catalog['strings']['unreviewed %lld'] = copy.deepcopy(self.catalog['strings']['plural0 %lld'])
+        with self.assertRaisesRegex(ValueError, 'plural inventory'): r.russian_catalog(self.catalog)
+        del self.catalog['strings']['unreviewed %lld']; del self.catalog['strings']['plural0 %lld']
+        self.catalog['strings']['replacement scalar'] = {'localizations': {'ru': unit('Текст')}}
+        with self.assertRaisesRegex(ValueError, 'plural inventory'): r.russian_catalog(self.catalog)
     def test_missing_russian_entry_is_not_english_fallback_coverage(self):
         self.catalog['strings']['key0']['localizations']={'en':unit('English')}
         with self.assertRaisesRegex(ValueError,'Missing explicit'):self.verify()

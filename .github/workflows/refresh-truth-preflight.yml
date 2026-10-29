@@ -54,8 +54,11 @@ jobs:
           python3 -B harness/ci/issues-native/test_refresh_truth_flow_projection.py
           python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py
           python3 -B harness/ci/issues-native/verify_current_bindings.py --sources sources --output evidence/current-source-bindings.json
+          python3 -B harness/ci/issues-native/project_candidate_contracts.py
           python3 -B harness/ci/issues-native/test_refresh_truth_receipt.py
           python3 -B harness/ci/issues-native/test_refresh_truth_orchestration.py
+          python3 -B harness/ci/issues-native/test_russian_localization.py
+          python3 -B -m unittest discover -s harness/ci/cold-vpn -p 'test_*.py' -v
           xcodebuild -version | grep -Fx 'Xcode 26.4.1'
       - name: Execute actual Swift policy and owned-memory fixtures
         id: swift_tests
@@ -71,6 +74,83 @@ jobs:
           path: |
             evidence/refresh-truth*.json
             evidence/refresh-truth*.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Execute existing cold VPN source-owned regression and deployment typecheck
+        id: cold_vpn_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/record.py snapshot before-cold-fixtures
+          cmp evidence/acquired.json evidence/before-cold-fixtures.json
+          python3 -B harness/ci/cold-vpn/run_cold_vpn_tests.py --sources sources --output evidence 2>&1 | tee evidence/cold-vpn-driver.log
+      - name: Retain immediate cold VPN failure diagnostics
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.cold_vpn_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-cold-vpn-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/cold-vpn-driver.log
+            evidence/cold-vpn/*.log
+            evidence/cold-vpn/*.json
+            evidence/cold-vpn-tests.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Execute existing comprehensive auth and IPC fixtures
+        id: comprehensive_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/record.py snapshot before-comprehensive_tests
+          cmp evidence/acquired.json evidence/before-comprehensive_tests.json
+          python3 -B harness/ci/issues-native/verify_comprehensive_diagnostics.py --sources sources --swiftc "$(command -v swiftc)" --output evidence/comprehensive-diagnostics --contract evidence/candidate-contracts/comprehensive-diagnostics-contract.json 2>&1 | tee evidence/comprehensive_tests-driver.log
+      - name: Retain immediate comprehensive_tests failure evidence
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.comprehensive_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-comprehensive_tests-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/comprehensive_tests-driver.log
+            evidence/comprehensive-diagnostics/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Execute existing full setup recovery fixtures
+        id: setup_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/record.py snapshot before-setup_tests
+          cmp evidence/acquired.json evidence/before-setup_tests.json
+          python3 -B harness/ci/issues-native/verify_setup_state_recovery.py run --sources sources --swiftc "$(command -v swiftc)" --output evidence/setup-state-recovery --contract evidence/candidate-contracts/setup-state-recovery-contract.json 2>&1 | tee evidence/setup_tests-driver.log
+      - name: Retain immediate setup_tests failure evidence
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.setup_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-setup_tests-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/setup_tests-driver.log
+            evidence/setup-state-recovery/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Execute compiled Russian resources and production renderer
+        id: russian_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/record.py snapshot before-russian_tests
+          cmp evidence/acquired.json evidence/before-russian_tests.json
+          python3 -B harness/ci/issues-native/verify_russian_localization.py --live sources/LiveContainer --output evidence/russian-localization 2>&1 | tee evidence/russian_tests-driver.log
+      - name: Retain immediate russian_tests failure evidence
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.russian_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-russian_tests-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/russian_tests-driver.log
+            evidence/russian-localization/
           if-no-files-found: error
           retention-days: 14
       - name: Select exact previously qualified Rust compiler
@@ -93,6 +173,10 @@ jobs:
           set -euo pipefail
           test '${{ steps.swift_tests.outcome }}' = success
           test '${{ steps.rust_tests.outcome }}' = success
+          test '${{ steps.cold_vpn_tests.outcome }}' = success
+          test '${{ steps.comprehensive_tests.outcome }}' = success
+          test '${{ steps.setup_tests.outcome }}' = success
+          test '${{ steps.russian_tests.outcome }}' = success
           python3 -B harness/ci/refresh-truth/run.py seal --sources sources --output evidence
           python3 -B harness/ci/issues-native/record.py snapshot after-fixtures
           cmp evidence/acquired.json evidence/after-fixtures.json
@@ -104,5 +188,10 @@ jobs:
           path: |
             evidence/*.json
             evidence/*.log
+            evidence/comprehensive-diagnostics/
+            evidence/setup-state-recovery/
+            evidence/russian-localization/
+            evidence/cold-vpn/*.log
+            evidence/cold-vpn/*.json
           if-no-files-found: error
           retention-days: 14

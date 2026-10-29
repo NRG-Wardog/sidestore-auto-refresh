@@ -29,11 +29,15 @@ ADDITIONAL_INPUTS = {
     'comprehensive-diagnostics-contract.json': (
         'SideStore/SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift',
         'SideStore/Dependencies/SideSign/Sources/Anisette/ILoaderRemoteHTTPTransport.swift',
-        'SideStore/SideStore/Core/Operations/PipelineExecutionHandler.swift'),
+        'SideStore/SideStore/Core/Operations/PipelineExecutionHandler.swift',
+        'SideStore/SideStore/Core/Operations/RefreshGroup.swift',
+        'SideStore/SideStore/Core/Certificates/OCSPValidator.swift'),
     'setup-state-recovery-contract.json': (
         'SideStore/SideStore/Core/Operations/OperationContexts.swift',
         'SideStore/SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift',
-        'SideStore/tests/cache_compatibility/test_host_preservation.py'),
+        'SideStore/tests/cache_compatibility/test_host_preservation.py',
+        'SideStore/SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift',
+        'SideStore/SideStore/Core/Certificates/OCSPValidator.swift'),
 }
 
 HOST_ADDITIONAL_CASES = (

@@ -5,6 +5,7 @@ HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE.parent/'issues-native'))
 from verify_candidate_graph import load_candidate_graph
 from grace_recovery_projection import expected_names as grace_case_names
+import refresh_truth_flow_projection as truth_flow
 MM='SideStore/Dependencies/minimuxer'
 SUITES={
  'host':('LiveContainer','.ci/cold-vpn-observation/test_contract.py','REQUIRE_SWIFT_COLD_VPN_TESTS'),
@@ -72,6 +73,19 @@ def identity():
  require(all(re.fullmatch('[1-9][0-9]*',d[k]) for k in ('run_id','run_attempt')),'Bad run identity');return d
 def admit_log(code,text):
  require(code==0 and re.search(r'^OK\s*$',text,re.M) is not None and re.search(r'^(?:FAILED|OK \()',text,re.M) is None,'Cold VPN fixture failed or skipped')
+def expected_vpn_names(sources):
+ extension,_=truth_flow.extension()
+ for name,digest in extension['candidate_inputs'].items():
+  path=sources/name
+  require(path.is_file() and not path.is_symlink() and path.resolve(strict=True).is_relative_to(sources.resolve(strict=True)), 'Refresh flow input missing/linked')
+  require(sha(path)==digest,'Refresh flow source differs')
+ return grace_case_names()+[truth_flow.ADDED['vpn-refresh-recovery']]
+def validate_historical_vpn(sources,cases,definition,text):
+ expected=expected_vpn_names(sources);count=len(expected)
+ require(cases['schema']=='vpn-refresh-recovery-cases-v1' and cases['status']=='pass','Historical VPN fixture failed')
+ require(cases['case_count']==count and len(cases['cases'])==count and len(set(cases['cases']))==count and cases['cases']==definition['expected_case_names']==expected,'Historical VPN cases differ')
+ require(cases['network_executed'] is False and cases['native_provider_executed'] is False,'Historical VPN scope differs')
+ require(text.splitlines().count(f'VPN_REFRESH_RECOVERY_PASS cases={count}')==1,'Historical VPN marker missing/duplicate')
 def historical_vpn(sources,work):
  log=work/'historical-vpn.log'
  generator=sources/'LiveContainer/.ci/vpn-refresh-recovery/generate_fixture.py'
@@ -85,12 +99,9 @@ def historical_vpn(sources,work):
    stream.flush()
    if result.returncode:
     print(log.read_text()[-16000:],file=sys.stderr,flush=True)
-    raise ValueError('Reviewed 105-case VPN fixture failed')
+    raise ValueError('Reviewed VPN fixture failed')
   cases=read(generated/'cases.json');definition=read(generated/'sources.json')
-  require(cases['schema']=='vpn-refresh-recovery-cases-v1' and cases['status']=='pass','Historical VPN fixture failed')
-  require(cases['case_count']==105 and len(cases['cases'])==105 and len(set(cases['cases']))==105 and cases['cases']==definition['expected_case_names']==grace_case_names(),'Historical VPN cases differ')
-  require(cases['network_executed'] is False and cases['native_provider_executed'] is False,'Historical VPN scope differs')
-  require(log.read_text().splitlines().count('VPN_REFRESH_RECOVERY_PASS cases=105')==1,'Historical VPN marker missing/duplicate')
+  validate_historical_vpn(sources,cases,definition,log.read_text())
   for name in ['sources.json','cases.json']:(work/('historical-vpn-'+name)).write_bytes((generated/name).read_bytes())
  return {name:sha(work/name) for name in ['historical-vpn.log','historical-vpn-sources.json','historical-vpn-cases.json']}
 def run(sources,output):
@@ -131,7 +142,7 @@ def verify_receipt(path,sources,native_identity):
  require(set(d['historical_vpn_sha256'])=={'historical-vpn.log','historical-vpn-sources.json','historical-vpn-cases.json'},'Historical VPN closure differs')
  for name,digest in d['historical_vpn_sha256'].items():
   p=path.parent/'cold-vpn'/name;require(p.is_file() and not p.is_symlink() and sha(p)==digest,'Historical VPN evidence differs')
- require((path.parent/'cold-vpn/historical-vpn.log').read_text().splitlines().count('VPN_REFRESH_RECOVERY_PASS cases=105')==1,'Historical VPN execution missing')
+ validate_historical_vpn(sources,read(path.parent/'cold-vpn/historical-vpn-cases.json'),read(path.parent/'cold-vpn/historical-vpn-sources.json'),(path.parent/'cold-vpn/historical-vpn.log').read_text())
  return d
 if __name__=='__main__':
  p=argparse.ArgumentParser();p.add_argument('--sources',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();run(a.sources,a.output)

@@ -90,7 +90,7 @@ class OrchestrationTests(unittest.TestCase):
   text=(ROOT/'.github/workflows/refresh-truth-preflight.yml').read_text()
   self.assertLess(text.index('id: swift_tests'),text.index('id: swift_failure_diagnostics'))
   self.assertLess(text.index('id: swift_failure_diagnostics'),text.index('id: rust_tools'))
-  block=text[text.index('        id: swift_failure_diagnostics'):text.index('      - name: Select exact previously qualified Rust compiler')]
+  block=text[text.index('        id: swift_failure_diagnostics'):text.index('      - name: Execute existing cold VPN source-owned regression and deployment typecheck')]
   self.assertIn("!cancelled() && steps.source_gate.outcome == 'success' && steps.swift_tests.outcome == 'failure'",block)
   self.assertIn('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',block)
   self.assertEqual([line.strip() for line in block.splitlines() if line.strip().startswith('evidence/')],['evidence/refresh-truth*.json','evidence/refresh-truth*.log'])
@@ -98,10 +98,27 @@ class OrchestrationTests(unittest.TestCase):
   self.assertNotIn('always()',block);self.assertNotIn('continue-on-error',text)
   self.assertIn("test '${{ steps.swift_tests.outcome }}' = success",text)
   self.assertIn("test '${{ steps.rust_tests.outcome }}' = success",text)
+ def test_existing_cold_vpn_runner_is_mandatory_and_failure_evidence_is_retained(self):
+  text=(ROOT/'.github/workflows/refresh-truth-preflight.yml').read_text()
+  block=text[text.index('      - name: Execute existing cold VPN'):text.index('      - name: Select exact previously qualified Rust compiler')]
+  self.assertIn("!cancelled() && steps.source_gate.outcome == 'success'",block)
+  self.assertIn('python3 -B harness/ci/cold-vpn/run_cold_vpn_tests.py --sources sources --output evidence',block)
+  self.assertLess(block.index('cmp evidence/acquired.json evidence/before-cold-fixtures.json'),block.index('run_cold_vpn_tests.py'))
+  self.assertIn('unittest discover -s harness/ci/cold-vpn',text)
+  self.assertIn("steps.cold_vpn_tests.outcome == 'failure'",block)
+  self.assertIn('evidence/cold-vpn/*.log',block);self.assertIn('evidence/cold-vpn/*.json',block)
+  self.assertIn('if-no-files-found: error',block)
+  self.assertLess(text.index('id: cold_vpn_tests'),text.index('id: rust_tools'))
+  self.assertIn("test '${{ steps.cold_vpn_tests.outcome }}' = success",text)
  def test_focused_workflow_has_all_independent_stages_without_skipping_native(self):
   text=(ROOT/'.github/workflows/refresh-truth-preflight.yml').read_text()
-  for stage in ('swift_tests','rust_tests'):
+  for stage in ('swift_tests','rust_tests','cold_vpn_tests','comprehensive_tests','setup_tests','russian_tests'):
    self.assertIn("test '${{ steps."+stage+".outcome }}' = success",text)
+  for command in ('verify_comprehensive_diagnostics.py --sources', 'verify_setup_state_recovery.py run --sources', 'verify_russian_localization.py --live'):
+   self.assertIn(command,text)
+  for stage in ('comprehensive_tests','setup_tests','russian_tests'):
+   self.assertIn('cmp evidence/acquired.json evidence/before-'+stage+'.json',text)
+   self.assertIn('refresh-truth-'+stage+'-failure-',text)
   self.assertIn('cmp evidence/acquired.json evidence/after-fixtures.json',text)
   self.assertNotIn('continue-on-error',text);self.assertNotIn('|| true',text)
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "aaa0539d3f56622b43380841d996a6bbd2282f08"
+      "ac15ded255a5e9a29848f1940cc9792522e020a2"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "d87df27a6dba85c01e73265a9d806c739ab0ce4b"
+      "60928fb99495d4604b02a4e84dbdedcfc3626ce4"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -91,13 +91,16 @@
         ".ci/cold-vpn-observation/cases.swift": "62e36ca29e24fb68e489fb0a64265616cc00c731",
         ".ci/cold-vpn-observation/test_contract.py": "ff29fdfb2367fe4dc93b149172b9b9ffd74b7ee2",
         ".ci/comprehensive-diagnostics/generate_pairing_recovery_fixture.py": "9bb194cb86c7368966db0844aaebf01ec4dd57f4",
+        ".ci/comprehensive-diagnostics/generate_refresh_failure_fixture.py": "b4999b43e3c9d398cfe6614f642311094082bcf0",
         ".ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "9f0ca067eef7eebf3cb3650a219355fe4c0feae0",
+        ".ci/comprehensive-diagnostics/refresh_failure_harness.swift": "919141f4812211b35842e63dca5520a8443d01d8",
         ".ci/comprehensive-diagnostics/setup_localization_harness.swift": "685e64c7b6c5726cd8a40fe3e598f96d30f071f6",
         ".ci/comprehensive-diagnostics/test_pairing_recovery_contract.py": "b1e1ff62080b80eb0ac343581b0b682d11956000",
         ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "fc5bf2b11631e9f2e7cf413947dd739a85fce944",
         ".ci/early-refresh-boundaries/early_cases.swift": "8ace99364dff25993bb071e3b7efc36c91f415a4",
-        ".ci/early-refresh-boundaries/early_doubles.swift": "8aa0533a9939f81fa0abd71d65e7c904fd4dea62",
-        ".ci/early-refresh-boundaries/generate_regression.py": "2342afc7ada6391c4473767b6fa786dd4e043464",
+        ".ci/early-refresh-boundaries/early_doubles.swift": "c36820ba08e6a71f9e53f83a4e045dd1b9fd7e62",
+        ".ci/early-refresh-boundaries/generate_profile_regression.py": "0da6f297a1adb9a3cf6aa56c79554ca5a0b857b6",
+        ".ci/early-refresh-boundaries/generate_regression.py": "208baf9a674f7555174453346daea94ac740cb73",
         ".ci/early-refresh-boundaries/test_contract.py": "4562f42bbd04d53539bdee2302c80e90527638bc",
         ".ci/extension-selection/Cases.swift": "124f2b2b16d0164f114898a48c6062735443a805",
         ".ci/extension-selection/Doubles.swift": "09aaec3bb1e31ce8948abd0b184d04c822cf051d",
@@ -106,7 +109,8 @@
         ".ci/refresh-truth/localization_keys.json": "766aec3b383e245b77b9d637525cf506966f0007",
         ".ci/refresh-truth/notification_cases.swift": "752d5ab00cc311e7787ed2efa5f5321ce025dde2",
         ".ci/refresh-truth/runtime_cases.swift": "1fb77040b2a410b890a5339b367a365224195356",
-        ".ci/refresh-truth/test_refresh_truth.py": "9302a2e64ee04dd85026983ec55904bc693c84cd",
+        ".ci/refresh-truth/test_refresh_truth.py": "d014fa276a9b29f66be8fafd26596e12406620e2",
+        ".ci/refresh-truth/ticket_module_cases.swift": "c09aa8e9a3d66849c8aa3a16e277c57c34859575",
         ".ci/setup-connection-evidence/README.md": "26b5967d75d817dbc82ece5c6d2e2c6502e94f33",
         ".ci/setup-connection-evidence/cases.swift": "dfed7fe499179e817e7ef5036c80ace8beabe37d",
         ".ci/setup-connection-evidence/generate_fixture.py": "cac094c976ac20fa6600e6ce49f49ce07470132c",
@@ -151,7 +155,7 @@
         "MultitaskSupport/VirtualWindowsHostView.m": "4185db73b6a1f79447af283acdb51152b6ca4938",
         "Resources/Localizable.xcstrings": "7ec47648c938d494581212668dacc5925f4c00f5",
         "Resources/ru.lproj/InfoPlist.strings": "2b181bbb36354e981df0f4746b95eee7b030ade4",
-        "SideStoreSupport/SideStore.swift": "b6b404ddf983c4e099b5f94b8339144d43ea8a76",
+        "SideStoreSupport/SideStore.swift": "97f40be6be9e2064190b85b26476389e6de20da1",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
         "docs/integration/GENERATED_OPENSSL35.md": "113c76d38fd59f03050a3faf68285585ce1ca363",
         "docs/localization/RUSSIAN_UI.md": "fa5d4fdea01507775e5eb63a3c390657904ab3e9",
@@ -186,7 +190,7 @@
         "tests/test_startup_diagnosis_card.py": "64f5d544c21d538342c988797b94c3c4da856c71",
         "tests/test_startup_diagnostics.py": "ca6d8634f460aea00ceb274d777a8fdff2ff8b49"
       },
-      "tree": "7a87e6caa2c1fb48029eb69245faa945e9aa16dc"
+      "tree": "0c47ae337185c3f461d3947bf0ab4817d0daba7b"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -203,7 +207,8 @@
         ".ci/owned-oda/generate_identity.py": "04c62f67bb581ba790bf447007df2f3454842fb0",
         ".ci/owned-oda/run.sh": "ab64ec8454cb4897fa1ebdaf656404ddc44638bd",
         ".ci/owned-oda/test_sources.py": "c4b0ad970e632e66ee10ecbc936a7cfd21719aef",
-        ".ci/remote-identity-reuse/RuntimeDoubles.swift": "ce853e1997be2e1b7a0f493d053548921faf7256",
+        ".ci/remote-identity-reuse/RuntimeCases.swift": "f10680d3d01ead3cea943759b02b951f4f5f5db8",
+        ".ci/remote-identity-reuse/RuntimeDoubles.swift": "18a850c91de5fb1540aa324a78d9f9d19e255aa9",
         ".ci/remote-identity-reuse/generate_fixture.py": "bc68af1ca5d198b8286da85c160533152bdb610d",
         ".ci/remote-identity-reuse/test_generator.py": "9f2353524f694fbc386234f5c5c5d00f6f6c059d",
         ".github/workflows/nightly.yml": "0a4831356302661ed391de04eb400ba01fad8570",
@@ -211,7 +216,7 @@
         "AGENTS.md": null,
         "AltStore.xcodeproj/project.pbxproj": "53a042b65192b1d6c2ed27926fdab69d4a09d51e",
         "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "c0ef6619c1f9971d78c809b9df3ac0e66b72d331",
-        "AltStore/AppDelegate.swift": "957d2249d95ecf4ffce3c7b711d6fcdd93309d3c",
+        "AltStore/AppDelegate.swift": "b952d617c2e485cc9864470ce6fe377b30e1a79d",
         "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "43667573ccd1efb2d36fb25f7a4e7f4f894d1732",
         "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "b38c58967d8296e162c55f64e7e5d29679c42fef",
         "Dependencies/SideSign": "aac073a32cc8649b8bb4e604f52e124dc867003e",
@@ -242,9 +247,9 @@
         "tests/cache_compatibility/reviewed-cold-vpn-host-delta.json": "3c2fa15bf65e3aa1c6515fa8a688daf309ffee7e",
         "tests/cache_compatibility/reviewed-refresh-truth-host-delta.json": "19a4e9d97f504999e66805536a2555491480b1fd",
         "tests/cache_compatibility/test_host_preservation.py": "2f73c0955b5f9adc1bdc814355bad76ff1c84f09",
-        "tests/cold_vpn_readiness/boundary_doubles.swift": "90d27066a1a6290a99d7bae125e6193b99515948",
-        "tests/cold_vpn_readiness/runtime_cases.swift": "cbbb3cda5c7daf152251ba526900ad4398468d77",
-        "tests/cold_vpn_readiness/test_contract.py": "588ccdc9b91109d99f6128bcf3f730939965eec9",
+        "tests/cold_vpn_readiness/boundary_doubles.swift": "289cb195c8f919bb65f4cfa319ce67da5fbddbd0",
+        "tests/cold_vpn_readiness/runtime_cases.swift": "4235feae804dade1a0ad1e975b5ac80c6b433dd5",
+        "tests/cold_vpn_readiness/test_contract.py": "98d7edbd189eec14c2d8f919803c87c986a1878b",
         "tests/direct_refresh_evidence/.gitignore": "7a60b85e148f80966a550e5ab6a762a907c69ca6",
         "tests/direct_refresh_evidence/cases.swift": "6a4023e8676f8bc47f8fdc5780ed274f73ea8dd4",
         "tests/direct_refresh_evidence/registration.swift": "16c0b08567c31060360d5b74792d1ac01bd24cce",
@@ -263,7 +268,7 @@
         "tests/refresh_truth/operation_cases.swift": "ded467c2c648f890866123ed8a7dfcc1cfffea95",
         "tests/refresh_truth/operation_doubles.swift": "be9b037ec4bb0cf0be20452621e98c5581021bbb",
         "tests/refresh_truth/runtime.swift": "95a6077b14072c6b86ded670ec09db4390c0fc6b",
-        "tests/refresh_truth/test_contract.py": "04d9b28af6641f4b77dd11e11281eaedd100be59",
+        "tests/refresh_truth/test_contract.py": "9cfe886f6af5d792c9b1cad26ed79504bb4e1c93",
         "tests/reuse_main/ExplanationCases.swift": "5a5e49951b1e5e38b466f8b9d3336afd71cfdded",
         "tests/reuse_main/RegistryCases.swift": "cd5ac91c7f9c2f3684f85fe816f1d9bf396f024e",
         "tests/reuse_main/run.sh": "b29d67e12cc2a5d13cb95b15c071ccac32dc2b71",
@@ -277,7 +282,7 @@
         "tests/vpn_transport_recovery/generate_fixture.py": "8d871abc7912727cd59602014a122c77414dd5b0",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "583941411268f661e5c9c10337e3b8b0490fb421"
+      "tree": "788a08f99a4878edd78ebdcb66882ea3b6de1599"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",

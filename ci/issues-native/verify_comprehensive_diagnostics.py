@@ -125,7 +125,9 @@ PAIRING_RECOVERY_OUTPUTS = ('fixture.swift', 'TestLocalization.bundle/Info.plist
 REQUIRED_INPUTS.update(PAIRING_RECOVERY_INPUT_PATHS.values())
 REQUIRED_INPUTS.update(PAIRING_RECOVERY_FIXTURE_PATHS)
 
-REFRESH_INPUT_PATHS = {'host': 'LiveContainer/SideStoreSupport/SideStore.swift',
+REFRESH_INPUT_PATHS = {'group':'SideStore/SideStore/Core/Operations/RefreshGroup.swift',
+ 'ocsp':'SideStore/SideStore/Core/Certificates/OCSPValidator.swift',
+ 'host': 'LiveContainer/SideStoreSupport/SideStore.swift',
  'service': 'SideStore/AltStore/AppDelegate.swift',
  'client': 'LiveContainer/SideStoreSupport/SideStoreClient.swift',
  'scheduler': 'LiveContainer/LiveContainerSwiftUI/App/AppDelegate.swift',
