@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "e96c88bc7f49af8a30734cbb7148df3223e6f7aa"
+      "c08b6934a103c3acd57e381ec61581c169ad1165"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "76c09b57317626fcd50399e2a9a8869634f0cf14"
+      "fc2ff9b185652049ccaff3f760a28a26900aab53"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -130,7 +130,7 @@
         "LiveContainerSwiftUI/Views/Settings/DataManagement/LCStorageManagementView.swift": "6e94b578d2572be2e2c7e73354d5e56443c6e28b",
         "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift": "28ce2d6621a5a9512b07da9a79f2336e4ccb36b8",
         "LiveContainerSwiftUI/Views/Settings/LCMultitaskSettingView.swift": "4edfe376cf5264f31752c515d4c89d72a56174aa",
-        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "23a7522d721cf939885685433a0e62ee9ff641a7",
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "ae86b641908da88428be27bb62115c3542288092",
         "MultitaskSupport/AppSceneViewController.h": "ecc9927a4ebd256346429a6dd60a7ff4c227bb6e",
         "MultitaskSupport/AppSceneViewController.m": "7f03549ff88da7c1ccc019232680612b30054e32",
         "MultitaskSupport/DecoratedAppSceneViewController.h": "a6df0d79276542f27c09dda5ef27012854b8cdfa",
@@ -141,9 +141,9 @@
         "MultitaskSupport/UIKitHooks.m": "9def2e0164f2b3d9910461206bcfffcc18035688",
         "MultitaskSupport/VirtualWindowsHostView.h": "079cb3f2bf679a3a9e96f395920448ea4902e2b3",
         "MultitaskSupport/VirtualWindowsHostView.m": "4185db73b6a1f79447af283acdb51152b6ca4938",
-        "Resources/Localizable.xcstrings": "eb3b1ee02e171226ab2138dae4e420c420fc1a24",
+        "Resources/Localizable.xcstrings": "f97d09aadec5136512e807f69cd336c6cb467ae2",
         "Resources/ru.lproj/InfoPlist.strings": "2b181bbb36354e981df0f4746b95eee7b030ade4",
-        "SideStoreSupport/SideStore.swift": "9dd175e359543504b1dcd46214f4b4cd41d3e5fb",
+        "SideStoreSupport/SideStore.swift": "a97354a5e316a67a9e2c7a17bf2e7935b10817c2",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
         "docs/integration/GENERATED_OPENSSL35.md": "113c76d38fd59f03050a3faf68285585ce1ca363",
         "docs/localization/RUSSIAN_UI.md": "fa5d4fdea01507775e5eb63a3c390657904ab3e9",
@@ -162,7 +162,7 @@
         "tests/provider_sequence/main.swift": "275a64df2e3de10212e6b804a021bd2397ff0b31",
         "tests/run_guest_launch_completion.py": "bc80779c9770e1eda5747af8194ffc684d0bcbdf",
         "tests/run_guest_launch_diagnostics.py": "2eb4c039058f187fa3642cd163f2ef1ad93cef12",
-        "tests/startup_diagnostics/cases.swift": "e08b330a680d981e04accc49f608733e5b375325",
+        "tests/startup_diagnostics/cases.swift": "ae3122a08cd972b538d98738e5056d5a3432752e",
         "tests/test_diagnostic_provider_sequence.py": "59b47f64e5841c456fa4f1bba40fb17eaabf2ca0",
         "tests/test_guest_host_attachment.py": "0d4fbe5fd98c56cbdf1c734f324a537d2748ca6f",
         "tests/test_guest_input_lifecycle.py": "39bf0e8c348d5da7ea5f24c08851aa51adadfa84",
@@ -175,9 +175,10 @@
         "tests/test_release_size_configuration.py": "b9244eda242a4f789f55ec9cc7c98527a32c726c",
         "tests/test_russian_localization.py": "45fb48a88769803bc693eed63d8d57b45e8f0b4b",
         "tests/test_source_app_presentation.py": "1d754f7ec6b7c740ebd05192b7b5bed80437eaf8",
-        "tests/test_startup_diagnostics.py": "430c515c8eac295702b9faf25868e62a0ef81422"
+        "tests/test_startup_diagnosis_card.py": "64f5d544c21d538342c988797b94c3c4da856c71",
+        "tests/test_startup_diagnostics.py": "ca6d8634f460aea00ceb274d777a8fdff2ff8b49"
       },
-      "tree": "c93c57a17c9a31cf3e48d983da7c4bce0a512cfb"
+      "tree": "a3eafe199c4c49329018dc8f7282508c67194c7f"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -202,8 +203,9 @@
         "AGENTS.md": null,
         "AltStore.xcodeproj/project.pbxproj": "53a042b65192b1d6c2ed27926fdab69d4a09d51e",
         "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "c0ef6619c1f9971d78c809b9df3ac0e66b72d331",
-        "AltStore/AppDelegate.swift": "8c85a27a42d6a56f57494844e91a44d4b04f0b44",
-        "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "a7d758c00a1d229af7cd121bbd752ac61e45bd69",
+        "AltStore/AppDelegate.swift": "5d5f1ecd8b57f9972ee486eb6ea40e578722c1bb",
+        "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "43667573ccd1efb2d36fb25f7a4e7f4f894d1732",
+        "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "a98dfc5dbf9ba358024425c2bab3cb210e004cd8",
         "Dependencies/SideSign": "aac073a32cc8649b8bb4e604f52e124dc867003e",
         "Dependencies/minimuxer": "11d3046523d638a402f423058b94cd378c6146a3",
         "SideStore/Core/Anisette/AnisetteProvider.swift": "9899b064e45a6d8f005c000f15453b3b11730452",
@@ -243,13 +245,13 @@
         "tests/reuse_main/run.sh": "b29d67e12cc2a5d13cb95b15c071ccac32dc2b71",
         "tests/reuse_main/test_contract.py": "fdc59d1d71b1f34e1292bf8dcbc12e531de047a2",
         "tests/startup_outcome/README.md": "53ca3ba487e7f7ddd00a227b58312e4fc3bf0df0",
-        "tests/startup_outcome/test_contract.py": "16c75283d23a6b3d93cc23d7ffee5d5bd45ffcac",
+        "tests/startup_outcome/test_contract.py": "c577addcd0cacb6ae05d55d263d68cf5cc202737",
         "tests/test_diagnostic_provider_sequence.py": "7aa1b47cb7f6b0c40743a4a5393325037e81743b",
         "tests/upstream_sync/test_iloader_submit_route.py": "89740faba3efc4f71125e560fdf3ef5e6ad29a8d",
         "tests/vpn_transport_recovery/generate_fixture.py": "8d871abc7912727cd59602014a122c77414dd5b0",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "69c97801b9ed23d6045e2fa259192ee63ae95e76"
+      "tree": "34b0120a5dcbdf74679dacea1e7cf4276d5f3e43"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",

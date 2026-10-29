@@ -18,9 +18,11 @@ SUITES = {
     'LiveContainer': ('tests/test_startup_diagnostics.py', (
         'SideStoreSupport/SideStore.swift', 'LiveContainerSwiftUI/Views/V3UnifiedShell.swift',
         'Resources/Localizable.xcstrings', 'tests/test_startup_diagnostics.py',
+        'tests/test_startup_diagnosis_card.py',
         'tests/startup_diagnostics/cases.swift')),
     'SideStore': ('tests/startup_outcome/test_contract.py', (
         'AltStore/AppDelegate.swift', 'AltStore/Core/Model/DatabaseManager/DatabaseManager.swift',
+        'AltStore/Core/Model/DatabaseManager/PersistentContainer.swift',
         'SideStore/MaintenanceManager.swift', 'tests/startup_outcome/test_contract.py')),
 }
 

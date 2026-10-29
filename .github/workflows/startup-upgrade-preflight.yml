@@ -1,0 +1,93 @@
+name: Focused startup diagnosis and real Core Data upgrade qualification
+on:
+  push:
+    branches: ['validation/startup-upgrade-preflight']
+    paths: ['ci/startup-upgrade/**', 'ci/issue56-startup/**', 'ci/issues-native/candidate-graph.json', '.github/workflows/startup-upgrade-preflight.yml']
+permissions:
+  contents: read
+concurrency:
+  group: startup-upgrade-preflight-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/startup-upgrade-preflight'
+    runs-on: macos-26
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Initialize synthetic evidence outside source checkouts
+        id: initialized
+        run: mkdir -p evidence sources
+      - name: Checkout exact qualification harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/sidestore-auto-refresh
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Acquire only exact LC and SideStore source owners
+        id: source_gate
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(pwd -P)" != "$(cd harness && pwd -P)"
+          python3 -B harness/ci/startup-upgrade/acquire.py acquire --sources sources --evidence evidence/acquisition.json 2>&1 | tee evidence/acquisition.log
+          { xcodebuild -version; xcrun swiftc --version; } > evidence/toolchain.log
+          xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Require portable acquisition and fixture controls against acquired sources
+        id: controls
+        run: |
+          set -euo pipefail
+          SIDESTORE_SOURCE="$PWD/sources/SideStore" python3 -B -m unittest discover -s harness/ci/startup-upgrade -p 'test_*.py' -v 2>&1 | tee evidence/controls.log
+      - name: Execute source-owned startup diagnosis suites
+        id: startup
+        if: ${{ !cancelled() && steps.controls.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issue56-startup/run_startup_tests.py --sources sources --output evidence 2>&1 | tee evidence/startup-driver.log
+      - name: Execute real Core Data models and framework discovery independently
+        id: schema
+        if: ${{ !cancelled() && steps.controls.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          test "$(pwd -P)" != "$(cd harness && pwd -P)"
+          python3 -B harness/ci/startup-upgrade/run.py --source "$PWD/sources/SideStore" --output "$RUNNER_TEMP/startup-upgrade-schema" --acquisition "$PWD/evidence/acquisition.json" 2>&1 | tee evidence/schema-driver.log
+      - name: Verify acquired source owners and harness stayed unchanged
+        id: immutable
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/startup-upgrade/acquire.py verify --sources sources --evidence evidence/acquisition.json --output evidence/source-immutability.json 2>&1 | tee evidence/source-immutability.log
+      - name: Require all independent focused stages
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          test '${{ steps.controls.outcome }}' = success
+          test '${{ steps.startup.outcome }}' = success
+          test '${{ steps.schema.outcome }}' = success
+          test '${{ steps.immutable.outcome }}' = success
+      - name: Preserve bounded synthetic diagnostics without app products
+        if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: startup-upgrade-preflight-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/*.json
+            evidence/*.log
+            ${{ runner.temp }}/startup-upgrade-schema/*.json
+            ${{ runner.temp }}/startup-upgrade-schema/*.log
+          if-no-files-found: error
+          retention-days: 14
