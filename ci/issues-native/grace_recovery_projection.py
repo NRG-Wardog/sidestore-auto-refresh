@@ -2,7 +2,7 @@
 import copy, hashlib, json
 from pathlib import Path
 KEY = 'reviewed_grace_recovery_cases'
-FILES = {'LiveContainer/.ci/vpn-refresh-recovery/generate_fixture.py': '1374cc75da1647ede33003d8e88591c4ccea853f3371f2d3bbdaf5d13cc20680', 'LiveContainer/.ci/vpn-refresh-recovery/cases.swift': '3c004204185a61ed93db1500ce8520f33cc4a93209a4d13a1c216943515801bd', 'SideStore/tests/vpn_transport_recovery/generate_fixture.py': '581121395c4007f0a0167f92113bd471853c290d36f6984d15dae2944cd5bb53'}
+FILES = {'LiveContainer/.ci/vpn-refresh-recovery/generate_fixture.py': '16a34b89a4651f0bf43019d3792cd1c3a21d085fadabe4bc5c2d1e28f26785b2', 'LiveContainer/.ci/vpn-refresh-recovery/cases.swift': 'd587a26f5cc2e4ddcffb2f1b3e5ff0c4e0d985544c06926eb6ccce6a71c548ac', 'SideStore/tests/vpn_transport_recovery/generate_fixture.py': '581121395c4007f0a0167f92113bd471853c290d36f6984d15dae2944cd5bb53'}
 ADDED = ['grace_wifi_negative_never_authorizes_vpn_activation', 'grace_eleven_pending_preserves_two_target_wire', 'grace_first_tap_opens_once_then_rechecks', 'grace_no_mutation_before_ready_then_one_admission', 'grace_still_off_never_reopens_or_mutates', 'grace_mixed_manifest_does_not_activate', 'grace_partial_success_does_not_activate', 'grace_uncertain_mutation_does_not_activate', 'required_wifi_nonwifi_default_reaches_typed_vpn_failure', 'required_wifi_nonwifi_default_opens_once_then_rechecks', 'required_wifi_nonwifi_default_mutation_admitted_once', 'required_wifi_unknown_never_opens_or_mutates', 'required_wifi_unsatisfied_never_opens_or_mutates', 'required_wifi_wrong_interface_never_opens_or_mutates', 'remote_preserves_default_wifi_acceptance', 'remote_preserves_default_nonwifi_rejection']
 def require(ok, why):
     if not ok: raise ValueError(why)

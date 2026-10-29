@@ -1,0 +1,13 @@
+{
+  "schema": "reviewed-refresh-truth-flow-extension-v1",
+  "additional_cases": {
+    "setup-connection-evidence": "legacy_success_without_renewal_proof_not_green",
+    "vpn-refresh-recovery": "network_ready_without_renewal_proof_rejected"
+  },
+  "candidate_inputs": {
+    "LiveContainer/.ci/setup-connection-evidence/generate_fixture.py": "b4dd07150f0f1430cf9ffff8602c881f4366c877a7df9cd4acefeecc6e3f5157",
+    "LiveContainer/.ci/setup-connection-evidence/cases.swift": "d4d13cf915ee8d8279ce5b9b26cff6b055aa8a36c8e7600e1b7c51204ad97390",
+    "LiveContainer/.ci/vpn-refresh-recovery/generate_fixture.py": "16a34b89a4651f0bf43019d3792cd1c3a21d085fadabe4bc5c2d1e28f26785b2",
+    "LiveContainer/.ci/vpn-refresh-recovery/cases.swift": "d587a26f5cc2e4ddcffb2f1b3e5ff0c4e0d985544c06926eb6ccce6a71c548ac"
+  }
+}

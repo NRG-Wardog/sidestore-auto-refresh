@@ -1,0 +1,35 @@
+{
+  "schema": "reviewed-refresh-truth-setup-extension-v1",
+  "additional_cases": [
+    "actual-source-copy-en-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app’s verification status.",
+    "actual-source-copy-en-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "actual-source-copy-he-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app’s verification status.",
+    "actual-source-copy-he-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "actual-source-copy-ru-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app’s verification status.",
+    "actual-source-copy-ru-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "actual-source-copy-zh-Hans-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app’s verification status.",
+    "actual-source-copy-zh-Hans-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "actual-source-copy-zh-Hant-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app’s verification status.",
+    "actual-source-copy-zh-Hant-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "baseline-reproduces-missing-owned-copy-en-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app’s verification status.",
+    "baseline-reproduces-missing-owned-copy-en-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "baseline-reproduces-missing-owned-copy-he-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app’s verification status.",
+    "baseline-reproduces-missing-owned-copy-he-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "baseline-reproduces-missing-owned-copy-ru-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app’s verification status.",
+    "baseline-reproduces-missing-owned-copy-ru-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "baseline-reproduces-missing-owned-copy-zh-Hans-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app’s verification status.",
+    "baseline-reproduces-missing-owned-copy-zh-Hans-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "baseline-reproduces-missing-owned-copy-zh-Hant-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app’s verification status.",
+    "baseline-reproduces-missing-owned-copy-zh-Hant-Review the observed profile validity and signing setup before another action. No automatic retry will occur."
+  ],
+  "candidate_inputs": {
+    "LiveContainer/Resources/Localizable.xcstrings": "9728ec1f94cefcf116a81fba25f8edff026de2eca19339a6580f00d852cfd4e5",
+    "LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "c20a719f7c0b3bf8b0e66945c3a5363e0b7c93c647e0e56ab83ddd30b33ff1c9",
+    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "8eae22406d6b828cf39ec1766c42599c070220e6f12e3d89cb278f2c72653978",
+    "LiveContainer/.ci/refresh-truth/localization_keys.json": "97b755273933757a04217e364264386c95ad958aeb72cec11370f0b5f5728604"
+  },
+  "key_count": 186,
+  "localized_values": 930,
+  "baseline_missing": 354,
+  "expected_case_count": 1779
+}

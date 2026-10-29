@@ -141,6 +141,11 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         verify_multitask(multitask_receipt, Path('sources'), Path('evidence/multitask-launch'), load_candidate_graph()['owners'], native_identity)
         if receipt.get('evidence_sha256', {}).get(multitask_receipt.name) != sha(multitask_receipt):
             raise ValueError('Guest qualification receipt differs from native receipt')
+        from refresh_truth_receipt import verify_local as verify_refresh_truth
+        refresh_truth_receipt = Path('evidence/refresh-truth-tests.json')
+        verify_refresh_truth(refresh_truth_receipt, Path('sources'), load_candidate_graph(), native_identity, compiler_evidence=Path('evidence'))
+        if receipt.get('evidence_sha256', {}).get(refresh_truth_receipt.name) != sha(refresh_truth_receipt):
+            raise ValueError('Refresh truth qualification differs from native receipt')
         from startup_upgrade_receipt import verify_local as verify_startup_upgrade
         schema_receipt = Path('evidence/startup-upgrade-tests.json')
         verify_startup_upgrade(schema_receipt, Path('sources'), Path('schema-sources'), Path('evidence'), load_candidate_graph()['owners'], native_identity)
@@ -362,6 +367,11 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         if sha(Path('diagnostic/startup-upgrade-tests.json')) != sha(schema_receipt):
             raise ValueError('Retained Core Data qualification receipt differs')
         provenance['startup_upgrade_regression_sha256'] = sha(schema_receipt)
+        verify_refresh_truth(refresh_truth_receipt, Path('sources'), load_candidate_graph(), native_identity, compiler_evidence=Path('evidence'))
+        shutil.copyfile(refresh_truth_receipt, 'diagnostic/refresh-truth-tests.json')
+        if sha(Path('diagnostic/refresh-truth-tests.json')) != sha(refresh_truth_receipt):
+            raise ValueError('Retained refresh truth receipt differs')
+        provenance['refresh_truth_regression_sha256'] = sha(refresh_truth_receipt)
     Path('diagnostic/provenance.json').write_text(json.dumps(provenance, indent=2))
     Path('diagnostic/SHA256SUMS').write_text(sha(output) + '  ' + output.name + '\n')
     shutil.copyfile('evidence/receipt.json', 'diagnostic/native-receipt.json')

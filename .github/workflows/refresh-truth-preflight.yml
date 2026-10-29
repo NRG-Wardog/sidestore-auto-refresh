@@ -1,0 +1,97 @@
+name: Refresh outcome source-owned native qualification
+on:
+  workflow_dispatch:
+  push:
+    branches: ['validation/refresh-truth-preflight']
+    paths: ['ci/refresh-truth/**', 'ci/issues-native/**', 'ci/multitask-launch/source.json', '.github/workflows/refresh-truth-preflight.yml']
+permissions:
+  contents: read
+concurrency:
+  group: refresh-truth-preflight-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/refresh-truth-preflight'
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      RUSTUP_TOOLCHAIN: '1.98.1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Initialize evidence outside source owners
+        id: initialized
+        run: mkdir -p evidence
+      - name: Checkout exact harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/sidestore-auto-refresh
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Acquire and verify exact reviewed source graph
+        id: source_gate
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B harness/ci/issues-native/record.py acquire 2>&1 | tee evidence/acquisition.log
+          python3 -B harness/ci/issues-native/record.py snapshot acquired
+          python3 -B harness/ci/issues-native/verify_candidate_graph.py
+          python3 -B harness/ci/issues-native/test_current_bindings.py
+          python3 -B harness/ci/issues-native/test_refresh_truth_setup_projection.py
+          python3 -B harness/ci/issues-native/test_refresh_truth_host_bundle_projection.py
+          python3 -B harness/ci/issues-native/test_refresh_truth_flow_projection.py
+          python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py
+          python3 -B harness/ci/issues-native/verify_current_bindings.py --sources sources --output evidence/current-source-bindings.json
+          python3 -B harness/ci/issues-native/test_refresh_truth_receipt.py
+          python3 -B harness/ci/issues-native/test_refresh_truth_orchestration.py
+          xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Execute actual Swift policy and owned-memory fixtures
+        id: swift_tests
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/refresh-truth/run.py swift --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-swift-driver.log
+      - name: Select exact previously qualified Rust compiler
+        id: rust_tools
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          test "$(cargo +1.98.1 --version)" = 'cargo 1.98.1 (797e8a9bc 2026-08-05)'
+      - name: Execute actual Rust response parser and owned-deadline FFI fixtures
+        id: rust_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.rust_tools.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/refresh-truth/run.py rust --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-rust-driver.log
+      - name: Require every native fixture and unchanged tested source
+        id: sealed
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          test '${{ steps.swift_tests.outcome }}' = success
+          test '${{ steps.rust_tests.outcome }}' = success
+          python3 -B harness/ci/refresh-truth/run.py seal --sources sources --output evidence
+          python3 -B harness/ci/issues-native/record.py snapshot after-fixtures
+          cmp evidence/acquired.json evidence/after-fixtures.json
+      - name: Retain bounded synthetic diagnostics and qualification receipt
+        if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-preflight-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/*.json
+            evidence/*.log
+          if-no-files-found: error
+          retention-days: 14

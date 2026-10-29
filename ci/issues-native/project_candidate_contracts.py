@@ -14,9 +14,12 @@ from local_wifi_fixture_projection import PATH as LOCAL_WIFI_FIXTURE_INPUT, add 
 from grace_recovery_projection import add as add_grace_recovery
 from early_readiness_projection import GENERATOR as EARLY_READINESS_GENERATOR, GENERATOR_SHA as EARLY_READINESS_SHA, add as add_early_readiness
 from current_vpn_guard_projection import PATH as CURRENT_VPN_GUARD_INPUT, add as add_current_vpn_guard
-from cold_vpn_cache_projection import PATH as COLD_VPN_CACHE_INPUT, add as add_cold_vpn_cache
+from cold_vpn_cache_projection import PATH as COLD_VPN_CACHE_INPUT, TRUTH_PATH as TRUTH_CACHE_INPUT, add as add_cold_vpn_cache
 from russian_pairing_projection import add as add_russian_pairing
 from russian_setup_projection import REVIEWED_INPUT as RUSSIAN_REVIEWED_INPUT, add as add_russian_setup
+from refresh_truth_setup_projection import KEY_MANIFEST as TRUTH_KEY_MANIFEST, add as add_refresh_truth_setup
+from refresh_truth_host_bundle_projection import PATH as TRUTH_HOST_INPUT, SHA as TRUTH_HOST_SHA, add as add_truth_host
+from refresh_truth_flow_projection import add as add_truth_flow
 from verify_candidate_graph import HERE, load_candidate_graph, require, valid_path, git
 
 CONTRACTS = ('comprehensive-diagnostics-contract.json', 'setup-state-recovery-contract.json')
@@ -76,7 +79,7 @@ def sha(data):
 def project(contract, graph, sources, additional_inputs=()):
     result = copy.deepcopy(contract)
     changes = {}
-    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT}
+    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, TRUTH_CACHE_INPUT}
     require(set(additional_inputs) <= allowed, 'unreviewed additive contract input')
     inputs = dict(contract['input_sha256'])
     for path in additional_inputs:
@@ -116,8 +119,12 @@ def contracts(sources, output, verify=False):
         additional_inputs = ADDITIONAL_INPUTS[name]
         russian = RUSSIAN_REVIEWED_INPUT.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {})
         if russian and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (RUSSIAN_REVIEWED_INPUT,)
+        if name == 'setup-state-recovery-contract.json' and '.ci/refresh-truth/test_refresh_truth.py' in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
+            additional_inputs = additional_inputs + (TRUTH_KEY_MANIFEST,)
         cold_cache = COLD_VPN_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {})
         if cold_cache and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT)
+        if name == 'setup-state-recovery-contract.json' and TRUTH_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
+            additional_inputs = additional_inputs + (TRUTH_CACHE_INPUT,)
         projected, changes = project(json.loads(original.read_text()), graph, sources, additional_inputs)
         if name == 'setup-state-recovery-contract.json':
             if projected['input_sha256'][EARLY_READINESS_GENERATOR] == EARLY_READINESS_SHA: projected = add_early_readiness(projected)
@@ -126,8 +133,13 @@ def contracts(sources, output, verify=False):
                 projected = add_grace_recovery(projected)
                 projected = add_local_wifi_fixture(projected)
             projected = add_reviewed_host_coverage(projected)
+            if projected['input_sha256'].get(TRUTH_HOST_INPUT) == TRUTH_HOST_SHA:
+                projected = add_truth_host(projected)
             if cold_cache: projected = add_cold_vpn_cache(projected)
             if russian: projected = add_russian_setup(projected)
+            if '.ci/refresh-truth/test_refresh_truth.py' in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
+                projected = add_refresh_truth_setup(projected)
+                projected = add_truth_flow(projected)
         elif russian:
             projected = add_russian_pairing(projected)
         data = (json.dumps(projected, indent=2, sort_keys=True) + '\n').encode()
@@ -140,6 +152,7 @@ def contracts(sources, output, verify=False):
         receipts[name] = {'frozen_contract_sha256': sha(original.read_bytes()),
                           'candidate_contract_sha256': sha(data), 'rebound_inputs': changes,
                           'russian_setup_extension': projected.get('russian_setup_extension'),
+                          'refresh_truth_setup_extension': projected.get('refresh_truth_setup_extension'),
                           'russian_pairing_extension': projected.get('russian_pairing_extension')}
     receipt = {'schema': 'reviewed-candidate-contract-projection-v1',
                'graph_sha256': sha((HERE / 'candidate-graph.json').read_bytes()),

@@ -113,11 +113,11 @@ class NativeABIContract(unittest.TestCase):
             self.invoke()
         self.assertFalse(self.output.exists(), 'Failure wrote a passing result')
 
-    def test_pass_keeps_three_archives_seven_symbols_headers_and_provenance(self):
+    def test_pass_keeps_three_archives_nine_symbols_headers_and_provenance(self):
         self.nm_stderr = 'fixture: benign archive member has no symbols\n'
         result = self.invoke()
         self.assertEqual(len(result['artifacts']), 3)
-        self.assertEqual(len(result['required_symbols']), 7)
+        self.assertEqual(len(result['required_symbols']), 9)
         self.assertFalse(result['target_executed'])
         self.assertEqual(result['symbol_reader']['sha256'], gate.digest(self.nm))
         self.assertEqual(result['symbol_reader']['component_sha256'], gate.COMPONENT_SHA256)
@@ -136,11 +136,17 @@ class NativeABIContract(unittest.TestCase):
                          [str(self.source / 'ffi'), str(self.framework / 'ios-arm64/Headers'),
                           str(self.staged / 'ios-arm64/Headers')])
         self.assertFalse(any(command[:2] == ['xcrun', 'nm'] for command in self.commands))
-        self.assertEqual(hashlib.sha256((Path(__file__).parent / 'assert_header.c').read_bytes()).hexdigest(), '2259ebe6541ba13811e2ea5437ba24f06adb59c8bb7d2d4f77e6452c32974257')
+        self.assertEqual(hashlib.sha256((Path(__file__).parent / 'assert_header.c').read_bytes()).hexdigest(), '85fbcd471019c9d61d53c853eddf5f80a1009b4b8f6e6255a09d89b8906836a7')
 
-    def test_nm_error_rejected_even_with_all_seven_symbols(self):
+    def test_nm_error_rejected_even_with_all_nine_symbols(self):
         self.fail_nm = True
         self.reject(subprocess.CalledProcessError)
+
+    def test_both_new_readback_symbols_are_independently_required(self):
+        for missing in ('misagent_read_profiles', 'misagent_read_profiles_rsd'):
+            with self.subTest(missing=missing):
+                self.nm_output = '\n'.join(x['mach_o_symbol'] for x in self.symbols if x['name'] != missing) + '\n'
+                self.reject()
 
     def test_missing_listener_symbol_rejected(self):
         self.nm_output = '\n'.join(x['mach_o_symbol'] for x in self.symbols if x['name'] != 'idevice_usbmuxd_listener_next')

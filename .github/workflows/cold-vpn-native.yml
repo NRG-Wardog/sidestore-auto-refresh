@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['validation/cold-vpn']
-    paths: ['ci/startup-upgrade/**', 'ci/cold-vpn/**', 'ci/multitask-launch/**', 'ci/language-switch/**', 'ci/issue56-startup/**', 'ci/issues-native/**', '.github/workflows/cold-vpn-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
+    paths: ['ci/refresh-truth/**', 'ci/startup-upgrade/**', 'ci/cold-vpn/**', 'ci/multitask-launch/**', 'ci/language-switch/**', 'ci/issue56-startup/**', 'ci/issues-native/**', '.github/workflows/cold-vpn-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
 permissions:
   contents: read
 concurrency:
@@ -95,6 +95,11 @@ jobs:
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py
           python3 -B harness/ci/issues-native/test_russian_pairing_projection.py
           python3 -B harness/ci/issues-native/verify_candidate_graph.py
+          python3 -B harness/ci/issues-native/test_current_bindings.py
+          python3 -B harness/ci/issues-native/test_refresh_truth_setup_projection.py
+          python3 -B harness/ci/issues-native/test_refresh_truth_host_bundle_projection.py
+          python3 -B harness/ci/issues-native/test_refresh_truth_flow_projection.py
+          python3 -B harness/ci/issues-native/verify_current_bindings.py --sources sources --output evidence/current-source-bindings.json
           python3 -B harness/ci/issues-native/test_upstream_candidate_projection.py
           python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py
           python3 -B harness/ci/issues-native/test_current_vpn_guard_projection.py
@@ -104,6 +109,23 @@ jobs:
           python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
           python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
+      - name: Qualify truthful refresh outcomes with actual Swift source fixtures
+        id: refresh_truth_swift
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/test_refresh_truth_receipt.py
+          python3 -B harness/ci/issues-native/test_refresh_truth_orchestration.py
+          python3 -B harness/ci/refresh-truth/run.py swift --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-swift-driver.log
+      - name: Preserve early refresh truth failure evidence
+        if: ${{ !cancelled() && steps.refresh_truth_swift.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/refresh-truth-*.json
+            evidence/refresh-truth-*.log
+          if-no-files-found: warn
+          retention-days: 14
       - name: Qualify exact Core Data upgrade sources and owned model discovery
         id: schema_tests
         timeout-minutes: 20
@@ -326,6 +348,24 @@ jobs:
             evidence/idevice-tests.log
             evidence/idevice-ffi-tests.log
             evidence/idevice-listener-generated-abi.log
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Qualify bounded native profile readback and seal all refresh evidence
+        id: refresh_truth_rust
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/refresh-truth/run.py rust --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-rust-driver.log
+          test '${{ steps.refresh_truth_swift.outcome }}' = success
+          python3 -B harness/ci/refresh-truth/run.py seal --sources sources --output evidence
+      - name: Preserve refresh native transaction failure evidence
+        if: ${{ !cancelled() && steps.refresh_truth_rust.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-native-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/refresh-truth-*.json
+            evidence/refresh-truth-*.log
           if-no-files-found: warn
           retention-days: 14
       - name: Compile iOS transport and stage local framework

@@ -32,6 +32,13 @@ CHECK_FUNCTION(rppairing_pair_network,
         const char *, struct RpPairingFileHandle *, const char *(*)(void *),
         void *, struct RpPairingPeerDeviceC **));
 
+// New read-only transactions borrow providers and return owned profile arrays.
+CHECK_FUNCTION(misagent_read_profiles,
+    struct IdeviceFfiError *(*)(struct IdeviceProviderHandle *, uint8_t ***, size_t **, size_t *));
+CHECK_FUNCTION(misagent_read_profiles_rsd,
+    struct IdeviceFfiError *(*)(struct AdapterHandle *, struct RsdHandshakeHandle *,
+        uint8_t ***, size_t **, size_t *));
+
 _Static_assert(sizeof(void *) == 8, "This contract is for the arm64 iOS build");
 _Static_assert(offsetof(struct IdeviceFfiError, code) == 0, "error code layout");
 _Static_assert(offsetof(struct IdeviceFfiError, sub_code) == 4, "error sub-code layout");

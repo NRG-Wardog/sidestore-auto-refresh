@@ -10,13 +10,16 @@
   "required_ffi_features": [
     "remote_pairing",
     "tunnel_tcp_stack",
-    "usbmuxd"
+    "usbmuxd",
+    "misagent",
+    "core_device_proxy",
+    "rsd"
   ],
   "required_target_cfg": [
     "unix"
   ],
   "target": "aarch64-apple-ios",
-  "target_cfg_basis": "The reviewed Apple iOS arm64 target is Unix; no build.rs changes or additional feature-dependent gates apply to these seven exports.",
+  "target_cfg_basis": "The reviewed Apple iOS arm64 target is Unix. The two bounded readback exports additionally require misagent, and RSD readback requires core_device_proxy plus rsd, all enabled in the recorded feature closure.",
   "crate_type": [
     "staticlib"
   ],
@@ -155,6 +158,31 @@
       "export": "unsafe(no_mangle), pub extern C",
       "arity": 4,
       "rust_signature": "pub unsafe extern \"C\" fn idevice_usbmuxd_listener_next(stream_handle: *mut UsbmuxdListenerHandle, connect: *mut bool, connection_device: *mut *mut UsbmuxdDeviceHandle, disconnection_id: *mut u64) -> *mut IdeviceFfiError"
+    },
+    {
+      "name": "misagent_read_profiles",
+      "mach_o_symbol": "_misagent_read_profiles",
+      "source": "ffi/src/misagent.rs",
+      "ffi_feature": "misagent",
+      "function_cfg": [],
+      "enabled_under_reviewed_ci_flags": true,
+      "export": "unsafe(no_mangle), pub extern C",
+      "arity": 4,
+      "rust_signature": "pub unsafe extern \"C\" fn misagent_read_profiles(\n    provider: *mut IdeviceProviderHandle,\n    out_profiles: *mut *mut *mut u8, out_profiles_len: *mut *mut libc::size_t,\n    out_count: *mut libc::size_t,\n) -> *mut IdeviceFfiError"
+    },
+    {
+      "name": "misagent_read_profiles_rsd",
+      "mach_o_symbol": "_misagent_read_profiles_rsd",
+      "source": "ffi/src/misagent.rs",
+      "ffi_feature": "misagent",
+      "function_cfg": [
+        "feature = \"core_device_proxy\"",
+        "feature = \"rsd\""
+      ],
+      "enabled_under_reviewed_ci_flags": true,
+      "export": "unsafe(no_mangle), pub extern C",
+      "arity": 5,
+      "rust_signature": "pub unsafe extern \"C\" fn misagent_read_profiles_rsd(\n    provider: *mut AdapterHandle, handshake: *mut RsdHandshakeHandle,\n    out_profiles: *mut *mut *mut u8, out_profiles_len: *mut *mut libc::size_t,\n    out_count: *mut libc::size_t,\n) -> *mut IdeviceFfiError"
     }
   ],
   "nm_assertion": [
@@ -165,7 +193,7 @@
     "--format=just-symbols",
     "<archive>"
   ],
-  "nm_match": "Require successful inspection of the full archive, then exact complete output lines for all seven Mach-O-prefixed symbols. --defined-only excludes undefined symbols; no member filtering or fallback is permitted.",
+  "nm_match": "Require successful inspection of the full archive, then exact complete output lines for all nine Mach-O-prefixed symbols. --defined-only excludes undefined symbols; no member filtering or fallback is permitted.",
   "framework_assertion": "Read XCFramework Info.plist, require one non-simulator ios/arm64 slice, and compare static archive and generated header bytes to Cargo outputs before inspection. Inspect Cargo symbols once; copies inherit symbol validation only through rechecked exact archive byte identity, recorded explicitly. Keep independent header syntax/layout checks in all three include-directory contexts.",
   "header_generator": {
     "source": "ffi/build.rs",
