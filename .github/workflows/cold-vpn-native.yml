@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['validation/cold-vpn']
-    paths: ['ci/cold-vpn/**', 'ci/multitask-launch/**', 'ci/language-switch/**', 'ci/issue56-startup/**', 'ci/issues-native/**', '.github/workflows/cold-vpn-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
+    paths: ['ci/startup-upgrade/**', 'ci/cold-vpn/**', 'ci/multitask-launch/**', 'ci/language-switch/**', 'ci/issue56-startup/**', 'ci/issues-native/**', '.github/workflows/cold-vpn-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
 permissions:
   contents: read
 concurrency:
@@ -104,6 +104,30 @@ jobs:
           python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
           python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
+      - name: Qualify exact Core Data upgrade sources and owned model discovery
+        id: schema_tests
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          mkdir schema-sources
+          python3 -B harness/ci/issues-native/test_startup_upgrade_binding.py
+          python3 -B harness/ci/startup-upgrade/acquire.py acquire --sources schema-sources --evidence evidence/schema-acquisition.json 2>&1 | tee evidence/schema-acquisition.log
+          SIDESTORE_SOURCE="$PWD/schema-sources/SideStore" python3 -B -m unittest discover -s harness/ci/startup-upgrade -p 'test_*.py' -v 2>&1 | tee evidence/schema-controls.log
+          python3 -B harness/ci/startup-upgrade/run.py --source "$PWD/schema-sources/SideStore" --output "$PWD/evidence/startup-upgrade" --acquisition "$PWD/evidence/schema-acquisition.json" 2>&1 | tee evidence/schema-driver.log
+          python3 -B harness/ci/startup-upgrade/acquire.py verify --sources schema-sources --evidence evidence/schema-acquisition.json --output evidence/schema-source-immutability.json
+          python3 -B harness/ci/issues-native/startup_upgrade_receipt.py seal --native-sources sources --schema-sources schema-sources --evidence evidence --output evidence/startup-upgrade-tests.json
+      - name: Preserve early Core Data qualification failure evidence
+        if: ${{ !cancelled() && steps.schema_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: schema-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/schema-*.json
+            evidence/schema-*.log
+            evidence/startup-upgrade/*.json
+            evidence/startup-upgrade/*.log
+          if-no-files-found: warn
+          retention-days: 14
       - name: Require actual guest completion diagnostics and UIKit attachment qualification
         id: multitask_tests
         timeout-minutes: 20
@@ -266,7 +290,7 @@ jobs:
             --live sources/LiveContainer --output evidence/russian-localization \
             2>&1 | tee evidence/russian-localization.log
       - name: Upload early fixture failure diagnostics only
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.cold_vpn_tests.outcome == 'failure' || steps.language_switch_tests.outcome == 'failure' || steps.startup_tests.outcome == 'failure' || steps.owned_oda_tests.outcome == 'failure' || steps.issue_tests.outcome == 'failure' || steps.upstream_tests.outcome == 'failure' || steps.minimuxer_tests.outcome == 'failure' || steps.vpn_tests.outcome == 'failure' || steps.acquisition_tests.outcome == 'failure' || steps.vendor_tests.outcome == 'failure' || steps.comprehensive_tests.outcome == 'failure' || steps.setup_tests.outcome == 'failure' || steps.russian_tests.outcome == 'failure') }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.schema_tests.outcome == 'failure' || steps.cold_vpn_tests.outcome == 'failure' || steps.language_switch_tests.outcome == 'failure' || steps.startup_tests.outcome == 'failure' || steps.owned_oda_tests.outcome == 'failure' || steps.issue_tests.outcome == 'failure' || steps.upstream_tests.outcome == 'failure' || steps.minimuxer_tests.outcome == 'failure' || steps.vpn_tests.outcome == 'failure' || steps.acquisition_tests.outcome == 'failure' || steps.vendor_tests.outcome == 'failure' || steps.comprehensive_tests.outcome == 'failure' || steps.setup_tests.outcome == 'failure' || steps.russian_tests.outcome == 'failure') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: suite-diagnostics-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}

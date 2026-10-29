@@ -60,6 +60,11 @@ assert prov['multitask_launch_regression_sha256']==guest_sha
 assert native_report['evidence_sha256']['multitask-launch-tests.json']==guest_sha
 assert guest_report['source_graph']==language_report['source_graph']
 verify_multitask_portable(guest_report,native_report['requested_graph'],language_report['run_identity'])
+from startup_upgrade_receipt import verify_portable as verify_schema_portable
+schema_report=read_json(R/'startup-upgrade-tests.json');schema_sha=sha((R/'startup-upgrade-tests.json').read_bytes())
+assert prov['startup_upgrade_regression_sha256']==schema_sha
+assert native_report['evidence_sha256']['startup-upgrade-tests.json']==schema_sha
+verify_schema_portable(schema_report,native_report['requested_graph'],language_report['run_identity'])
 nested='Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideBackup.ipa';assert a.read(nested)==b.read(nested)
 with zipfile.ZipFile(io.BytesIO(b.read(nested))) as nestedzip:assert nestedzip.testzip() is None
 assert sha((R/'source.tar.gz').read_bytes())==SOURCE_SHA

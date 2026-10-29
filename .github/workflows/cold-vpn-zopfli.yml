@@ -40,6 +40,7 @@ jobs:
           set -euo pipefail
           cp ci/language-switch/boot_evidence.py workspace/
           cp ci/issues-native/multitask_receipt.py ci/multitask-launch/{attachment_contract,diagnostics_contract}.py workspace/
+          cp ci/issues-native/startup_upgrade_receipt.py workspace/
           cp ci/cold-vpn-zopfli/{contract.py,zip32.py,sweep.py,limited_exec.py,verify_source.py,independent_verify.py,official-tree.json,official-commit.json} workspace/
           python3 -B workspace/verify_source.py 2>&1 | tee zopfli-evidence/input-verification.log
           test -x /usr/bin/cc
@@ -72,6 +73,7 @@ jobs:
             workspace/issue56-startup-tests.json
             workspace/cold-vpn-tests.json
             workspace/multitask-launch-tests.json
+            workspace/startup-upgrade-tests.json
             workspace/SHA256SUMS
           if-no-files-found: error
           compression-level: 0
