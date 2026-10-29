@@ -33,6 +33,35 @@ class ContractTests(unittest.TestCase):
         self.assertIn('Bundle.allBundles',text);self.assertIn('Bundle(for: anchor)',text)
         self.assertIn('physical_lc_bootstrap_executed": false',text)
         self.assertIn("[('FMWK','resources'),('APPL','flat')]",(ROOT/'run.py').read_text())
+    def discovery_result(self,baseline=False):
+        return {'schema':'coredata-owned-framework-discovery-v2','main_bundle_is_isolated_host':True,
+                'main_bundle_model_resources_before':0,'main_bundle_model_resources_after':0,
+                'source_model_found_before_framework_load':False,'unknown_source_model_found_in_explicit_owner':False,
+                'owner_is_requested_framework':True,'main_is_requested_framework':False,
+                'explicit_owner_source_model_found':True,'explicit_owner_model_compatible':True,
+                'explicit_supplied_source_model_found':True,'explicit_supplied_model_compatible':True,
+                'baseline_source_model_found':baseline,'baseline_model_compatible':baseline}
+    def test_discovery_requires_real_isolation_not_desired_result(self):
+        q.verify_discovery(self.discovery_result(False));q.verify_discovery(self.discovery_result(True))
+        for key,value in [('main_bundle_is_isolated_host',False),('main_bundle_model_resources_before',1),
+                          ('main_bundle_model_resources_after',1),('source_model_found_before_framework_load',True),
+                          ('unknown_source_model_found_in_explicit_owner',True),('owner_is_requested_framework',False),
+                          ('main_is_requested_framework',True),('explicit_owner_model_compatible',False)]:
+            with self.subTest(key=key),self.assertRaises(ValueError):q.verify_discovery(dict(self.discovery_result(),**{key:value}))
+    def test_discovery_executable_and_models_not_siblings(self):
+        text=(ROOT/'run.py').read_text()
+        self.assertIn("discovery=host/'Contents/MacOS/discovery'",text)
+        self.assertNotIn("discovery=output/'discovery'",text)
+        self.assertIn("(host/'Contents/Resources').mkdir()",text)
+        self.assertIn("framework=output/(package+'-'+layout)",text)
+    def test_discovery_observes_actual_main_resources_and_preload_negative(self):
+        text=(ROOT/'discovery.swift').read_text()
+        self.assertIn('FileManager.default.enumerator(at: root',text)
+        self.assertIn('if enumerationFailed { throw NSError',text)
+        self.assertNotIn('else { return 0 }',text)
+        self.assertLess(text.index('let beforeFramework ='),text.index('dlopen(executable.path'))
+        self.assertIn('Bundle.main.bundleURL.resolvingSymlinksInPath() == isolatedHost',text)
+        self.assertIn('forStoreMetadata: unknownMetadata',text)
     def test_source_inventories_detect_payload_and_mode_changes(self):
         with tempfile.TemporaryDirectory() as directory:
             p=pathlib.Path(directory);f=p/'db';f.write_bytes(b'fixture')

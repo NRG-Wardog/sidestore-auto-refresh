@@ -41,6 +41,20 @@ def run(command,log,expect=0,timeout=90,required_token=None):
     if required_token is not None:require(required_token in result.stdout,'expected rejection phase/code absent: '+log.name)
     return result.stdout
 
+def verify_discovery(result):
+    require(result['schema']=='coredata-owned-framework-discovery-v2','discovery schema differs')
+    require(result['main_bundle_is_isolated_host'] is True,'main bundle is not isolated host')
+    for field in ('main_bundle_model_resources_before','main_bundle_model_resources_after'):
+        require(type(result[field]) is int and result[field]==0,'main bundle contains model resources')
+    require(result['source_model_found_before_framework_load'] is False,'baseline contaminated before framework load')
+    require(result['unknown_source_model_found_in_explicit_owner'] is False,'unknown metadata accepted')
+    require(result['owner_is_requested_framework'] is True and result['main_is_requested_framework'] is False,'loaded framework ownership not modeled')
+    for field in ('explicit_owner_source_model_found','explicit_owner_model_compatible',
+                  'explicit_supplied_source_model_found','explicit_supplied_model_compatible'):
+        require(result[field] is True,'explicit bundle does not expose compatible compiled source model')
+    # Baseline result is deliberately an observation, not a demanded hypothesis.
+    require(type(result['baseline_source_model_found']) is bool and type(result['baseline_model_compatible']) is bool,'baseline observation missing')
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--source',type=pathlib.Path,required=True);parser.add_argument('--output',type=pathlib.Path,required=True);parser.add_argument('--acquisition',type=pathlib.Path,required=True);args=parser.parse_args()
     source,output=validate_layout(args.source,args.output)
@@ -62,9 +76,13 @@ def main():
     run(['xcrun','momc','--macosx-deployment-target','13.0',source/MODEL,models],output/'momc.log',timeout=180)
     binary=output/'fixture'
     run(['xcrun','swiftc',output/'fixture.swift','-o',binary],output/'swiftc.log',timeout=180)
-    discovery=output/'discovery'
+    host=output/'isolated-discovery-host'/'DiscoveryHost.app'
+    (host/'Contents/MacOS').mkdir(parents=True);(host/'Contents/Resources').mkdir()
+    (host/'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':'org.example.schema-discovery-host','CFBundleName':'DiscoveryHost','CFBundleExecutable':'discovery','CFBundlePackageType':'APPL','CFBundleVersion':'1'}))
+    discovery=host/'Contents/MacOS/discovery'
     run(['xcrun','swiftc',ROOT/'discovery.swift','-o',discovery],output/'discovery-compile.log',timeout=180)
     run([binary,'seed-delete',models,output/'discovery-original.sqlite'],output/'discovery-seed.log')
+    run([binary,'seed-unknown',models,output/'discovery-unknown.sqlite'],output/'discovery-unknown-seed.log')
     discovery_results={}
     for package,layout in [('FMWK','resources'),('APPL','flat')]:
         framework=output/(package+'-'+layout)/'SchemaFixture.framework';framework.mkdir(parents=True)
@@ -73,8 +91,8 @@ def main():
         (resource/'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':'org.example.schema-qualification.'+package,'CFBundleName':'SchemaFixture','CFBundleExecutable':'SchemaFixture','CFBundlePackageType':package,'CFBundleVersion':'1'}))
         executable=framework/'SchemaFixture'
         run(['xcrun','swiftc','-emit-library',ROOT/'anchor.swift','-o',executable],output/(package+'-anchor-compile.log'),timeout=180)
-        text=run([discovery,framework,executable,output/'discovery-original.sqlite'],output/(package+'-discovery.log'))
-        result=json.loads(text);require(result['explicit_supplied_source_model_found'] and result['explicit_supplied_model_compatible'],'explicit bundle does not expose compatible compiled source model')
+        text=run([discovery,framework,executable,output/'discovery-original.sqlite',host,output/'discovery-unknown.sqlite'],output/(package+'-discovery.log'))
+        result=json.loads(text);verify_discovery(result)
         discovery_results[package+'-'+layout]=result
     cases=[]
     for journal in ('delete','wal'):
