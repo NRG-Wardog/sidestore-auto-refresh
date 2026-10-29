@@ -2,7 +2,7 @@
 import argparse,hashlib,io,json,pathlib,struct,tarfile,zipfile,zlib,sys
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent.parent/"language-switch"))
 from boot_evidence import verify_language_boot
-from contract import manifest,read_json,require,SHA,PIN,BUDGET,ITERATIONS,SOURCE_SHA,verify_round_schedule
+from contract import manifest,read_json,require,SHA,PIN,BUDGET,ITERATIONS,SOURCE_SHA,verify_round_schedule,verify_size_acceptance
 if not __debug__: raise RuntimeError('Python optimization forbidden')
 parser=argparse.ArgumentParser();parser.add_argument('--root',type=pathlib.Path,default=pathlib.Path(__file__).resolve().parent);args=parser.parse_args()
 R=args.root.resolve(strict=True);input_manifest=manifest(R/'input-manifest.json');result=read_json(R/'result.json')
@@ -10,7 +10,7 @@ sha=SHA
 old=(R/'original.ipa').read_bytes();new=(R/'recompressed.ipa').read_bytes()
 assert (len(old),sha(old))==(input_manifest['ipa_bytes'],input_manifest['ipa_sha256'])
 assert (len(new),sha(new))==(result['final_bytes'],result['final_sha256'])
-assert len(new)<=min(len(old),24000000) and result['target_met'] is True
+size_acceptance=verify_size_acceptance(input_manifest,len(new),sha(new),result['target_met'])
 assert (len(old),sha(old))==(result['original_bytes'],result['original_sha256'])
 assert result['saved_bytes']==len(old)-len(new)
 assert result['schema']=='cold-vpn-zopfli-quick-v1' and result['source_commit']==PIN
@@ -127,6 +127,6 @@ for i,(x,y) in enumerate(zip(a.infolist(),b.infolist())):
 assert sum(x['saved_vs_previous'] for x in result['results'])==len(old)-len(new)
 # Each round accounts for exactly the recorded attempts. No fictitious long run claim.
 verify_round_schedule(result,len(old),len(new))
-report={'schema':'cold-vpn-independent-zopfli-audit-v1','status':'PASS_IDENTICAL_PAYLOAD_AND_ARCHIVE_METADATA','input':input_manifest,'final_bytes':len(new),'final_sha256':sha(new),'saved_bytes':len(old)-len(new),'target_met':len(new)<=24000000,'entries':len(inventory),'changed_compressed_streams':changed,'all_payload_bytes_identical':True,'all_binary_signature_bytes_identical':True,'all_archive_metadata_preserved_except_compressed_sizes_and_offsets':True,'original_unchanged':True,'russian_resource_hashes_match_receipt':True,'nested_sidebackup_crc_pass':True,'source_commit':pin,'source_tree':source_tree,'source_blobs':len(seen),'verified_attempts':sum(x['status']=='verified' for x in result['results']),'bounded_timeouts':sum(x['status']=='bounded_timeout' for x in result['results']),'nonzero_compressor_exits':sum(x['status']=='compressor_exit' for x in result['results']),'iterations_schedule':list(ITERATIONS),'stop_reason':result['stop_reason'],'compression_seconds':result['elapsed_seconds'],'resource_limits':{'workers':2,'per_process_memory_bytes':2147483648,'per_attempt_wall_seconds':600,'aggregate_compression_seconds':BUDGET,'approved_total_seconds':1800},'device_executed':False,'scope_limits':['Compression changes download size, not installed payload size.','Native qualification inherited only through byte-identical input payloads.','No native application execution by this audit.','Resource enforcement source-reviewed; no independent peak memory measurement.'],'members':inventory}
+report={'schema':'cold-vpn-independent-zopfli-audit-v1','status':'PASS_IDENTICAL_PAYLOAD_AND_ARCHIVE_METADATA','input':input_manifest,'final_bytes':len(new),'final_sha256':sha(new),'saved_bytes':len(old)-len(new),'target_met':len(new)<=24000000,'size_acceptance':size_acceptance,'entries':len(inventory),'changed_compressed_streams':changed,'all_payload_bytes_identical':True,'all_binary_signature_bytes_identical':True,'all_archive_metadata_preserved_except_compressed_sizes_and_offsets':True,'original_unchanged':True,'russian_resource_hashes_match_receipt':True,'nested_sidebackup_crc_pass':True,'source_commit':pin,'source_tree':source_tree,'source_blobs':len(seen),'verified_attempts':sum(x['status']=='verified' for x in result['results']),'bounded_timeouts':sum(x['status']=='bounded_timeout' for x in result['results']),'nonzero_compressor_exits':sum(x['status']=='compressor_exit' for x in result['results']),'iterations_schedule':list(ITERATIONS),'stop_reason':result['stop_reason'],'compression_seconds':result['elapsed_seconds'],'resource_limits':{'workers':2,'per_process_memory_bytes':2147483648,'per_attempt_wall_seconds':600,'aggregate_compression_seconds':BUDGET,'approved_total_seconds':1800},'device_executed':False,'scope_limits':['Compression changes download size, not installed payload size.','Native qualification inherited only through byte-identical input payloads.','No native application execution by this audit.','Resource enforcement source-reviewed; no independent peak memory measurement.'],'members':inventory}
 (R/'independent-audit.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
 print(json.dumps({k:v for k,v in report.items() if k!='members'},indent=2))

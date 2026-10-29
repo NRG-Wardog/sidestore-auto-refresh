@@ -187,7 +187,7 @@ class Controls(unittest.TestCase):
         data=bytearray(sample());rows,_=parse(bytes(data));offset=len(rows[0]['local']);data[offset]^=255
         with self.assertRaises((ValueError,zlib.error)):parse(bytes(data))
     def test_approved_bounds_and_owned_limiter(self):
-        self.assertEqual(BUDGET,1200);self.assertEqual(ITERATIONS,(5,10,20,30));self.assertEqual(TARGET_BYTES,24000000)
+        self.assertEqual(BUDGET,900);self.assertEqual(ITERATIONS,(5,10,20,30));self.assertEqual(TARGET_BYTES,24000000)
         limiter=(ROOT/'limited_exec.py').read_text()
         for text in ('RLIMIT_AS,(2*1024**3,2*1024**3)','RLIMIT_CPU,(600,600)','RLIMIT_CORE,(0,0)','os.execve','--deflate'):
             self.assertIn(text,limiter)

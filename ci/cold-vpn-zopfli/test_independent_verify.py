@@ -1,10 +1,28 @@
 """Adversarial archives must fail before any optional provenance/source file access."""
-import json,pathlib,struct,subprocess,sys,tempfile,unittest
-from contract import PIN,SHA,BUDGET,ITERATIONS,verify_round_schedule
+import copy,json,pathlib,struct,subprocess,sys,tempfile,unittest
+from contract import PIN,SHA,BUDGET,ITERATIONS,verify_round_schedule,verify_size_acceptance,CLOSEST_NATIVE_INPUT,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256
 from test_sweep import sample
 from zip32 import parse
 ROOT=pathlib.Path(__file__).resolve().parent
 class AuditControls(unittest.TestCase):
+    def test_standard_size_target_remains_strict_for_other_candidates(self):
+        unknown=dict(CLOSEST_NATIVE_INPUT,commit='a'*40)
+        self.assertTrue(verify_size_acceptance(unknown,24000000,'a'*64,True)['target_met'])
+        with self.assertRaises(ValueError):verify_size_acceptance(unknown,24000001,'a'*64,False)
+        with self.assertRaises(ValueError):verify_size_acceptance(unknown,24000001,'a'*64,True)
+    def test_exact_closest_candidate_reports_target_not_met(self):
+        accepted=verify_size_acceptance(CLOSEST_NATIVE_INPUT,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
+        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],3056)
+        self.assertEqual(accepted['policy'],'exact_reviewed_closest_candidate_only')
+    def test_closest_candidate_rejects_any_input_or_output_drift(self):
+        for key,value in CLOSEST_NATIVE_INPUT.items():
+            changed=copy.deepcopy(CLOSEST_NATIVE_INPUT)
+            changed[key]=value+1 if type(value) is int else value+'x'
+            with self.subTest(key=key),self.assertRaises(ValueError):verify_size_acceptance(changed,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
+        for size,digest,target in [(CLOSEST_OUTPUT_BYTES-1,CLOSEST_OUTPUT_SHA256,False),(CLOSEST_OUTPUT_BYTES+1,CLOSEST_OUTPUT_SHA256,False),(CLOSEST_OUTPUT_BYTES,'a'*64,False),(CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,True),(CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,0)]:
+            with self.subTest(size=size,digest=digest,target=target),self.assertRaises(ValueError):verify_size_acceptance(CLOSEST_NATIVE_INPUT,size,digest,target)
+        extra=dict(CLOSEST_NATIVE_INPUT,unexpected=True)
+        with self.assertRaises(ValueError):verify_size_acceptance(extra,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
     def test_round_stop_audit_rejects_false_target_extra_round_or_incomplete_schedule(self):
         def report(savings,stop):
             return {'rounds':[{'iterations':iteration,'attempts':1,'elapsed_seconds':1} for iteration in ITERATIONS[:len(savings)]],

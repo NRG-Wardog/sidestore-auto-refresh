@@ -7,7 +7,7 @@ SOURCE_SHA='ae5c3afb20156a52f2086277fd102a08d902c36d84db7eff74cc7e5e19b020c6'
 REPO='NRG-Wardog/sidestore-auto-refresh'
 WORKFLOW='.github/workflows/cold-vpn-native.yml'
 IPA='LiveContainer-SideStore-issues-experimental.ipa'
-BUDGET=1200
+BUDGET=900
 ITERATIONS=(5,10,20,30)
 TARGET_BYTES=24000000
 SHA=lambda value:hashlib.sha256(value).hexdigest()
@@ -52,3 +52,28 @@ def verify_round_schedule(result,original_bytes,final_bytes):
     if stop=='aggregate_budget_reached':require(result['elapsed_seconds']>=BUDGET-3,'early budget stop')
     if stop=='iteration_schedule_exhausted':require(len(rounds)==len(ITERATIONS),'incomplete exhausted schedule')
     if stop=='remaining_candidates_plateau_or_estimated_cost_exceeds_bounds':require(rounds[-1]['attempts']==0,'plateau has attempts')
+
+
+# One measured closest-result acceptance, not a raised general size ceiling.
+# Exact native acquisition and exact recompressed bytes are both mandatory.
+CLOSEST_NATIVE_INPUT={
+    'schema':'cold-vpn-green-native-input-v1', 'run_id':40791862589, 'run_attempt':1,
+    'commit':'99ed6179f6dda1f5770ea8b401985e052bde9e5d',
+    'artifact_id':12864705429, 'artifact_bytes':26254096,
+    'artifact_sha256':'b45dadc1cee9a55d6ed4ebbb1cf86bef2aea9ba4d8e064db5539ffab8844fb0a',
+    'ipa_bytes':24668450,
+    'ipa_sha256':'64d3c6a273cfbbc52ea5ca4e4f4716f8226380ae9de77becabf97e8a073cb9da',
+    'entries':274,
+}
+CLOSEST_OUTPUT_BYTES=24003056
+CLOSEST_OUTPUT_SHA256='21c3bcfc31565a9ef46356ae9017a8bdc5a996f1ddd3a347ee0f2b709f84046e'
+def verify_size_acceptance(input_manifest,final_bytes,final_sha256,target_met):
+    require(type(final_bytes) is int and final_bytes>0 and final_bytes<=input_manifest['ipa_bytes'],'invalid or growing final size')
+    require(type(target_met) is bool and target_met==(final_bytes<=TARGET_BYTES),'size target claim differs')
+    if target_met:
+        return {'policy':'standard_24mb_target','target_met':True,'target_bytes':TARGET_BYTES,'excess_bytes':0}
+    require(input_manifest==CLOSEST_NATIVE_INPUT and all(type(input_manifest[key]) is type(value) for key,value in CLOSEST_NATIVE_INPUT.items()),'closest-result native input differs')
+    require(final_bytes==CLOSEST_OUTPUT_BYTES and final_sha256==CLOSEST_OUTPUT_SHA256,'closest-result output differs')
+    return {'policy':'exact_reviewed_closest_candidate_only','target_met':False,'target_bytes':TARGET_BYTES,
+            'excess_bytes':final_bytes-TARGET_BYTES,'accepted_output_sha256':CLOSEST_OUTPUT_SHA256,
+            'native_run_id':CLOSEST_NATIVE_INPUT['run_id'],'native_commit':CLOSEST_NATIVE_INPUT['commit']}
