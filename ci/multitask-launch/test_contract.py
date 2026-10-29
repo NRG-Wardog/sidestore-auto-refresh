@@ -31,6 +31,12 @@ class ContractTests(unittest.TestCase):
   self.assertEqual(contract.manifest()['repository'],'NRG-Wardog/LiveContainer')
   data=contract.manifest();data['commit']='main'
   with patch.object(contract,'read',return_value=data),self.assertRaises(ValueError):contract.manifest()
+ def test_focused_source_matches_native_candidate_graph(self):
+  source=contract.manifest()
+  graph=contract.read(HERE.parent/'issues-native/candidate-graph.json')
+  self.assertEqual([source['repository'],source['commit']],graph['owners']['LiveContainer'],
+                   'Focused multitask source must match the current native candidate, not a prior app build')
+  self.assertEqual(source['baseline_app_builder'],'830e827719a481efe7b752d2d05e712d9ea512bd')
  def test_run_identity_not_missing_or_non_numeric(self):
   env={'GITHUB_SHA':'a'*40,'GITHUB_RUN_ID':'123','GITHUB_RUN_ATTEMPT':'1'}
   with patch.dict(os.environ,env):self.assertEqual(contract.identity()['run_id'],'123')
