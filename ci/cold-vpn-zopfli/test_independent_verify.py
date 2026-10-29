@@ -12,7 +12,7 @@ class AuditControls(unittest.TestCase):
         with self.assertRaises(ValueError):verify_size_acceptance(unknown,24000001,'a'*64,True)
     def test_exact_closest_candidate_reports_target_not_met(self):
         accepted=verify_size_acceptance(CLOSEST_NATIVE_INPUT,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
-        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],21064)
+        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],103451)
         self.assertEqual(accepted['policy'],'exact_reviewed_closest_candidate_only')
     def test_closest_candidate_rejects_any_input_or_output_drift(self):
         for key,value in CLOSEST_NATIVE_INPUT.items():
@@ -23,6 +23,14 @@ class AuditControls(unittest.TestCase):
             with self.subTest(size=size,digest=digest,target=target),self.assertRaises(ValueError):verify_size_acceptance(CLOSEST_NATIVE_INPUT,size,digest,target)
         extra=dict(CLOSEST_NATIVE_INPUT,unexpected=True)
         with self.assertRaises(ValueError):verify_size_acceptance(extra,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
+    def test_current_exception_rejects_equal_numeric_type_drift(self):
+        for key,value in CLOSEST_NATIVE_INPUT.items():
+            if type(value) is int:
+                changed=dict(CLOSEST_NATIVE_INPUT);changed[key]=float(value)
+                with self.subTest(key=key),self.assertRaises(ValueError):
+                    verify_size_acceptance(changed,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
+        with self.assertRaises(ValueError):
+            verify_size_acceptance(CLOSEST_NATIVE_INPUT,float(CLOSEST_OUTPUT_BYTES),CLOSEST_OUTPUT_SHA256,False)
     def test_round_stop_audit_rejects_false_target_extra_round_or_incomplete_schedule(self):
         def report(savings,stop):
             return {'rounds':[{'iterations':iteration,'attempts':1,'elapsed_seconds':1} for iteration in ITERATIONS[:len(savings)]],

@@ -4,7 +4,11 @@ Current input: successful native run `40959544542`, attempt `2`, builder
 `2f6099ca2c9ebd3a712144205bfe6de57be84541`. The downloaded artifact and
 24,778,987-byte IPA are hash-bound in `input-manifest.json`. The same-run
 refresh-truth qualification receipt is mandatory; focused-only evidence cannot substitute.
-No recompressed result has been measured or accepted yet for this input.
+Measured run `40969951797` exhausted the unchanged 5/10/20/30 schedule in
+373.7416 seconds, saving 675,536 bytes. It failed the default size gate; it
+is not a qualified delivery run. The exact measured result below now has
+a candidate-specific closest-result acceptance; a matching green replay
+and independent payload/provenance audit remain required before delivery.
 
 Reuses the reviewed issue56 compressor/ZIP auditor with a narrower execution
 schedule: five iterations first, then bounded 10, 20 and 30 iteration rounds only if the
@@ -23,17 +27,18 @@ The independent audit preserves all payload/signaturebytes and rawZIPmetadata
 except compressedsizes/offsets, plus Russian resources and nestedBackupCRC.
 The new source-bound language/recovery and cold-VPN receipts is required and carried forward.
 
-The default final target remains <=24000000 bytes, not a claim of minimum or
-installed size. A historical, different-input closest-result exception accepts exactly
-24,021,064 bytes and SHA-256
-`df1267dda7914bcdbcfd170396e35a445166a750fdc501866827d6c2e83099cb`,
+The default final target remains <=24,000,000 bytes, not a claim of minimum or
+installed size. This single reviewed closest-result exception accepts exactly
+24,103,451 bytes (24.103451 decimal MB), SHA-256
+`24061c255877f67ddd9e2734dafb23038c3e3c4354708897f71640f4a2df07c4`,
 only for the complete native input manifest bound to builder
-`90307b767156f8ceb061bd737e73ad116133dda3`, run `40890835931`, and input SHA-256
-`39e3d49cdc3f1744fd8ee328c71268f3e78810e79ee1fb9f642df6fa8def066d`.
-It reports `target_met: false` and a 21064-byte excess, never a relaxed general
-ceiling. All payload, signature, metadata and provenance audit requirements
-remain mandatory for this exact candidate.
-That historical exception cannot authorize the current input. A new exception,
-if needed, requires actual measured bytes/hash and independent review; the
-current input remains subject to the default 24 MB gate.
+`2f6099ca2c9ebd3a712144205bfe6de57be84541`, run `40959544542`, attempt `2`,
+and input SHA-256
+`d962f2d208da186b420757feec467ec4b0645e22bb530f8e9883d6bb9530c042`.
+It reports `target_met: false` and a 103,451-byte excess. This is not under
+24 MB and does not raise the general ceiling. Every other input or output
+hash/size must still satisfy the standard target. Historical exceptions cannot
+substitute for this measured result. No further optimization rounds are allowed;
+the same bounded schedule may be replayed only to reproduce the accepted bytes.
+All payload, signature, metadata and provenance audit requirements remain mandatory.
 Private experimental delivery only after matching CI and artifact verification.

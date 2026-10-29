@@ -11,7 +11,7 @@ class AcquisitionControls(unittest.TestCase):
         self.assertEqual(current['run_id'],40959544542)
         self.assertEqual(current['run_attempt'],2)
         with self.assertRaises(ValueError):
-            verify_size_acceptance(current,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
+            verify_size_acceptance(current,24021064,'df1267dda7914bcdbcfd170396e35a445166a750fdc501866827d6c2e83099cb',False)
     def test_exact_completed_green(self):validate_metadata(self.m,self.run,self.artifact)
     def test_wrong_run_or_pending_failed_forbidden(self):
         for key,value in [('conclusion','failure'),('status','in_progress'),('head_sha','c'*40),('run_attempt',2),('path','.github/workflows/recover-native-package.yml')]:
