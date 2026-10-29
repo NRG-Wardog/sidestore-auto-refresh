@@ -45,7 +45,7 @@ jobs:
           test -x /usr/bin/cc
           { /usr/bin/cc --version; sha256sum "$(readlink -f /usr/bin/cc)"; } > zopfli-evidence/compiler.log
           (ulimit -v 2097152; ulimit -t 60; ulimit -c 0; timeout --kill-after=5s 60s /usr/bin/cc workspace/source/src/zopfli/*.c -O2 -std=c99 -Wall -Wextra -Wno-unused-function -lm -o workspace/zopfli) 2>&1 | tee zopfli-evidence/build.log
-      - name: Bounded two-worker five-iteration pass with verified checkpoints
+      - name: Bounded two-worker short iteration schedule with verified checkpoints
         shell: bash
         run: |
           set -euo pipefail

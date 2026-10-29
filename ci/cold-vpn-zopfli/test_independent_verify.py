@@ -10,8 +10,9 @@ class AuditControls(unittest.TestCase):
             return {'rounds':[{'iterations':iteration,'attempts':1,'elapsed_seconds':1} for iteration in ITERATIONS[:len(savings)]],
                     'results':[{'iterations':iteration,'saved_vs_previous':saved} for iteration,saved in zip(ITERATIONS,savings)],'stop_reason':stop,'elapsed_seconds':2}
         verify_round_schedule(report([2],'size_target_met'),24000001,23999999)
-        verify_round_schedule(report([0,2],'size_target_met'),24000001,23999999)
-        verify_round_schedule(report([0,0],'iteration_schedule_exhausted'),24000001,24000001)
+        for count in range(1,len(ITERATIONS)+1):
+            verify_round_schedule(report([0]*(count-1)+[2],'size_target_met'),24000001,23999999)
+        verify_round_schedule(report([0]*len(ITERATIONS),'iteration_schedule_exhausted'),24000001,24000001)
         for savings,stop in [([0],'size_target_met'),([2,0],'size_target_met'),([0],'iteration_schedule_exhausted'),([0,2],'iteration_schedule_exhausted')]:
             with self.subTest(savings=savings,stop=stop),self.assertRaises(ValueError):
                 verify_round_schedule(report(savings,stop),24000001,24000001-sum(savings))

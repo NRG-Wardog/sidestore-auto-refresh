@@ -7,8 +7,8 @@ SOURCE_SHA='ae5c3afb20156a52f2086277fd102a08d902c36d84db7eff74cc7e5e19b020c6'
 REPO='NRG-Wardog/sidestore-auto-refresh'
 WORKFLOW='.github/workflows/cold-vpn-native.yml'
 IPA='LiveContainer-SideStore-issues-experimental.ipa'
-BUDGET=1500
-ITERATIONS=(5,10)
+BUDGET=1200
+ITERATIONS=(5,10,20,30)
 TARGET_BYTES=24000000
 SHA=lambda value:hashlib.sha256(value).hexdigest()
 def require(value,message):

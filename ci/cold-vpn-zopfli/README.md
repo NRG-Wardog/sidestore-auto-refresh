@@ -5,11 +5,13 @@ is deliberately invalid until the new cold-vpn-native workflow is fully
 green and its actual downloaded native artifact supplies IDs, hashes and sizes.
 
 Reuses the reviewed issue56 compressor/ZIP auditor with a narrower execution
-schedule: five iterations first, then at most one ten-iteration round only if the
+schedule: five iterations first, then bounded 10, 20 and 30 iteration rounds only if the
 size target is still unmet. Stop after the first complete round meeting the target;
-retain the smallest verified stream from the original and either round. No further
+retain the smallest verified stream from the original and every completed round. No further
 rounds. Two workers, 2 GiB/process, 600 seconds maximum
-per attempt, 1500 seconds aggregate compression. Compilation60seconds and audit
+per attempt, 1200 seconds aggregate compression for this follow-on pass. The prior measured
+5/10 pass used 142 seconds; together with compilation/audit this remains within
+the existing 30 minute experiment budget. Compilation60seconds and audit
 180seconds fit within the existing30minute approval, not the prior2hour sweep.
 
 Google Zopfli remains pinned to df1517dd8518113a245e4d203a04b8a0e02ab493.

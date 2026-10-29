@@ -99,7 +99,7 @@ class Controls(unittest.TestCase):
                     shutil.copyfile(ROOT/name,root/name)
                 contract=root/'contract.py';text=contract.read_text()
                 self.assertEqual(text.count('TARGET_BYTES=24000000'),1)
-                contract.write_text(text.replace('TARGET_BYTES=24000000','TARGET_BYTES=1'))
+                contract.write_text(text.replace('TARGET_BYTES=24000000','TARGET_BYTES=1').replace('ITERATIONS=(5,10,20,30)','ITERATIONS=(5,10)'))
                 data=sample(0);(root/'original.ipa').write_bytes(data)
                 value={'schema':'cold-vpn-green-native-input-v1','run_id':1,'run_attempt':1,'artifact_id':2,'artifact_bytes':100,'ipa_bytes':len(data),'entries':2,'commit':'a'*40,'artifact_sha256':'b'*64,'ipa_sha256':SHA(data)}
                 (root/'input-manifest.json').write_text(json.dumps(value))
@@ -112,6 +112,41 @@ class Controls(unittest.TestCase):
                 self.assertEqual(receipt['iterations_schedule'],[5,10])
                 self.assertEqual([r['iterations'] for r in receipt['rounds']],[5,10])
                 self.assertEqual([r['iterations'] for r in receipt['results']],[5,10])
+                self.assertEqual(receipt['stop_reason'],'iteration_schedule_exhausted')
+                self.assertFalse(receipt['target_met'])
+                self.assertTrue(receipt['results'][0]['improved'])
+                if second_mode=='better':
+                    self.assertTrue(receipt['results'][1]['improved']);self.assertGreater(receipt['results'][1]['saved_vs_previous'],0)
+                    self.assertEqual(receipt['best']['0']['iterations'],10)
+                else:
+                    self.assertEqual(receipt['best']['0']['iterations'],5)
+                    self.assertEqual(receipt['results'][1]['saved_vs_previous'],0)
+                self.assertLessEqual(receipt['final_bytes'],len(data))
+                self.assertEqual((root/'original.ipa').read_bytes(),data)
+                self.assertEqual([x['raw'] for x in parse((root/'recompressed.ipa').read_bytes())[0]],[x['raw'] for x in parse(data)[0]])
+    def test_four_rounds_when_target_unmet_preserve_smallest_stream(self):
+        # Scale only the owned test-copy target to one byte to force all four rounds;
+        # the real production target is independently asserted to be 24,000,000.
+        for second_mode in ('same','worse','better'):
+            with self.subTest(second_mode=second_mode),tempfile.TemporaryDirectory() as directory:
+                root=pathlib.Path(directory).resolve()
+                for name in ('sweep.py','contract.py','zip32.py','limited_exec.py'):
+                    shutil.copyfile(ROOT/name,root/name)
+                contract=root/'contract.py';text=contract.read_text()
+                self.assertEqual(text.count('TARGET_BYTES=24000000'),1)
+                contract.write_text(text.replace('TARGET_BYTES=24000000','TARGET_BYTES=1'))
+                data=sample(0);(root/'original.ipa').write_bytes(data)
+                value={'schema':'cold-vpn-green-native-input-v1','run_id':1,'run_attempt':1,'artifact_id':2,'artifact_bytes':100,'ipa_bytes':len(data),'entries':2,'commit':'a'*40,'artifact_sha256':'b'*64,'ipa_sha256':SHA(data)}
+                (root/'input-manifest.json').write_text(json.dumps(value))
+                fake=root/'zopfli'
+                fake.write_text('#!'+sys.executable+'\nimport sys,zlib\nmode='+repr(second_mode)+'\nsecond="--i5" not in sys.argv\nif second and mode=="failure": sys.exit(7)\ndata=open(sys.argv[-1],"rb").read()\nx=zlib.compressobj((0 if mode=="worse" else 9 if mode=="better" else 1) if second else 1,zlib.DEFLATED,-15)\nsys.stdout.buffer.write(x.compress(data)+x.flush())\n')
+                fake.chmod(0o700)
+                run=subprocess.run([sys.executable,'-B',str(root/'sweep.py')],text=True,capture_output=True,timeout=20)
+                self.assertEqual(run.returncode,0,run.stdout+run.stderr)
+                receipt=json.loads((root/'result.json').read_text())
+                self.assertEqual(receipt['iterations_schedule'],[5,10,20,30])
+                self.assertEqual([r['iterations'] for r in receipt['rounds']],[5,10,20,30])
+                self.assertEqual([r['iterations'] for r in receipt['results']],[5,10,20,30])
                 self.assertEqual(receipt['stop_reason'],'iteration_schedule_exhausted')
                 self.assertFalse(receipt['target_met'])
                 self.assertTrue(receipt['results'][0]['improved'])
@@ -152,7 +187,7 @@ class Controls(unittest.TestCase):
         data=bytearray(sample());rows,_=parse(bytes(data));offset=len(rows[0]['local']);data[offset]^=255
         with self.assertRaises((ValueError,zlib.error)):parse(bytes(data))
     def test_approved_bounds_and_owned_limiter(self):
-        self.assertEqual(BUDGET,1500);self.assertEqual(ITERATIONS,(5,10));self.assertEqual(TARGET_BYTES,24000000)
+        self.assertEqual(BUDGET,1200);self.assertEqual(ITERATIONS,(5,10,20,30));self.assertEqual(TARGET_BYTES,24000000)
         limiter=(ROOT/'limited_exec.py').read_text()
         for text in ('RLIMIT_AS,(2*1024**3,2*1024**3)','RLIMIT_CPU,(600,600)','RLIMIT_CORE,(0,0)','os.execve','--deflate'):
             self.assertIn(text,limiter)
