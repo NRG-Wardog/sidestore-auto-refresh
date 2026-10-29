@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "dafcf0772a9259326c51751043fef5acb5afdc9e"
+      "3ce79d0e763492c38dd9ec54dbe0134b50c4e956"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -227,7 +227,7 @@
         "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": "37d972dfe562b0b7fcf413c1f2f4656563d5fc1f",
         "SideStore/Core/Operations/PipelineOperations/InstallAppOperation.swift": "3cfd5613cd9b5a8d44f695f9d29a0a19953b58af",
         "SideStore/Core/Operations/PipelineOperations/PrepareAppExtensionBundleIDsOperation.swift": "464b23b254c88f0f06448e3474402a02ca89000f",
-        "SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift": "a22b1c3dfca2dd0bb53f6ea447d9c6295aa246bf",
+        "SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift": "b813efc8638de96ca79edf2bb829323e2013cbb0",
         "SideStore/Core/Operations/PipelineOperations/RemoveAppExtensionsOperation.swift": "a4fec8ef0e66faa799159cc99526510cac97cd33",
         "SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift": "8bfda475e9604e54644f403891aa39bce79fec25",
         "SideStore/Core/Operations/PipelineOperations/VerifyCertificateOperation.swift": "3c0be8385043a609ad170696dd8265c6e4265ae4",
@@ -258,12 +258,12 @@
         "tests/refresh_failure/test_contract.py": "cc90718b94ebf4051c64a9b86d69aace6ab3f5c8",
         "tests/refresh_recovery/README.md": "4e1dda36ace09662ab24b8b6083a4e51cd1472a6",
         "tests/refresh_recovery/test_ownerless_snapshot.py": "a33c32bbd817e2ec161cf231ff8924f8029306a8",
-        "tests/refresh_truth/README.md": "30d7b15a2f56f72827001effc153e048169c07df",
+        "tests/refresh_truth/README.md": "a97771fd10b10f193bcec3375d8ff2214524c984",
         "tests/refresh_truth/cases.swift": "6aa70dc26215f5589a5fb3cbd950209bfcf6ac5d",
-        "tests/refresh_truth/operation_cases.swift": "af5a98127db5a0714e0f14744c6a73b6439c1f50",
+        "tests/refresh_truth/operation_cases.swift": "21a65971048f295a1e18caa84e79c12343226bb1",
         "tests/refresh_truth/operation_doubles.swift": "66971732eff7989bb46d4fa115a0f425f9ec28ea",
         "tests/refresh_truth/runtime.swift": "95a6077b14072c6b86ded670ec09db4390c0fc6b",
-        "tests/refresh_truth/test_contract.py": "bf71721d537b65387abf6c941171f4f9ae1cb95b",
+        "tests/refresh_truth/test_contract.py": "111c1518dafada684c917d4aa8f5c203074a8f9d",
         "tests/reuse_main/ExplanationCases.swift": "5a5e49951b1e5e38b466f8b9d3336afd71cfdded",
         "tests/reuse_main/RegistryCases.swift": "cd5ac91c7f9c2f3684f85fe816f1d9bf396f024e",
         "tests/reuse_main/run.sh": "b29d67e12cc2a5d13cb95b15c071ccac32dc2b71",
@@ -277,7 +277,7 @@
         "tests/vpn_transport_recovery/generate_fixture.py": "8d871abc7912727cd59602014a122c77414dd5b0",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "7d6bfd245f620d8e852bb9b5f46fdf58005a5f38"
+      "tree": "c9574fbd160b483a6edcf275a7ff715f36aa6e3f"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
