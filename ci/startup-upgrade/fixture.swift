@@ -17,7 +17,8 @@ func registerFixtureClasses(_ model: NSManagedObjectModel) {
 
 final class MappingProbe {
     let managedObjectModel: NSManagedObjectModel
-    init(_ model: NSManagedObjectModel) { managedObjectModel = model }
+    let modelResourceBundle: Bundle?
+    init(_ model: NSManagedObjectModel, owner: Bundle? = nil) { managedObjectModel = model; modelResourceBundle = owner }
     func select(source: NSManagedObjectModel) -> (NSMigrationManager, NSMappingModel)? {
         var mapping: NSMappingModel?
         guard let manager = progressiveMigrationManager(forSourceModel: source, destinationModel: managedObjectModel,

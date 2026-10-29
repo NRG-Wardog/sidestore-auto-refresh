@@ -66,7 +66,8 @@ def harness_hashes():
     paths=[p for p in ROOT.iterdir() if p.is_file() and p.suffix in ('.py','.swift','.md')]
     paths += [GRAPH,ROOT.parent/'issues-native/verify_candidate_graph.py',
               ROOT.parent/'issue56-startup/run_startup_tests.py',
-              ROOT.parents[1]/'.github/workflows/startup-upgrade-preflight.yml']
+              ROOT.parents[1]/'.github/workflows/startup-upgrade-preflight.yml',
+              ROOT.parents[1]/'.github/workflows/cold-vpn-native.yml']
     return {str(p.relative_to(ROOT.parents[1])):sha(p) for p in sorted(paths)}
 def acquire(sources,evidence):
     require(sources.is_dir() and not sources.is_symlink(),'source parent required')

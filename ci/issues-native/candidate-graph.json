@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "c08b6934a103c3acd57e381ec61581c169ad1165"
+      "a332fb713fff34dbc801fab2c73e2442ea035b2b"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "fc2ff9b185652049ccaff3f760a28a26900aab53"
+      "77b2df08b4ef76fed2948547095bf574a55e1248"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -94,7 +94,7 @@
         ".ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "1c6854b27314aaa35d1a067fc2011a4c6b472811",
         ".ci/comprehensive-diagnostics/setup_localization_harness.swift": "685e64c7b6c5726cd8a40fe3e598f96d30f071f6",
         ".ci/comprehensive-diagnostics/test_pairing_recovery_contract.py": "b1e1ff62080b80eb0ac343581b0b682d11956000",
-        ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "c032fcea27d979ed19cb9615153c1a5f462e5a49",
+        ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "08679192d28f9a0b3b63a145f5449d5c5180f2bd",
         ".ci/early-refresh-boundaries/early_cases.swift": "8ace99364dff25993bb071e3b7efc36c91f415a4",
         ".ci/early-refresh-boundaries/early_doubles.swift": "8aa0533a9939f81fa0abd71d65e7c904fd4dea62",
         ".ci/early-refresh-boundaries/generate_regression.py": "2342afc7ada6391c4473767b6fa786dd4e043464",
@@ -178,7 +178,7 @@
         "tests/test_startup_diagnosis_card.py": "64f5d544c21d538342c988797b94c3c4da856c71",
         "tests/test_startup_diagnostics.py": "ca6d8634f460aea00ceb274d777a8fdff2ff8b49"
       },
-      "tree": "a3eafe199c4c49329018dc8f7282508c67194c7f"
+      "tree": "0945df4dd876377cf64a6ab54c9de412d87d76ca"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -205,7 +205,7 @@
         "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "c0ef6619c1f9971d78c809b9df3ac0e66b72d331",
         "AltStore/AppDelegate.swift": "5d5f1ecd8b57f9972ee486eb6ea40e578722c1bb",
         "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "43667573ccd1efb2d36fb25f7a4e7f4f894d1732",
-        "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "a98dfc5dbf9ba358024425c2bab3cb210e004cd8",
+        "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "b38c58967d8296e162c55f64e7e5d29679c42fef",
         "Dependencies/SideSign": "aac073a32cc8649b8bb4e604f52e124dc867003e",
         "Dependencies/minimuxer": "11d3046523d638a402f423058b94cd378c6146a3",
         "SideStore/Core/Anisette/AnisetteProvider.swift": "9899b064e45a6d8f005c000f15453b3b11730452",
@@ -245,13 +245,14 @@
         "tests/reuse_main/run.sh": "b29d67e12cc2a5d13cb95b15c071ccac32dc2b71",
         "tests/reuse_main/test_contract.py": "fdc59d1d71b1f34e1292bf8dcbc12e531de047a2",
         "tests/startup_outcome/README.md": "53ca3ba487e7f7ddd00a227b58312e4fc3bf0df0",
-        "tests/startup_outcome/test_contract.py": "c577addcd0cacb6ae05d55d263d68cf5cc202737",
+        "tests/startup_outcome/test_contract.py": "9bb8a0e17bde24ba4aab52acc3ba017f4b7ebe10",
+        "tests/startup_outcome/test_model_resource_owner.py": "8e26222f493def9eb1921c6de05a7b6a5f1d54cd",
         "tests/test_diagnostic_provider_sequence.py": "7aa1b47cb7f6b0c40743a4a5393325037e81743b",
         "tests/upstream_sync/test_iloader_submit_route.py": "89740faba3efc4f71125e560fdf3ef5e6ad29a8d",
         "tests/vpn_transport_recovery/generate_fixture.py": "8d871abc7912727cd59602014a122c77414dd5b0",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "34b0120a5dcbdf74679dacea1e7cf4276d5f3e43"
+      "tree": "1d20bbfb085984e5d06db24b74d5572eb5353564"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",

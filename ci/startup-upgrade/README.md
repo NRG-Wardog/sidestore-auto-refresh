@@ -24,9 +24,14 @@ silently deleting or overwriting a store. No user data is used.
 Framework discovery is observed separately for a conventional FMWK framework with
 Resources and a production-like flat APPL-marked `.framework`. It uses a locally
 compiled Objective-C-visible anchor and actual `Bundle(for:)`, `Bundle.allBundles`,
-and source-store metadata. It does not assume the baseline lookup fails and does
-not emulate LC's private main-bundle replacement. A supplied bundle must expose a
-metadata-compatible old model for the fixture to be valid.
+and source-store metadata. The isolated baseline in run 40884677384 failed to
+find the old model in both layouts, while the explicit owner found it. That
+observed old-path failure is now retained as a regression counterfactual against
+the exact production source-model, bundle-list and mapping helpers. Known metadata
+must succeed with the owner; nil owner, unknown metadata and a valid current-model-only
+bundle must not find the old source model. Actual mapping selection and both model
+URLs are checked. This does not emulate LC's private main-bundle replacement or
+prove a physical reporter's failure cause.
 
 The no-overwrite check is a serial pre-existing-target control, NOT an atomic
 cross-process publication guarantee. Permission rejection is tested with an

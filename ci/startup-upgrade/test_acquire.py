@@ -36,7 +36,7 @@ class AcquisitionTests(unittest.TestCase):
             graph=harness/'ci/issues-native/candidate-graph.json'
             files=['ci/startup-upgrade/acquire.py','ci/issues-native/candidate-graph.json',
                    'ci/issues-native/verify_candidate_graph.py','ci/issue56-startup/run_startup_tests.py',
-                   '.github/workflows/startup-upgrade-preflight.yml']
+                   '.github/workflows/startup-upgrade-preflight.yml','.github/workflows/cold-vpn-native.yml']
             for name in files:
                 path=harness/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('fixture')
             with patch.object(a,'ROOT',root),patch.object(a,'GRAPH',graph):

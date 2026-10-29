@@ -7,9 +7,17 @@ class ContractTests(unittest.TestCase):
     def test_actual_production_mapping_methods_are_unmodified(self):
         methods=q.mapping_methods(SOURCE/q.PERSISTENT)
         self.assertIn('NSMappingModel.inferredMappingModel(forSourceModel: sourceModel, destinationModel: destinationModel)',methods)
-        self.assertIn('NSMappingModel(from: Bundle.allBundles',methods)
+        self.assertIn('NSMappingModel(from: self.modelLookupBundles()',methods)
         self.assertNotIn('replacePersistentStore',methods)
         self.assertEqual((ROOT/'fixture.swift').read_text().count('// EXACT_PRODUCTION_MAPPING_METHODS'),1)
+    def test_discovery_executes_exact_owned_helper(self):
+        methods=q.mapping_methods(SOURCE/q.PERSISTENT)
+        self.assertTrue(methods.startswith('    private func sourceModel('))
+        self.assertIn('private func modelLookupBundles()',methods)
+        self.assertEqual((ROOT/'discovery.swift').read_text().count('// EXACT_PRODUCTION_MAPPING_METHODS'),1)
+        text=(ROOT/'run.py').read_text()
+        self.assertIn("discovery_source.replace('// EXACT_PRODUCTION_MAPPING_METHODS',methods)",text)
+        self.assertIn("models/'AltStore 17_7.mom'",text)
     def test_models_are_original_all_versions(self):
         text=(ROOT/'run.py').read_text();self.assertIn("source/MODEL,models",text)
         self.assertNotIn('modelXML.replace',text)
@@ -28,25 +36,30 @@ class ContractTests(unittest.TestCase):
         self.assertIn('NSReadOnlyPersistentStoreOption: true',text)
         self.assertNotIn('replacePersistentStore',text)
         self.assertNotIn('removeItem',text)
-    def test_framework_counterfactual_does_not_require_hypothesis(self):
+    def test_framework_counterfactual_preserves_physical_scope_limit(self):
         text=(ROOT/'discovery.swift').read_text()
         self.assertIn('Bundle.allBundles',text);self.assertIn('Bundle(for: anchor)',text)
         self.assertIn('physical_lc_bootstrap_executed": false',text)
         self.assertIn("[('FMWK','resources'),('APPL','flat')]",(ROOT/'run.py').read_text())
     def discovery_result(self,baseline=False):
-        return {'schema':'coredata-owned-framework-discovery-v2','main_bundle_is_isolated_host':True,
+        return {'schema':'coredata-owned-framework-discovery-v3','main_bundle_is_isolated_host':True,
                 'main_bundle_model_resources_before':0,'main_bundle_model_resources_after':0,
                 'source_model_found_before_framework_load':False,'unknown_source_model_found_in_explicit_owner':False,
                 'owner_is_requested_framework':True,'main_is_requested_framework':False,
                 'explicit_owner_source_model_found':True,'explicit_owner_model_compatible':True,
                 'explicit_supplied_source_model_found':True,'explicit_supplied_model_compatible':True,
-                'baseline_source_model_found':baseline,'baseline_model_compatible':baseline}
+                'baseline_source_model_found':baseline,'baseline_model_compatible':baseline,
+                **{k:True for k in ('production_owned_source_model_found','production_owned_model_compatible','production_mapping_selected','production_owned_model_urls_include_source_and_target','production_wrong_version_bundle_exposes_current_model')},
+                **{k:False for k in ('production_nil_owner_source_model_found','production_unknown_source_model_found','production_wrong_version_source_model_found')}}
     def test_discovery_requires_real_isolation_not_desired_result(self):
-        q.verify_discovery(self.discovery_result(False));q.verify_discovery(self.discovery_result(True))
+        q.verify_discovery(self.discovery_result(False))
+        with self.assertRaises(ValueError):q.verify_discovery(self.discovery_result(True))
         for key,value in [('main_bundle_is_isolated_host',False),('main_bundle_model_resources_before',1),
                           ('main_bundle_model_resources_after',1),('source_model_found_before_framework_load',True),
                           ('unknown_source_model_found_in_explicit_owner',True),('owner_is_requested_framework',False),
-                          ('main_is_requested_framework',True),('explicit_owner_model_compatible',False)]:
+                          ('main_is_requested_framework',True),('explicit_owner_model_compatible',False),
+                          ('production_owned_model_compatible',False),('production_mapping_selected',False),
+                          ('production_unknown_source_model_found',True),('production_wrong_version_source_model_found',True)]:
             with self.subTest(key=key),self.assertRaises(ValueError):q.verify_discovery(dict(self.discovery_result(),**{key:value}))
     def test_discovery_executable_and_models_not_siblings(self):
         text=(ROOT/'run.py').read_text()

@@ -23,7 +23,8 @@ SUITES = {
     'SideStore': ('tests/startup_outcome/test_contract.py', (
         'AltStore/AppDelegate.swift', 'AltStore/Core/Model/DatabaseManager/DatabaseManager.swift',
         'AltStore/Core/Model/DatabaseManager/PersistentContainer.swift',
-        'SideStore/MaintenanceManager.swift', 'tests/startup_outcome/test_contract.py')),
+        'SideStore/MaintenanceManager.swift', 'tests/startup_outcome/test_contract.py',
+        'tests/startup_outcome/test_model_resource_owner.py')),
 }
 
 def require(value, message):
