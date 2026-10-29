@@ -114,6 +114,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/test_refresh_truth_receipt.py
+          python3 -B harness/ci/issues-native/test_refresh_truth_generated_lifecycle.py
           python3 -B harness/ci/issues-native/test_refresh_truth_orchestration.py
           python3 -B harness/ci/refresh-truth/run.py swift --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-swift-driver.log
       - name: Preserve early refresh truth failure evidence

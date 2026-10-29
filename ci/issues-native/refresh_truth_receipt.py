@@ -39,6 +39,47 @@ def identity(value):
  return value
 def git(root,*args):
  return subprocess.check_output(['git','--no-replace-objects','--literal-pathspecs','-C',str(root),'-c','core.hooksPath=/dev/null',*args],text=True,timeout=30).strip()
+GENERATED_STAGES={
+ 'LiveContainer':('generated-openssl','GeneratedDependencies/OpenSSL35'),
+ 'SideStore/Dependencies/minimuxer':('generated-embedded-openssl','GeneratedDependencies/RemotePairingKit'),
+}
+def generated_stage_files(owner,inventory):
+ if owner not in GENERATED_STAGES:return {}
+ key,relative=GENERATED_STAGES[owner];stage=inventory.get(key,{})
+ if stage.get('present') is not True:return {}
+ require(stage.get('relative_path')==owner+'/'+relative,'unexpected generated owner path')
+ rows=stage.get('files');require(type(rows) is dict and rows and '.' in rows,'missing generated inventory')
+ result={}
+ for name,row in rows.items():
+  require(type(name) is str and (name=='.' or (not name.startswith('/') and all(p not in ('','.', '..') for p in name.split('/')))),'unsafe generated relative path')
+  require(type(row) is dict and row.get('kind') in ('file','directory') and type(row.get('mode')) is int and 0<=row['mode']<=0o777,'invalid generated inventory row')
+  require(set(row)==({'kind','mode','sha256'} if row['kind']=='file' else {'kind','mode'}),'generated inventory row closure differs')
+  if row['kind']=='file':
+   require(re.fullmatch('[0-9a-f]{64}',row['sha256']) is not None,'invalid generated digest')
+   result[relative+'/'+name]=row['sha256']
+ require(rows['.']['kind']=='directory','generated root is not directory')
+ return result
+
+def verify_generated_stage(root,owner,inventory):
+ allowed=generated_stage_files(owner,inventory)
+ if not allowed:return allowed
+ key,relative=GENERATED_STAGES[owner];base=root/relative;cursor=root
+ for part in relative.split('/'):
+  cursor=cursor/part;require(cursor.is_dir() and not cursor.is_symlink(),'missing/linked generated ancestor')
+ actual={}
+ for path in [base,*sorted(base.rglob('*'))]:
+  mode=path.lstat().st_mode
+  require(stat.S_ISDIR(mode) or stat.S_ISREG(mode),'linked/nonregular generated compiler input')
+  row={'kind':'directory' if stat.S_ISDIR(mode) else 'file','mode':stat.S_IMODE(mode)}
+  if stat.S_ISREG(mode):row['sha256']=sha(path)
+  actual[path.relative_to(base).as_posix()]=row
+ require(actual==inventory[key]['files'],'generated source inventory differs from compiler seal')
+ return allowed
+
+def generated_failure_context(owner,name):
+ relative=name if name.startswith(('GeneratedDependencies/','DeviceGateway/LocalBinary/')) and re.fullmatch(r'[A-Za-z0-9_./+\-]{1,180}',name) else 'path_sha256='+hashlib.sha256(name.encode()).hexdigest()
+ return owner+':'+relative
+
 def collect(sources,graph,compiler_inventory=None):
  sources=Path(sources).resolve(strict=True);observed={};hashes={}
  for owner,paths in INPUTS.items():
@@ -80,16 +121,11 @@ def collect(sources,graph,compiler_inventory=None):
    changes=set(git(root,'diff','--name-only','--ignore-submodules=dirty','HEAD').splitlines())
    permitted={'AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'} if owner=='SideStore' else set()
    require(changes<=permitted,'unexpected tracked compiler modification')
-   allowed_generated={}
-   generated=compiler_inventory.get('generated-openssl',{})
-   if owner=='LiveContainer' and generated.get('present') is True:
-    require(generated.get('relative_path')=='LiveContainer/GeneratedDependencies/OpenSSL35','unexpected generated owner path')
-    for name,row in generated.get('files',{}).items():
-     if row.get('kind')=='file':allowed_generated['GeneratedDependencies/OpenSSL35/'+name]=row['sha256']
+   allowed_generated=verify_generated_stage(root,owner,compiler_inventory)
    if owner=='SideStore/Dependencies/minimuxer':
-    allowed_generated={'DeviceGateway/LocalBinary/IDevice.xcframework/'+name:digest for name,digest in compiler_inventory.get('local-framework',{}).items()}
+    allowed_generated.update({'DeviceGateway/LocalBinary/IDevice.xcframework/'+name:digest for name,digest in compiler_inventory.get('local-framework',{}).items()})
    for name in git(root,'ls-files','--others','--exclude-standard').splitlines():
-    require(name in allowed_generated,'unsealed generated source file')
+    require(name in allowed_generated,'unsealed generated source file '+generated_failure_context(owner,name))
     path=root/name;require(path.is_file() and not path.is_symlink() and sha(path)==allowed_generated[name],'generated source file differs from compiler seal')
   observed[owner]={'repository':graph['owners'][owner][0],'commit':graph['owners'][owner][1],'tree':tree}
   for name in paths:
@@ -140,11 +176,25 @@ def verify_portable(value,graph,run):
  require(value['parts']['swift']['source']==value['parts']['rust']['source'],'source changed between native suites')
  return value
 
+def sealed_compiler_inventory(compiler_evidence,graph,run):
+ before=read(Path(compiler_evidence)/'compiler-inputs.json');after=read(Path(compiler_evidence)/'after-build.json')
+ require(before==after,'compiler input seal changed after build')
+ for owner,(key,_) in GENERATED_STAGES.items():
+  if owner not in graph['owners']:continue
+  sealed=after.get(key,{})
+  require(sealed.get('present') is True,'required generated stage missing')
+  stage_path=Path(compiler_evidence)/(key+'-stage.json');stage=read(stage_path)
+  require(sha(stage_path)==sealed.get('stage_receipt_sha256'),'generated stage receipt hash differs')
+  expected={k:v for k,v in sealed.items() if k!='stage_receipt_sha256'}
+  require(stage.get('schema')=='same-run-'+key+'-input-v1' and stage.get('consumer_commit')==graph['owners'][owner][1] and stage.get('generated')==expected,'generated stage identity differs')
+  require({k:str(stage.get(k,'')) for k in run}==run,'generated stage run differs')
+  if key=='generated-embedded-openssl' and 'RemotePairingKit' in graph['owners']:
+   require(after.get('RemotePairingKit',{}).get('commit')==graph['owners']['RemotePairingKit'][1] and sealed.get('source_commit')==graph['owners']['RemotePairingKit'][1] and sealed.get('source_tree')==after['RemotePairingKit'].get('tree'),'embedded generated upstream pin differs')
+  generated_stage_files(owner,after)
+ return after
+
 def verify_local(path,sources,graph,run,compiler_evidence=None):
  value=verify_portable(read(path),graph['owners'],run)
- inventory=None
- if compiler_evidence is not None:
-  before=read(Path(compiler_evidence)/'compiler-inputs.json');after=read(Path(compiler_evidence)/'after-build.json')
-  require(before==after,'compiler input seal changed after build');inventory=after
+ inventory=sealed_compiler_inventory(compiler_evidence,graph,run) if compiler_evidence is not None else None
  require(collect(sources,graph,inventory)==value['parts']['swift']['source'],'current compiler source differs from refresh fixture source')
  return value
