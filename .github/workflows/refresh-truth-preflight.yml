@@ -62,6 +62,17 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B harness/ci/refresh-truth/run.py swift --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-swift-driver.log
+      - name: Retain immediate Swift failure diagnostics before independent Rust tests
+        id: swift_failure_diagnostics
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.swift_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-swift-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/refresh-truth*.json
+            evidence/refresh-truth*.log
+          if-no-files-found: error
+          retention-days: 14
       - name: Select exact previously qualified Rust compiler
         id: rust_tools
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}

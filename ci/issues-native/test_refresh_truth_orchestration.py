@@ -19,7 +19,7 @@ class OrchestrationTests(unittest.TestCase):
      self.assertEqual(args[args.index('--manifest-path')+1],str(sources/'idevice/Cargo.toml'))
      self.assertIn('--locked',args);self.assertIn('--no-default-features',args)
      self.assertEqual(env['CARGO_TARGET_DIR'],str(out/'rust-target'))
-     if key=='idevice-ffi':self.assertIn('misagent,openssl,rsd,core_device_proxy',args)
+     if key=='idevice-ffi':self.assertIn('misagent,openssl,rsd,core_device_proxy,tunnel_tcp_stack,heartbeat',args)
     else:
      script=Path(args[2]);key=next(k for k,(p,_) in C.SUITES.items() if script==sources/C.SUITE_OWNERS[k]/p)
      text=value['parts']['swift']['logs'][key]
@@ -40,6 +40,39 @@ class OrchestrationTests(unittest.TestCase):
     (out/('refresh-truth-'+kind+'.json')).write_text(json.dumps(part))
    with mock.patch.object(R,'load_candidate_graph',return_value={'owners':value['source_graph']}),mock.patch.object(R,'run_identity',return_value=value['identity']),mock.patch.object(C,'collect',return_value=value['parts']['swift']['source']),self.assertRaisesRegex(ValueError,'not passed'):R.run('seal',sources,out)
    self.assertFalse((out/'refresh-truth-tests.json').exists())
+ def test_swift_failure_runs_every_other_owner_once_but_never_passes(self):
+  value=fixture();source=value['parts']['swift']['source'];calls=[]
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary).resolve();sources=root/'sources';sources.mkdir();out=root/'evidence';out.mkdir()
+   def fake(args,cwd,log,env,timeout):
+    script=Path(args[2]);owner=next(k for k,(p,_) in C.SUITES.items() if script==sources/C.SUITE_OWNERS[k]/p)
+    calls.append(owner);self.assertEqual(timeout,600)
+    if owner=='SideStore':log.write_text('native fixture compiler error\n');raise ValueError('source-owned fixture command failed')
+    text=value['parts']['swift']['logs'][owner];log.write_text(text);return text
+   with mock.patch.object(R,'load_candidate_graph',return_value={'owners':value['source_graph']}),mock.patch.object(R,'run_identity',return_value=value['identity']),mock.patch.object(C,'collect',return_value=source) as collected,mock.patch.object(R,'compiler',return_value=value['parts']['swift']['compiler']),mock.patch.object(R,'command',side_effect=fake):
+    with self.assertRaisesRegex(ValueError,'independent Swift qualification failed'):R.run('swift',sources,out)
+   self.assertEqual(calls,list(C.SUITES));self.assertEqual(collected.call_count,len(C.SUITES)+2)
+   result=C.read(out/'refresh-truth-swift.json');self.assertEqual(result['status'],'FAILED');self.assertEqual(set(result['logs']),set(C.SUITES))
+   with self.assertRaisesRegex(ValueError,'not passed'):C.validate_part(result,'swift',value['source_graph'],value['identity'])
+   self.assertFalse((out/'refresh-truth-tests.json').exists())
+ def test_changed_source_stops_before_next_owner_and_cannot_pass(self):
+  value=fixture();source=value['parts']['swift']['source'];calls=[]
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary).resolve();sources=root/'sources';sources.mkdir();out=root/'evidence';out.mkdir()
+   def fake(args,cwd,log,env,timeout):
+    calls.append(args);text=value['parts']['swift']['logs']['LiveContainer'];log.write_text(text);return text
+   with mock.patch.object(R,'load_candidate_graph',return_value={'owners':value['source_graph']}),mock.patch.object(R,'run_identity',return_value=value['identity']),mock.patch.object(C,'collect',side_effect=[source,{'changed':True}]),mock.patch.object(R,'compiler',return_value=value['parts']['swift']['compiler']),mock.patch.object(R,'command',side_effect=fake):
+    with self.assertRaisesRegex(ValueError,'source changed after native refresh suite'):R.run('swift',sources,out)
+   self.assertEqual(len(calls),1);self.assertEqual(C.read(out/'refresh-truth-swift.json')['status'],'FAILED')
+ def test_missing_swift_log_is_failure_not_permission_to_skip_owner(self):
+  value=fixture();calls=[]
+  with tempfile.TemporaryDirectory() as temporary:
+   root=Path(temporary).resolve();sources=root/'sources';sources.mkdir();out=root/'evidence';out.mkdir()
+   def fake(args,cwd,log,env,timeout):
+    calls.append(args);raise OSError('synthetic process launch failure')
+   with mock.patch.object(R,'load_candidate_graph',return_value={'owners':value['source_graph']}),mock.patch.object(R,'run_identity',return_value=value['identity']),mock.patch.object(C,'collect',return_value=value['parts']['swift']['source']),mock.patch.object(R,'compiler',return_value=value['parts']['swift']['compiler']),mock.patch.object(R,'command',side_effect=fake):
+    with self.assertRaisesRegex(ValueError,'required suite log missing'):R.run('swift',sources,out)
+   self.assertEqual(len(calls),len(C.SUITES));self.assertEqual(C.read(out/'refresh-truth-swift.json')['status'],'FAILED')
  def test_native_and_package_have_mandatory_same_source_receipt(self):
   workflow=(ROOT/'.github/workflows/cold-vpn-native.yml').read_text()
   self.assertIn('id: refresh_truth_swift',workflow);self.assertIn('id: refresh_truth_rust',workflow)
@@ -53,6 +86,18 @@ class OrchestrationTests(unittest.TestCase):
   for name in ('acquire.py','independent_verify.py'):
    text=(ROOT/'ci/cold-vpn-zopfli'/name).read_text();self.assertIn('refresh-truth-tests.json',text);self.assertIn('refresh_truth_regression_sha256',text);self.assertIn('verify_refresh_truth',text)
   quick=(ROOT/'.github/workflows/cold-vpn-zopfli.yml').read_text();self.assertIn('ci/issues-native/refresh_truth_receipt.py workspace/',quick);self.assertIn('workspace/refresh-truth-tests.json',quick)
+ def test_focused_swift_failure_upload_is_early_bounded_and_does_not_seal(self):
+  text=(ROOT/'.github/workflows/refresh-truth-preflight.yml').read_text()
+  self.assertLess(text.index('id: swift_tests'),text.index('id: swift_failure_diagnostics'))
+  self.assertLess(text.index('id: swift_failure_diagnostics'),text.index('id: rust_tools'))
+  block=text[text.index('        id: swift_failure_diagnostics'):text.index('      - name: Select exact previously qualified Rust compiler')]
+  self.assertIn("!cancelled() && steps.source_gate.outcome == 'success' && steps.swift_tests.outcome == 'failure'",block)
+  self.assertIn('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',block)
+  self.assertEqual([line.strip() for line in block.splitlines() if line.strip().startswith('evidence/')],['evidence/refresh-truth*.json','evidence/refresh-truth*.log'])
+  self.assertIn('if-no-files-found: error',block);self.assertNotIn('run:',block)
+  self.assertNotIn('always()',block);self.assertNotIn('continue-on-error',text)
+  self.assertIn("test '${{ steps.swift_tests.outcome }}' = success",text)
+  self.assertIn("test '${{ steps.rust_tests.outcome }}' = success",text)
  def test_focused_workflow_has_all_independent_stages_without_skipping_native(self):
   text=(ROOT/'.github/workflows/refresh-truth-preflight.yml').read_text()
   for stage in ('swift_tests','rust_tests'):

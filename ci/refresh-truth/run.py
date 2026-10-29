@@ -41,15 +41,28 @@ def run(kind,sources,output):
  try:
   if kind=='swift':
    env={**os.environ,'V3_REQUIRE_SWIFT':'1','REQUIRE_NATIVE_PROFILE_READBACK':'1','PYTHONDONTWRITEBYTECODE':'1','V3_HOST_SOURCE_ROOT':str(sources/'LiveContainer')}
+   failures=[]
    for owner,(script,count) in C.SUITES.items():
     label=owner.replace('/','-');log=output/('refresh-truth-'+label+'.log')
-    text=command([sys.executable,'-B',str(sources/C.SUITE_OWNERS[owner]/script),'-v'],output,log,env,600)
-    C.completed_tests(text,count);report['logs'][owner]=text
+    try:
+     text=command([sys.executable,'-B',str(sources/C.SUITE_OWNERS[owner]/script),'-v'],output,log,env,600)
+     C.completed_tests(text,count);report['logs'][owner]=text
+    except Exception as error:
+     # Independent source-owned fixtures run once each; a failure never
+     # becomes a passing part, and missing logs remain a hard failure.
+     if log.is_file() and not log.is_symlink():report['logs'][owner]=log.read_text()
+     else:failures.append(owner+': required suite log missing')
+     failures.append(owner+': '+str(error))
+    # A failed fixture may be independent; changed source is not. Never run
+    # another owner after the pinned graph has been modified.
+    C.require(C.collect(sources,graph)==before,'source changed after native refresh suite: '+owner)
+   C.require(C.collect(sources,graph)==before,'source changed during native refresh qualification')
+   C.require(not failures,'independent Swift qualification failed: '+'; '.join(failures))
   else:
    env={**os.environ,'CARGO_TARGET_DIR':str(output/'rust-target')}
    # Cargo resolves only the exact checked-in lock; no package replacement or
    # untracked lock edits are accepted. Build products remain outside sources.
-   for package,features,filter_name in [('idevice','misagent,openssl','profile_readback_tests'),('idevice-ffi','misagent,openssl,rsd,core_device_proxy','bounded_profile_readback_tests')]:
+   for package,features,filter_name in [('idevice','misagent,openssl','profile_readback_tests'),('idevice-ffi','misagent,openssl,rsd,core_device_proxy,tunnel_tcp_stack,heartbeat','bounded_profile_readback_tests')]:
     args=['cargo','test','--locked','--manifest-path',str(sources/'idevice/Cargo.toml'),
           '-p',package,'--lib','--no-default-features','--features',features,filter_name,'--','--nocapture']
     text=command(args,output,output/('refresh-truth-'+package+'-rust.log'),env,900)

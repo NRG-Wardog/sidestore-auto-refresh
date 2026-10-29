@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "cff6c89ec202eb4fa63286a616f7fc4cd0b9395f"
+      "dafcf0772a9259326c51751043fef5acb5afdc9e"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -261,9 +261,9 @@
         "tests/refresh_truth/README.md": "30d7b15a2f56f72827001effc153e048169c07df",
         "tests/refresh_truth/cases.swift": "6aa70dc26215f5589a5fb3cbd950209bfcf6ac5d",
         "tests/refresh_truth/operation_cases.swift": "af5a98127db5a0714e0f14744c6a73b6439c1f50",
-        "tests/refresh_truth/operation_doubles.swift": "4f9e304dd9bf7b57c816f2b8de6a49caeae4c586",
+        "tests/refresh_truth/operation_doubles.swift": "66971732eff7989bb46d4fa115a0f425f9ec28ea",
         "tests/refresh_truth/runtime.swift": "95a6077b14072c6b86ded670ec09db4390c0fc6b",
-        "tests/refresh_truth/test_contract.py": "e517877f9ac7b6d60a5d820fd90f1c7b50d4277c",
+        "tests/refresh_truth/test_contract.py": "bf71721d537b65387abf6c941171f4f9ae1cb95b",
         "tests/reuse_main/ExplanationCases.swift": "5a5e49951b1e5e38b466f8b9d3336afd71cfdded",
         "tests/reuse_main/RegistryCases.swift": "cd5ac91c7f9c2f3684f85fe816f1d9bf396f024e",
         "tests/reuse_main/run.sh": "b29d67e12cc2a5d13cb95b15c071ccac32dc2b71",
@@ -277,7 +277,7 @@
         "tests/vpn_transport_recovery/generate_fixture.py": "8d871abc7912727cd59602014a122c77414dd5b0",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "c4a2e3e6462f53f7601434deb83aba2be4d69e15"
+      "tree": "7d6bfd245f620d8e852bb9b5f46fdf58005a5f38"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
