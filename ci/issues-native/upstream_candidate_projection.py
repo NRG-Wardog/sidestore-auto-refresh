@@ -9,17 +9,27 @@ from local_wifi_fixture_projection import PATH as WIFI_PATH, SHA as WIFI_SHA, RO
 MM='SideStore/Dependencies/minimuxer/'
 ALLOWED_MM={MM+p for p in ('.ci/verify-upstream-sync.py','Sources/DeviceProvider.swift','Sources/MinimuxerApi.swift')}
 ALLOWED_VPN={MM+p for p in ('Sources/MinimuxerApi.swift','Sources/MinimuxerImpl.swift','Sources/Services/NetworkObserverService.swift')}|{'SideStore/SideStore/Core/Operations/PipelineExecutor.swift','SideStore/tests/vpn_transport_recovery/generate_fixture.py'}
+OBSERVATION_MAPPER='SideStore/SideStore/Core/DeviceApi/MinimuxerWrapper.swift'
+OBSERVATION_MAPPER_SHA='af45d7ab0ecb68028f7c105cc1291e0de9949e74f3294f928fe48bca82e0373d'
+SELECTION_PATH='SideStore/SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift'
+SELECTION_SHA='f15da0a64815bd181fa80b1f1c2988cc6e4623c1a649f1aa0c107697ec0d89fc'
+SELECTION_ROLE='selection'
+ALLOWED_VPN=ALLOWED_VPN|{OBSERVATION_MAPPER,SELECTION_PATH}
 def sha(data):return hashlib.sha256(data).hexdigest()
 def bind(inputs,allowed,graph,sources):
  result,changes=project({'input_sha256':inputs},graph,sources)
  require(set(changes)<=allowed,'Unreviewed upstream runtime input change')
  return result['input_sha256'],changes
 def reviewed_vpn_rows(original):
- require(WIFI_ROLE not in original,'Duplicate Wi-Fi fixture role')
  result=copy.deepcopy(original)
- require(all(row['path']!=WIFI_PATH for row in result.values()),'Duplicate Wi-Fi fixture path')
- result[WIFI_ROLE]={'path':WIFI_PATH,'sha256':WIFI_SHA}
+ for role,path,digest in ((WIFI_ROLE,WIFI_PATH,WIFI_SHA),(SELECTION_ROLE,SELECTION_PATH,SELECTION_SHA)):
+  require(role not in result,'Duplicate reviewed fixture role')
+  require(all(row['path']!=path for row in result.values()),'Duplicate reviewed fixture path')
+  result[role]={'path':path,'sha256':digest}
  return result
+def validate_observation_dependencies(sources):
+ require(sha((sources/SELECTION_PATH).read_bytes())==SELECTION_SHA,'Unreviewed selection fixture dependency bytes')
+ require(sha((sources/OBSERVATION_MAPPER).read_bytes())==OBSERVATION_MAPPER_SHA,'Unreviewed observation mapper bytes')
 def current_spec(sources,graph=None):
  sources=Path(sources).resolve(strict=True);graph=load_candidate_graph() if graph is None else graph
  frozen_path=HERE/'upstream-sync-contract.json';frozen=json.loads(frozen_path.read_text());result=copy.deepcopy(frozen)
@@ -30,7 +40,10 @@ def current_spec(sources,graph=None):
  require(WIFI_PATH not in vpn_inputs,'Duplicate Wi-Fi dependency in frozen baseline')
  require(sha((sources/WIFI_PATH).read_bytes())==WIFI_SHA,'Unreviewed Wi-Fi fixture dependency bytes')
  require(sha((sources/WIFI_TEST_PATH).read_bytes())==WIFI_TEST_SHA,'Unreviewed additive Wi-Fi extraction control bytes')
+ require(SELECTION_PATH not in vpn_inputs,'Duplicate selection dependency in frozen baseline')
+ validate_observation_dependencies(sources)
  vpn_inputs[WIFI_PATH]=None
+ vpn_inputs[SELECTION_PATH]=None
  vpn,vpn_changes=bind(vpn_inputs,ALLOWED_VPN|{WIFI_PATH,WIFI_TEST_PATH},graph,sources)
  target=result['vpn_transport_regression'];target['source_inputs']=vpn
  generator=sources/'SideStore/tests/vpn_transport_recovery/generate_fixture.py'

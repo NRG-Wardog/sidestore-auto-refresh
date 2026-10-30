@@ -58,7 +58,10 @@ jobs:
           python3 -B sources/LiveContainer/.ci/vpn-refresh-recovery/test_classifier_dependency.py
           python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py
           python3 -B harness/ci/issues-native/verify_current_bindings.py --sources sources --output evidence/current-source-bindings.json
+          python3 -B harness/ci/issues-native/test_upstream_candidate_projection.py
+          python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
+          python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
           python3 -B harness/ci/issues-native/test_refresh_truth_receipt.py
           python3 -B harness/ci/issues-native/test_refresh_truth_generated_lifecycle.py
           python3 -B harness/ci/issues-native/test_refresh_truth_orchestration.py
