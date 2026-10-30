@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "e00502b6f98d0c1f63099f094406ca93607872fc"
+      "5e5060fd8405e8dc8d3a0bdf6645564b16e95bbf"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "0b27b7b8f3a5e29eb7bad7fba60494b2e8c5d577"
+      "28e700bccf050dc3399f572477833e856ce4008f"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -91,22 +91,23 @@
         ".ci/cold-vpn-observation/cases.swift": "62e36ca29e24fb68e489fb0a64265616cc00c731",
         ".ci/cold-vpn-observation/test_contract.py": "ff29fdfb2367fe4dc93b149172b9b9ffd74b7ee2",
         ".ci/comprehensive-diagnostics/generate_pairing_recovery_fixture.py": "9bb194cb86c7368966db0844aaebf01ec4dd57f4",
-        ".ci/comprehensive-diagnostics/generate_refresh_failure_fixture.py": "b4999b43e3c9d398cfe6614f642311094082bcf0",
+        ".ci/comprehensive-diagnostics/generate_refresh_failure_fixture.py": "48bf5ca451bdc4e3b1652a47a27e9940c7d9969a",
         ".ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "c2445e97538a9323e4599ea1442ed09c574e044a",
-        ".ci/comprehensive-diagnostics/refresh_failure_harness.swift": "919141f4812211b35842e63dca5520a8443d01d8",
+        ".ci/comprehensive-diagnostics/refresh_failure_harness.swift": "602c362d23a76150c62b39b7d6cc2c882f787696",
         ".ci/comprehensive-diagnostics/setup_localization_harness.swift": "685e64c7b6c5726cd8a40fe3e598f96d30f071f6",
         ".ci/comprehensive-diagnostics/test_pairing_recovery_contract.py": "b1e1ff62080b80eb0ac343581b0b682d11956000",
+        ".ci/comprehensive-diagnostics/test_refresh_failure_contract.py": "09953ce610897931e591457ca87614ec778f20de",
         ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "51d4658e522ff9f2b37dd181bcd736ccfd1d68ee",
         ".ci/early-refresh-boundaries/early_cases.swift": "8ace99364dff25993bb071e3b7efc36c91f415a4",
-        ".ci/early-refresh-boundaries/early_doubles.swift": "c36820ba08e6a71f9e53f83a4e045dd1b9fd7e62",
-        ".ci/early-refresh-boundaries/generate_profile_regression.py": "0da6f297a1adb9a3cf6aa56c79554ca5a0b857b6",
-        ".ci/early-refresh-boundaries/generate_regression.py": "208baf9a674f7555174453346daea94ac740cb73",
-        ".ci/early-refresh-boundaries/test_contract.py": "4562f42bbd04d53539bdee2302c80e90527638bc",
+        ".ci/early-refresh-boundaries/early_doubles.swift": "842cf57352479e2dda93ae137c37918696c915f7",
+        ".ci/early-refresh-boundaries/generate_profile_regression.py": "975fbea589cab1123c59421ae90835a02214aa25",
+        ".ci/early-refresh-boundaries/generate_regression.py": "11b748e3182700e400f37bd064f96b4904db311e",
+        ".ci/early-refresh-boundaries/test_contract.py": "cf47b78d904e02fc8b72676453dc02d24875e323",
         ".ci/extension-selection/Cases.swift": "124f2b2b16d0164f114898a48c6062735443a805",
         ".ci/extension-selection/Doubles.swift": "09aaec3bb1e31ce8948abd0b184d04c822cf051d",
         ".ci/extension-selection/generate_fixture.py": "f524a726714d23df3acd78192b490bb0b8f21798",
         ".ci/owned-oda-note/test_source.py": "47858793600ed76f6dd220b899a733744bad33ab",
-        ".ci/refresh-observations/cases.swift": "940e6e2956fd7f94acb5ad4badca20d0308c3b60",
+        ".ci/refresh-observations/cases.swift": "d337b19d337b608ffabd9493df5a8197b7f9453c",
         ".ci/refresh-observations/localization_keys.json": "2844fee75cebb3434f1fc373b3b52c066673d1dd",
         ".ci/refresh-observations/test_refresh_observations.py": "024ec07b8659e8b6479a34918d3cbdddfe2bed48",
         ".ci/refresh-truth/localization_keys.json": "766aec3b383e245b77b9d637525cf506966f0007",
@@ -120,7 +121,8 @@
         ".ci/vpn-refresh-recovery/PlatformDoubles.swift": "1e773086bfdc8f4d7d50fe55b3bc0ac233fb4e28",
         ".ci/vpn-refresh-recovery/cases.swift": "efddf643ba7710b88b0848f419147e88ecd4826f",
         ".ci/vpn-refresh-recovery/cold-peer-source.json": "d5979feca26c824928a8b4c9375ed27de03dfa14",
-        ".ci/vpn-refresh-recovery/generate_fixture.py": "892dd5dbd456cb935ee6f3e394780c837a842ecf",
+        ".ci/vpn-refresh-recovery/generate_fixture.py": "eb4784e4160bc50660cf331d663ce94b6983fa3a",
+        ".ci/vpn-refresh-recovery/test_classifier_dependency.py": "e72b0c7631abb653cc339388aa870ceec6fc1554",
         ".github/workflows/build.yml": "7d17217482f45cb96cc8d9393be2799a071bd026",
         ".github/workflows/native-app-compile.yml": "704a7faf9d48b8b586a70f0c2d935aa35ba85d80",
         ".github/workflows/package-diagnostic.yml": "fe77d4c7665195b7703dd05d65fdb8f081261eae",
@@ -158,7 +160,7 @@
         "MultitaskSupport/VirtualWindowsHostView.m": "4185db73b6a1f79447af283acdb51152b6ca4938",
         "Resources/Localizable.xcstrings": "1634d086b3c3e9c3dc4ce9c9b65d0974b1ac67d1",
         "Resources/ru.lproj/InfoPlist.strings": "2b181bbb36354e981df0f4746b95eee7b030ade4",
-        "SideStoreSupport/SideStore.swift": "f46199b0e95f69ff9298dcbbd59af5cb361e628c",
+        "SideStoreSupport/SideStore.swift": "1ab7fc12e72cdfe4b476a2ffe5107f9732fc99fc",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
         "docs/integration/GENERATED_OPENSSL35.md": "113c76d38fd59f03050a3faf68285585ce1ca363",
         "docs/localization/RUSSIAN_UI.md": "fa5d4fdea01507775e5eb63a3c390657904ab3e9",
@@ -193,7 +195,7 @@
         "tests/test_startup_diagnosis_card.py": "64f5d544c21d538342c988797b94c3c4da856c71",
         "tests/test_startup_diagnostics.py": "ca6d8634f460aea00ceb274d777a8fdff2ff8b49"
       },
-      "tree": "0103f116a8fdc3c4846238c2bc968d468ce8f082"
+      "tree": "5eec11d65d418d2e57b74a2665626e26789c67b8"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -210,16 +212,16 @@
         ".ci/owned-oda/generate_identity.py": "04c62f67bb581ba790bf447007df2f3454842fb0",
         ".ci/owned-oda/run.sh": "ab64ec8454cb4897fa1ebdaf656404ddc44638bd",
         ".ci/owned-oda/test_sources.py": "c4b0ad970e632e66ee10ecbc936a7cfd21719aef",
-        ".ci/remote-identity-reuse/RuntimeCases.swift": "f10680d3d01ead3cea943759b02b951f4f5f5db8",
-        ".ci/remote-identity-reuse/RuntimeDoubles.swift": "18a850c91de5fb1540aa324a78d9f9d19e255aa9",
-        ".ci/remote-identity-reuse/generate_fixture.py": "bc68af1ca5d198b8286da85c160533152bdb610d",
-        ".ci/remote-identity-reuse/test_generator.py": "9f2353524f694fbc386234f5c5c5d00f6f6c059d",
+        ".ci/remote-identity-reuse/RuntimeCases.swift": "864e2fd6834ddd09ea2b3ba38893d911cd155bd5",
+        ".ci/remote-identity-reuse/RuntimeDoubles.swift": "cc1d6dd7d992c8d3e976558ebb0a58a9af012ea5",
+        ".ci/remote-identity-reuse/generate_fixture.py": "19a5970c17fe1b06623493b5588fa7e49ad78b21",
+        ".ci/remote-identity-reuse/test_generator.py": "22cc90517963fe6c947866db6b8b3a11384eb100",
         ".github/workflows/nightly.yml": "0a4831356302661ed391de04eb400ba01fad8570",
         ".github/workflows/reviewed-branch-cleanup.yml": "3c84d751489af85c66ac56f934b557fc083ac6d8",
         "AGENTS.md": null,
         "AltStore.xcodeproj/project.pbxproj": "53a042b65192b1d6c2ed27926fdab69d4a09d51e",
         "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "c0ef6619c1f9971d78c809b9df3ac0e66b72d331",
-        "AltStore/AppDelegate.swift": "098cbcef8cb013e1ac98150adf43f0597cdceca0",
+        "AltStore/AppDelegate.swift": "b9fcdd809d232e8ced30cbaf9b9c7d1b5e8c8ff8",
         "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "43667573ccd1efb2d36fb25f7a4e7f4f894d1732",
         "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "b38c58967d8296e162c55f64e7e5d29679c42fef",
         "Dependencies/SideSign": "aac073a32cc8649b8bb4e604f52e124dc867003e",
@@ -290,7 +292,7 @@
         "tests/vpn_transport_recovery/generate_fixture.py": "ac0087b25c74408501b324f5e7675cfb0f884858",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "4e2ba40531611fb9c4957bb248709738bb2970db"
+      "tree": "09d8588c4789120d9b45856a5c838fe8884e648b"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",

@@ -7,7 +7,7 @@
   "candidate_inputs": {
     "LiveContainer/.ci/setup-connection-evidence/generate_fixture.py": "b364aa6c21675c0bf33bd07b9ec5b10fb641eee6a28f3914b5fd84d26aa6a916",
     "LiveContainer/.ci/setup-connection-evidence/cases.swift": "f6405cd609ac5abc2f5f5666ee63d2659dce66357a474fffa80f78aff49e5497",
-    "LiveContainer/.ci/vpn-refresh-recovery/generate_fixture.py": "16a34b89a4651f0bf43019d3792cd1c3a21d085fadabe4bc5c2d1e28f26785b2",
+    "LiveContainer/.ci/vpn-refresh-recovery/generate_fixture.py": "be7b3efc7e790764ddf8e1cd051088879847cf6086de72ba5491a954927f4433",
     "LiveContainer/.ci/vpn-refresh-recovery/cases.swift": "d587a26f5cc2e4ddcffb2f1b3e5ff0c4e0d985544c06926eb6ccce6a71c548ac"
   }
 }

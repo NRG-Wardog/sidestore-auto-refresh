@@ -26,6 +26,7 @@ from refresh_truth_flow_projection import add as add_truth_flow
 from verify_candidate_graph import HERE, load_candidate_graph, require, valid_path, git
 
 CONTRACTS = ('comprehensive-diagnostics-contract.json', 'setup-state-recovery-contract.json')
+CLASSIFIER_DEPENDENCY_TEST = 'LiveContainer/.ci/vpn-refresh-recovery/test_classifier_dependency.py'
 # Finite reviewed production dependencies extracted by candidate generators.
 # Frozen JSON stays untouched; existing ordered cases are preserved.
 ADDITIONAL_INPUTS = {
@@ -86,7 +87,7 @@ def sha(data):
 def project(contract, graph, sources, additional_inputs=()):
     result = copy.deepcopy(contract)
     changes = {}
-    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, OBSERVATION_KEY_MANIFEST, TRUTH_CACHE_INPUT, OBSERVATION_CACHE_INPUT}
+    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, OBSERVATION_KEY_MANIFEST, TRUTH_CACHE_INPUT, OBSERVATION_CACHE_INPUT, CLASSIFIER_DEPENDENCY_TEST}
     require(set(additional_inputs) <= allowed, 'unreviewed additive contract input')
     inputs = dict(contract['input_sha256'])
     for path in additional_inputs:
@@ -132,6 +133,8 @@ def contracts(sources, output, verify=False):
         if observations and name == "setup-state-recovery-contract.json": additional_inputs = additional_inputs + (OBSERVATION_KEY_MANIFEST,)
         if name == 'setup-state-recovery-contract.json' and OBSERVATION_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
             additional_inputs = additional_inputs + (OBSERVATION_CACHE_INPUT,)
+        if name == 'setup-state-recovery-contract.json' and CLASSIFIER_DEPENDENCY_TEST.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
+            additional_inputs = additional_inputs + (CLASSIFIER_DEPENDENCY_TEST,)
         cold_cache = COLD_VPN_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {})
         if cold_cache and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT)
         if name == 'setup-state-recovery-contract.json' and TRUTH_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):

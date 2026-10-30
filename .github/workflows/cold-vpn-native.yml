@@ -102,6 +102,7 @@ jobs:
           python3 -B harness/ci/issues-native/test_refresh_truth_setup_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_host_bundle_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_flow_projection.py
+          python3 -B sources/LiveContainer/.ci/vpn-refresh-recovery/test_classifier_dependency.py
           python3 -B harness/ci/issues-native/verify_current_bindings.py --sources sources --output evidence/current-source-bindings.json
           python3 -B harness/ci/issues-native/test_upstream_candidate_projection.py
           python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py

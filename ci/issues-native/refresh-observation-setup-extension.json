@@ -208,7 +208,7 @@
     "LiveContainer/.ci/refresh-observations/localization_keys.json": "b28ff28aacfde5d5b75c01b586527bc8efa5da388d6f1b0923533db49c91c4ec",
     "LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "2ca97ee5af724a4598d17a8018d7090aec10c27adaa6dd650c751d17b7abb81e",
     "LiveContainer/Resources/Localizable.xcstrings": "acb7fdd457f8bfba133099bdf705a94cc1d6b1a9c9e8f35cf2752a96b66f2906",
-    "LiveContainer/SideStoreSupport/SideStore.swift": "9dd31302d3f7e775e98ab1e9a8e820f3f60f0197c54b79bf43eb00d4bf778a96"
+    "LiveContainer/SideStoreSupport/SideStore.swift": "6255e00eb23b79e7de66a59fc9e53975cc6c6b6dc8cb46900523a7f766f3cf5b"
   },
   "expected_case_count": 1979,
   "key_count": 206,

@@ -33,7 +33,7 @@ class ReceiptTests(unittest.TestCase):
   for old,new in [('PASS '+C.OBSERVATION_CASES[0]+'\n',''),('PASS '+C.OBSERVATION_CASES[0],'PASS '+C.OBSERVATION_CASES[1]),('REFRESH_OBSERVATIONS_PASS',''),('REFRESH_OBSERVATIONS_PASS','REFRESH_OBSERVATIONS_PASS\nREFRESH_OBSERVATIONS_PASS')]:
    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',v['parts']['swift']['logs']['LiveContainer-observations'].replace(old,new)))
  def test_observation_source_closure_is_bound(self):
-  for path in ('.ci/comprehensive-diagnostics/generate_wire_fixture.py','.ci/refresh-observations/test_refresh_observations.py','.ci/refresh-observations/cases.swift','.ci/refresh-observations/localization_keys.json'):
+  for path in ('.ci/vpn-refresh-recovery/test_classifier_dependency.py','.ci/comprehensive-diagnostics/generate_wire_fixture.py','.ci/refresh-observations/test_refresh_observations.py','.ci/refresh-observations/cases.swift','.ci/refresh-observations/localization_keys.json'):
    self.assertIn(path,C.INPUTS['LiveContainer'])
    self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('LiveContainer/'+path))
   for path in ('SideStore/Core/DeviceApi/MinimuxerWrapper.swift','tests/cold_vpn_readiness/test_transport_observation.py','tests/cold_vpn_readiness/transport_observation_cases.swift'):

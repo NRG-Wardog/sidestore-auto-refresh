@@ -3,7 +3,7 @@ import copy,hashlib,json
 from pathlib import Path
 API='SideStore/Dependencies/minimuxer/Sources/MinimuxerApi.swift'
 GENERATOR='LiveContainer/.ci/early-refresh-boundaries/generate_regression.py'
-GENERATOR_SHA='777454bb47cb3d674688cfb44739f905d0a8749daec713d4e50f50c75592146a'
+GENERATOR_SHA='4cfe82d67ba0660414bceaa4052e0c606a39cb26d4fbaad172148fd132ce449a'
 TRUTH_SUPPORT=('SideStore/SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift', 'SideStore/SideStore/Core/Certificates/OCSPValidator.swift', 'SideStore/SideStore/Core/Operations/RefreshGroup.swift')
 KEY='reviewed_early_readiness_dependency'
 def require(ok,why):
@@ -32,7 +32,7 @@ def add(contract):
  return result
 
 TEST_SOURCE='LiveContainer/.ci/early-refresh-boundaries/test_contract.py'
-TEST_SOURCE_SHA='df84d6d696f83409955e65fdef04a370c74c700ff4f70a5949bec0e8564f5135'
+TEST_SOURCE_SHA='18d12c6da4b95ebe48122d245516c43c661fe2864a02cf6d0ec9e3dc40ad591b'
 def static_names():
  data=json.loads(Path(__file__).with_name('early_static_controls.json').read_text())
  require(data['schema']=='reviewed-early-static-control-names-v1','Early static name schema differs')

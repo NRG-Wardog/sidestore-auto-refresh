@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from project_candidate_contracts import project, sha, add_reviewed_host_coverage, HERE, HOST_CONTEXT_INPUT, HOST_ADDITIONAL_CASES, IDENTITY_CANDIDATE_INPUT
+from project_candidate_contracts import project, sha, add_reviewed_host_coverage, HERE, HOST_CONTEXT_INPUT, HOST_ADDITIONAL_CASES, IDENTITY_CANDIDATE_INPUT, CLASSIFIER_DEPENDENCY_TEST
 import json
 
 
@@ -54,6 +54,24 @@ class ProjectionTests(unittest.TestCase):
                     project(contract, self.graph, self.root, (path,))
         with self.assertRaisesRegex(ValueError, 'unreviewed additive'):
             project(contract, self.graph, self.root, ('unknown.swift',))
+
+    def test_classifier_control_requires_exact_reviewed_blob(self):
+        path = self.root / CLASSIFIER_DEPENDENCY_TEST
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.data)
+        relative = CLASSIFIER_DEPENDENCY_TEST.removeprefix('LiveContainer/')
+        self.graph['reviewed_deltas']['LiveContainer']['files'][relative] = self.blob
+        with patch('project_candidate_contracts.git', side_effect=lambda root, *args: 'a' * 40 if args[-1] == 'HEAD' else self.blob):
+            result, _ = project(self.contract, self.graph, self.root, (CLASSIFIER_DEPENDENCY_TEST,))
+            self.assertEqual(result['input_sha256'][CLASSIFIER_DEPENDENCY_TEST], sha(self.data))
+            self.assertEqual(result['case_names'], self.contract['case_names'])
+            path.write_bytes(b'unreviewed change')
+            with self.assertRaises(ValueError):
+                project(self.contract, self.graph, self.root, (CLASSIFIER_DEPENDENCY_TEST,))
+            path.write_bytes(self.data)
+            del self.graph['reviewed_deltas']['LiveContainer']['files'][relative]
+            with self.assertRaisesRegex(ValueError, 'absent from reviewed'):
+                project(self.contract, self.graph, self.root, (CLASSIFIER_DEPENDENCY_TEST,))
 
     def test_host_additions_preserve_every_frozen_case_and_baseline(self):
         original = json.loads((HERE / 'setup-state-recovery-contract.json').read_text())
