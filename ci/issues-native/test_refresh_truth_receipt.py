@@ -12,6 +12,7 @@ def fixture():
  for kind in ('swift','rust'):
   logs={o:'\nRan '+str(n)+' tests in 0.123s\n\nOK\n' for o,(_,n) in C.SUITES.items()} if kind=='swift' else {'idevice':'\n'.join('test '+name+' ... ok' for name in C.RUST_CASES)+'\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'}
   parts[kind]={'schema':C.SCHEMA+'-part','kind':kind,'status':'PASS','identity':identity,'source_graph':graph,'source':source,'logs':logs,'compiler':{'path_sha256':'e'*64,'version':'synthetic compiler model'},'physical_device_execution':False}
+  if kind=='swift':parts[kind]['logs']['LiveContainer-observations']+='\n'.join('PASS '+name for name in C.OBSERVATION_CASES)+'\nREFRESH_OBSERVATIONS_PASS\n'
   if kind=='rust':parts[kind]['logs']['idevice-ffi']='\n'.join('test '+name+' ... ok' for name in C.FFI_CASES)+'\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'
  return {'schema':C.SCHEMA,'status':C.STATUS,'identity':identity,'source_graph':graph,'parts':parts,'part_sha256':{k:C.digest(v) for k,v in parts.items()},'physical_device_execution':False,'os_profile_selection_proven':False,'future_certificate_trust_proven':False}
 class ReceiptTests(unittest.TestCase):
@@ -21,6 +22,22 @@ class ReceiptTests(unittest.TestCase):
   v=copy.deepcopy(self.value);change(v)
   if rehash:v['part_sha256']={k:C.digest(p) for k,p in v['parts'].items()}
   with self.assertRaises((ValueError,TypeError,KeyError)):self.verify(v)
+ def test_observation_native_suite_is_mandatory(self):
+  self.assertEqual(C.SUITE_OWNERS['LiveContainer-observations'],'LiveContainer')
+  self.assertEqual(C.SUITES['LiveContainer-observations'],('.ci/refresh-observations/test_refresh_observations.py',3))
+  self.assertEqual(len(C.OBSERVATION_CASES),47)
+  self.reject(lambda v:v['parts']['swift']['logs'].pop('LiveContainer-observations'))
+  for replacement in ('Ran 3 tests in 0.1s\nOK (skipped=1)\n','Ran 3 tests in 0.1s\nOK\n'):
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',replacement))
+ def test_observation_runtime_cases_and_completion_are_exact(self):
+  for old,new in [('PASS '+C.OBSERVATION_CASES[0]+'\n',''),('PASS '+C.OBSERVATION_CASES[0],'PASS '+C.OBSERVATION_CASES[1]),('REFRESH_OBSERVATIONS_PASS',''),('REFRESH_OBSERVATIONS_PASS','REFRESH_OBSERVATIONS_PASS\nREFRESH_OBSERVATIONS_PASS')]:
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',v['parts']['swift']['logs']['LiveContainer-observations'].replace(old,new)))
+ def test_observation_source_closure_is_bound(self):
+  for path in ('.ci/comprehensive-diagnostics/generate_wire_fixture.py','.ci/refresh-observations/test_refresh_observations.py','.ci/refresh-observations/cases.swift','.ci/refresh-observations/localization_keys.json'):
+   self.assertIn(path,C.INPUTS['LiveContainer'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('LiveContainer/'+path))
+  for path in ('SideStore/Core/DeviceApi/MinimuxerWrapper.swift','tests/cold_vpn_readiness/test_transport_observation.py','tests/cold_vpn_readiness/transport_observation_cases.swift'):
+   self.assertIn(path,C.INPUTS['SideStore'])
  def test_valid_synthetic_contract(self):self.assertIs(self.verify(self.value),self.value)
  def test_identity_source_status_and_claims_rejected(self):
   for key,bad in [('status','PASS_STATIC'),('physical_device_execution',True),('os_profile_selection_proven',True),('future_certificate_trust_proven',1)]:

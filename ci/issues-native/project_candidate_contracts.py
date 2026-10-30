@@ -1,8 +1,8 @@
 """Project reviewed candidate input blobs and finite additive coverage.
 
-Historical baseline owners/hashes and every existing ordered case are retained.
-Only explicitly allowlisted new production inputs and reviewed host/Russian
-case extensions may be added. This projection is not proof that any test executed.
+Historical baseline owners/hashes stay immutable. Only allowlisted inputs,
+reviewed additive cases, and the exact transport-copy replacement projection
+may differ; that projection normalizes back through the prior validator. This projection is not proof that any test executed.
 """
 import copy
 import hashlib
@@ -10,13 +10,16 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from refresh_observation_vpn_projection import add as add_refresh_observation_vpn
 from local_wifi_fixture_projection import PATH as LOCAL_WIFI_FIXTURE_INPUT, add as add_local_wifi_fixture
 from grace_recovery_projection import add as add_grace_recovery
 from early_readiness_projection import GENERATOR as EARLY_READINESS_GENERATOR, GENERATOR_SHA as EARLY_READINESS_SHA, add as add_early_readiness
 from current_vpn_guard_projection import PATH as CURRENT_VPN_GUARD_INPUT, add as add_current_vpn_guard
-from cold_vpn_cache_projection import PATH as COLD_VPN_CACHE_INPUT, TRUTH_PATH as TRUTH_CACHE_INPUT, add as add_cold_vpn_cache
+from cold_vpn_cache_projection import PATH as COLD_VPN_CACHE_INPUT, TRUTH_PATH as TRUTH_CACHE_INPUT
+from transport_observation_cache_projection import PATH as OBSERVATION_CACHE_INPUT, add as add_cold_vpn_cache
 from russian_pairing_projection import add as add_russian_pairing
 from russian_setup_projection import REVIEWED_INPUT as RUSSIAN_REVIEWED_INPUT, add as add_russian_setup
+from refresh_observation_setup_projection import KEY_MANIFEST as OBSERVATION_KEY_MANIFEST, add as add_refresh_observation_setup
 from refresh_truth_setup_projection import KEY_MANIFEST as TRUTH_KEY_MANIFEST, add as add_refresh_truth_setup
 from refresh_truth_host_bundle_projection import PATH as TRUTH_HOST_INPUT, SHA as TRUTH_HOST_SHA, add as add_truth_host
 from refresh_truth_flow_projection import add as add_truth_flow
@@ -83,7 +86,7 @@ def sha(data):
 def project(contract, graph, sources, additional_inputs=()):
     result = copy.deepcopy(contract)
     changes = {}
-    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, TRUTH_CACHE_INPUT}
+    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, OBSERVATION_KEY_MANIFEST, TRUTH_CACHE_INPUT, OBSERVATION_CACHE_INPUT}
     require(set(additional_inputs) <= allowed, 'unreviewed additive contract input')
     inputs = dict(contract['input_sha256'])
     for path in additional_inputs:
@@ -125,6 +128,10 @@ def contracts(sources, output, verify=False):
         if russian and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (RUSSIAN_REVIEWED_INPUT,)
         if name == 'setup-state-recovery-contract.json' and '.ci/refresh-truth/test_refresh_truth.py' in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
             additional_inputs = additional_inputs + (TRUTH_KEY_MANIFEST,)
+        observations = ".ci/refresh-observations/localization_keys.json" in graph["reviewed_deltas"].get("LiveContainer", {}).get("files", {})
+        if observations and name == "setup-state-recovery-contract.json": additional_inputs = additional_inputs + (OBSERVATION_KEY_MANIFEST,)
+        if name == 'setup-state-recovery-contract.json' and OBSERVATION_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
+            additional_inputs = additional_inputs + (OBSERVATION_CACHE_INPUT,)
         cold_cache = COLD_VPN_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {})
         if cold_cache and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT)
         if name == 'setup-state-recovery-contract.json' and TRUTH_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
@@ -144,6 +151,9 @@ def contracts(sources, output, verify=False):
             if '.ci/refresh-truth/test_refresh_truth.py' in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
                 projected = add_refresh_truth_setup(projected)
                 projected = add_truth_flow(projected)
+                if observations:
+                    projected = add_refresh_observation_setup(projected)
+                    projected = add_refresh_observation_vpn(projected)
         elif russian:
             projected = add_russian_pairing(projected)
         data = (json.dumps(projected, indent=2, sort_keys=True) + '\n').encode()
@@ -156,6 +166,7 @@ def contracts(sources, output, verify=False):
         receipts[name] = {'frozen_contract_sha256': sha(original.read_bytes()),
                           'candidate_contract_sha256': sha(data), 'rebound_inputs': changes,
                           'russian_setup_extension': projected.get('russian_setup_extension'),
+                          'refresh_observation_setup_extension': projected.get('refresh_observation_setup_extension'),
                           'refresh_truth_setup_extension': projected.get('refresh_truth_setup_extension'),
                           'russian_pairing_extension': projected.get('russian_pairing_extension')}
     receipt = {'schema': 'reviewed-candidate-contract-projection-v1',

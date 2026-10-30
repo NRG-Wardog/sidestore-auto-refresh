@@ -7,12 +7,12 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from local_wifi_fixture_projection import inputs as local_wifi_fixture_inputs
+from refresh_observation_vpn_projection import inputs as local_wifi_fixture_inputs
 from refresh_truth_flow_projection import vpn_count as grace_recovery_count, connection_count
 from early_readiness_projection import inputs as early_readiness_inputs, verify_static as verify_early_static
 from current_vpn_guard_projection import verify as verify_current_vpn_guard
-from cold_vpn_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
-from refresh_truth_setup_projection import variant as russian_setup_variant
+from transport_observation_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
+from refresh_observation_setup_projection import variant as russian_setup_variant
 from refresh_truth_host_bundle_projection import assertions as truth_host_assertions
 
 from verify_comprehensive_diagnostics import regular, require, digest, write_json, artifact_inventory, require_marker

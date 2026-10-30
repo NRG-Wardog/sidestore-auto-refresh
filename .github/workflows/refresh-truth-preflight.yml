@@ -49,6 +49,9 @@ jobs:
           python3 -B harness/ci/issues-native/record.py snapshot acquired
           python3 -B harness/ci/issues-native/verify_candidate_graph.py
           python3 -B harness/ci/issues-native/test_current_bindings.py
+          python3 -B harness/ci/issues-native/test_refresh_observation_setup_projection.py
+          python3 -B harness/ci/issues-native/test_refresh_observation_vpn_projection.py
+          python3 -B harness/ci/issues-native/test_transport_observation_cache_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_setup_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_host_bundle_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_flow_projection.py
