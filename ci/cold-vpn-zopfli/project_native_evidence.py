@@ -47,7 +47,7 @@ def project(archive, receipt_bytes, output, *, expected_sha, expected_bytes, exp
     require(len(expected) == expected_count and expected_count > 0, 'native evidence reference count differs')
     hashes = {}
     with zipfile.ZipFile(archive) as source, zipfile.ZipFile(output, 'x', zipfile.ZIP_DEFLATED, compresslevel=9) as dest:
-        require(source.read('native-receipt.json') == receipt_bytes, 'native receipt differs between artifacts')
+        require(source.read('receipt.json') == receipt_bytes, 'native receipt differs between artifacts')
         dest.writestr('native-receipt.json', receipt_bytes)
         for name, digest in sorted(expected.items()):
             path = PurePosixPath(name)

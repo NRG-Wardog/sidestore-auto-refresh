@@ -9,7 +9,7 @@ class ProjectionTests(unittest.TestCase):
         receipt=json.dumps({'evidence_sha256':{'probe.log':digest}}).encode()
         a=root/'input.zip'
         with zipfile.ZipFile(a,'w') as z:
-            for name, data in [('native-receipt.json',receipt_override or receipt),('probe.log',body)]:
+            for name, data in [('receipt.json',receipt_override or receipt),('probe.log',body)]:
                 entry=zipfile.ZipInfo(name);entry.create_system=3;entry.external_attr=0o100644<<16;z.writestr(entry,data)
         return a,receipt
     def check(self,a,r,o,**kw):
@@ -65,4 +65,11 @@ class ProjectionTests(unittest.TestCase):
             with zipfile.ZipFile(p,'w') as z:
                 e=zipfile.ZipInfo('setuid');e.create_system=3;e.external_attr=0o104755<<16;z.writestr(e,b'data')
             with self.assertRaisesRegex(ValueError,'special permission'):validate_read_only_archive(p)
+    def test_actual_0700_evidence_mode_rejected_by_restore_but_readable(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'actual-mode.zip'
+            with zipfile.ZipFile(p,'w') as z:
+                e=zipfile.ZipInfo('evidence.log');e.create_system=3;e.external_attr=0o100700<<16;z.writestr(e,b'data')
+            with self.assertRaisesRegex(ValueError,'Unexpected archive mode'):gate.archive_plan(p)
+            self.assertEqual(validate_read_only_archive(p),{'0o700':1})
 if __name__=='__main__':unittest.main()
