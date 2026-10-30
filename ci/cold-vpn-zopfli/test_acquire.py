@@ -8,7 +8,7 @@ class AcquisitionControls(unittest.TestCase):
         self.artifact={'id':20,'name':'experimental-issues-'+'a'*40+'-10-1','size_in_bytes':30,'expired':False,'workflow_run':{'id':10,'head_sha':'a'*40},'digest':'sha256:'+'b'*64}
     def test_current_manifest_cannot_reuse_historical_size_exception(self):
         current=manifest(pathlib.Path(__file__).with_name('input-manifest.json'))
-        self.assertEqual(current['run_id'],41090098529)
+        self.assertEqual(current['run_id'],41114358965)
         self.assertEqual(current['run_attempt'],1)
         with self.assertRaises(ValueError):
             verify_size_acceptance(current,24103451,'24061c255877f67ddd9e2734dafb23038c3e3c4354708897f71640f4a2df07c4',False)

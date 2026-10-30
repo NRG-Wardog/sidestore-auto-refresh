@@ -34,6 +34,23 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B ci/cold-vpn-zopfli/acquire.py
+      - name: Verify and project all exact native evidence references
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -B ci/cold-vpn-zopfli/project_native_evidence.py 2>&1 | tee zopfli-evidence/native-evidence-projection.log
+      - name: Retain exact native evidence projection separately
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-evidence-projection-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            workspace/native-evidence-projection.zip
+            workspace/native-evidence-projection.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
       - name: Verify official source closure before direct reviewed C compilation
         shell: bash
         run: |
