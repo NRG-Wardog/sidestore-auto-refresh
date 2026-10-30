@@ -1,7 +1,7 @@
 import hashlib,json,tempfile,unittest,zipfile,urllib.error,traceback
 from unittest.mock import patch
 from pathlib import Path
-from project_native_evidence import project
+from project_native_evidence import project, validate_read_only_archive
 import recover_native_artifacts as gate
 class ProjectionTests(unittest.TestCase):
     def fixture(self,root,body=b'bound evidence',digest=None,receipt_override=None):
@@ -52,4 +52,17 @@ class ProjectionTests(unittest.TestCase):
             opener.return_value.open.side_effect=urllib.error.URLError(OSError('private-fixture'))
             with self.assertRaises(ValueError) as found:gate.API('private-token').download(1,Path(d)/'output')
             self.assertIn('network_type=OSError',str(found.exception));self.assertNotIn('private-fixture',str(found.exception))
+    def test_read_only_evidence_accepts_ordinary_modes_without_restoring(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'modes.zip'
+            with zipfile.ZipFile(p,'w') as z:
+                for mode in [0o444,0o664,0o700]:
+                    e=zipfile.ZipInfo(str(mode));e.create_system=3;e.external_attr=(0o100000|mode)<<16;z.writestr(e,b'data')
+            self.assertEqual(validate_read_only_archive(p),{'0o444':1,'0o664':1,'0o700':1})
+    def test_read_only_evidence_rejects_privileged_mode(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'modes.zip'
+            with zipfile.ZipFile(p,'w') as z:
+                e=zipfile.ZipInfo('setuid');e.create_system=3;e.external_attr=0o104755<<16;z.writestr(e,b'data')
+            with self.assertRaisesRegex(ValueError,'special permission'):validate_read_only_archive(p)
 if __name__=='__main__':unittest.main()
