@@ -1,6 +1,8 @@
-import hashlib,json,tempfile,unittest,zipfile
+import hashlib,json,tempfile,unittest,zipfile,urllib.error,traceback
+from unittest.mock import patch
 from pathlib import Path
 from project_native_evidence import project
+import recover_native_artifacts as gate
 class ProjectionTests(unittest.TestCase):
     def fixture(self,root,body=b'bound evidence',digest=None,receipt_override=None):
         digest=digest or hashlib.sha256(body).hexdigest()
@@ -33,4 +35,21 @@ class ProjectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d);a,r=self.fixture(p,receipt_override=b'{}')
             with self.assertRaisesRegex(ValueError,'receipt differs'):self.check(a,r,p/'out.zip')
+    def test_storage_http_code_without_url_or_token(self):
+        location='https://fixture.blob.core.windows.net/a?signature=private-fixture'
+        redirect=urllib.error.HTTPError('https://api.github.com/fixed',302,'redirect',{'Location':location},None)
+        failure=urllib.error.HTTPError(location,403,'signed '+location,{},None)
+        with tempfile.TemporaryDirectory() as d, patch.object(gate.API,'request',side_effect=redirect), patch.object(gate.urllib.request,'build_opener') as opener:
+            opener.return_value.open.side_effect=failure
+            with self.assertRaises(ValueError) as found:gate.API('private-token').download(1,Path(d)/'output')
+            text=''.join(traceback.format_exception(found.exception))
+            self.assertIn('HTTP 403',text)
+            for secret in ['private-fixture','private-token',location]:self.assertNotIn(secret,text)
+    def test_storage_network_type_without_reason(self):
+        location='https://fixture.blob.core.windows.net/a?signature=private-fixture'
+        redirect=urllib.error.HTTPError('https://api.github.com/fixed',302,'redirect',{'Location':location},None)
+        with tempfile.TemporaryDirectory() as d, patch.object(gate.API,'request',side_effect=redirect), patch.object(gate.urllib.request,'build_opener') as opener:
+            opener.return_value.open.side_effect=urllib.error.URLError(OSError('private-fixture'))
+            with self.assertRaises(ValueError) as found:gate.API('private-token').download(1,Path(d)/'output')
+            self.assertIn('network_type=OSError',str(found.exception));self.assertNotIn('private-fixture',str(found.exception))
 if __name__=='__main__':unittest.main()

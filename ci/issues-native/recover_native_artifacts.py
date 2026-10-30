@@ -120,8 +120,12 @@ class API:
    # Never forward the API Authorization header to signed object storage.
    try:
     response=urllib.request.build_opener(NoRedirect).open(urllib.request.Request(location),timeout=120)
-   except (urllib.error.URLError, OSError, TimeoutError):
-    raise ValueError('Signed artifact storage request failed; URL withheld') from None
+   except urllib.error.HTTPError as error:
+    raise ValueError('Signed artifact storage request failed; HTTP '+str(error.code)+'; URL withheld') from None
+   except urllib.error.URLError as error:
+    raise ValueError('Signed artifact storage request failed; network_type='+type(error.reason).__name__+'; URL withheld') from None
+   except (OSError, TimeoutError) as error:
+    raise ValueError('Signed artifact storage request failed; error_type='+type(error).__name__+'; URL withheld') from None
   total=0
   try:
    with response,Path(destination).open('xb') as output:
