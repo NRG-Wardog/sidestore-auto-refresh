@@ -99,6 +99,8 @@ jobs:
           python3 -B harness/ci/issues-native/test_refresh_observation_setup_projection.py
           python3 -B harness/ci/issues-native/test_refresh_observation_vpn_projection.py
           python3 -B harness/ci/issues-native/test_transport_observation_cache_projection.py
+          python3 -B harness/ci/issues-native/test_legacy_replacement_cache_projection.py
+          python3 -B harness/ci/issues-native/test_legacy_replacement_host_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_setup_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_host_bundle_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_flow_projection.py

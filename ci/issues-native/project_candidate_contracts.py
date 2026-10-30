@@ -16,17 +16,20 @@ from grace_recovery_projection import add as add_grace_recovery
 from early_readiness_projection import GENERATOR as EARLY_READINESS_GENERATOR, GENERATOR_SHA as EARLY_READINESS_SHA, add as add_early_readiness
 from current_vpn_guard_projection import PATH as CURRENT_VPN_GUARD_INPUT, add as add_current_vpn_guard
 from cold_vpn_cache_projection import PATH as COLD_VPN_CACHE_INPUT, TRUTH_PATH as TRUTH_CACHE_INPUT
-from transport_observation_cache_projection import PATH as OBSERVATION_CACHE_INPUT, add as add_cold_vpn_cache
+from transport_observation_cache_projection import PATH as OBSERVATION_CACHE_INPUT
+from legacy_replacement_cache_projection import PATH as LEGACY_CACHE_INPUT, STAGE as LEGACY_STAGE_INPUT, add as add_cold_vpn_cache
 from russian_pairing_projection import add as add_russian_pairing
 from russian_setup_projection import REVIEWED_INPUT as RUSSIAN_REVIEWED_INPUT, add as add_russian_setup
 from refresh_observation_setup_projection import KEY_MANIFEST as OBSERVATION_KEY_MANIFEST, add as add_refresh_observation_setup
 from refresh_truth_setup_projection import KEY_MANIFEST as TRUTH_KEY_MANIFEST, add as add_refresh_truth_setup
+from legacy_replacement_host_projection import PATH as LEGACY_HOST_INPUT, SHA as LEGACY_HOST_SHA, add as add_legacy_host
 from refresh_truth_host_bundle_projection import PATH as TRUTH_HOST_INPUT, SHA as TRUTH_HOST_SHA, add as add_truth_host
 from refresh_truth_flow_projection import add as add_truth_flow
 from verify_candidate_graph import HERE, load_candidate_graph, require, valid_path, git
 
 CONTRACTS = ('comprehensive-diagnostics-contract.json', 'setup-state-recovery-contract.json')
 CLASSIFIER_DEPENDENCY_TEST = 'LiveContainer/.ci/vpn-refresh-recovery/test_classifier_dependency.py'
+LEGACY_RISK_KEY_MANIFEST = 'LiveContainer/.ci/legacy-replacement/localization_keys.json'
 # Finite reviewed production dependencies extracted by candidate generators.
 # Frozen JSON stays untouched; existing ordered cases are preserved.
 ADDITIONAL_INPUTS = {
@@ -87,7 +90,7 @@ def sha(data):
 def project(contract, graph, sources, additional_inputs=()):
     result = copy.deepcopy(contract)
     changes = {}
-    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, OBSERVATION_KEY_MANIFEST, TRUTH_CACHE_INPUT, OBSERVATION_CACHE_INPUT, CLASSIFIER_DEPENDENCY_TEST}
+    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, OBSERVATION_KEY_MANIFEST, TRUTH_CACHE_INPUT, OBSERVATION_CACHE_INPUT, CLASSIFIER_DEPENDENCY_TEST, LEGACY_RISK_KEY_MANIFEST, LEGACY_CACHE_INPUT, LEGACY_STAGE_INPUT}
     require(set(additional_inputs) <= allowed, 'unreviewed additive contract input')
     inputs = dict(contract['input_sha256'])
     for path in additional_inputs:
@@ -131,8 +134,12 @@ def contracts(sources, output, verify=False):
             additional_inputs = additional_inputs + (TRUTH_KEY_MANIFEST,)
         observations = ".ci/refresh-observations/localization_keys.json" in graph["reviewed_deltas"].get("LiveContainer", {}).get("files", {})
         if observations and name == "setup-state-recovery-contract.json": additional_inputs = additional_inputs + (OBSERVATION_KEY_MANIFEST,)
+        if name == 'setup-state-recovery-contract.json' and LEGACY_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
+            additional_inputs = additional_inputs + (LEGACY_CACHE_INPUT, LEGACY_STAGE_INPUT)
         if name == 'setup-state-recovery-contract.json' and OBSERVATION_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
             additional_inputs = additional_inputs + (OBSERVATION_CACHE_INPUT,)
+        if name == 'setup-state-recovery-contract.json' and LEGACY_RISK_KEY_MANIFEST.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
+            additional_inputs = additional_inputs + (LEGACY_RISK_KEY_MANIFEST,)
         if name == 'setup-state-recovery-contract.json' and CLASSIFIER_DEPENDENCY_TEST.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
             additional_inputs = additional_inputs + (CLASSIFIER_DEPENDENCY_TEST,)
         cold_cache = COLD_VPN_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {})
@@ -149,6 +156,8 @@ def contracts(sources, output, verify=False):
             projected = add_reviewed_host_coverage(projected)
             if projected['input_sha256'].get(TRUTH_HOST_INPUT) == TRUTH_HOST_SHA:
                 projected = add_truth_host(projected)
+            if projected['input_sha256'].get(LEGACY_HOST_INPUT) == LEGACY_HOST_SHA:
+                projected = add_legacy_host(projected)
             if cold_cache: projected = add_cold_vpn_cache(projected)
             if russian: projected = add_russian_setup(projected)
             if '.ci/refresh-truth/test_refresh_truth.py' in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):

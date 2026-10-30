@@ -23,13 +23,29 @@ class OrchestrationTests(unittest.TestCase):
     else:
      script=Path(args[2]);key=next(k for k,(p,_) in C.SUITES.items() if script==sources/C.SUITE_OWNERS[k]/p)
      text=value['parts']['swift']['logs'][key]
-     self.assertEqual(env['V3_REQUIRE_SWIFT'],'1');self.assertEqual(env['REQUIRE_NATIVE_PROFILE_READBACK'],'1')
+     self.assertEqual(env['V3_REQUIRE_SWIFT'],'1');self.assertEqual(env['REQUIRE_NATIVE_PROFILE_READBACK'],'1');self.assertEqual(env['REQUIRE_NATIVE_LEGACY_REPLACEMENT'],'1')
     log.write_text(text);calls.append(args);return text
    with mock.patch.object(R,'load_candidate_graph',return_value=graph),mock.patch.object(R,'run_identity',return_value=value['identity']),mock.patch.object(C,'collect',return_value=source),mock.patch.object(R,'compiler',return_value=value['parts']['swift']['compiler']),mock.patch.object(R,'command',side_effect=fake_command):
     R.run('swift',sources,out);R.run('rust',sources,out);R.run('seal',sources,out)
    result=C.read(out/'refresh-truth-tests.json');C.verify_portable(result,graph['owners'],value['identity'])
    self.assertEqual(len(calls),len(C.SUITES)+2)
    self.assertIs(result['physical_device_execution'],False)
+ def test_focused_pipeline_dependencies_match_full_and_block_seal(self):
+  full=(ROOT/'.github/workflows/cold-vpn-native.yml').read_text()
+  focused=(ROOT/'.github/workflows/refresh-truth-preflight.yml').read_text()
+  a=full.index('      - name: Run issue regression suite without skips\n')
+  b=full.index('      - name: Check bounded acquisition diagnostics',a)
+  stripped=focused
+  for name in ('issue_tests','upstream_tests','minimuxer_tests','vpn_tests'):
+   guard=f"          python3 -B harness/ci/issues-native/record.py snapshot before-{name}\n          cmp evidence/acquired.json evidence/before-{name}.json\n"
+   self.assertEqual(focused.count(guard),1)
+   stripped=stripped.replace(guard,'')
+  self.assertIn(full[a:b],stripped)
+  for name in ('issue_tests','upstream_tests','minimuxer_tests','vpn_tests'):
+   self.assertEqual(focused.count('id: '+name+'\n'),1)
+   self.assertIn("test '${{ steps."+name+".outcome }}' = success",focused)
+   self.assertIn('steps.'+name+".outcome == 'failure'",focused)
+  self.assertIn('evidence/vpn-transport-recovery/',focused)
  def test_failed_part_cannot_seal_even_when_other_part_passed(self):
   value=fixture()
   with tempfile.TemporaryDirectory() as temporary:

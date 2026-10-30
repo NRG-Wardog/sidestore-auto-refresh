@@ -5,7 +5,7 @@
     "LiveContainer/.ci/comprehensive-diagnostics/pairing_recovery_harness.swift": "894e33d965582853fd988ec0c82209b2abe0fc2ef7fd84f73fea5337acd6fa20",
     "LiveContainer/.ci/comprehensive-diagnostics/test_pairing_recovery_contract.py": "3bf2b460ed162a04e7c59c3eea38161a096ca5ca891e8e52239d1981c9149411",
     "LiveContainer/LiveContainerSwiftUI/Utilities/V3Localization.swift": "76af17a76bcc59a1dc7f4cc5f6d3d79f29dd876a84ce8758e78055d0d46857fb",
-    "LiveContainer/Resources/Localizable.xcstrings": "acb7fdd457f8bfba133099bdf705a94cc1d6b1a9c9e8f35cf2752a96b66f2906"
+    "LiveContainer/Resources/Localizable.xcstrings": "726fb537a4b3cc9d6bd7a9c10fe074ff5db016a8e3f3f16a53f7d6127cc5d728"
   },
   "frozen_contract_sha256": "858106577241aef930f9dc4fb976d74c66625bb86217b78e769f07f0f4fd7750",
   "schema": "reviewed-russian-pairing-extension-v1"

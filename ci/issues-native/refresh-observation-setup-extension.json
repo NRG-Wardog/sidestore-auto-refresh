@@ -204,11 +204,11 @@
   "baseline_missing": 454,
   "candidate_inputs": {
     "LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "fe1d04f71d441cb3ace8306917358dab1888c3f8fd4d7f0bd987218daaf117cd",
-    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "a7275f69bf9e28518423ff3e5795a4e264b1dda08ba95ecf0b5ca28050e7627e",
+    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "c133bc57f704bf8117e34a68ec40bc0339e5dc52638861318393eede8dd1f8a4",
     "LiveContainer/.ci/refresh-observations/localization_keys.json": "b28ff28aacfde5d5b75c01b586527bc8efa5da388d6f1b0923533db49c91c4ec",
-    "LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "2ca97ee5af724a4598d17a8018d7090aec10c27adaa6dd650c751d17b7abb81e",
-    "LiveContainer/Resources/Localizable.xcstrings": "acb7fdd457f8bfba133099bdf705a94cc1d6b1a9c9e8f35cf2752a96b66f2906",
-    "LiveContainer/SideStoreSupport/SideStore.swift": "6255e00eb23b79e7de66a59fc9e53975cc6c6b6dc8cb46900523a7f766f3cf5b"
+    "LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "ca5ed8fc721bf6cbcd76b46f58e9d4d4ad5c78db98f2306823874fed309d596b",
+    "LiveContainer/Resources/Localizable.xcstrings": "726fb537a4b3cc9d6bd7a9c10fe074ff5db016a8e3f3f16a53f7d6127cc5d728",
+    "LiveContainer/SideStoreSupport/SideStore.swift": "f83ad34525b2d1fbda64a6b0a9516ce3950a23588143d8ec593b40883b41c17c"
   },
   "expected_case_count": 1979,
   "key_count": 206,

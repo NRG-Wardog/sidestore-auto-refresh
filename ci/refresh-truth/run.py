@@ -40,7 +40,7 @@ def run(kind,sources,output):
   'physical_device_execution':False}
  try:
   if kind=='swift':
-   env={**os.environ,'V3_REQUIRE_SWIFT':'1','REQUIRE_NATIVE_PROFILE_READBACK':'1','PYTHONDONTWRITEBYTECODE':'1','V3_HOST_SOURCE_ROOT':str(sources/'LiveContainer')}
+   env={**os.environ,'V3_REQUIRE_SWIFT':'1','REQUIRE_NATIVE_LEGACY_REPLACEMENT':'1','REQUIRE_NATIVE_PROFILE_READBACK':'1','PYTHONDONTWRITEBYTECODE':'1','V3_HOST_SOURCE_ROOT':str(sources/'LiveContainer')}
    failures=[]
    for owner,(script,count) in C.SUITES.items():
     label=owner.replace('/','-');log=output/('refresh-truth-'+label+'.log')
