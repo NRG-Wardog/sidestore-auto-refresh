@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "7ebfe7148a90e44c9dec81680fc74e73d0c458ec"
+      "c6c16a0bf0a61218ae75c9a9691b4de7b8491b98"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -80,7 +80,7 @@
     },
     "LiveContainer": {
       "baseline": "8808211d340c6e9e2a6274c0eaa863d7ab09474f",
-      "tree": "0eb5412b5f31bffbb99aa48a8fa38e1d550b9d36",
+      "tree": "e759a3a328b987a77750d20ca40671dc2abb3f8e",
       "files": {
         ".ci/branch-cleanup/allowlist.json": "152ec8b04398d1f5aafcd0018e865cf09b0278dd",
         ".ci/branch-cleanup/cleanup.py": "db84b91a0f98a60cf9e19ef2172c3ab1b4da029b",
@@ -95,9 +95,9 @@
         ".ci/comprehensive-diagnostics/generate_refresh_failure_fixture.py": "48bf5ca451bdc4e3b1652a47a27e9940c7d9969a",
         ".ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "2ee62c09648a74d142504482c3845d1e63612be6",
         ".ci/comprehensive-diagnostics/refresh_failure_harness.swift": "602c362d23a76150c62b39b7d6cc2c882f787696",
-        ".ci/comprehensive-diagnostics/setup_localization_harness.swift": "685e64c7b6c5726cd8a40fe3e598f96d30f071f6",
+        ".ci/comprehensive-diagnostics/setup_localization_harness.swift": "d6b54cb85b99fa0f988e719e41a2b4235571d717",
         ".ci/comprehensive-diagnostics/test_pairing_recovery_contract.py": "b1e1ff62080b80eb0ac343581b0b682d11956000",
-        ".ci/comprehensive-diagnostics/test_preservation_localization_inventory.py": "5ce8bf24e8a7731b63bcc2ac81e009969cc5bfe3",
+        ".ci/comprehensive-diagnostics/test_preservation_localization_inventory.py": "904349adad04585b9f8bf5175595306a048ec441",
         ".ci/comprehensive-diagnostics/test_refresh_failure_contract.py": "09953ce610897931e591457ca87614ec778f20de",
         ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "765a5b58dd1cd2a39a64715bf4314a2f5732782b",
         ".ci/early-refresh-boundaries/early_cases.swift": "8ace99364dff25993bb071e3b7efc36c91f415a4",

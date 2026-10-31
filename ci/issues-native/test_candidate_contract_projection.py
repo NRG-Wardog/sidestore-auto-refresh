@@ -51,6 +51,23 @@ class ProjectionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'unreviewed additive'):
                     project(self.contract, self.graph, self.root, (path + '.extra',))
 
+    def test_preservation_localization_harness_requires_exact_reviewed_bytes(self):
+        import preservation_localization_projection as preservation
+        inventory, harness = preservation.INVENTORY_TEST, preservation.HARNESS
+        for path in (inventory, harness):
+            file = self.root / path; file.parent.mkdir(parents=True, exist_ok=True); file.write_bytes(self.data)
+            self.graph['reviewed_deltas']['LiveContainer']['files'][path.removeprefix('LiveContainer/')] = self.blob
+        contract = copy.deepcopy(self.contract); contract['input_sha256'][harness] = '0' * 64
+        with patch('project_candidate_contracts.git', side_effect=lambda root, *args: 'a' * 40 if args[-1] == 'HEAD' else self.blob), patch.dict(preservation.PINS, {inventory: sha(self.data)}):
+            with self.assertRaisesRegex(ValueError, 'Unreviewed preservation localization harness'):
+                project(contract, self.graph, self.root, (inventory,))
+            with patch.dict(preservation.PINS, {harness: sha(self.data)}):
+                projected, _ = project(contract, self.graph, self.root, (inventory,))
+                self.assertEqual(projected['input_sha256'][harness], sha(self.data))
+                (self.root / harness).unlink()
+                with self.assertRaisesRegex(ValueError, 'nonregular contract input'):
+                    project(contract, self.graph, self.root, (inventory,))
+
     def test_only_current_hashes_rebound(self):
         before = copy.deepcopy(self.contract)
         result, changes = self.call()

@@ -114,6 +114,8 @@ def project(contract, graph, sources, additional_inputs=()):
         new_hash = sha(data)
         if path == preservation_localization.INVENTORY_TEST:
             require(new_hash == preservation_localization.PINS[path], 'Unreviewed preservation inventory fixture bytes')
+        if path == preservation_localization.HARNESS and preservation_localization.INVENTORY_TEST in inputs:
+            require(new_hash == preservation_localization.PINS[path], 'Unreviewed preservation localization harness bytes')
         if new_hash == old_hash:
             continue
         delta = graph['reviewed_deltas'].get(owner, {})

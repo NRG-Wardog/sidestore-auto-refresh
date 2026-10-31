@@ -44,6 +44,19 @@ class LocalizationSuccessor(unittest.TestCase):
    bad=copy.deepcopy(result);change(bad)
    with self.assertRaises(ValueError):p.variant(bad)
   with self.assertRaises(ValueError):p.add(result)
+ def test_harness_correction_is_exact_and_does_not_change_case_or_baseline_counts(self):
+  self.assertEqual(p.HARNESS,'LiveContainer/.ci/comprehensive-diagnostics/setup_localization_harness.swift')
+  self.assertEqual(p.PINS[p.HARNESS],'809ea23d9e95020ebf2b903cc228a7455ccacca17aad80247bb924d08edd7879')
+  self.assertEqual(p.PINS[p.INVENTORY_TEST],'9bd7a25653bf5964e5aabb657a2129c22aca033be70a3ba3044ab4dacc0a6ba3')
+  self.assertEqual(p.CURRENT,{'cases':2079,'values':1080,'baseline_missing':504,'keys':216})
+  self.assertEqual(p.PRIOR,{'cases':1979,'values':1030,'baseline_missing':454,'keys':206})
+  result=p.add(self.base)
+  for value in (None,'0'*64):
+   changed=copy.deepcopy(result)
+   if value is None:changed['input_sha256'].pop(p.HARNESS)
+   else:changed['input_sha256'][p.HARNESS]=value
+   with self.assertRaisesRegex(ValueError,'Unbound preservation localization source'):p.variant(changed)
+
  def test_source_gate_requires_inventory_test_and_current_exact_helpers(self):
   for workflow in ('refresh-truth-preflight.yml','cold-vpn-native.yml','cold-vpn-preflight.yml'):
    source=(HERE.parents[1]/'.github/workflows'/workflow).read_text()
