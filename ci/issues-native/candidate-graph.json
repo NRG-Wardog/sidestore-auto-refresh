@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "796f271a3b5f1d00bbb932ca7541df5609b1f873"
+      "e3688e6e0a3cfef87489fc95dceef187c12c1590"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -204,7 +204,7 @@
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
-      "tree": "6a1d3074d5fa00a75ed22050c652f38919c30ef7",
+      "tree": "b5d367c56e43bcf7f533660c8828b561216c3a5a",
       "files": {
         ".ci/branch-cleanup/allowlist.json": "f4fa7e585a01a176694441a15fb33bf8cfbc8ce7",
         ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
@@ -289,7 +289,7 @@
         "tests/legacy_replacement_hooks/test_contract.py": "2d91cf49bb45207ca5a65a690138834b96950dc8",
         "tests/preservation_der/PublicCases.swift": "b34ae12bf9b0488394c646efb2f65769fd3f9e22",
         "tests/preservation_der/README.md": "c46a996030ad293030eca2529d3a42dc9bc36eb9",
-        "tests/preservation_der/SwiftCases.swift": "4ef9e26254c14044f5a011301fb0b375606d051b",
+        "tests/preservation_der/SwiftCases.swift": "e23811981733166ade1b92b3f31022f82c127079",
         "tests/preservation_der/expected-cases.json": "2383ef4dca72f6ccf716be9bf8b43f23b4abba92",
         "tests/preservation_der/fetch_public_fixtures.py": "5810cc62804e77ba2359ddd313afa2fd77c010fc",
         "tests/preservation_der/generate_failure_diagnostic.py": "fedbfb050f2e85c75f7bf136b476f2a7da278057",
