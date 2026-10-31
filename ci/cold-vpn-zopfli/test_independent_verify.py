@@ -12,7 +12,7 @@ class AuditControls(unittest.TestCase):
         with self.assertRaises(ValueError):verify_size_acceptance(unknown,24000001,'a'*64,True)
     def test_exact_closest_candidate_reports_target_not_met(self):
         accepted=verify_size_acceptance(CLOSEST_NATIVE_INPUT,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
-        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],206390)
+        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],230651)
         self.assertEqual(accepted['policy'],'exact_reviewed_closest_candidate_only')
     def test_closest_candidate_rejects_any_input_or_output_drift(self):
         for key,value in CLOSEST_NATIVE_INPUT.items():

@@ -1,33 +1,34 @@
-# Quick lossless pass for explicit legacy replacement repair
+# Bounded lossless packaging for preservation-first profile renewal
 
-Input is successful native run `41114358965`, attempt `1`,
-builder `f9407ceda3b28f62be9c479a89e79f0acf30691d`. Input ZIP and 24,878,481-byte IPA are
-hash-bound in `input-manifest.json`. Same-run refresh qualification is required.
+Input is successful native run `41160811783`, attempt `1`, builder
+`fea02c69117bdfbe87fcda3c013852571b2fb067`; matching focused run `41160234618` passed.
+The exact archive and 24,907,828-byte IPA are hash-bound in `input-manifest.json`.
+Current source-owned refresh qualification includes preservation policy 34,
+actual refresh integration 18, actual acknowledged nonce producer-consumer 7,
+and 81 host diagnostic cases. These are synthetic native tests, not device proof.
 
-The unchanged bounded 5/10/20/30 schedule completed locally in
-346.7116 seconds, saving 672,091 bytes. This measurement
-alone is not qualified delivery. Matching green packaging CI and independent
-payload/provenance review remain mandatory.
+The unchanged bounded 5/10/20/30 schedule completed locally in 324.1601 seconds,
+saving 677,177 bytes. Measurement alone is not delivery qualification: exact
+matching green packaging CI and independent payload/provenance/privacy audit
+remain mandatory. Two workers, 2 GiB/process, 600 seconds/entry, 900 seconds aggregate.
+Retain smallest verified streams; no extra optimization rounds. Official Google
+Zopfli pin remains df1517dd8518113a245e4d203a04b8a0e02ab493; all 81 Git blobs and
+full tree are verified before direct C compilation. Preserve payload/signatures,
+raw ZIP metadata and nested Backup bytes unchanged.
 
-Two workers, 2 GiB/process, 600 seconds per entry and 900 seconds aggregate.
-Stop after the first complete round meeting the target, otherwise retain the
-smallest verified stream across all four rounds. No extra optimization rounds.
-The official Google Zopfli pin remains df1517dd8518113a245e4d203a04b8a0e02ab493.
-Verify all 81 Git blobs and the full tree before direct C compilation.
-Keep all payload, signature, raw ZIP metadata and nested Backup bytes unchanged.
+General target remains 24,000,000 bytes. The exact candidate-only measured
+acceptance binds this complete input manifest to 24,230,651 bytes, SHA256
+`ca000b547a4ced3c3737cedd6abf77e1c8c68c19cddfbf6deeb88a114c075f86`.
+It reports target_met=false and 230,651 bytes excess; it is NOT under 24 MB.
+No generic ceiling is raised; all historical candidate exceptions are rejected
+for this new input. Independent review is required before publication.
 
-Default target remains <=24,000,000 bytes. This one exact measured exception
-accepts 24,206,390 bytes (24.206390 decimal MB), SHA-256
-`77a161cb4376c0819ddfaa3623214e28b78e8c998ec350fa7b84e0c67a9064ca`, only for the complete current native input manifest.
-It reports target_met=false and a 206,390-byte excess. It is not
-under 24 MB and does not raise the general ceiling or authorize more rounds.
-
-The native evidence download connector timed out on the 408,285,162-byte archive.
-The packaging workflow therefore downloads the exact hash-bound artifact 13008771710
-using its existing ephemeral token, verifies all 152 receipt references, and
-uploads a separate DEFLATE evidence projection for independent byte-level review.
-The original archive is not uploaded again. This projects evidence only, with no
-app execution or build changes. Projection source and candidate identity, archive
-safety and full reference-set equality remain mandatory. Projection and final IPA
-are separate artifacts, and the projection is capped at 31 MiB to preserve download
-headroom. Private delivery waits for all matching CI and audit gates.
+The full native evidence archive is 408,462,234 bytes, artifact 13028099243.
+Using only its existing ephemeral token, packaging CI verifies the exact archive
+hash and all 154 receipt references, then emits a separate bounded 31 MiB projection.
+The original archive is never executed or permission-restored. Ordinary 0700 files
+are read as data; links/special types/bits/path collisions/traversal remain rejected.
+The source receipt.json must equal the IPA artifact native-receipt.json exactly.
+Independent audit must validate the complete projected reference set and source
+bindings before private owner-only Drive/Gmail delivery. Do not include secret
+logs, personal pairing/provisioning data or credentials. No public release.

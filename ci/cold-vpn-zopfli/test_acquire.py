@@ -8,10 +8,10 @@ class AcquisitionControls(unittest.TestCase):
         self.artifact={'id':20,'name':'experimental-issues-'+'a'*40+'-10-1','size_in_bytes':30,'expired':False,'workflow_run':{'id':10,'head_sha':'a'*40},'digest':'sha256:'+'b'*64}
     def test_current_manifest_cannot_reuse_historical_size_exception(self):
         current=manifest(pathlib.Path(__file__).with_name('input-manifest.json'))
-        self.assertEqual(current['run_id'],41114358965)
+        self.assertEqual(current['run_id'],41160811783)
         self.assertEqual(current['run_attempt'],1)
         with self.assertRaises(ValueError):
-            verify_size_acceptance(current,24103451,'24061c255877f67ddd9e2734dafb23038c3e3c4354708897f71640f4a2df07c4',False)
+            verify_size_acceptance(current,24206390,'77a161cb4376c0819ddfaa3623214e28b78e8c998ec350fa7b84e0c67a9064ca',False)
     def test_exact_completed_green(self):validate_metadata(self.m,self.run,self.artifact)
     def test_wrong_run_or_pending_failed_forbidden(self):
         for key,value in [('conclusion','failure'),('status','in_progress'),('head_sha','c'*40),('run_attempt',2),('path','.github/workflows/recover-native-package.yml')]:
