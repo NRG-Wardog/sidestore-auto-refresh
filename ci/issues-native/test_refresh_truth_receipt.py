@@ -13,7 +13,8 @@ def fixture():
   logs={o:('\nRan '+str(n)+' tests in 0.123s\n\nOK\n' if n is not None else '') for o,(_,n) in C.SUITES.items()} if kind=='swift' else {'idevice':'\n'.join('test '+name+' ... ok' for name in C.RUST_CASES)+'\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'}
   parts[kind]={'schema':C.SCHEMA+'-part','kind':kind,'status':'PASS','identity':identity,'source_graph':graph,'source':source,'logs':logs,'compiler':{'path_sha256':'e'*64,'version':'synthetic compiler model'},'physical_device_execution':False}
   if kind=='swift':
-   logs['SideStore-preservation']=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.PRESERVATION_INTEGRATION_CASES)])
+   logs['SideStore-preservation-der']+=json.dumps({'schema':'preservation-der-parser-v1','status':'PASS','cases':list(C.PRESERVATION_DER_CASES),'cms_verified':False,'device_executed':False})+'\n'
+   logs['SideStore-preservation']+=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.PRESERVATION_INTEGRATION_CASES)])
    logs['SideStore-reuse-lifecycle']+='\n'.join(C.REUSE_LIFECYCLE_MARKERS)+'\n'
    logs['SideStore-reuse-lifecycle']+=json.dumps({'schema':'reuse-main-producer-consumer-v1','status':'PASS','cases':list(C.REUSE_PRODUCER_CONSUMER_CASES),'device_executed':False})+'\n'
   if kind=='swift':parts[kind]['logs']['LiveContainer-observations']+='\n'.join('PASS '+name for name in C.OBSERVATION_CASES)+'\nREFRESH_OBSERVATIONS_PASS\n'
@@ -30,10 +31,31 @@ class ReceiptTests(unittest.TestCase):
   v=copy.deepcopy(self.value);change(v)
   if rehash:v['part_sha256']={k:C.digest(p) for k,p in v['parts'].items()}
   with self.assertRaises((ValueError,TypeError,KeyError)):self.verify(v)
+ def test_der_parser_native_exact_result_and_claims(self):
+  owner='SideStore-preservation-der'
+  self.assertEqual(C.SUITES[owner],('tests/preservation_der/run.sh',6))
+  self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
+  self.assertEqual(len(C.PRESERVATION_DER_CASES),33)
+  original=self.value['parts']['swift']['logs'][owner]
+  header=original[:original.index('{')]
+  self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
+  for bad in ('',original+original[original.index('{'):],original.replace('"PASS"','"STATIC_PASS"'),original.replace('"cms_verified": false','"cms_verified": true'),original.replace('"device_executed": false','"device_executed": true'),original.replace(C.PRESERVATION_DER_CASES[0],C.PRESERVATION_DER_CASES[1])):
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+  for key,value in [('cases',list(C.PRESERVATION_DER_CASES)[1:]),('cases',list(reversed(C.PRESERVATION_DER_CASES))),('cases',list(C.PRESERVATION_DER_CASES)+['extra']),('unexpected',True)]:
+   row=json.loads(next(line for line in original.splitlines() if line.startswith('{')));row[key]=value
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,header+json.dumps(row)+'\n'))
+ def test_der_parser_source_closure_is_bound(self):
+  for path in ('SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift', 'tests/preservation_der/run.sh', 'tests/preservation_der/SwiftCases.swift', 'tests/preservation_der/swift-cases.json', 'tests/preservation_der/expected-cases.json', 'tests/preservation_der/test_contract.py'):
+   self.assertIn(path,C.INPUTS['SideStore'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
+ def test_der_crypto_production_source_closure_is_bound(self):
+  for path in ('DeviceGateway/Package.swift', 'DeviceGateway/ProvisioningCMSCore/profile_cms.c', 'DeviceGateway/ProvisioningCMSCore/include/profile_cms.h', 'DeviceGateway/ProvisioningCMSCore/production_roots.h', 'DeviceGateway/ProvisioningCMSCore/approved_inner.h', 'DeviceGateway/libimobiledevice/ProvisioningCMSVerifier.swift', 'Sources/ProfileCMSVerifier.swift'):
+   self.assertIn(path,C.INPUTS['SideStore/Dependencies/minimuxer'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/Dependencies/minimuxer/'+path))
  def test_observation_native_suite_is_mandatory(self):
   self.assertEqual(C.SUITE_OWNERS['LiveContainer-observations'],'LiveContainer')
   self.assertEqual(C.SUITES['LiveContainer-observations'],('.ci/refresh-observations/test_refresh_observations.py',4))
-  self.assertEqual(len(C.OBSERVATION_CASES),89)
+  self.assertEqual(len(C.OBSERVATION_CASES),94)
   self.reject(lambda v:v['parts']['swift']['logs'].pop('LiveContainer-observations'))
   for replacement in ('Ran 3 tests in 0.1s\nOK (skipped=1)\n','Ran 3 tests in 0.1s\nOK\n'):
    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',replacement))
@@ -94,6 +116,7 @@ class ReceiptTests(unittest.TestCase):
    self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
    self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
   good=self.value['parts']['swift']['logs']['SideStore-preservation']
+  header=good[:good.index('{')]
   row=json.loads(good.splitlines()[-1])
   for log in ('',good+good,'Ran 1 test in 0.1s\nOK\n',json.dumps({**row,'device_executed':True}),json.dumps({**row,'cases':row['cases'][:-1]}),json.dumps({**row,'cases':row['cases'][1:]+row['cases'][:1]}),json.dumps({**row,'status':'STATIC_PASS'})):
    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('SideStore-preservation',log))
@@ -102,17 +125,19 @@ class ReceiptTests(unittest.TestCase):
     self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('SideStore-reuse-lifecycle',v['parts']['swift']['logs']['SideStore-reuse-lifecycle'].replace(marker,replacement)))
  def test_each_preservation_native_record_is_independently_exact(self):
   good=self.value['parts']['swift']['logs']['SideStore-preservation']
-  rows=[json.loads(line) for line in good.splitlines()]
+  header=good[:good.index('{')]
+  rows=[json.loads(line) for line in good.splitlines() if line.startswith('{')]
   for index in range(2):
    for key,bad in [('cases',rows[index]['cases'][:-1]),('cases',rows[index]['cases'][1:]+rows[index]['cases'][:1]),('cases',rows[index]['cases']+[rows[index]['cases'][0]]),('status','FAIL'),('device_executed',True),('schema','unrelated')]:
     altered=copy.deepcopy(rows);altered[index][key]=bad
-    log='\n'.join(json.dumps(row) for row in altered)+'\n'
+    log=header+'\n'.join(json.dumps(row) for row in altered)+'\n'
     self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('SideStore-preservation',log))
    for altered in (rows[:index]+rows[index+1:],rows+[rows[index]]):
-    log='\n'.join(json.dumps(row) for row in altered)+'\n'
+    log=header+'\n'.join(json.dumps(row) for row in altered)+'\n'
     self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('SideStore-preservation',log))
  def test_preservation_exact_production_and_fixture_inputs_are_bound(self):
-  for path in ('SideStore/Core/Operations/PipelineOperations/CacheResignedMetadataOperation.swift','tests/preservation_refresh/run.sh','tests/preservation_refresh/generate_fixture.py','tests/preservation_refresh/expected-cases.json','tests/preservation_refresh/PolicyCases.swift','tests/preservation_refresh/IntegrationCases.swift','tests/preservation_refresh/BoundaryDoubles.swift','tests/reuse_main/run.sh','tests/reuse_main/Lifecycle.swift'):
+  self.assertEqual(len(C.PRESERVATION_INTEGRATION_CASES),38)
+  for path in ('SideStore/Core/Operations/PipelineOperations/CacheResignedMetadataOperation.swift','tests/preservation_refresh/run.sh','tests/preservation_refresh/generate_fixture.py','tests/preservation_refresh/expected-cases.json','tests/preservation_refresh/test_contract.py','tests/preservation_refresh/AuthenticatedAdapterCases.swift','tests/preservation_refresh/PolicyCases.swift','tests/preservation_refresh/IntegrationCases.swift','tests/preservation_refresh/BoundaryDoubles.swift','tests/reuse_main/run.sh','tests/reuse_main/Lifecycle.swift'):
    self.assertIn(path,C.INPUTS['SideStore'])
    self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
   self.assertIn('Sources/Models/ProvisioningProfile.swift',C.INPUTS['SideStore/Dependencies/SideSign'])

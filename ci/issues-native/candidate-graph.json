@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "fd92f2edd72a1f3b35262385a2817ddaa086d258"
+      "d5b4b5badf794f7dd9f530c411e65cd41bafcb34"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "f818e62bcbc4827906662580914dda7eac37b0a9"
+      "96a67c1505012c128e394a1faae585def90b2317"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -30,7 +30,7 @@
     ],
     "SideStore/Dependencies/minimuxer": [
       "NRG-Wardog/minimuxer",
-      "483a1ee7caaf9d9965b7c592d8c91283a7938c29"
+      "2eeddcac9cdc18983ffa2d004727bc7a17f7af80"
     ],
     "idevice": [
       "NRG-Wardog/idevice",
@@ -80,7 +80,7 @@
     },
     "LiveContainer": {
       "baseline": "8808211d340c6e9e2a6274c0eaa863d7ab09474f",
-      "tree": "14d8514638baea149b599ff0bcdbec54ec56657d",
+      "tree": "7704e36c9eeb9b31ff1754c5a1fb9674216f30b0",
       "files": {
         ".ci/branch-cleanup/allowlist.json": "152ec8b04398d1f5aafcd0018e865cf09b0278dd",
         ".ci/branch-cleanup/cleanup.py": "db84b91a0f98a60cf9e19ef2172c3ab1b4da029b",
@@ -113,7 +113,7 @@
         ".ci/legacy-replacement/localization_keys.json": "6c7c953ba2a47c0f9e905eac311acad454959423",
         ".ci/legacy-replacement/test_contract.py": "2d698eed6db51e16250b62dbf58326b612406c3d",
         ".ci/owned-oda-note/test_source.py": "47858793600ed76f6dd220b899a733744bad33ab",
-        ".ci/refresh-observations/cases.swift": "de02ece29104f311fcc8f610057fab9eaccb829e",
+        ".ci/refresh-observations/cases.swift": "7b5d6623c2fb3eb3f9832c5b91d7a699ec7fd717",
         ".ci/refresh-observations/localization_keys.json": "2844fee75cebb3434f1fc373b3b52c066673d1dd",
         ".ci/refresh-observations/test_refresh_observations.py": "eb5f6dfbc79a5779c063b6887d13a0b02e0ba01b",
         ".ci/refresh-truth/localization_keys.json": "59714bbb8ac4db62ca68774fb1d4e8484561c6fe",
@@ -166,7 +166,7 @@
         "MultitaskSupport/VirtualWindowsHostView.m": "4185db73b6a1f79447af283acdb51152b6ca4938",
         "Resources/Localizable.xcstrings": "470e5c8767528c2680ef52ce4d34ea7b3690e1c0",
         "Resources/ru.lproj/InfoPlist.strings": "2b181bbb36354e981df0f4746b95eee7b030ade4",
-        "SideStoreSupport/SideStore.swift": "aeafe67dfa3b9092a092716ed9599686bd0c0960",
+        "SideStoreSupport/SideStore.swift": "3716c0256fe9bfd81ee334b1d70c5f97c9a9b606",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
         "docs/integration/GENERATED_OPENSSL35.md": "113c76d38fd59f03050a3faf68285585ce1ca363",
         "docs/localization/RUSSIAN_UI.md": "fa5d4fdea01507775e5eb63a3c390657904ab3e9",
@@ -204,7 +204,7 @@
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
-      "tree": "803ce598251d72a028973398fe17f41811aa0da9",
+      "tree": "f4ba5dd7b3734e5ef9dba234bd2e8db4bf284c36",
       "files": {
         ".ci/branch-cleanup/allowlist.json": "f4fa7e585a01a176694441a15fb33bf8cfbc8ce7",
         ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
@@ -227,11 +227,11 @@
         "AGENTS.md": null,
         "AltStore.xcodeproj/project.pbxproj": "53a042b65192b1d6c2ed27926fdab69d4a09d51e",
         "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "c0ef6619c1f9971d78c809b9df3ac0e66b72d331",
-        "AltStore/AppDelegate.swift": "20279d4dc41b0daf5de0e72114330ee52fa4048d",
+        "AltStore/AppDelegate.swift": "4985305e114dfb9192ea5ce6b70d8a5b4b7f6b43",
         "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "43667573ccd1efb2d36fb25f7a4e7f4f894d1732",
         "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "b38c58967d8296e162c55f64e7e5d29679c42fef",
         "Dependencies/SideSign": "79f3eb51c54890f49760bd7a55abe9c36414fb25",
-        "Dependencies/minimuxer": "483a1ee7caaf9d9965b7c592d8c91283a7938c29",
+        "Dependencies/minimuxer": "2eeddcac9cdc18983ffa2d004727bc7a17f7af80",
         "SideStore/Core/Anisette/AnisetteProvider.swift": "9899b064e45a6d8f005c000f15453b3b11730452",
         "SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift": "475c914fd4342bfdf33a8ac8d10f301e94b435e5",
         "SideStore/Core/Auth/AuthManager.swift": "61c36d4ee026391c014fc720d84e0dadf4882d48",
@@ -242,10 +242,11 @@
         "SideStore/Core/Operations/PipelineExecutionHandler.swift": "ad31575fc4526526a63df382d1383a1e3631a1ee",
         "SideStore/Core/Operations/PipelineExecutor.swift": "0f789296d6802a9e2fc1f4f4d07ba301b76678c8",
         "SideStore/Core/Operations/PipelineOperations/CacheResignedMetadataOperation.swift": "4b98335193b3d4fa50136d90c4962cd0f7685f75",
-        "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": "d17cd506d76e88e5bd8b81537cdb6dbced9677ff",
+        "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": "17eaecc7697e03b731623a945b4bfcebd2b3eb08",
         "SideStore/Core/Operations/PipelineOperations/InstallAppOperation.swift": "e32caa58c468caa2b2018afdb01831c5cb0fb85c",
         "SideStore/Core/Operations/PipelineOperations/PrepareAppExtensionBundleIDsOperation.swift": "464b23b254c88f0f06448e3474402a02ca89000f",
-        "SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift": "a0ed1cc4ffec495d680a85c01df90bf5e97f8f22",
+        "SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift": "7f9ac572c59b90f5a27ee2e1f72e4e79badd6ecb",
+        "SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift": "7c80643f58e15c1c0fb6a898a310e2f4820901ba",
         "SideStore/Core/Operations/PipelineOperations/RemoveAppExtensionsOperation.swift": "6b08794d18a5807c40fb2663d458dd63cd2ddf3d",
         "SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift": "77ee14d6bad55ff8567b6fc7ea7ee38645c6e5b3",
         "SideStore/Core/Operations/PipelineOperations/SendAppOperation.swift": "0f968c425515329982e77635c877839aa399e74e",
@@ -286,13 +287,25 @@
         "tests/legacy_replacement_hooks/cases.swift": "96e6577d26af1983ca2b9fe76048bde020ea3b89",
         "tests/legacy_replacement_hooks/doubles.swift": "c2e4db39ae198ee17e37f0f584753c8fd03bfe65",
         "tests/legacy_replacement_hooks/test_contract.py": "2d91cf49bb45207ca5a65a690138834b96950dc8",
+        "tests/preservation_der/PublicCases.swift": "b34ae12bf9b0488394c646efb2f65769fd3f9e22",
+        "tests/preservation_der/README.md": "565ce3a50d546ea18fbc677886a6afbfc0dec8dd",
+        "tests/preservation_der/SwiftCases.swift": "22cd6abc32a8277586aa9de676a9a9853fed5586",
+        "tests/preservation_der/expected-cases.json": "618f3247cec8f35f6c270d4aaa405824b49f29eb",
+        "tests/preservation_der/fetch_public_fixtures.py": "5810cc62804e77ba2359ddd313afa2fd77c010fc",
+        "tests/preservation_der/public-fixtures.json": "c1944d7ffaf72e08b6d49c222397be8c56279cfe",
+        "tests/preservation_der/run.sh": "ce16dc460e60ec021bc570152e44636d5c781e33",
+        "tests/preservation_der/run_public.sh": "5654fe30598d5fcdd9d596a8665e06470e1668ad",
+        "tests/preservation_der/swift-cases.json": "5dbb785d2096cf51a9edb39c525c464bfc75ed15",
+        "tests/preservation_der/test_contract.py": "a77239295300b00789f5b39c5330fc778fc27ba7",
+        "tests/preservation_refresh/AuthenticatedAdapterCases.swift": "a4623f7a98671296f26aec995a0704b5003df1ae",
         "tests/preservation_refresh/BoundaryDoubles.swift": "f3f2733aea8e2c8f0af14dd4379c2e643b7696b5",
-        "tests/preservation_refresh/IntegrationCases.swift": "32eca6c52e59ab9d6325cb14bd23747656f7802a",
+        "tests/preservation_refresh/IntegrationCases.swift": "654dc3d401649ac85406f9e8ae899051c599e155",
         "tests/preservation_refresh/PolicyCases.swift": "da22a9d5308d76c0b9ac30519d2853cb6938e2b7",
         "tests/preservation_refresh/README.md": "abd961dc0bf1c2075d04eb0b1d4ec5bf452f04dc",
-        "tests/preservation_refresh/expected-cases.json": "4849d57a2b685e7358424b193e2fa3b80d476843",
-        "tests/preservation_refresh/generate_fixture.py": "1d31e61353a60189df9d747f9cf2e33d67dec5d0",
-        "tests/preservation_refresh/run.sh": "1df0cb0cbf40d5e0e2986e25c157d9b79693d4da",
+        "tests/preservation_refresh/expected-cases.json": "67a581e7b9950dcd30560f767fe9cb0a57d5939d",
+        "tests/preservation_refresh/generate_fixture.py": "a9d3b4527c76ccd9496672697aecf78133cecd37",
+        "tests/preservation_refresh/run.sh": "3b00c901f4d991f76f2651451fb71791faf55bee",
+        "tests/preservation_refresh/test_contract.py": "a824a8895cd5a5d4de0993e7ca9057f43d4c6669",
         "tests/provider_sequence/main.swift": "275a64df2e3de10212e6b804a021bd2397ff0b31",
         "tests/provider_sequence/noncooperative.swift": "de5bbcb68d805c27d9ce318b24d17f31f78de18d",
         "tests/refresh_failure/boundary_assertions.swift": "bd3b8da8338e7768cb96d73a62e6df69d678eb39",
@@ -302,9 +315,9 @@
         "tests/refresh_truth/README.md": "831f437ddba11e9f861e16b7ced3288023295901",
         "tests/refresh_truth/cases.swift": "6aa70dc26215f5589a5fb3cbd950209bfcf6ac5d",
         "tests/refresh_truth/operation_cases.swift": "7f1ae7c83c350e9ee7b92a1c0f672cdffadb0582",
-        "tests/refresh_truth/operation_doubles.swift": "30f8a13f9e8c846f4bd33b4f0e0c445c1291a7f5",
+        "tests/refresh_truth/operation_doubles.swift": "3c7e707c9f32610dc2700c0d607f5742a1dd35a1",
         "tests/refresh_truth/runtime.swift": "95a6077b14072c6b86ded670ec09db4390c0fc6b",
-        "tests/refresh_truth/test_contract.py": "1131837e2271ceeff2121069f7b490a4ea53d6c6",
+        "tests/refresh_truth/test_contract.py": "a87679b27636af80c635c5f79875ae9e5838f591",
         "tests/reuse_main/ExplanationCases.swift": "5a5e49951b1e5e38b466f8b9d3336afd71cfdded",
         "tests/reuse_main/Lifecycle.swift": "b4c1a1f4699176ce31a7ee1faefdeaa3593a454e",
         "tests/reuse_main/PRODUCER-CONSUMER.md": "5ab9f491eb4c60be68cd43ab95c5b7c52763000d",
@@ -371,6 +384,7 @@
     },
     "SideStore/Dependencies/minimuxer": {
       "baseline": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
+      "tree": "d3de47e3b2eb5d7c543df171ada25baf05ace970",
       "files": {
         ".ci/owned-readiness/fixture.swift": "aaaebb52800bf5897acab95df6daf192a6ffecca",
         ".ci/profile-readback/README.md": "447a9fcc08cc61137d9a073ec2e40feb847fd1b6",
@@ -381,18 +395,30 @@
         ".ci/verify-upstream-sync.py": "6359aca0f6ab81731b3bdbb5af2f363741e9ad82",
         "DeviceGateway/DeviceGatewayAPI.swift": "9d870f41c3a1fb5f0f25d8ec0e446c82c9a04981",
         "DeviceGateway/InstalledProfileReadback.swift": "2fe4cc87c9a6a004c7d3d1300fdca3903609181c",
-        "DeviceGateway/Package.swift": "012298d6e04ace6fa1fd5ea256efa29a3aeecbf5",
+        "DeviceGateway/Package.swift": "e3d9a1947fb583469b93291c11bd5fc62cd5df5d",
+        "DeviceGateway/ProvisioningCMSCore/approved_inner.h": "8453d75d580707ee93adf9a5f80d3476596577de",
+        "DeviceGateway/ProvisioningCMSCore/include/profile_cms.h": "9a861de8e67ebc314d1ea87ea878504620b43b98",
+        "DeviceGateway/ProvisioningCMSCore/production_roots.h": "91686bc0a053d23c8befc7124f6c6306c8d3a245",
+        "DeviceGateway/ProvisioningCMSCore/profile_cms.c": "4986407b4134f231d3abb69d5ea91678f90cf5b8",
         "DeviceGateway/idevice/IdeviceGateway.swift": "c66f1dfffc52fbd5f20a6d23c30b66f9b80a7406",
         "DeviceGateway/libimobiledevice/LibimobiledeviceGateway.swift": "5fc9e3ac724cfb2cbfaeb3f549da7af9b030a83d",
+        "DeviceGateway/libimobiledevice/ProvisioningCMSVerifier.swift": "7c944c11d93437f237fcd293b3ab4b18ab7a5d8e",
         "Sources/DeviceProvider.swift": "734bcc3cff9efb3b0377f98db9c1e70593fa385a",
         "Sources/MinimuxerApi.swift": "355456fb25deb64bb133aa995196778a93a9e03f",
         "Sources/MinimuxerImpl.swift": "863ac25b103959b0a992d7bd9a7a6dc2eb6598fb",
+        "Sources/ProfileCMSVerifier.swift": "f4bac8c02f29fd7fffd06a2086f71ced7819203d",
         "Sources/Services/DeviceConnectionManager.swift": "f125bc11240a642070ea044f53667febb3abf4cd",
         "Sources/Services/EndpointRefreshTransaction.swift": "6fff7080160f41eeb60cfd39b81a18fc5401a8d5",
         "Sources/Services/NetworkObserverService.swift": "bdcf846997a500d953f13ce981434e228982ef4d",
+        "TestsCMS/README.md": "f7adbe0974c071780f0191341679162bfa84003f",
+        "TestsCMS/approved-inner-provenance.json": "bb5653ddc1c39b465d0fdd20b55982079b2abb8a",
+        "TestsCMS/expected-cases.json": "1dc542ca45202256e6e309107619231f02a8ac3e",
+        "TestsCMS/root-provenance.json": "e2833057fa56ad67677a8a9b828972fd5862ff7b",
+        "TestsCMS/run_native.py": "1f7c790625c05e2e991571407dcd89299c87f700",
+        "TestsCMS/test_cms.py": "62b391e16aa6c0adb39ac35aabe851cd74184b6a",
+        "TestsCMS/verify_profile_cms.c": "5991d3df20146a87c37dbf9012198cbae872e3a6",
         "docs/integration/GENERATED_PAIRING_CRYPTO.md": "63cbe29c876d99f2471811310d0f6ec1a3bce7ef"
-      },
-      "tree": "00066810aa36e178b4e26cf621633f932490ca66"
+      }
     },
     "idevice": {
       "baseline": "774f02a6d29777c85400f4ba7fa69c12b4227fb3",

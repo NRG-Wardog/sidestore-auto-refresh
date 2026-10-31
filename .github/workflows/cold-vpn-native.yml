@@ -436,6 +436,8 @@ jobs:
           python3 -B harness/ci/issue55-openssl-size/test_admission.py 2>&1 | tee evidence/openssl-admission-controls.log
           python3 -B harness/ci/issue53-lts/build.py --output lts-host-build --optimization Os 2>&1 | tee evidence/lts-build-driver.log
           cp lts-host-build/build-receipt.json evidence/openssl-host-build-receipt.json
+          python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py
+          python3 -B harness/ci/issues-native/preservation_cms_receipt.py --sources sources --built lts-host-build --evidence evidence 2>&1 | tee evidence/preservation-cms-driver.log
           python3 -B harness/ci/issue53-crypto/acquire.py --output openssl-qualification-inputs 2>&1 | tee evidence/comparison-acquisition.log
           python3 -B harness/ci/issue53-crypto/consumer.py acquire --inputs openssl-qualification-inputs 2>&1 | tee evidence/signer-acquisition.log
           python3 -B harness/ci/issue53-lts/qualify.py --built lts-host-build --inputs openssl-qualification-inputs --evidence evidence 2>&1 | tee evidence/lts-qualification-driver.log
