@@ -68,7 +68,8 @@ def main():
     require(len(sys.argv) == 1, 'arbitrary inputs forbidden')
     out = Path.cwd() / 'workspace'
     m = manifest(out / 'input-manifest.json')
-    require(m['run_id'] == 41220384567 and m['commit'] == 'dd1b08d0124e43caa8a1c7b490612382d46f1735' and m['run_attempt'] == 2, 'projection candidate differs')
+    approved = manifest(Path(__file__).with_name('input-manifest.json'))
+    require(m == approved, 'projection candidate differs')
     api = API(os.environ['GH_TOKEN'])
     run = api.json(f"/repos/{REPO}/actions/runs/{m['run_id']}")
     ipa_artifact = api.json(f"/repos/{REPO}/actions/artifacts/{m['artifact_id']}")

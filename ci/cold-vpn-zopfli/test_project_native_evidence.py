@@ -3,7 +3,34 @@ from unittest.mock import patch
 from pathlib import Path
 from project_native_evidence import project, validate_read_only_archive
 import recover_native_artifacts as gate
+import project_native_evidence as projection
+from contract import manifest
 class ProjectionTests(unittest.TestCase):
+    def test_current_manifest_reaches_metadata_boundary(self):
+        current = manifest(Path(projection.__file__).with_name('input-manifest.json'))
+        with patch.object(projection, 'manifest', return_value=current), patch.object(projection.sys, 'argv', ['project_native_evidence.py']), patch.dict(projection.os.environ, {'GH_TOKEN': 'synthetic'}), patch.object(projection, 'API', side_effect=RuntimeError('metadata boundary')) as api:
+            with self.assertRaisesRegex(RuntimeError, 'metadata boundary'):
+                projection.main()
+            api.assert_called_once_with('synthetic')
+
+    def test_every_changed_manifest_field_rejected_before_network(self):
+        current = manifest(Path(projection.__file__).with_name('input-manifest.json'))
+        for key, value in current.items():
+            changed = dict(current)
+            changed[key] = value + 1 if type(value) is int else value + 'changed'
+            with self.subTest(key=key), patch.object(projection, 'manifest', side_effect=[changed, current]), patch.object(projection.sys, 'argv', ['project_native_evidence.py']), patch.object(projection, 'API') as api:
+                with self.assertRaisesRegex(ValueError, 'projection candidate differs'):
+                    projection.main()
+                api.assert_not_called()
+
+    def test_old_native_candidate_rejected_before_network(self):
+        current = manifest(Path(projection.__file__).with_name('input-manifest.json'))
+        old = dict(current, run_id=41220384567, commit='dd1b08d0124e43caa8a1c7b490612382d46f1735', run_attempt=2)
+        with patch.object(projection, 'manifest', side_effect=[old, current]), patch.object(projection.sys, 'argv', ['project_native_evidence.py']), patch.object(projection, 'API') as api:
+            with self.assertRaisesRegex(ValueError, 'projection candidate differs'):
+                projection.main()
+            api.assert_not_called()
+
     def fixture(self,root,body=b'bound evidence',digest=None,receipt_override=None):
         digest=digest or hashlib.sha256(body).hexdigest()
         receipt=json.dumps({'evidence_sha256':{'probe.log':digest}}).encode()
