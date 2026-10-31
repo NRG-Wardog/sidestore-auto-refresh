@@ -32,3 +32,85 @@ def validate(data):
     require(data['scene_provider_scope']=='projected_inputs_real_uiwindows','Scene provider scope differs')
     require(data['screenshots']==SCREENSHOTS,'Synthetic visual evidence closure differs')
     return data
+
+# Prospective exact-owned cleanup evidence. Portable: standard library only.
+CLEANUP_SCHEMA='owned-simulator-cleanup-v1'
+CLEANUP_SOURCE_FILES=('run_attachment.py','owned_simulator_cleanup.py','attachment_contract.py','test_owned_simulator_cleanup.py')
+def _uuid(value):
+    import uuid
+    require(type(value) is str,'Invalid simulator UUID type')
+    try:canonical=str(uuid.UUID(value)).upper()
+    except (ValueError,AttributeError):raise ValueError('Invalid simulator UUID')
+    require(value.upper()==canonical,'Noncanonical simulator UUID');return canonical
+
+def _strict_pairs(rows):
+    result={}
+    for key,value in rows:require(key not in result,'Duplicate inventory key');result[key]=value
+    return result
+
+def owned_absent(inventory_json,owned_uuid,owned_runtime):
+    import json
+    owner=_uuid(owned_uuid)
+    require(type(inventory_json) is str and 0<len(inventory_json.encode())<=8*1024*1024,'Invalid inventory size')
+    def invalid_constant(value):raise ValueError('Non-JSON numeric constant')
+    data=json.loads(inventory_json,object_pairs_hook=_strict_pairs,parse_constant=invalid_constant)
+    require(type(data) is dict and set(data)=={'devices'} and type(data['devices']) is dict,'Incomplete unfiltered device inventory')
+    require(owned_runtime in data['devices'],'Created runtime missing from inventory')
+    seen=set()
+    for runtime,rows in data['devices'].items():
+        prefix='com.apple.CoreSimulator.SimRuntime.'
+        require(type(runtime) is str and runtime.startswith(prefix) and len(runtime)>len(prefix) and type(rows) is list,'Unknown runtime or malformed device list')
+        for row in rows:
+            required={'udid','state','name','isAvailable','deviceTypeIdentifier'}
+            optional={'dataPath','dataPathSize','logPath','availability','availabilityError','lastBootedAt','lastBootedTime'}
+            require(type(row) is dict and required<=set(row)<=required|optional,'Unknown or malformed device record')
+            udid=_uuid(row['udid']);require(udid not in seen,'Duplicate simulator UUID');seen.add(udid)
+            prefix='com.apple.CoreSimulator.SimDeviceType.'
+            require(type(row['deviceTypeIdentifier']) is str and row['deviceTypeIdentifier'].startswith(prefix) and len(row['deviceTypeIdentifier'])>len(prefix) and type(row['isAvailable']) is bool,'Unknown device type/availability')
+            require(type(row['name']) is str and bool(row['name']),'Missing simulator name')
+            require(type(row['state']) is str and row['state'] in ('Shutdown','Booted','Booting','Shutting Down','Creating','Deleting'),'Unknown simulator state')
+            for key in optional & set(row):
+                if key=='dataPathSize':require(type(row[key]) is int and row[key]>=0,'Invalid device size')
+                else:require(type(row[key]) is str,'Invalid device metadata')
+    # Parse every runtime and record; unrelated valid devices may remain.
+    return owner not in seen
+
+def validate_cleanup_receipt(report):
+    import hashlib,re
+    c=report['cleanup'];require(c['schema']==CLEANUP_SCHEMA,'Cleanup schema differs')
+    require(set(c)=={'schema','ownership','actions','readback','status'},'Cleanup fields differ')
+    o=c['ownership'];require(set(o)=={'udid','create_argv','create_exit_code','create_stdout','create_stdout_sha256'},'Ownership fields differ')
+    owner=_uuid(o['udid']);require(owner==_uuid(report['simulator']['udid']),'Cleanup owner differs from created simulator')
+    expected=['xcrun','simctl','create','NRG-Multitask-'+report['identity']['run_id'],report['simulator']['device_type']['identifier'],report['simulator']['runtime']['identifier']]
+    require(o['create_argv']==expected and type(o['create_exit_code']) is int and o['create_exit_code']==0,'Successful creation provenance missing')
+    require(type(o['create_stdout']) is str and len(o['create_stdout'])<=128 and _uuid(o['create_stdout'].strip())==owner,'Creation result/owner mismatch')
+    require(hashlib.sha256(o['create_stdout'].encode()).hexdigest()==o['create_stdout_sha256'],'Creation result hash differs')
+    require(report['observation_status']=='PASS_ACTUAL_ATTACHMENT_HELPER_NOT_GUEST_LAUNCH','Cleanup cannot rescue failed attachment observations')
+    def outcome(row,args,timeout):
+        require(set(row)=={'argv','timeout_seconds','elapsed_ms','outcome','returncode','reaped','log','log_sha256'},'Command outcome fields differ')
+        require(row['argv']==args and type(row['timeout_seconds']) is int and row['timeout_seconds']==timeout,'Cleanup command scope/bound differs')
+        require(type(row['elapsed_ms']) is int and 0<=row['elapsed_ms']<=(timeout+6)*1000,'Invalid command duration')
+        require(type(row['reaped']) is bool and re.fullmatch('[0-9a-f]{64}',row['log_sha256']) is not None,'Missing process/log outcome')
+        code=row['returncode'];kind=row['outcome'];require(code is None or type(code) is int,'Invalid return code')
+        require(kind in ('success','nonzero','timeout','spawn_error','unreaped'),'Unknown command outcome')
+        require((kind=='success' and code==0 and row['reaped']) or (kind=='nonzero' and type(code) is int and code!=0 and row['reaped']) or (kind=='timeout' and type(code) is int and row['reaped']) or (kind=='spawn_error' and code is None and row['reaped']) or (kind=='unreaped' and code is None and not row['reaped']),'Inconsistent command outcome')
+        return kind=='success'
+    require(type(c['actions']) is list and len(c['actions'])==2,'Cleanup action count differs')
+    successful=[]
+    for row,action in zip(c['actions'],('shutdown','delete')):
+        successful.append(outcome(row,['xcrun','simctl',action,owner],45))
+        require(row['log']==action+'-cleanup.log','Cleanup log path differs')
+    require(all(row['reaped'] for row in c['actions']),'Unreaped cleanup process')
+    if all(successful):
+        require(c['readback'] is None and c['status']=='completeByCommand','Unexpected cleanup readback or status')
+    else:
+        r=c['readback'];require(type(r) is dict and set(r)=={'command','owned_uuid','inventory_json','inventory_sha256'},'Missing bounded readback')
+        require(_uuid(r['owned_uuid'])==owner,'Readback queried/claimed wrong owner')
+        require(outcome(r['command'],['xcrun','simctl','list','devices','--json'],10),'Inventory command did not succeed')
+        require(r['command']['log']=='cleanup-final-inventory.json','Inventory log path differs')
+        digest=hashlib.sha256(r['inventory_json'].encode()).hexdigest()
+        require(digest==r['inventory_sha256']==r['command']['log_sha256'],'Inventory evidence hash differs')
+        require(owned_absent(r['inventory_json'],owner,o['create_argv'][5]) and c['status']=='completeByAbsence','Owned simulator not proven absent')
+    require(set(report['cleanup_source_sha256'])==set(CLEANUP_SOURCE_FILES),'Cleanup source closure differs')
+    require(all(re.fullmatch('[0-9a-f]{64}',value) for value in report['cleanup_source_sha256'].values()),'Invalid cleanup source digest')
+    return c

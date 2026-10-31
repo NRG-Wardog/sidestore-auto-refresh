@@ -31,7 +31,7 @@ class CMSControls(unittest.TestCase):
   for s in [json.dumps(self.public())+'\nraw bytes',json.dumps(self.public())[:-1]+',"status":"PASS"}', 'x'*100001]:
    with self.assertRaises(ValueError):c.validate_public_log(s)
  def fixture(self,d):
-  root=pathlib.Path(d);run={'workflow_commit':'a'*40,'run_id':'1','run_attempt':'2'}
+  root=pathlib.Path(d).resolve(strict=True);run={'workflow_commit':'a'*40,'run_id':'1','run_attempt':'2'}
   host={'source':c.read(HERE.parent/'issue53-lts/source.json'),'static_archives_sha256':{'/exact/install/lib/libcrypto.a':'b'*64},'header_inventory_sha256':'c'*64}
   (root/'openssl-host-build-receipt.json').write_text(json.dumps(host))
   (root/c.LOGS[0]).write_text(json.dumps(self.cms()));(root/c.LOGS[1]).write_text(json.dumps(self.public()))
@@ -72,6 +72,29 @@ class CMSControls(unittest.TestCase):
   self.assertLess(w.index('cp lts-host-build/build-receipt.json evidence/openssl-host-build-receipt.json'),w.index(command))
   self.assertLess(w.index(command),w.index('python3 -B harness/ci/issue53-lts/build_ios.py'))
   record=(HERE/'record.py').read_text();self.assertIn("verify_preservation_cms(E / 'preservation-cms-tests.json'",record)
+  early='python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py'
+  focused=(HERE.parents[1]/'.github/workflows/refresh-truth-preflight.yml').read_text()
+  self.assertEqual(focused.count(early),1)
+  self.assertLess(focused.index(early),focused.index('id: swift_tests'))
+  self.assertEqual(w.count(early),2)
+  self.assertLess(w.index(early),w.index('id: openssl_inputs'))
+ def test_native_crypto_runs_early_and_reuses_exact_host_inputs(self):
+  w=(HERE.parents[1]/'.github/workflows/cold-vpn-native.yml').read_text()
+  early=w.index('id: preservation_cms');fixtures=w.index('id: refresh_truth_swift')
+  late=w.index('id: openssl_inputs');next_step=w.index('      - name:',late)
+  self.assertLess(early,fixtures);self.assertLess(early,w.index('id: multitask_tests'))
+  build='python3 -B harness/ci/issue53-lts/build.py --output lts-host-build --optimization Os'
+  driver='python3 -B harness/ci/issues-native/preservation_cms_receipt.py --sources sources --built lts-host-build --evidence evidence'
+  self.assertEqual(w.count(build),1);self.assertTrue(early<w.index(build)<fixtures)
+  self.assertEqual(w.count(driver),1);self.assertTrue(early<w.index(driver)<fixtures)
+  self.assertNotIn('stage-openssl',w[early:fixtures])
+  self.assertNotIn('stage-embedded-openssl',w[early:fixtures])
+  recheck=w[late:next_step]
+  self.assertIn("steps.preservation_cms.outcome == 'success'",recheck)
+  self.assertIn("cms.host_build(pathlib.Path('lts-host-build'), pathlib.Path('evidence'))",recheck)
+  self.assertIn("cms.verify(pathlib.Path('evidence/preservation-cms-tests.json')",recheck)
+  self.assertLess(recheck.index('cms.verify('),recheck.index('harness/ci/issue53-lts/build_ios.py'))
+  self.assertIn('--archive lts-host-build/openssl-3.5.9.tar.gz',recheck)
  def test_only_finite_logs_and_temporary_public_input_lane(self):
   self.assertEqual(c.LOGS,('preservation-cms-native.json','preservation-cms-public.log'))
   source=(HERE/'preservation_cms_receipt.py').read_text()
@@ -94,13 +117,19 @@ class SourceBindings(unittest.TestCase):
   return graph
  def test_actual_git_tree_binding_and_changed_bytes(self):
   with tempfile.TemporaryDirectory() as d:
-   root=pathlib.Path(d);graph=self.setup_sources(root);bound=c.sources(root,graph)
+   root=pathlib.Path(d).resolve(strict=True);graph=self.setup_sources(root);bound=c.sources(root,graph)
    self.assertEqual(len(bound),sum(map(len,c.INPUTS.values())))
    p=root/'SideStore'/c.INPUTS['SideStore'][0];p.write_text('changed')
    with self.assertRaisesRegex(ValueError,'source bytes differ'):c.sources(root,graph)
+ def test_temporary_root_alias_requires_canonical_source_path(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=pathlib.Path(d).resolve(strict=True);real=root/'real';real.mkdir()
+   graph=self.setup_sources(real);alias=root/'alias';alias.symlink_to(real,target_is_directory=True)
+   with self.assertRaisesRegex(ValueError,'linked CMS source ancestor'):c.sources(alias,graph)
+   self.assertEqual(c.sources(alias.resolve(strict=True),graph),c.sources(real,graph))
  def test_wrong_head_or_tree_rejected(self):
   with tempfile.TemporaryDirectory() as d:
-   root=pathlib.Path(d);graph=self.setup_sources(root)
+   root=pathlib.Path(d).resolve(strict=True);graph=self.setup_sources(root)
    for kind in ('owners','reviewed_deltas'):
     changed=copy.deepcopy(graph)
     if kind=='owners':changed[kind]['SideStore'][1]='0'*40
@@ -108,12 +137,12 @@ class SourceBindings(unittest.TestCase):
     with self.assertRaises(ValueError):c.sources(root,changed)
  def test_linked_source_rejected(self):
   with tempfile.TemporaryDirectory() as d:
-   root=pathlib.Path(d);graph=self.setup_sources(root);p=root/'SideStore'/c.INPUTS['SideStore'][0]
+   root=pathlib.Path(d).resolve(strict=True);graph=self.setup_sources(root);p=root/'SideStore'/c.INPUTS['SideStore'][0]
    target=root/'copy';target.write_bytes(p.read_bytes());p.unlink();p.symlink_to(target)
    with self.assertRaisesRegex(ValueError,'linked CMS source'):c.sources(root,graph)
  def test_host_receipt_header_archive_binding(self):
   with tempfile.TemporaryDirectory() as d:
-   root=pathlib.Path(d);built=root/'built';evidence=root/'evidence';evidence.mkdir();include=built/'install/include/openssl';include.mkdir(parents=True);(include/'a.h').write_text('synthetic header')
+   root=pathlib.Path(d).resolve(strict=True);built=root/'built';evidence=root/'evidence';evidence.mkdir();include=built/'install/include/openssl';include.mkdir(parents=True);(include/'a.h').write_text('synthetic header')
    lib=built/'install/lib/libcrypto.a';lib.parent.mkdir();lib.write_text('synthetic not executable archive')
    (built/'openssl-3.5.9.tar.gz').write_text('synthetic not real archive')
    headers={'a.h':c.sha(include/'a.h')};(built/'headers.json').write_text(json.dumps(headers))
@@ -122,7 +151,9 @@ class SourceBindings(unittest.TestCase):
    for path in [built/'build-receipt.json',evidence/'openssl-host-build-receipt.json']:path.write_text(json.dumps(receipt))
    actual_sha=c.sha
    with patch.object(c,'sha',side_effect=lambda p:pins['sha256'] if pathlib.Path(p).name=='openssl-3.5.9.tar.gz' else actual_sha(p)):
-    c.host_build(built,evidence)
+    canonical=c.host_build(built,evidence)
+    alias=root/'built-alias';alias.symlink_to(built,target_is_directory=True)
+    self.assertEqual(c.host_build(alias,evidence),canonical)
     (include/'a.h').write_text('changed header')
     with self.assertRaisesRegex(ValueError,'installed headers differ'):c.host_build(built,evidence)
     (include/'a.h').write_text('synthetic header');lib.write_text('changed archive')

@@ -51,6 +51,7 @@ jobs:
           python3 -B harness/ci/issues-native/test_profile_static_closure_projection.py
           python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
           python3 -B harness/ci/issues-native/test_current_bindings.py
+          python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py
           python3 -B harness/ci/issues-native/test_refresh_observation_setup_projection.py
           python3 -B harness/ci/issues-native/test_refresh_observation_vpn_projection.py
           python3 -B harness/ci/issues-native/test_transport_observation_cache_projection.py

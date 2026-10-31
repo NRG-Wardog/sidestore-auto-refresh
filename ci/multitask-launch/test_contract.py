@@ -126,4 +126,11 @@ class WorkflowTests(unittest.TestCase):
   self.assertNotIn('download',text)
   self.assertEqual(text.count("'simctl','launch'"),1)
   self.assertEqual(text.count("'simctl','boot',udid"),1)
+def load_tests(loader,tests,pattern):
+ # Direct native invocation must run cleanup controls; discovery already finds
+ # their dedicated module and must not execute it twice.
+ if __name__=='__main__':
+  import test_owned_simulator_cleanup
+  tests.addTests(loader.loadTestsFromModule(test_owned_simulator_cleanup))
+ return tests
 if __name__=='__main__':unittest.main(verbosity=2)
