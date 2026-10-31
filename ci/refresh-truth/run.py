@@ -45,8 +45,9 @@ def run(kind,sources,output):
    for owner,(script,count) in C.SUITES.items():
     label=owner.replace('/','-');log=output/('refresh-truth-'+label+'.log')
     try:
-     text=command([sys.executable,'-B',str(sources/C.SUITE_OWNERS[owner]/script),'-v'],output,log,env,600)
-     C.completed_tests(text,count);report['logs'][owner]=text
+     args=(['/bin/bash','-e',str(sources/C.SUITE_OWNERS[owner]/script)] if script.endswith('.sh') else [sys.executable,'-B',str(sources/C.SUITE_OWNERS[owner]/script),'-v'])
+     text=command(args,output,log,env,600)
+     C.suite_tests(owner,text);report['logs'][owner]=text
     except Exception as error:
      # Independent source-owned fixtures run once each; a failure never
      # becomes a passing part, and missing logs remain a hard failure.

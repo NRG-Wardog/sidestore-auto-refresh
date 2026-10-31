@@ -8,6 +8,11 @@ ROOT=Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('refresh_truth_runner',ROOT/'ci/refresh-truth/run.py')
 R=importlib.util.module_from_spec(spec);spec.loader.exec_module(R)
 class OrchestrationTests(unittest.TestCase):
+ def test_preservation_successor_controls_in_both_native_gates(self):
+  for name in ('refresh-truth-preflight.yml','cold-vpn-native.yml'):
+   text=(Path(__file__).resolve().parents[2]/'.github/workflows'/name).read_text()
+   self.assertEqual(text.count('python3 -B harness/ci/issues-native/test_preservation_successor_projection.py'),1)
+
  def test_all_phases_from_canonical_alternate_directory_and_exact_command_options(self):
   value=fixture();source=value['parts']['swift']['source'];graph={'owners':value['source_graph']};calls=[]
   with tempfile.TemporaryDirectory() as temporary:
@@ -23,6 +28,8 @@ class OrchestrationTests(unittest.TestCase):
     else:
      script=Path(args[2]);key=next(k for k,(p,_) in C.SUITES.items() if script==sources/C.SUITE_OWNERS[k]/p)
      text=value['parts']['swift']['logs'][key]
+     if C.SUITES[key][0].endswith('.sh'):self.assertEqual(args[:2],['/bin/bash','-e']);self.assertEqual(len(args),3)
+     else:self.assertEqual(args[:2],[sys.executable,'-B']);self.assertEqual(args[-1],'-v')
      self.assertEqual(env['V3_REQUIRE_SWIFT'],'1');self.assertEqual(env['REQUIRE_NATIVE_PROFILE_READBACK'],'1');self.assertEqual(env['REQUIRE_NATIVE_LEGACY_REPLACEMENT'],'1')
     log.write_text(text);calls.append(args);return text
    with mock.patch.object(R,'load_candidate_graph',return_value=graph),mock.patch.object(R,'run_identity',return_value=value['identity']),mock.patch.object(C,'collect',return_value=source),mock.patch.object(R,'compiler',return_value=value['parts']['swift']['compiler']),mock.patch.object(R,'command',side_effect=fake_command):

@@ -4,10 +4,12 @@ from pathlib import Path
 SCHEMA='refresh-truth-native-v1'
 STATUS='PASS_SOURCE_OWNED_NATIVE_FIXTURES_NOT_DEVICE'
 SUITES={
- 'LiveContainer':('.ci/refresh-truth/test_refresh_truth.py',5),
+ 'LiveContainer':('.ci/refresh-truth/test_refresh_truth.py',6),
  'LiveContainer-observations':('.ci/refresh-observations/test_refresh_observations.py',3),
  'LiveContainer-legacy':('.ci/legacy-replacement/test_contract.py',4),
  'SideStore':('tests/refresh_truth/test_contract.py',8),
+ 'SideStore-preservation':('tests/preservation_refresh/run.sh',None),
+ 'SideStore-reuse-lifecycle':('tests/reuse_main/run.sh',7),
  'SideStore-direct':('tests/direct_refresh_evidence/test_contract.py',4),
  'SideStore-legacy-hooks':('tests/legacy_replacement_hooks/test_contract.py',4),
  'SideStore-legacy-coordinator':('tests/legacy_replacement/test_contract.py',4),
@@ -20,7 +22,15 @@ INPUTS={
  'SideStore/Dependencies/SideSign':('Sources/CodeSigning/CodeSignerAPI.swift','Sources/CodeSigning/ExtensionSigningPolicy.swift'),
  'idevice':('Cargo.toml','Cargo.lock','idevice/Cargo.toml','idevice/src/services/misagent.rs','ffi/Cargo.toml','ffi/src/misagent.rs'),
 }
-SUITE_OWNERS={key:({'SideStore-direct':'SideStore','SideStore-legacy-hooks':'SideStore','SideStore-legacy-coordinator':'SideStore','LiveContainer-observations':'LiveContainer','LiveContainer-legacy':'LiveContainer'}.get(key,key)) for key in SUITES}
+# Bind every newly executed production dependency and fixture byte to both native parts.
+INPUTS['SideStore'] += ('SideStore/Core/Operations/PipelineOperations/CacheResignedMetadataOperation.swift',
+ 'tests/preservation_refresh/run.sh','tests/preservation_refresh/generate_fixture.py','tests/preservation_refresh/expected-cases.json',
+ 'tests/preservation_refresh/PolicyCases.swift','tests/preservation_refresh/IntegrationCases.swift','tests/preservation_refresh/BoundaryDoubles.swift',
+ 'tests/reuse_main/run.sh','tests/reuse_main/test_contract.py','tests/reuse_main/RegistryCases.swift',
+ 'tests/reuse_main/Lifecycle.swift','tests/reuse_main/ExplanationCases.swift',
+ 'tests/reuse_main/generate_producer_consumer.py','tests/reuse_main/ProducerConsumerDoubles.swift','tests/reuse_main/ProducerConsumerCases.swift')
+INPUTS['SideStore/Dependencies/SideSign'] += ('Sources/Models/ProvisioningProfile.swift',)
+SUITE_OWNERS={key:({'SideStore-preservation':'SideStore','SideStore-reuse-lifecycle':'SideStore','SideStore-direct':'SideStore','SideStore-legacy-hooks':'SideStore','SideStore-legacy-coordinator':'SideStore','LiveContainer-observations':'LiveContainer','LiveContainer-legacy':'LiveContainer'}.get(key,key)) for key in SUITES}
 OBSERVATION_CASES=('typed_guard_preserved', 'specific_safe_guard_copy', 'unknown_guard_dropped', 'orphan_scope_dropped', 'bad_scope_primary_failure_retained', 'wrong_source_guard_dropped', 'wrong_stage_guard_dropped', 'wrong_kind_guard_dropped', 'malformed_optional_primary_retained', 'nonstring_guard_dropped', 'finite_transport_observation', 'boolean_version_rejected', 'extra_transport_fields_rejected', 'unowned_transport_rejected', 'wire_preserves_owned_observation', 'wrong_run_observation_rejected', 'mixed_target_ack_not_aggregated', 'target_guard_scope_preserved', 'target_rows_no_identifiers', 'copy_preserves_individual_outcomes', 'copy_no_raw_values', 'transport_observed_even_renewal_failed', 'renewal_stays_unverified_independent', 'no_inferred_coredevice_transport', 'historical_ready_not_current_tunnel', 'active_generation_suppresses_history', 'no_transport_proof_no_transport_verified', 'malformed_history_no_transport_verified', 'wrong_run_history_no_transport_verified', 'floating_summary_version_rejected', 'boolean_summary_version_rejected', 'nonterminal_observation_not_promoted', 'mixed_aggregate_does_not_hide_target_guard', 'selection_guard_not_vpn_advice', 'stored_diagnostics_reject_raw_values', 'renewal_verified_without_transport_observation_not_inferred', 'overflow_summary_version_rejected', 'noncanonical_run_rejected', 'actual_summary_preserves_complete_observation', 'actual_summary_rejects_partial_observation', 'partial_manifest_no_target_rows', 'target_diagnostics_bounded_32', 'target_33_truncation_explicit', 'unknown_failure_kind_rejected', 'target_summary_float_version_rejected', 'nonterminal_target_summary_rejected', 'wrong_operation_guard_dropped')
 
 LEGACY_NATIVE={'SideStore-legacy-hooks':('legacy-replacement-hooks-v1',('exact', 'global-reuse-rejected', 'experimental-reuse-rejected', 'wrong-fallback-serial', 'wrong-fallback-DER', 'expired-certificate', 'missing-certificate', 'original-id-drift', 'assigned-profile-rejected', 'cancel-admission', 'late-expiry', 'signed-exact', 'signed-missing-both-appid', 'signed-missing-one-appid', 'signed-team-drift', 'signed-extension-added', 'signed-id-drift', 'profile-team-drift', 'required-extensions-exact', 'required-extensions-missing', 'required-extensions-wrong-id', 'required-extensions-extra', 'required-separate-profiles-exact', 'required-separate-profiles-duplicate-uuid', 'required-separate-profiles-wrong-der', 'required-separate-profiles-wrong-serial', 'post-ack-cancel-still-persists-once', 'post-ack-save-failure-not-success', 'owned-stage-exact-copy', 'owned-stage-changed-source', 'owned-stage-symlink-source', 'strategy-ordinary-unchanged', 'strategy-replacement-preserves', 'strategy-replacement-unsupported-rejected', 'strategy-experimental-unchanged'))}
@@ -28,6 +38,18 @@ LEGACY_NATIVE={'SideStore-legacy-hooks':('legacy-replacement-hooks-v1',('exact',
 LEGACY_COORDINATOR_MARKERS=('LEGACY_REPLACEMENT_POLICY_PASS cases=42','LEGACY_REPLACEMENT_COUNTERFACTUAL_PASS variants=nonce,stale,consent')
 
 LEGACY_HOST_CASES=('acknowledged_result_blocks', 'active_run_blocks', 'background_dismiss_no_dispatch', 'boolean_consent_version_rejected', 'cancelled_late_reply_ignored', 'changed_history_reply_ignored', 'completed_unknown_requires_check', 'completed_without_evidence_not_green', 'concurrent_operation_blocks', 'confirm_dismiss_background_no_dispatch', 'confirmed_wire_uses_same_known_session', 'consent_required', 'dismiss_dispatch_once', 'dispatched_result_blocks', 'double_confirmation_blocked', 'eligible_assessment_accepted', 'exact_failed_target_identity', 'expired_token_blocked', 'explicit_confirmation_returns_exact_token', 'finite_refusal_busy', 'finite_refusal_certificateMismatch', 'finite_refusal_certificateUnavailable', 'finite_refusal_identityMismatch', 'finite_refusal_identityUnavailable', 'finite_refusal_notEligible', 'finite_refusal_sourceChanged', 'finite_refusal_sourceUnavailable', 'finite_refusal_staleAssessment', 'floating_consent_version_rejected', 'floating_manifest_version_blocks', 'history_changed_at_dismiss_no_dispatch', 'host_excluded', 'host_scope_blocks', 'known_session_reserved_before_dispatch', 'lost_ack_blocks_retry', 'lost_ack_unknown_not_failed_replay', 'malformed_assessment_0', 'malformed_assessment_1', 'malformed_assessment_2', 'malformed_assessment_3', 'malformed_assessment_4', 'malformed_assessment_5', 'malformed_assessment_6', 'malformed_assessment_7', 'malformed_assessment_8', 'malformed_assessment_9', 'malformed_reply_clears_old_token', 'missing_mutation_evidence_blocks', 'negative_consent_rejected', 'network_failure_not_replacement', 'noncanonical_request_blocks', 'nonterminal_ledger_blocks', 'other_failure_not_replacement', 'partial_batch_blocks', 'prepare_wire_bound_target_run_request', 'restart_journal_never_persists_assessment_token', 'restart_retains_known_session_kind', 'successful_result_blocks', 'successful_target_never_selected', 'summary_only_cannot_enable', 'superseded_reply_ignored', 'uncertain_hold_blocks', 'verified_evidence_not_assessment_proves_renewal', 'wire_requires_explicit_consent')
+
+LEGACY_HOST_CASES=tuple(sorted(LEGACY_HOST_CASES+('preservation_fetch_guard_allowed','preservation_refresh_guard_allowed',
+ 'legacy_guard_not_broadened_to_fetch','preservation_guard_wrong_stage_rejected','preservation_unknown_guard_rejected',
+ 'preservation_failure_explains_unchanged_app','preservation_network_retrieval_guard_rejected')))
+
+PRESERVATION_POLICY_CASES=('renew', 'identical duplicate', 'expired old allowed', 'same authority duplicates', 'highest prior expiry', 'cert caps improvement', 'cert expired', 'not reuse', 'missing inventory', 'same UUID overwrite', 'ambiguous UUID', 'changed ProvisionedDevices', 'changed Platform', 'changed ApplicationIdentifierPrefix', 'changed DeveloperCertificates', 'changed UnknownRestriction', 'entitlement keychain-access-groups', 'entitlement com.apple.security.application-groups', 'entitlement new-entitlement', 'default keychain group', 'bool not integer', 'same identity authority conflict', 'partial profile projection', 'preflight-selected-identity', 'preflight-identical-duplicate', 'preflight-alternate-prefix', 'preflight-conflicting-authority', 'preflight-malformed', 'preflight-inconsistent-prefix', 'inventory-change-detected', 'unrelated-inventory-preserved-target', 'changed-inventory-different-target', 'fresh-uuid-collision', 'fresh-alternate-prefix-conflict')
+PRESERVATION_INTEGRATION_CASES=('actual-fetch-refresh-preserves-identity-and-extension-metadata', 'changed-snapshot-no-install', 'lost-ack-single-dispatch-no-replay-no-bookkeeping', 'missing-evidence-no-portal-generation', 'changed-app-groups-no-install', 'missing-existing-id-no-registration', 'ambiguous-existing-id-no-generation', 'provided-profile-same-authority-no-portal', 'cancelled-before-observation', 'reject-db-serial-before-portal', 'reject-missing-serial-before-portal', 'reject-db-team-before-portal', 'reject-history-der-before-portal', 'fresh-read-db-original-identity-drift-no-install', 'postread-unavailable-preserves-main-and-extension-expiry', 'postread-mismatch-preserves-main-and-extension-expiry', 'admission-revoked-after-preflight-before-injection', 'normal-install-nil-recorded-serial-preserved-refresh')
+REUSE_PRODUCER_CONSUMER_CASES=('staged-without-ack-not-enrolled', 'failed-ack-not-enrolled', 'actual-producer-ack-consumer-recovers-history-only', 'original-cache-unchanged-without-generation', 'missing-signed-marker-not-enrolled', 'certificate-profile-mismatch-not-enrolled', 'actual-fingerprint-source-drift-rejected')
+REUSE_LIFECYCLE_MARKERS=(
+ 'ReuseMain registry: legacy, same-profile failed opt-in, failed opt-out, repeated failures, signed generation and confirmed opt-out checks passed',
+ 'PASS: original-source -> staged signing -> native ACK -> next refresh historical lookup; identity drift, failure, opt-out, V1 and malformed evidence controls',
+ 'PASS 11 ReuseMain explanation assertions; formatting only, no signing or device execution')
 
 RUST_CASES=tuple('services::misagent::profile_readback_tests::'+name for name in ('bounds_fail_closed_without_truncation','payload_must_be_complete_data_array','status_is_mandatory_integer_zero','success_and_empty_store_are_observations'))
 
@@ -154,6 +176,39 @@ def completed_tests(log,count):
  require(type(log) is str and len(log.encode())<=4*1024*1024,'invalid/big suite log')
  counts=re.findall(r'^Ran ([1-9][0-9]*) tests? in [0-9.]+s$',log,re.M)
  require(counts==[str(count)] and re.search(r'^OK\s*$',log,re.M) is not None and re.search(r'^(?:FAILED|OK \()',log,re.M) is None,'source suite failed/skipped or test count differs')
+def suite_tests(owner,log):
+ require(type(log) is str and len(log.encode())<=4*1024*1024,'invalid/big suite log')
+ count=SUITES[owner][1]
+ if count is not None:completed_tests(log,count)
+ if owner=='SideStore-reuse-lifecycle':
+  for marker in REUSE_LIFECYCLE_MARKERS:
+   require(log.splitlines().count(marker)==1,'reuse lifecycle native completion missing/duplicated')
+  rows=[]
+  for line in log.splitlines():
+   if line.startswith('{'):
+    value=json.loads(line,object_pairs_hook=pairs)
+    require(type(value) is dict,'reuse producer/consumer JSON is not an object')
+    rows.append(value)
+  require(len(rows)==1,'reuse producer/consumer result missing/duplicated')
+  value=rows[0]
+  require(set(value)=={'schema','status','cases','device_executed'} and value['schema']=='reuse-main-producer-consumer-v1' and value['status']=='PASS' and value['device_executed'] is False,'reuse producer/consumer result closure/status differs')
+  require(value['cases']==list(REUSE_PRODUCER_CONSUMER_CASES),'reuse producer/consumer cases differ')
+ if owner=='SideStore-preservation':
+  rows={}
+  for line in log.splitlines():
+   if line.startswith('{'):
+    value=json.loads(line,object_pairs_hook=pairs)
+    require(type(value) is dict,'preservation JSON is not an object')
+    schema=value.get('schema')
+    if schema in ('preservation-refresh-policy-v1','preservation-refresh-integration-v1'):
+     require(schema not in rows,'preservation native result duplicated');rows[schema]=value
+  for name,cases in (('policy',PRESERVATION_POLICY_CASES),('integration',PRESERVATION_INTEGRATION_CASES)):
+   schema='preservation-refresh-'+name+'-v1'
+   require(schema in rows,'preservation native result missing: '+name)
+   value=rows[schema]
+   require(set(value)=={'schema','status','cases','device_executed'} and value['status']=='PASS' and value['device_executed'] is False,'preservation native result closure/status differs')
+   require(value['cases']==list(cases),'preservation native cases differ: '+name)
+
 def legacy_native_tests(log,schema,expected):
  rows=[]
  for line in log.splitlines():
@@ -190,7 +245,7 @@ def validate_part(part,kind,graph,run):
  compiler=part['compiler'];require(type(compiler) is dict and set(compiler)=={'path_sha256','version'} and re.fullmatch('[0-9a-f]{64}',compiler['path_sha256']) and type(compiler['version']) is str and compiler['version'],'compiler identity missing')
  logs=part['logs'];require(type(logs) is dict and set(logs)==(set(SUITES) if kind=='swift' else {'idevice','idevice-ffi'}),'suite log closure differs')
  if kind=='swift':
-  for owner,(_,count) in SUITES.items():completed_tests(logs[owner],count)
+  for owner in SUITES:suite_tests(owner,logs[owner])
   observation_tests(logs['LiveContainer-observations'])
   for owner,(schema,cases) in LEGACY_NATIVE.items():legacy_native_tests(logs[owner],schema,cases)
   require(sorted(re.findall(r'^PASS ([A-Za-z0-9_]+)$',logs['LiveContainer-legacy'],re.M))==list(LEGACY_HOST_CASES),'legacy host native cases differ')

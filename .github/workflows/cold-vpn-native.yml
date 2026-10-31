@@ -101,6 +101,7 @@ jobs:
           python3 -B harness/ci/issues-native/test_transport_observation_cache_projection.py
           python3 -B harness/ci/issues-native/test_legacy_replacement_cache_projection.py
           python3 -B harness/ci/issues-native/test_legacy_replacement_host_projection.py
+          python3 -B harness/ci/issues-native/test_preservation_successor_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_setup_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_host_bundle_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_flow_projection.py
@@ -113,6 +114,8 @@ jobs:
           python3 -B harness/ci/issues-native/test_local_wifi_fixture_projection.py
           python3 -B harness/ci/issues-native/test_early_readiness_projection.py
           python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
+          python3 -B harness/ci/issues-native/test_preservation_localization_projection.py
+          python3 -B sources/LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
           python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
       - name: Qualify truthful refresh outcomes with actual Swift source fixtures

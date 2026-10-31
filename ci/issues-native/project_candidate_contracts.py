@@ -10,14 +10,17 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-from refresh_observation_vpn_projection import add as add_refresh_observation_vpn
+from preservation_selection_projection import add as add_refresh_observation_vpn
 from local_wifi_fixture_projection import PATH as LOCAL_WIFI_FIXTURE_INPUT, add as add_local_wifi_fixture
 from grace_recovery_projection import add as add_grace_recovery
 from early_readiness_projection import GENERATOR as EARLY_READINESS_GENERATOR, GENERATOR_SHA as EARLY_READINESS_SHA, add as add_early_readiness
 from current_vpn_guard_projection import PATH as CURRENT_VPN_GUARD_INPUT, add as add_current_vpn_guard
 from cold_vpn_cache_projection import PATH as COLD_VPN_CACHE_INPUT, TRUTH_PATH as TRUTH_CACHE_INPUT
 from transport_observation_cache_projection import PATH as OBSERVATION_CACHE_INPUT
-from legacy_replacement_cache_projection import PATH as LEGACY_CACHE_INPUT, STAGE as LEGACY_STAGE_INPUT, add as add_cold_vpn_cache
+from legacy_replacement_cache_projection import PATH as LEGACY_CACHE_INPUT, STAGE as LEGACY_STAGE_INPUT
+from preservation_cache_projection import PATH as PRESERVATION_CACHE_INPUT, INSTALL as PRESERVATION_INSTALL_INPUT, add as add_cold_vpn_cache
+import preservation_host_projection as preservation_host
+import preservation_localization_projection as preservation_localization
 from russian_pairing_projection import add as add_russian_pairing
 from russian_setup_projection import REVIEWED_INPUT as RUSSIAN_REVIEWED_INPUT, add as add_russian_setup
 from refresh_observation_setup_projection import KEY_MANIFEST as OBSERVATION_KEY_MANIFEST, add as add_refresh_observation_setup
@@ -90,7 +93,7 @@ def sha(data):
 def project(contract, graph, sources, additional_inputs=()):
     result = copy.deepcopy(contract)
     changes = {}
-    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, OBSERVATION_KEY_MANIFEST, TRUTH_CACHE_INPUT, OBSERVATION_CACHE_INPUT, CLASSIFIER_DEPENDENCY_TEST, LEGACY_RISK_KEY_MANIFEST, LEGACY_CACHE_INPUT, LEGACY_STAGE_INPUT}
+    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, OBSERVATION_KEY_MANIFEST, TRUTH_CACHE_INPUT, OBSERVATION_CACHE_INPUT, CLASSIFIER_DEPENDENCY_TEST, LEGACY_RISK_KEY_MANIFEST, LEGACY_CACHE_INPUT, LEGACY_STAGE_INPUT, PRESERVATION_CACHE_INPUT, PRESERVATION_INSTALL_INPUT, preservation_localization.INVENTORY_TEST}
     require(set(additional_inputs) <= allowed, 'unreviewed additive contract input')
     inputs = dict(contract['input_sha256'])
     for path in additional_inputs:
@@ -134,6 +137,10 @@ def contracts(sources, output, verify=False):
             additional_inputs = additional_inputs + (TRUTH_KEY_MANIFEST,)
         observations = ".ci/refresh-observations/localization_keys.json" in graph["reviewed_deltas"].get("LiveContainer", {}).get("files", {})
         if observations and name == "setup-state-recovery-contract.json": additional_inputs = additional_inputs + (OBSERVATION_KEY_MANIFEST,)
+        if name == 'setup-state-recovery-contract.json' and preservation_localization.INVENTORY_TEST.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
+            additional_inputs = additional_inputs + (preservation_localization.INVENTORY_TEST,)
+        if name == 'setup-state-recovery-contract.json' and PRESERVATION_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
+            additional_inputs = additional_inputs + (PRESERVATION_CACHE_INPUT, PRESERVATION_INSTALL_INPUT)
         if name == 'setup-state-recovery-contract.json' and LEGACY_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
             additional_inputs = additional_inputs + (LEGACY_CACHE_INPUT, LEGACY_STAGE_INPUT)
         if name == 'setup-state-recovery-contract.json' and OBSERVATION_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
@@ -154,9 +161,11 @@ def contracts(sources, output, verify=False):
                 projected = add_grace_recovery(projected)
                 projected = add_local_wifi_fixture(projected)
             projected = add_reviewed_host_coverage(projected)
-            if projected['input_sha256'].get(TRUTH_HOST_INPUT) == TRUTH_HOST_SHA:
+            if preservation_host.matches(projected):
+                projected = preservation_host.add(projected)
+            elif projected['input_sha256'].get(TRUTH_HOST_INPUT) == TRUTH_HOST_SHA:
                 projected = add_truth_host(projected)
-            if projected['input_sha256'].get(LEGACY_HOST_INPUT) == LEGACY_HOST_SHA:
+            if not preservation_host.matches(projected) and projected['input_sha256'].get(LEGACY_HOST_INPUT) == LEGACY_HOST_SHA:
                 projected = add_legacy_host(projected)
             if cold_cache: projected = add_cold_vpn_cache(projected)
             if russian: projected = add_russian_setup(projected)
@@ -166,6 +175,8 @@ def contracts(sources, output, verify=False):
                 if observations:
                     projected = add_refresh_observation_setup(projected)
                     projected = add_refresh_observation_vpn(projected)
+                    if preservation_localization.matches(projected):
+                        projected = preservation_localization.add(projected)
         elif russian:
             projected = add_russian_pairing(projected)
         data = (json.dumps(projected, indent=2, sort_keys=True) + '\n').encode()
@@ -180,11 +191,15 @@ def contracts(sources, output, verify=False):
                           'russian_setup_extension': projected.get('russian_setup_extension'),
                           'refresh_observation_setup_extension': projected.get('refresh_observation_setup_extension'),
                           'refresh_truth_setup_extension': projected.get('refresh_truth_setup_extension'),
-                          'russian_pairing_extension': projected.get('russian_pairing_extension')}
+                          'russian_pairing_extension': projected.get('russian_pairing_extension'),
+                          'preservation_host_successor': projected.get(preservation_host.KEY),
+                          'preservation_localization_successor': projected.get(preservation_localization.TAG),
+                          'preservation_cache_successor': projected.get('reviewed_preservation_registry_cache_host_change')}
     receipt = {'schema': 'reviewed-candidate-contract-projection-v1',
                'graph_sha256': sha((HERE / 'candidate-graph.json').read_bytes()),
                'existing_behavioral_expectations_preserved': True,
-               'additive_case_expectations': {'host-refresh-bundle': list(HOST_ADDITIONAL_CASES)},
+               'additive_case_expectations': {'host-refresh-bundle': preservation_host.expected_cases(projected, list(HOST_ADDITIONAL_CASES))},
+               'reviewed_successor_case_replacements': (dict(preservation_host.CASE_RENAMES) if preservation_host.KEY in projected else {}),
                'additive_input_paths': {name: list(paths) for name, paths in ADDITIONAL_INPUTS.items()},
                'contracts': receipts}
     target = output / 'projection.json'

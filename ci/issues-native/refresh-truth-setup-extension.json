@@ -23,10 +23,10 @@
     "baseline-reproduces-missing-owned-copy-zh-Hant-Review the observed profile validity and signing setup before another action. No automatic retry will occur."
   ],
   "candidate_inputs": {
-    "LiveContainer/Resources/Localizable.xcstrings": "726fb537a4b3cc9d6bd7a9c10fe074ff5db016a8e3f3f16a53f7d6127cc5d728",
-    "LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "fe1d04f71d441cb3ace8306917358dab1888c3f8fd4d7f0bd987218daaf117cd",
-    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "c133bc57f704bf8117e34a68ec40bc0339e5dc52638861318393eede8dd1f8a4",
-    "LiveContainer/.ci/refresh-truth/localization_keys.json": "97b755273933757a04217e364264386c95ad958aeb72cec11370f0b5f5728604"
+    "LiveContainer/Resources/Localizable.xcstrings": "4db80b72c3ddcc4ca12651caf0dda7c0de30bde7e03bd45a60e76c4349659f90",
+    "LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "ce85f7037cb28e7e8d46a4e385c829e91b5602adeffea178d10141c61d336fe9",
+    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "cc9995c57a2456dbb444346a525724a7cb6c5c21ea99d5c18ec04cad2185253e",
+    "LiveContainer/.ci/refresh-truth/localization_keys.json": "f43fd7dbcb7f20c8b4fb228d3a6ad611dceae18f7ebe38e95b3494696cdbb2c1"
   },
   "key_count": 186,
   "localized_values": 930,

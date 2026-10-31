@@ -475,10 +475,10 @@
   "localized_values": 920,
   "baseline_missing": 344,
   "candidate_inputs": {
-    "LiveContainer/Resources/Localizable.xcstrings": "726fb537a4b3cc9d6bd7a9c10fe074ff5db016a8e3f3f16a53f7d6127cc5d728",
+    "LiveContainer/Resources/Localizable.xcstrings": "4db80b72c3ddcc4ca12651caf0dda7c0de30bde7e03bd45a60e76c4349659f90",
     "LiveContainer/LiveContainerSwiftUI/Utilities/V3Localization.swift": "76af17a76bcc59a1dc7f4cc5f6d3d79f29dd876a84ce8758e78055d0d46857fb",
-    "LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "fe1d04f71d441cb3ace8306917358dab1888c3f8fd4d7f0bd987218daaf117cd",
-    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "c133bc57f704bf8117e34a68ec40bc0339e5dc52638861318393eede8dd1f8a4",
+    "LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "ce85f7037cb28e7e8d46a4e385c829e91b5602adeffea178d10141c61d336fe9",
+    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "cc9995c57a2456dbb444346a525724a7cb6c5c21ea99d5c18ec04cad2185253e",
     "LiveContainer/.ci/comprehensive-diagnostics/setup_localization_harness.swift": "c0907f7112050b2f96ee576717bdd179112e0fb8be6110920b3c043c5052eb60",
     "LiveContainer/tests/fixtures/russian_reviewed_existing.json": "fd2259f2e1279d713d81dd24908fe1ff158e35ba0427d13a895ac9e5bc67711d"
   }

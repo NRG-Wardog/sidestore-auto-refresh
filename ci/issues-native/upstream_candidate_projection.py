@@ -41,7 +41,8 @@ def current_spec(sources,graph=None):
  require(sha((sources/WIFI_PATH).read_bytes())==WIFI_SHA,'Unreviewed Wi-Fi fixture dependency bytes')
  require(sha((sources/WIFI_TEST_PATH).read_bytes())==WIFI_TEST_SHA,'Unreviewed additive Wi-Fi extraction control bytes')
  require(SELECTION_PATH not in vpn_inputs,'Duplicate selection dependency in frozen baseline')
- validate_observation_dependencies(sources)
+ from preservation_selection_projection import validate_upstream_dependencies
+ selection_successor=validate_upstream_dependencies(sources)
  vpn_inputs[WIFI_PATH]=None
  vpn_inputs[SELECTION_PATH]=None
  vpn,vpn_changes=bind(vpn_inputs,ALLOWED_VPN|{WIFI_PATH,WIFI_TEST_PATH},graph,sources)
@@ -64,6 +65,7 @@ def current_spec(sources,graph=None):
  require({k:v for k,v in result['minimuxer_fake_tests'].items() if k!='source_inputs'}=={k:v for k,v in frozen['minimuxer_fake_tests'].items() if k!='source_inputs'},'MM runtime semantics changed')
  require({k:v for k,v in target.items() if k not in ('source_inputs','input_rows','generated_sha256')}=={k:v for k,v in frozen['vpn_transport_regression'].items() if k not in ('source_inputs','input_rows','generated_sha256')},'VPN runtime semantics changed')
  report={'schema':'reviewed-current-upstream-runtime-projection-v1','frozen_contract_sha256':sha(frozen_path.read_bytes()),'source_graph':graph['owners'],'minimuxer_rebound_inputs':mm_changes,'vpn_rebound_inputs':vpn_changes,'vpn_generated_before_sha256':frozen['vpn_transport_regression']['generated_sha256'],'vpn_generated_after_sha256':target['generated_sha256'],'original_cases_and_markers_unchanged':True,'runtime_executed':False,'projection_helper_sha256':sha(Path(__file__).read_bytes())}
+ if selection_successor is not None:report['preservation_selection_successor']=selection_successor
  return result,report
 
 if __name__=='__main__':
