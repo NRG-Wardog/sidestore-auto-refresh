@@ -8,16 +8,20 @@ from pathlib import Path
 import subprocess
 import sys
 from project_candidate_contracts import contracts
-from verify_comprehensive_diagnostics import load_contract, pairing_recovery_extraction
+from verify_comprehensive_diagnostics import load_contract, pairing_recovery_extraction, source_inventory
 
 def run(sources, output):
     sources=sources.resolve();output=output.resolve()
     contracts(sources,output/'contracts')
     contract=load_contract(output/'contracts/comprehensive-diagnostics-contract.json')
+    # Validate the COMPLETE executable fixture directory inventory before any
+    # extraction/compile phase, not only generator-specific source receipts.
+    inventory=source_inventory(sources,contract)
     subprocess.run([sys.executable,'-B',str(sources/'LiveContainer/.ci/comprehensive-diagnostics/generate_pairing_recovery_fixture.py'),
                     '--sources',str(sources),'--output',str(output/'pairing-recovery')],check=True,timeout=60,cwd=sources)
     report={'schema':'comprehensive-pairing-source-preflight-v1','native_runtime_executed':False,
             'case_names':contract['pairing_recovery_case_names'],
+            'source_inventory_sha256':inventory,
             'extraction':pairing_recovery_extraction(output,contract,before_compile=True)}
     (output/'source-preflight.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
     return report

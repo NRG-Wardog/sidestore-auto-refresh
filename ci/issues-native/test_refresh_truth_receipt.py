@@ -83,7 +83,7 @@ class ReceiptTests(unittest.TestCase):
   owner='LiveContainer-legacy'
   self.assertEqual(C.SUITES[owner],('.ci/legacy-replacement/test_contract.py',4))
   self.assertEqual(C.SUITE_OWNERS[owner],'LiveContainer')
-  self.assertEqual(len(C.LEGACY_HOST_CASES),71)
+  self.assertEqual(len(C.LEGACY_HOST_CASES),81)
   for old,new in [('PASS '+C.LEGACY_HOST_CASES[0]+'\n',''),('PASS '+C.LEGACY_HOST_CASES[0],'PASS '+C.LEGACY_HOST_CASES[1]),('LEGACY_REPLACEMENT_HOST_PASS',''),('LEGACY_REPLACEMENT_HOST_PASS','LEGACY_REPLACEMENT_HOST_PASS\nLEGACY_REPLACEMENT_HOST_PASS')]:
    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,v['parts']['swift']['logs'][owner].replace(old,new)))
   for path in ('.ci/legacy-replacement/test_contract.py','.ci/legacy-replacement/cases.swift','.ci/legacy-replacement/localization_keys.json'):

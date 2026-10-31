@@ -312,6 +312,27 @@ class Controls(unittest.TestCase):
                 finally:
                     path.unlink()
 
+    def test_exact_preservation_fixture_closure_still_rejects_extra_missing_and_drift(self):
+        import preservation_localization_projection as preservation
+        path = self.sources / preservation.INVENTORY_TEST
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('reviewed inventory fixture control')
+        with self.assertRaisesRegex(ValueError, 'Unpinned'):
+            gate.source_inventory(self.sources, self.config)
+        self.config['input_sha256'][preservation.INVENTORY_TEST] = gate.digest(path.read_bytes())
+        gate.source_inventory(self.sources, self.config)
+        extra = path.with_name('unreviewed_inventory_extra.py')
+        extra.write_text('unreviewed')
+        with self.assertRaisesRegex(ValueError, 'Unpinned'):
+            gate.source_inventory(self.sources, self.config)
+        extra.unlink()
+        path.write_text('changed')
+        with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+            gate.source_inventory(self.sources, self.config)
+        path.unlink()
+        with self.assertRaisesRegex(ValueError, 'Missing'):
+            gate.source_inventory(self.sources, self.config)
+
     def test_missing_marker_rejected(self):
         with self.assertRaisesRegex(ValueError, 'Missing or duplicate'):
             gate.require_marker('anything\n', 'PASS')

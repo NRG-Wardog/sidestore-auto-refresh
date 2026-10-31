@@ -112,6 +112,8 @@ def project(contract, graph, sources, additional_inputs=()):
         require(local.is_file() and not local.is_symlink() and local.resolve().is_relative_to(sources.resolve()), 'nonregular contract input: ' + path)
         data = local.read_bytes()
         new_hash = sha(data)
+        if path == preservation_localization.INVENTORY_TEST:
+            require(new_hash == preservation_localization.PINS[path], 'Unreviewed preservation inventory fixture bytes')
         if new_hash == old_hash:
             continue
         delta = graph['reviewed_deltas'].get(owner, {})
@@ -137,7 +139,7 @@ def contracts(sources, output, verify=False):
             additional_inputs = additional_inputs + (TRUTH_KEY_MANIFEST,)
         observations = ".ci/refresh-observations/localization_keys.json" in graph["reviewed_deltas"].get("LiveContainer", {}).get("files", {})
         if observations and name == "setup-state-recovery-contract.json": additional_inputs = additional_inputs + (OBSERVATION_KEY_MANIFEST,)
-        if name == 'setup-state-recovery-contract.json' and preservation_localization.INVENTORY_TEST.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
+        if preservation_localization.INVENTORY_TEST.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
             additional_inputs = additional_inputs + (preservation_localization.INVENTORY_TEST,)
         if name == 'setup-state-recovery-contract.json' and PRESERVATION_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
             additional_inputs = additional_inputs + (PRESERVATION_CACHE_INPUT, PRESERVATION_INSTALL_INPUT)

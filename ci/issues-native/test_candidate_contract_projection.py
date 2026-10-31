@@ -30,6 +30,27 @@ class ProjectionTests(unittest.TestCase):
         with patch('project_candidate_contracts.git', side_effect=git):
             return project(contract or self.contract, self.graph, self.root)
 
+    def test_preservation_inventory_exact_input_not_arbitrary_fixture_allowance(self):
+        import preservation_localization_projection as preservation
+        path = preservation.INVENTORY_TEST
+        fixture = self.root / path
+        fixture.parent.mkdir(parents=True, exist_ok=True)
+        fixture.write_bytes(self.data)
+        relative = path.removeprefix('LiveContainer/')
+        self.graph['reviewed_deltas']['LiveContainer']['files'][relative] = self.blob
+        with patch('project_candidate_contracts.git', side_effect=lambda root, *args: 'a' * 40 if args[-1] == 'HEAD' else self.blob):
+            with self.assertRaisesRegex(ValueError, 'Unreviewed preservation inventory'):
+                project(self.contract, self.graph, self.root, (path,))
+            with patch.dict(preservation.PINS, {path: sha(self.data)}):
+                projected, _ = project(self.contract, self.graph, self.root, (path,))
+                self.assertEqual(projected['input_sha256'][path], sha(self.data))
+                changed = copy.deepcopy(self.graph)
+                changed['reviewed_deltas']['LiveContainer']['files'].pop(relative)
+                with self.assertRaisesRegex(ValueError, 'absent from reviewed'):
+                    project(self.contract, changed, self.root, (path,))
+                with self.assertRaisesRegex(ValueError, 'unreviewed additive'):
+                    project(self.contract, self.graph, self.root, (path + '.extra',))
+
     def test_only_current_hashes_rebound(self):
         before = copy.deepcopy(self.contract)
         result, changes = self.call()

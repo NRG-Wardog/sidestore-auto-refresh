@@ -45,6 +45,27 @@ class ProjectionTests(unittest.TestCase):
      original=path.read_bytes();path.write_bytes(b'unreviewed change')
      with self.assertRaises(ValueError):P.validate_observation_dependencies(root)
      path.write_bytes(original)
+ def test_comprehensive_preflight_inventory_precedes_any_generator(self):
+  import preflight_comprehensive_pairing as preflight
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);sources=root/'sources';sources.mkdir();output=root/'output';calls=[]
+   contract={'pairing_recovery_case_names':['fixture']}
+   def inventory(s,c):
+    self.assertEqual(s,sources);self.assertIs(c,contract);calls.append('inventory');return {'exact.py':'1'*64}
+   def generate(*args,**kwargs):
+    self.assertEqual(calls,['inventory']);calls.append('generate')
+   with patch.object(preflight,'contracts',side_effect=lambda s,o:o.mkdir(parents=True)),patch.object(preflight,'load_contract',return_value=contract),patch.object(preflight,'source_inventory',side_effect=inventory),patch.object(preflight.subprocess,'run',side_effect=generate),patch.object(preflight,'pairing_recovery_extraction',return_value={'source_only':True}):
+    report=preflight.run(sources,output)
+   self.assertEqual(calls,['inventory','generate']);self.assertEqual(report['source_inventory_sha256'],{'exact.py':'1'*64})
+   self.assertIs(report['native_runtime_executed'],False)
+ def test_comprehensive_preflight_unpinned_inventory_stops_before_generator(self):
+  import preflight_comprehensive_pairing as preflight
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);sources=root/'sources';sources.mkdir()
+   with patch.object(preflight,'contracts'),patch.object(preflight,'load_contract',return_value={}),patch.object(preflight,'source_inventory',side_effect=ValueError('Unpinned fixture file')),patch.object(preflight.subprocess,'run') as generate:
+    with self.assertRaisesRegex(ValueError,'Unpinned'):preflight.run(sources,root/'output')
+    generate.assert_not_called()
+
  def test_cli_and_native_receipt_use_current_projection(self):
   verify=(P.HERE/'verify_upstream_sync.py').read_text();record=(P.HERE/'record.py').read_text()
   self.assertIn("current['minimuxer_fake_tests']",verify)

@@ -3,7 +3,7 @@ import copy
 import legacy_replacement_host_projection as legacy
 import refresh_truth_host_bundle_projection as truth
 KEY='reviewed_preservation_host_fixture'
-PINS={'SideStore/tests/host_refresh_bundle/generate_fixture.py': 'a602aeb1b06b0497bdf73c01771c28e959705e302d697b0aa289dbfeef254a9f', 'SideStore/AltStore/AppDelegate.swift': '97f897d7c9709ef86d2920fbb9b06d7652b7357ab99441962f3da392b4085d67', 'SideStore/tests/host_refresh_bundle/test_contract.py': '2fc0ce8407d08cbd3d93f9c2b19b1394cfd7f4a7f4d22f57ec1b0a4b34e74c8e', 'SideStore/tests/host_refresh_bundle/Cases.swift': '636c75337496b0dafbb0ae2a4c1432f819d65687607377ddae6526b80ebdba5b', 'SideStore/tests/host_refresh_bundle/BoundaryDoubles.swift': 'fa3bafd28803a3686e80ed5cc515aaf81f8fd6ce5e93298ab59a6b7fb19ce867'}
+PINS={'SideStore/tests/host_refresh_bundle/generate_fixture.py': 'a602aeb1b06b0497bdf73c01771c28e959705e302d697b0aa289dbfeef254a9f', 'SideStore/AltStore/AppDelegate.swift': '11a94250b101b1a6c3871d91673bd2c886fa3ba7e146c70d9a00ae1e4da44172', 'SideStore/tests/host_refresh_bundle/test_contract.py': '2fc0ce8407d08cbd3d93f9c2b19b1394cfd7f4a7f4d22f57ec1b0a4b34e74c8e', 'SideStore/tests/host_refresh_bundle/Cases.swift': '023d9fedf2269b411e732b000f7c664f8c5467496bb264659e978d340d4ebf56', 'SideStore/tests/host_refresh_bundle/BoundaryDoubles.swift': 'fa3bafd28803a3686e80ed5cc515aaf81f8fd6ce5e93298ab59a6b7fb19ce867'}
 CASE_RENAMES={
  'integration_unregistered_payload_nonce_does_not_opt_in':'integration_old_registry_does_not_migrate_implicitly',
  'integration_registered_payload_restores_validated_strategy':'integration_ack_history_recovered_from_nonce_free_source',
