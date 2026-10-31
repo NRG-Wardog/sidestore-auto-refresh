@@ -146,6 +146,23 @@ jobs:
           cp lts-host-build/build-receipt.json evidence/openssl-host-build-receipt.json
           python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py
           python3 -B harness/ci/issues-native/preservation_cms_receipt.py --sources sources --built lts-host-build --evidence evidence 2>&1 | tee evidence/preservation-cms-driver.log
+      - name: Preserve early exact CMS build failure diagnostics
+        if: ${{ !cancelled() && steps.preservation_cms.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preservation-cms-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/preservation-cms-driver.log
+            evidence/preservation-cms-build-diagnostic.json
+            evidence/openssl-host-build.log
+            evidence/openssl-host-config.log
+            evidence/openssl-host-build-receipt.json
+            evidence/lts-build-driver.log
+            evidence/openssl-lts-controls.log
+            evidence/openssl-size-controls.log
+            evidence/openssl-admission-controls.log
+          if-no-files-found: warn
+          retention-days: 14
       - name: Qualify truthful refresh outcomes with actual Swift source fixtures
         id: refresh_truth_swift
         run: |

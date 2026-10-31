@@ -1,7 +1,7 @@
 """Exact same-run CMS core and real public-profile decoder qualification.
 Only finite receipts/logs survive; downloaded public profiles stay in runner temp.
 """
-import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile
+import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile, selectors, signal, tarfile, time
 from pathlib import Path
 SCHEMA = 'preservation-cms-native-v1'
 STATUS = 'PASS_EXACT_CRYPTO_AND_SWIFT_PUBLIC_BOUNDARY_NOT_DEVICE'
@@ -97,6 +97,80 @@ def execute(argv,cwd,env,timeout=600):
  require(result.returncode==0,'CMS qualification command failed (raw temporary data not retained)')
  return result.stdout,result.stderr
 
+CLI_DIAGNOSTIC = 'preservation-cms-build-diagnostic.json'
+CLI_OUTPUT_LIMIT = 32768
+
+def cli_source(built):
+ """Same exact nested path returned by issue53-lts/build.py unpack()."""
+ built=Path(built).resolve(strict=True);source=built/'source'/'openssl-3.5.9'
+ require(source.is_dir() and not source.is_symlink() and not source.parent.is_symlink(),'missing/linked configured CLI source')
+ for name in ('Makefile','configdata.pm','Configure'):
+  require((source/name).is_file() and not (source/name).is_symlink(),'missing/linked configured CLI input')
+ require((source/'apps').is_dir() and not (source/'apps').is_symlink(),'missing/linked CLI apps directory')
+ require(not (source/'apps/openssl').is_symlink(),'linked CLI output')
+ require((built/'configdata.txt').is_file() and not (built/'configdata.txt').is_symlink(),'missing/linked configuration dump')
+ receipt=read(built/'build-receipt.json')
+ require(sha(built/'configdata.txt')==receipt['configuration_sha256'],'configured CLI receipt drift')
+ require(len(receipt['configure_command'])>=2 and receipt['configure_command'][1]==str(source/'Configure'),'configured CLI source differs from host recipe')
+ with tarfile.open(built/'openssl-3.5.9.tar.gz','r:gz') as archive:
+  entries=[m for m in archive.getmembers() if m.name=='openssl-3.5.9/Configure']
+  require(len(entries)==1 and entries[0].isfile() and entries[0].size<=1024*1024,'original Configure member invalid')
+  original=archive.extractfile(entries[0]).read()
+ require(hashlib.sha256(original).hexdigest()==sha(source/'Configure'),'original Configure source changed')
+ return source
+
+def build_cli(built,evidence,env,timeout=300):
+ """Only the known source-only CLI make can retain compiler diagnostics.
+ CMS/public-test subprocesses continue through execute(), which retains no raw output.
+ """
+ source=cli_source(built);destination=Path(evidence)/CLI_DIAGNOSTIC
+ require(not destination.exists() and not destination.is_symlink(),'CLI diagnostic already exists/linked')
+ argv=['/usr/bin/make','-C',str(source),'-j3','apps/openssl']
+ chunks={'stdout':bytearray(),'stderr':bytearray()};totals={'stdout':0,'stderr':0}
+ status='launchFailed';returncode=None;process=None
+ try:
+  process=subprocess.Popen(argv,cwd=Path(built).resolve(),env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+  with selectors.DefaultSelector() as selector:
+   for name,stream in [('stdout',process.stdout),('stderr',process.stderr)]:
+    os.set_blocking(stream.fileno(),False);selector.register(stream,selectors.EVENT_READ,name)
+   deadline=time.monotonic()+timeout;timed_out=False;drain_deadline=None
+   while selector.get_map() or process.poll() is None:
+    now=time.monotonic()
+    if not timed_out and now>=deadline:
+     timed_out=True;drain_deadline=now+2
+     try:os.killpg(process.pid,signal.SIGKILL)
+     except ProcessLookupError:pass
+    if drain_deadline is not None and now>=drain_deadline:break
+    for key,_ in selector.select(0.05):
+     data=os.read(key.fileobj.fileno(),8192)
+     if not data:selector.unregister(key.fileobj);key.fileobj.close();continue
+     name=key.data;totals[name]+=len(data)
+     chunks[name].extend(data[:max(0,CLI_OUTPUT_LIMIT-len(chunks[name]))])
+   for key in list(selector.get_map().values()):
+    selector.unregister(key.fileobj);key.fileobj.close()
+   try:returncode=process.wait(timeout=2)
+   except subprocess.TimeoutExpired:timed_out=True;returncode=process.poll()
+   status='timedOut' if timed_out else ('passed' if returncode==0 else 'failed')
+ except OSError:
+  status='launchFailed'
+  raise
+ finally:
+  if process is not None and process.poll() is None:
+   try:os.killpg(process.pid,signal.SIGKILL)
+   except ProcessLookupError:pass
+   try:process.wait(timeout=2)
+   except subprocess.TimeoutExpired:pass
+  # JSON escaping keeps terminal control bytes inert; all captured bytes come
+  # exclusively from this verified source-only make, before any profile input.
+  report={'schema':'preservation-cms-cli-build-diagnostic-v1','phase':'opensslSourceCLICompilation',
+   'status':status,'returncode':returncode,'target':'apps/openssl','source_directory':'source/openssl-3.5.9',
+   'stream_limit_bytes':CLI_OUTPUT_LIMIT,'public_inputs_used':False,
+   'streams':{name:{'text':bytes(chunks[name]).decode('utf-8',errors='replace'),
+    'bytes_observed':totals[name],'truncated':totals[name]>CLI_OUTPUT_LIMIT} for name in chunks}}
+  with destination.open('x') as f:json.dump(report,f,sort_keys=True);f.write('\n')
+ require(status=='passed','CMS CLI source build '+status+' (original exit '+str(returncode)+'; see bounded source diagnostic)')
+ return source/'apps/openssl'
+
 def run(root,built,evidence,graph,run_identity):
  root=Path(root).resolve(strict=True);evidence=Path(evidence).resolve(strict=True)
  identity(run_identity);before=sources(root,graph);prefix,crypto=host_build(built,evidence)
@@ -104,9 +178,9 @@ def run(root,built,evidence,graph,run_identity):
  mini=root/'SideStore/Dependencies/minimuxer'
  # Build only the CLI using the existing verified source/configuration. This is
  # test tooling, never a replacement product crypto library or new acquisition.
- execute(['/usr/bin/make','-C',Path(built).resolve()/'source','-j3','apps/openssl'],Path(built).resolve(),env,timeout=300)
+ cli=build_cli(built,evidence,env,timeout=300)
  require(host_build(built,evidence)[1]==crypto,'CLI build changed qualified crypto inputs')
- cli=Path(built).resolve()/'source/apps/openssl';require(cli.is_file() and not cli.is_symlink(),'missing qualified CLI')
+ require(cli.is_file() and not cli.is_symlink() and not cli.parent.is_symlink() and cli.resolve().parent==cli_source(built)/'apps','missing/linked qualified CLI')
  with tempfile.TemporaryDirectory(prefix='cms-qualification-') as temporary:
   report_path=Path(temporary)/'cms.json'
   stdout,stderr=execute([sys.executable,'-B',mini/'TestsCMS/run_native.py','--openssl-root',prefix,'--openssl-cli',cli,'--output',report_path],mini,env)

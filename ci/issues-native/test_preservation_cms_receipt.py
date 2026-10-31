@@ -158,4 +158,143 @@ class SourceBindings(unittest.TestCase):
     with self.assertRaisesRegex(ValueError,'installed headers differ'):c.host_build(built,evidence)
     (include/'a.h').write_text('synthetic header');lib.write_text('changed archive')
     with self.assertRaisesRegex(ValueError,'archive differs'):c.host_build(built,evidence)
+class CLIBuildDiagnostics(unittest.TestCase):
+ def fixture(self,root,recipe="\t@mkdir -p apps; touch apps/openssl\n"):
+  import io,tarfile,hashlib,importlib.util
+  root=pathlib.Path(root).resolve(strict=True)
+  built=root/'built';built.mkdir();evidence=root/'evidence';evidence.mkdir()
+  archive=built/'openssl-3.5.9.tar.gz';configure=b'original synthetic Configure only\n'
+  with tarfile.open(archive,'w:gz') as tar:
+   info=tarfile.TarInfo('openssl-3.5.9/Configure');info.size=len(configure);tar.addfile(info,io.BytesIO(configure))
+  spec=importlib.util.spec_from_file_location('actual_lts_build',HERE.parent/'issue53-lts/build.py');build=importlib.util.module_from_spec(spec);spec.loader.exec_module(build)
+  source=build.unpack(archive,built/'source',hashlib.sha256(archive.read_bytes()).hexdigest())
+  (source/'apps').mkdir()
+  (source/'Makefile').write_text('apps/openssl:\n'+recipe)
+  (source/'configdata.pm').write_text('synthetic generated config')
+  (built/'configdata.txt').write_text('synthetic config dump')
+  (built/'build-receipt.json').write_text(json.dumps({'configuration_sha256':c.sha(built/'configdata.txt'),'configure_command':['/usr/bin/perl',str(source/'Configure')]}))
+  return built,evidence,source
+ def test_actual_unpack_old_path_fails_new_exact_path_succeeds(self):
+  import subprocess,os
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d)
+   old=subprocess.run(['/usr/bin/make','-C',str(built/'source'),'-j3','apps/openssl'],capture_output=True)
+   self.assertNotEqual(old.returncode,0)
+   self.assertEqual(c.cli_source(built),source)
+   cli=c.build_cli(built,evidence,dict(os.environ));self.assertEqual(cli,source/'apps/openssl');self.assertTrue(cli.is_file())
+   report=c.read(evidence/c.CLI_DIAGNOSTIC);self.assertEqual(report['status'],'passed');self.assertEqual(report['returncode'],0)
+   self.assertFalse(report['public_inputs_used']);self.assertEqual(report['phase'],'opensslSourceCLICompilation')
+ def test_original_failure_and_both_streams_retained(self):
+  import os
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d,"\t@echo source-stdout; echo source-compiler-error >&2; exit 7\n")
+   with self.assertRaisesRegex(ValueError,'original exit 2'):c.build_cli(built,evidence,dict(os.environ))
+   report=c.read(evidence/c.CLI_DIAGNOSTIC);self.assertEqual(report['status'],'failed');self.assertEqual(report['returncode'],2)
+   self.assertIn('source-stdout',report['streams']['stdout']['text']);self.assertIn('source-compiler-error',report['streams']['stderr']['text'])
+ def test_output_is_bounded_without_hiding_failure(self):
+  import os,sys
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d, "\t@"+sys.executable+" -c 'import sys;print(chr(120)*100000);sys.stderr.write(chr(121)*100000);sys.exit(1)'\n")
+   with self.assertRaises(ValueError):c.build_cli(built,evidence,dict(os.environ))
+   report=c.read(evidence/c.CLI_DIAGNOSTIC)
+   for stream in report['streams'].values():self.assertTrue(stream['truncated']);self.assertLessEqual(len(stream['text'].encode()),c.CLI_OUTPUT_LIMIT);self.assertGreater(stream['bytes_observed'],c.CLI_OUTPUT_LIMIT)
+   self.assertLess((evidence/c.CLI_DIAGNOSTIC).stat().st_size,2*c.CLI_OUTPUT_LIMIT+2048)
+ def test_timeout_retains_bounded_source_diagnostic_and_fails(self):
+  import os
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d,"\t@echo source-start; sleep 10\n")
+   with self.assertRaisesRegex(ValueError,'timedOut'):c.build_cli(built,evidence,dict(os.environ),timeout=0.1)
+   report=c.read(evidence/c.CLI_DIAGNOSTIC);self.assertEqual(report['status'],'timedOut');self.assertNotEqual(report['returncode'],0);self.assertIn('source-start',report['streams']['stdout']['text'])
+ def test_timeout_still_applies_after_both_pipes_close(self):
+  import os,sys,time,subprocess
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d);real_popen=subprocess.Popen
+   def closed_pipes(*args,**kwargs):
+    return real_popen([sys.executable,'-c','import os,time;os.close(1);os.close(2);time.sleep(30)'],**kwargs)
+   start=time.monotonic()
+   with patch.object(c.subprocess,'Popen',side_effect=closed_pipes),self.assertRaisesRegex(ValueError,'timedOut'):
+    c.build_cli(built,evidence,dict(os.environ),timeout=0.1)
+   self.assertLess(time.monotonic()-start,5)
+   self.assertEqual(c.read(evidence/c.CLI_DIAGNOSTIC)['status'],'timedOut')
+ def test_postkill_drain_bounded_when_child_retains_pipe(self):
+  import os,sys,time,subprocess
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d);real_popen=subprocess.Popen;owned=[]
+   def held_pipe(*args,**kwargs):
+    reader,writer=os.pipe()
+    try:
+     # Both processes are direct test children: explicit handles permit reaping.
+     holder=real_popen([sys.executable,'-c','import time;time.sleep(30)'],stdout=writer,stderr=subprocess.DEVNULL,start_new_session=True);owned.append(holder)
+     kwargs['stdout']=writer
+     process=real_popen([sys.executable,'-c','import time;time.sleep(30)'],**kwargs);process.stdout=os.fdopen(reader,'rb');reader=None
+     return process
+    finally:
+     os.close(writer)
+     if reader is not None:os.close(reader)
+   started=time.monotonic()
+   try:
+    with patch.object(c.subprocess,'Popen',side_effect=held_pipe),self.assertRaisesRegex(ValueError,'timedOut'):
+     c.build_cli(built,evidence,dict(os.environ),timeout=0.2)
+    self.assertLess(time.monotonic()-started,5)
+    self.assertEqual(c.read(evidence/c.CLI_DIAGNOSTIC)['status'],'timedOut')
+   finally:
+    for child in owned:
+     if child.poll() is None:child.kill()
+     child.wait(timeout=2)
+ def test_launch_failure_recorded_without_exception_text(self):
+  import os
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d)
+   with patch.object(c.subprocess,'Popen',side_effect=OSError('untrusted exception detail')),self.assertRaises(OSError):c.build_cli(built,evidence,dict(os.environ))
+   report=c.read(evidence/c.CLI_DIAGNOSTIC);self.assertEqual(report['status'],'launchFailed');self.assertNotIn('untrusted exception detail',(evidence/c.CLI_DIAGNOSTIC).read_text())
+ def test_invalid_source_provenance_prevents_execution(self):
+  import os
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d);(source/'Configure').write_text('changed')
+   with patch.object(c.subprocess,'Popen') as popen,self.assertRaisesRegex(ValueError,'Configure source changed'):c.build_cli(built,evidence,dict(os.environ))
+   popen.assert_not_called();self.assertFalse((evidence/c.CLI_DIAGNOSTIC).exists())
+ def test_missing_linked_or_wrong_configured_directory_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d);receipt=c.read(built/'build-receipt.json');receipt['configure_command'][1]=str(built/'source/Configure');(built/'build-receipt.json').write_text(json.dumps(receipt))
+   with self.assertRaisesRegex(ValueError,'source differs'):c.cli_source(built)
+   receipt['configure_command'][1]=str(source/'Configure');(built/'build-receipt.json').write_text(json.dumps(receipt));(source/'Makefile').unlink()
+   with self.assertRaisesRegex(ValueError,'configured CLI input'):c.cli_source(built)
+   (source/'Makefile').symlink_to(source/'Configure')
+   with self.assertRaisesRegex(ValueError,'configured CLI input'):c.cli_source(built)
+ def test_linked_apps_or_configuration_dump_rejected_before_make(self):
+  import os
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d);(source/'apps').rmdir();outside=pathlib.Path(d)/'outside';outside.mkdir();(source/'apps').symlink_to(outside,target_is_directory=True)
+   with patch.object(c.subprocess,'Popen') as popen,self.assertRaisesRegex(ValueError,'CLI apps directory'):c.build_cli(built,evidence,dict(os.environ))
+   popen.assert_not_called();(source/'apps').unlink();(source/'apps').mkdir()
+   dump=built/'configdata.txt';copy=built/'copy';copy.write_bytes(dump.read_bytes());dump.unlink();dump.symlink_to(copy)
+   with patch.object(c.subprocess,'Popen') as popen,self.assertRaisesRegex(ValueError,'configuration dump'):c.build_cli(built,evidence,dict(os.environ))
+   popen.assert_not_called()
+ def test_no_general_log_opt_in_and_public_output_still_suppressed(self):
+  import inspect,subprocess
+  self.assertEqual(list(inspect.signature(c.execute).parameters),['argv','cwd','env','timeout'])
+  with tempfile.TemporaryDirectory() as d,patch.object(c.subprocess,'run',return_value=subprocess.CompletedProcess([],2,stdout='raw-public-profile',stderr='private-key')):
+   with self.assertRaisesRegex(ValueError,'raw temporary data not retained'):c.execute(['arbitrary-public-command'],d,{})
+   self.assertEqual(list(pathlib.Path(d).iterdir()),[])
+  source=inspect.getsource(c.build_cli);self.assertIn("argv=['/usr/bin/make','-C',str(source),'-j3','apps/openssl']",source)
+ def test_existing_or_linked_diagnostic_never_overwritten(self):
+  import os
+  with tempfile.TemporaryDirectory() as d:
+   built,evidence,source=self.fixture(d);destination=evidence/c.CLI_DIAGNOSTIC;destination.write_text('existing')
+   with patch.object(c.subprocess,'Popen') as popen,self.assertRaisesRegex(ValueError,'already exists'):c.build_cli(built,evidence,dict(os.environ))
+   popen.assert_not_called();self.assertEqual(destination.read_text(),'existing')
+ def test_early_failure_artifact_exact_source_only_allowlist(self):
+  workflow=(HERE.parents[1]/'.github/workflows/cold-vpn-native.yml').read_text()
+  start=workflow.index('name: preservation-cms-failure-');end=workflow.index('      - name:',start)
+  block=workflow[start:end]
+  paths=block.split('          path: |\n',1)[1].split('          if-no-files-found:',1)[0]
+  actual=[line.strip() for line in paths.splitlines() if line.strip()]
+  self.assertEqual(actual,['evidence/preservation-cms-driver.log','evidence/preservation-cms-build-diagnostic.json','evidence/openssl-host-build.log','evidence/openssl-host-config.log','evidence/openssl-host-build-receipt.json','evidence/lts-build-driver.log','evidence/openssl-lts-controls.log','evidence/openssl-size-controls.log','evidence/openssl-admission-controls.log'])
+  self.assertNotIn('*',paths);self.assertNotIn('public',paths);self.assertNotIn('cms-qualification',paths)
+  self.assertIn("steps.preservation_cms.outcome == 'failure'",workflow[workflow.rfind('      - name:',0,start):start])
+  driver=(HERE/'preservation_cms_receipt.py').read_text()
+  self.assertIn("require(host_build(built,evidence)[1]==crypto,'CLI build changed qualified crypto inputs')",driver)
+  self.assertIn("require(host_build(built,evidence)[1]==crypto,'qualified crypto changed during tests')",driver)
+  build=(HERE.parent/'issue53-lts/build.py').read_text()
+  self.assertIn("'no-shared','no-module'",build);self.assertIn("'enable-legacy','no-asm'",build);self.assertNotIn("'no-apps'",build)
 if __name__=='__main__':unittest.main()
