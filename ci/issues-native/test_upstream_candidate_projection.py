@@ -51,13 +51,45 @@ class ProjectionTests(unittest.TestCase):
    root=Path(tmp);sources=root/'sources';sources.mkdir();output=root/'output';calls=[]
    contract={'pairing_recovery_case_names':['fixture']}
    def inventory(s,c):
-    self.assertEqual(s,sources);self.assertIs(c,contract);calls.append('inventory');return {'exact.py':'1'*64}
+    self.assertEqual(s,sources.resolve());self.assertIs(c,contract);calls.append('inventory');return {'exact.py':'1'*64}
    def generate(*args,**kwargs):
     self.assertEqual(calls,['inventory']);calls.append('generate')
    with patch.object(preflight,'contracts',side_effect=lambda s,o:o.mkdir(parents=True)),patch.object(preflight,'load_contract',return_value=contract),patch.object(preflight,'source_inventory',side_effect=inventory),patch.object(preflight.subprocess,'run',side_effect=generate),patch.object(preflight,'pairing_recovery_extraction',return_value={'source_only':True}):
     report=preflight.run(sources,output)
    self.assertEqual(calls,['inventory','generate']);self.assertEqual(report['source_inventory_sha256'],{'exact.py':'1'*64})
    self.assertIs(report['native_runtime_executed'],False)
+ def test_comprehensive_preflight_canonicalizes_symlinked_temp_root_without_bypassing_inventory(self):
+  import preflight_comprehensive_pairing as preflight
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp).resolve();real=root/'real';real.mkdir();(real/'sources').mkdir()
+   alias=root/'alias';alias.symlink_to(real,target_is_directory=True)
+   sources=alias/'sources';output=alias/'output'
+   canonical_sources=(real/'sources').resolve();canonical_output=(real/'output').resolve()
+   self.assertNotEqual(sources,canonical_sources)
+   contract={'pairing_recovery_case_names':['fixture']};calls=[]
+   def contracts(s,o):
+    self.assertEqual(s,canonical_sources);self.assertEqual(o,canonical_output/'contracts')
+    o.mkdir(parents=True,exist_ok=True);calls.append('contracts')
+   def inventory(s,c):
+    self.assertEqual(s,canonical_sources);self.assertIs(c,contract)
+    calls.append('inventory');return {'exact.py':'1'*64}
+   def generate(argv,**kwargs):
+    self.assertEqual(calls,['contracts','inventory'])
+    self.assertEqual(kwargs['cwd'],canonical_sources)
+    self.assertEqual(argv[argv.index('--sources')+1],str(canonical_sources))
+    self.assertEqual(argv[argv.index('--output')+1],str(canonical_output/'pairing-recovery'))
+    calls.append('generate')
+   def extraction(out,c,**kwargs):
+    self.assertEqual(out,canonical_output);self.assertIs(c,contract)
+    self.assertTrue(kwargs['before_compile']);return {'source_only':True}
+   with patch.object(preflight,'contracts',side_effect=contracts),patch.object(preflight,'load_contract',return_value=contract),patch.object(preflight,'source_inventory',side_effect=inventory),patch.object(preflight.subprocess,'run',side_effect=generate),patch.object(preflight,'pairing_recovery_extraction',side_effect=extraction):
+    report=preflight.run(sources,output)
+   self.assertEqual(calls,['contracts','inventory','generate'])
+   self.assertIs(report['native_runtime_executed'],False)
+   with patch.object(preflight,'contracts'),patch.object(preflight,'load_contract',return_value=contract),patch.object(preflight,'source_inventory',side_effect=ValueError('Unpinned fixture file')) as rejected,patch.object(preflight.subprocess,'run') as generate:
+    with self.assertRaisesRegex(ValueError,'Unpinned'):preflight.run(sources,output)
+    rejected.assert_called_once_with(canonical_sources,contract);generate.assert_not_called()
+
  def test_comprehensive_preflight_unpinned_inventory_stops_before_generator(self):
   import preflight_comprehensive_pairing as preflight
   with tempfile.TemporaryDirectory() as tmp:
