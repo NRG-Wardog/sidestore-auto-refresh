@@ -45,7 +45,7 @@ class ReceiptTests(unittest.TestCase):
    row=json.loads(next(line for line in original.splitlines() if line.startswith('{')));row[key]=value
    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,header+json.dumps(row)+'\n'))
  def test_der_parser_source_closure_is_bound(self):
-  for path in ('SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift', 'tests/preservation_der/run.sh', 'tests/preservation_der/SwiftCases.swift', 'tests/preservation_der/swift-cases.json', 'tests/preservation_der/expected-cases.json', 'tests/preservation_der/test_contract.py'):
+  for path in ('SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift', 'tests/preservation_der/run.sh', 'tests/preservation_der/SwiftCases.swift', 'tests/preservation_der/swift-cases.json', 'tests/preservation_der/expected-cases.json', 'tests/preservation_der/test_contract.py', 'tests/preservation_der/generate_failure_diagnostic.py'):
    self.assertIn(path,C.INPUTS['SideStore'])
    self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
  def test_der_crypto_production_source_closure_is_bound(self):

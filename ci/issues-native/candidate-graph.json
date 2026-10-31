@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "96a67c1505012c128e394a1faae585def90b2317"
+      "11855c38435a44c4dc87cdcf75bcc61c34f5638f"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -204,7 +204,7 @@
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
-      "tree": "f4ba5dd7b3734e5ef9dba234bd2e8db4bf284c36",
+      "tree": "ba48dcbd634056b741280939da2a3caab75a4a90",
       "files": {
         ".ci/branch-cleanup/allowlist.json": "f4fa7e585a01a176694441a15fb33bf8cfbc8ce7",
         ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
@@ -292,11 +292,12 @@
         "tests/preservation_der/SwiftCases.swift": "22cd6abc32a8277586aa9de676a9a9853fed5586",
         "tests/preservation_der/expected-cases.json": "618f3247cec8f35f6c270d4aaa405824b49f29eb",
         "tests/preservation_der/fetch_public_fixtures.py": "5810cc62804e77ba2359ddd313afa2fd77c010fc",
+        "tests/preservation_der/generate_failure_diagnostic.py": "fedbfb050f2e85c75f7bf136b476f2a7da278057",
         "tests/preservation_der/public-fixtures.json": "c1944d7ffaf72e08b6d49c222397be8c56279cfe",
-        "tests/preservation_der/run.sh": "ce16dc460e60ec021bc570152e44636d5c781e33",
+        "tests/preservation_der/run.sh": "4ebc14be8b810ed787943a738e9d991506927675",
         "tests/preservation_der/run_public.sh": "5654fe30598d5fcdd9d596a8665e06470e1668ad",
         "tests/preservation_der/swift-cases.json": "5dbb785d2096cf51a9edb39c525c464bfc75ed15",
-        "tests/preservation_der/test_contract.py": "a77239295300b00789f5b39c5330fc778fc27ba7",
+        "tests/preservation_der/test_contract.py": "ed328231d7ef5d4d6a8fa97ad3e29d1d976c2461",
         "tests/preservation_refresh/AuthenticatedAdapterCases.swift": "a4623f7a98671296f26aec995a0704b5003df1ae",
         "tests/preservation_refresh/BoundaryDoubles.swift": "f3f2733aea8e2c8f0af14dd4379c2e643b7696b5",
         "tests/preservation_refresh/IntegrationCases.swift": "654dc3d401649ac85406f9e8ae899051c599e155",
