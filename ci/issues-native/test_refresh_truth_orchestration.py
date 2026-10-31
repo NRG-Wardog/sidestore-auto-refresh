@@ -47,7 +47,12 @@ class OrchestrationTests(unittest.TestCase):
    guard=f"          python3 -B harness/ci/issues-native/record.py snapshot before-{name}\n          cmp evidence/acquired.json evidence/before-{name}.json\n"
    self.assertEqual(focused.count(guard),1)
    stripped=stripped.replace(guard,'')
-  self.assertIn(full[a:b],stripped)
+  # Full qualification first requires real same-run CMS; focused source tests
+  # deliberately have no host crypto build. All four command blocks stay exact.
+  full_guard="        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}\n"
+  focused_guard="        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}\n"
+  self.assertEqual(full[a:b].count(full_guard),4)
+  self.assertIn(full[a:b].replace(full_guard,focused_guard),stripped)
   for name in ('issue_tests','upstream_tests','minimuxer_tests','vpn_tests'):
    self.assertEqual(focused.count('id: '+name+'\n'),1)
    self.assertIn("test '${{ steps."+name+".outcome }}' = success",focused)

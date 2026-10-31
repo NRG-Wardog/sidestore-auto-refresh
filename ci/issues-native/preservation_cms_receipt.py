@@ -1,7 +1,7 @@
 """Exact same-run CMS core and real public-profile decoder qualification.
 Only finite receipts/logs survive; downloaded public profiles stay in runner temp.
 """
-import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile, selectors, signal, tarfile, time
+import argparse, datetime, hashlib, importlib.util, json, os, platform, re, shutil, subprocess, sys, tempfile, selectors, signal, tarfile, time
 from pathlib import Path
 SCHEMA = 'preservation-cms-native-v1'
 STATUS = 'PASS_EXACT_CRYPTO_AND_SWIFT_PUBLIC_BOUNDARY_NOT_DEVICE'
@@ -92,10 +92,66 @@ def host_build(built,evidence):
  return prefix, {'version':'3.5.9','build_receipt_sha256':sha(built/'build-receipt.json'),
   'source_archive_sha256':pins['sha256'],'libcrypto_sha256':sha(crypto),
   'headers_inventory_sha256':sha(built/'headers.json')}
+class QualificationCommandFailure(ValueError):
+ def __init__(self,returncode,stdout,stderr):
+  super().__init__('CMS qualification command failed (raw temporary data not retained)')
+  self.returncode=returncode;self.stdout=stdout;self.stderr=stderr
+
 def execute(argv,cwd,env,timeout=600):
  result=subprocess.run([str(x) for x in argv],cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=timeout)
- require(result.returncode==0,'CMS qualification command failed (raw temporary data not retained)')
+ if result.returncode!=0:raise QualificationCommandFailure(result.returncode,result.stdout,result.stderr)
  return result.stdout,result.stderr
+
+FAILURE_DIAGNOSTIC = 'preservation-cms-failure-diagnostic.json'
+COMPILER_BASENAMES = ('profile_cms.c','profile_cms.h','ProvisioningCMSVerifier.swift',
+ 'ProfileCMSVerifier.swift','PreservedProfileDecoder.swift','main.swift','version.c')
+
+def finite_stage_failure(phase,status,returncode,stderr):
+ require(phase in ('syntheticC','publicSwift'),'unknown qualification diagnostic phase')
+ require(status in ('failed','timedOut'),'diagnostic cannot represent success')
+ require(returncode is None if status=='timedOut' else type(returncode) is int and returncode!=0,'invalid failed exit status')
+ if isinstance(stderr,bytes):stderr=stderr.decode('utf-8',errors='replace')
+ if not isinstance(stderr,str):stderr=''
+ # Bound parsing work; raw input is never copied to the report.
+ if len(stderr)>131072:
+  head=stderr[:65536];tail=stderr[-65536:]
+  # Never manufacture a complete case marker by cutting an original line.
+  head=head.rsplit('\n',1)[0] if '\n' in head else ''
+  tail=tail.split('\n',1)[1] if '\n' in tail else ''
+  bounded=head+'\n'+tail
+ else:bounded=stderr
+ failed=None;last=None;locations=[]
+ for line in bounded.splitlines():
+  if phase=='syntheticC':
+   match=re.fullmatch(r'AssertionError: ([A-Za-z0-9_-]+)',line)
+   if match and match[1] in CMS_CASES:failed=match[1]
+  else:
+   match=re.search(r'(?:^|: )Fatal error: unexpected acceptance: ([A-Za-z0-9_-]+)$',line)
+   if match and match[1] in PUBLIC_CASES:failed=match[1]
+   match=re.fullmatch(r'V3_PUBLIC_CASE_BEGIN ([A-Za-z0-9_-]+)',line)
+   if match and match[1] in PUBLIC_CASES:last=match[1]
+  match=re.match(r'^(?:[^\n:]*/)?('+'|'.join(map(re.escape,COMPILER_BASENAMES))+r'):([0-9]{1,7}):([0-9]{1,7}): (?:error|warning|note):',line)
+  if match and 1<=int(match[2])<=1000000 and 1<=int(match[3])<=100000:
+   location={'file':match[1],'line':int(match[2]),'column':int(match[3])}
+   if location not in locations and len(locations)<8:locations.append(location)
+ return {'schema':'preservation-cms-failure-diagnostic-v1','phase':phase,'status':status,
+  'returncode':returncode,'confirmed_failed_case':failed,'last_case':last,
+  'compiler_locations':locations,'raw_output_retained':False,'device_executed':False}
+
+def execute_stage(phase,argv,cwd,env,evidence,timeout=600):
+ require(phase in ('syntheticC','publicSwift'),'unknown qualification diagnostic phase')
+ try:return execute(argv,cwd,env,timeout)
+ except (QualificationCommandFailure,subprocess.TimeoutExpired) as error:
+  timed_out=isinstance(error,subprocess.TimeoutExpired)
+  try:
+   report=finite_stage_failure(phase,'timedOut' if timed_out else 'failed',None if timed_out else error.returncode,error.stderr)
+   destination=Path(evidence)/FAILURE_DIAGNOSTIC
+   require(not destination.exists() and not destination.is_symlink(),'failure diagnostic already exists/linked')
+   data=json.dumps(report,sort_keys=True)+'\n';require(len(data.encode())<4096,'failure diagnostic bound exceeded')
+   with destination.open('x') as output:output.write(data)
+  except (OSError,ValueError):
+   pass # Diagnostic persistence must never replace or rescue the original failure.
+  raise
 
 CLI_DIAGNOSTIC = 'preservation-cms-build-diagnostic.json'
 CLI_OUTPUT_LIMIT = 32768
@@ -118,6 +174,51 @@ def cli_source(built):
   original=archive.extractfile(entries[0]).read()
  require(hashlib.sha256(original).hexdigest()==sha(source/'Configure'),'original Configure source changed')
  return source
+
+def cli_environment(built):
+ """Recreate the already-qualified host recipe's environment, not ambient flags."""
+ receipt=read(Path(built)/'build-receipt.json')
+ recipe=Path(__file__).resolve().parents[1]/'issue53-lts/build.py'
+ require(receipt['recipe_sha256']==sha(recipe),'CLI environment recipe changed')
+ spec=importlib.util.spec_from_file_location('cms_qualified_host_recipe',recipe)
+ module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+ env=module.sanitized_environment()
+ def selected(*args):
+  value=subprocess.check_output(['/usr/bin/xcrun',*args],env=env,text=True,timeout=30).strip()
+  require(value and '\n' not in value,'invalid selected host SDK/tool')
+  return value
+ sdk=Path(receipt['sdk_path'])
+ require(sdk.is_absolute() and sdk.is_dir(),'qualified SDK directory missing')
+ require(Path(selected('--sdk','macosx','--show-sdk-path')).resolve(strict=True)==sdk.resolve(strict=True),'selected SDK differs from qualified host')
+ require(selected('--sdk','macosx','--show-sdk-version')==receipt['sdk_version'],'selected SDK version differs from qualified host')
+ tools=receipt['tools_sha256'];resolved=receipt['tool_resolved_paths']
+ require(type(tools) is dict and type(resolved) is dict and set(tools)==set(resolved),'qualified tool receipt fields')
+ expected={'clang','perl','make','ar','ranlib','ld','dsymutil','dwarfdump','vtool'}
+ require(len(tools)==len(expected) and {Path(p).name for p in tools}==expected,'qualified tool inventory')
+ invocations={}
+ for name,digest in tools.items():
+  require(Path(name).is_absolute(),'qualified tool path must be absolute')
+  invocation=module.tool_invocation(name);require(invocation.is_file(),'qualified tool missing')
+  require(str(invocation.resolve(strict=True))==resolved[name] and sha(invocation)==digest,'qualified tool identity changed')
+  basename=invocation.name
+  if basename in ('perl','make'):require(name=='/usr/bin/'+basename,'unexpected host tool invocation')
+  else:require(str(module.tool_invocation(selected('--find',basename)))==name,'selected tool differs from qualified host')
+  # Preserve invocation name, notably ranlib -> libtool multicall dispatch.
+  invocations[basename]=name
+ recorded=receipt['build_environment']
+ require(type(recorded) is dict and set(recorded)=={'CFLAGS','LDFLAGS','ZERO_AR_DATE','SOURCE_DATE_EPOCH'},'qualified build environment fields')
+ arch=receipt['architecture'];require(arch in ('arm64','x86_64') and arch==platform.machine(),'qualified host architecture differs')
+ minimum='11.0' if arch=='arm64' else '10.15'
+ require(receipt['minimum_os']==minimum,'qualified host deployment target differs')
+ optimization=module.optimization_flag(receipt['optimization'])
+ expected_environment={'CFLAGS':optimization+' -g -fPIC -mmacosx-version-min='+minimum,
+  'LDFLAGS':'-mmacosx-version-min='+minimum,'ZERO_AR_DATE':'1',
+  'SOURCE_DATE_EPOCH':str(int(datetime.datetime(2026,9,29,tzinfo=datetime.timezone.utc).timestamp()))}
+ require(recorded==expected_environment,'qualified build environment differs from recipe')
+ env.update(expected_environment)
+ env.update({'CC':invocations['clang'],'AR':invocations['ar'],'RANLIB':invocations['ranlib'],
+  'SDKROOT':str(sdk),'PATH':str(Path(invocations['clang']).parent)+':/usr/bin:/bin:/usr/sbin:/sbin'})
+ return env
 
 def build_cli(built,evidence,env,timeout=300):
  """Only the known source-only CLI make can retain compiler diagnostics.
@@ -171,10 +272,18 @@ def build_cli(built,evidence,env,timeout=300):
  require(status=='passed','CMS CLI source build '+status+' (original exit '+str(returncode)+'; see bounded source diagnostic)')
  return source/'apps/openssl'
 
+def qualification_python():
+ # Preserve the running harness invocation, not a PATH lookup or resolved alias.
+ interpreter=Path(sys.executable)
+ require(interpreter.is_absolute() and interpreter.is_file() and os.access(interpreter,os.X_OK),'missing/invalid harness interpreter')
+ return str(interpreter)
+
 def run(root,built,evidence,graph,run_identity):
  root=Path(root).resolve(strict=True);evidence=Path(evidence).resolve(strict=True)
  identity(run_identity);before=sources(root,graph);prefix,crypto=host_build(built,evidence)
- env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1','CMS_REQUIRE_QUALIFIED':'1','CMS_OPENSSL_ROOT':str(prefix)}
+ env=cli_environment(built)
+ env.update({'PYTHONDONTWRITEBYTECODE':'1','CMS_REQUIRE_QUALIFIED':'1','CMS_OPENSSL_ROOT':str(prefix)})
+ python=qualification_python()
  mini=root/'SideStore/Dependencies/minimuxer'
  # Build only the CLI using the existing verified source/configuration. This is
  # test tooling, never a replacement product crypto library or new acquisition.
@@ -183,9 +292,9 @@ def run(root,built,evidence,graph,run_identity):
  require(cli.is_file() and not cli.is_symlink() and not cli.parent.is_symlink() and cli.resolve().parent==cli_source(built)/'apps','missing/linked qualified CLI')
  with tempfile.TemporaryDirectory(prefix='cms-qualification-') as temporary:
   report_path=Path(temporary)/'cms.json'
-  stdout,stderr=execute([sys.executable,'-B',mini/'TestsCMS/run_native.py','--openssl-root',prefix,'--openssl-cli',cli,'--output',report_path],mini,env)
+  stdout,stderr=execute_stage('syntheticC',[python,'-B',mini/'TestsCMS/run_native.py','--openssl-root',prefix,'--openssl-cli',cli,'--output',report_path],mini,env,evidence)
   cms=validate_cms_report(read(report_path))
- stdout,stderr=execute(['/bin/bash','-e',root/'SideStore/tests/preservation_der/run_public.sh','--openssl-root',prefix],root/'SideStore',env)
+ stdout,stderr=execute_stage('publicSwift',['/bin/bash','-e',root/'SideStore/tests/preservation_der/run_public.sh','--openssl-root',prefix,'--python',python],root/'SideStore',env,evidence)
  public=validate_public_log(stdout)
  # Compiler diagnostics are not retained from the public-input lane. The actual
  # command must succeed and stdout must contain only the validated finite receipt.
@@ -194,7 +303,7 @@ def run(root,built,evidence,graph,run_identity):
  for name,data in zip(LOGS,(json.dumps(cms,sort_keys=True)+'\n',stdout)):
   with (evidence/name).open('x') as f:f.write(data)
  receipt={'schema':SCHEMA,'status':STATUS,'run':run_identity,'source_sha256':before,
-  'crypto':crypto,'tool_sha256':{str(Path(shutil.which(name)).resolve(strict=True)):sha(Path(shutil.which(name)).resolve(strict=True)) for name in ('clang','swiftc')},'openssl_cli_sha256':sha(cli),'cms_cases':list(CMS_CASES),'public_cases':list(PUBLIC_CASES),
+  'crypto':crypto,'tool_sha256':{str(Path(shutil.which(name,path=env['PATH'])).resolve(strict=True)):sha(Path(shutil.which(name,path=env['PATH'])).resolve(strict=True)) for name in ('clang','swiftc')},'openssl_cli_sha256':sha(cli),'cms_cases':list(CMS_CASES),'public_cases':list(PUBLIC_CASES),
   'log_sha256':{name:sha(evidence/name) for name in LOGS},'cms_verified':True,
   'device_executed':False,'public_profile_bytes_retained':False}
  with (evidence/'preservation-cms-tests.json').open('x') as f:json.dump(receipt,f,sort_keys=True,indent=2);f.write('\n')
@@ -211,7 +320,9 @@ def verify(path,root,graph,run_identity):
  require(r['cms_cases']==list(CMS_CASES) and r['public_cases']==list(PUBLIC_CASES),'CMS receipt case closure')
  crypto=r['crypto'];require(set(crypto)=={'version','build_receipt_sha256','source_archive_sha256','libcrypto_sha256','headers_inventory_sha256'} and crypto['version']=='3.5.9','CMS crypto receipt fields')
  require(all(type(crypto[k]) is str and re.fullmatch('[0-9a-f]{64}',crypto[k]) for k in crypto if k!='version'),'CMS crypto hashes')
- host=read(path.parent/'openssl-host-build-receipt.json');pins=read(Path(__file__).resolve().parents[1]/'issue53-lts/source.json')
+ host=read(path.parent/'openssl-host-build-receipt.json')
+ require(host['recipe_sha256']==sha(Path(__file__).resolve().parents[1]/'issue53-lts/build.py'),'CMS host recipe differs')
+ pins=read(Path(__file__).resolve().parents[1]/'issue53-lts/source.json')
  require(crypto['build_receipt_sha256']==sha(path.parent/'openssl-host-build-receipt.json') and host['source']==pins and crypto['source_archive_sha256']==pins['sha256'],'CMS qualified host lineage')
  crypto_archives=[v for k,v in host['static_archives_sha256'].items() if Path(k).name=='libcrypto.a']
  require(crypto_archives==[crypto['libcrypto_sha256']],'CMS crypto archive not same-run')

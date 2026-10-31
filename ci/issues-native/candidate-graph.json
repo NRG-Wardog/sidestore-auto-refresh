@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "ddac736921f8051f4450b0139e52494b2a987604"
+      "5d89ede9a4def6c2d00c8996c50061a11a1dfdd8"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -30,7 +30,7 @@
     ],
     "SideStore/Dependencies/minimuxer": [
       "NRG-Wardog/minimuxer",
-      "2eeddcac9cdc18983ffa2d004727bc7a17f7af80"
+      "c6aa78d695c636d3dc84727ccd69426a633e61b5"
     ],
     "idevice": [
       "NRG-Wardog/idevice",
@@ -204,7 +204,7 @@
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
-      "tree": "9c7e656053d7c94873b1570333a0bf0aa607e51a",
+      "tree": "778c9f41fc3ce3420feed5bb33a2374c2ed17109",
       "files": {
         ".ci/branch-cleanup/allowlist.json": "f4fa7e585a01a176694441a15fb33bf8cfbc8ce7",
         ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
@@ -231,7 +231,7 @@
         "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "43667573ccd1efb2d36fb25f7a4e7f4f894d1732",
         "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "b38c58967d8296e162c55f64e7e5d29679c42fef",
         "Dependencies/SideSign": "79f3eb51c54890f49760bd7a55abe9c36414fb25",
-        "Dependencies/minimuxer": "2eeddcac9cdc18983ffa2d004727bc7a17f7af80",
+        "Dependencies/minimuxer": "c6aa78d695c636d3dc84727ccd69426a633e61b5",
         "SideStore/Core/Anisette/AnisetteProvider.swift": "9899b064e45a6d8f005c000f15453b3b11730452",
         "SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift": "475c914fd4342bfdf33a8ac8d10f301e94b435e5",
         "SideStore/Core/Auth/AuthManager.swift": "61c36d4ee026391c014fc720d84e0dadf4882d48",
@@ -287,15 +287,15 @@
         "tests/legacy_replacement_hooks/cases.swift": "96e6577d26af1983ca2b9fe76048bde020ea3b89",
         "tests/legacy_replacement_hooks/doubles.swift": "c2e4db39ae198ee17e37f0f584753c8fd03bfe65",
         "tests/legacy_replacement_hooks/test_contract.py": "2d91cf49bb45207ca5a65a690138834b96950dc8",
-        "tests/preservation_der/PublicCases.swift": "b34ae12bf9b0488394c646efb2f65769fd3f9e22",
-        "tests/preservation_der/README.md": "9d904fc5d2524d6e0c5b8c8e91444a23fac62fc4",
+        "tests/preservation_der/PublicCases.swift": "8784b2c9f3fe3e313aa5332b75f97ee24338f8ea",
+        "tests/preservation_der/README.md": "88e7f79452fe808a70a4cabb672650753bfc333f",
         "tests/preservation_der/SwiftCases.swift": "7707b62048f742a6f3efec475f34cc26815587cd",
         "tests/preservation_der/expected-cases.json": "e6eb83fff08755f696d1c80c29d40cabb6908e4e",
         "tests/preservation_der/fetch_public_fixtures.py": "5810cc62804e77ba2359ddd313afa2fd77c010fc",
         "tests/preservation_der/generate_failure_diagnostic.py": "fedbfb050f2e85c75f7bf136b476f2a7da278057",
         "tests/preservation_der/public-fixtures.json": "c1944d7ffaf72e08b6d49c222397be8c56279cfe",
         "tests/preservation_der/run.sh": "a866898e22941e9ba26fa03774d8ea4645120202",
-        "tests/preservation_der/run_public.sh": "5654fe30598d5fcdd9d596a8665e06470e1668ad",
+        "tests/preservation_der/run_public.sh": "2ccdfb873d5261b8ece6fde20fc754671bb5b31c",
         "tests/preservation_der/swift-cases.json": "62102502f0073b87a8ea9ea98c8da44f31372fac",
         "tests/preservation_der/test_contract.py": "661baa8a36c5ca4fbed24c098f824ecba4f8beb2",
         "tests/preservation_refresh/AuthenticatedAdapterCases.swift": "a4623f7a98671296f26aec995a0704b5003df1ae",
@@ -385,7 +385,7 @@
     },
     "SideStore/Dependencies/minimuxer": {
       "baseline": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
-      "tree": "d3de47e3b2eb5d7c543df171ada25baf05ace970",
+      "tree": "4a7878051af6764ed4e43b21126cd252622fa44d",
       "files": {
         ".ci/owned-readiness/fixture.swift": "aaaebb52800bf5897acab95df6daf192a6ffecca",
         ".ci/profile-readback/README.md": "447a9fcc08cc61137d9a073ec2e40feb847fd1b6",
@@ -415,7 +415,7 @@
         "TestsCMS/approved-inner-provenance.json": "bb5653ddc1c39b465d0fdd20b55982079b2abb8a",
         "TestsCMS/expected-cases.json": "1dc542ca45202256e6e309107619231f02a8ac3e",
         "TestsCMS/root-provenance.json": "e2833057fa56ad67677a8a9b828972fd5862ff7b",
-        "TestsCMS/run_native.py": "1f7c790625c05e2e991571407dcd89299c87f700",
+        "TestsCMS/run_native.py": "434253f2a1840d6efe0d2fecf6c5898959502eb5",
         "TestsCMS/test_cms.py": "62b391e16aa6c0adb39ac35aabe851cd74184b6a",
         "TestsCMS/verify_profile_cms.c": "5991d3df20146a87c37dbf9012198cbae872e3a6",
         "docs/integration/GENERATED_PAIRING_CRYPTO.md": "63cbe29c876d99f2471811310d0f6ec1a3bce7ef"

@@ -154,6 +154,7 @@ jobs:
           path: |
             evidence/preservation-cms-driver.log
             evidence/preservation-cms-build-diagnostic.json
+            evidence/preservation-cms-failure-diagnostic.json
             evidence/openssl-host-build.log
             evidence/openssl-host-config.log
             evidence/openssl-host-build-receipt.json
@@ -247,7 +248,7 @@ jobs:
           retention-days: 14
       - name: Run current source-owned startup failure regressions without skips
         id: startup_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issue56-startup/test_startup_runner.py
@@ -255,7 +256,7 @@ jobs:
             2>&1 | tee evidence/issue56-startup-driver.log
       - name: Verify same-session language transitions without skips
         id: language_switch_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         timeout-minutes: 15
         run: |
           set -euo pipefail
@@ -276,7 +277,7 @@ jobs:
           retention-days: 14
       - name: Qualify exact owned ODA source and verified local startup
         id: owned_oda_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         timeout-minutes: 25
         run: |
           set -euo pipefail
@@ -284,13 +285,13 @@ jobs:
           python3 -B harness/ci/issues-native/run_owned_oda.py --sources sources --evidence evidence/owned-oda --inputs qualification-inputs
       - name: Run issue regression suite without skips
         id: issue_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/run_issue_tests.py 2>&1 | tee evidence/issue-tests.log
       - name: Check all SideStore source-owned upstream regressions without skips
         id: upstream_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
@@ -303,14 +304,14 @@ jobs:
           printf '0\n' > evidence/AnisetteKit-native-logging-contract.exit-code.txt
       - name: Check minimuxer extracted-production Swift with fake dependencies only
         id: minimuxer_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/verify_upstream_sync.py minimuxer-tests \
             --swiftc "$(command -v swiftc)" --output evidence/minimuxer-upstream-sync-tests.json
       - name: Check VPN transport recovery source and runtime matrix without skips
         id: vpn_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           VPN_TRANSPORT_SOURCE_ROOT="$GITHUB_WORKSPACE/sources" \
@@ -321,7 +322,7 @@ jobs:
           printf '0\n' > evidence/vpn-transport-recovery.exit-code.txt
       - name: Check bounded acquisition diagnostics with fake errors only
         id: acquisition_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 harness/ci/issues-native/test_acquisition_contract.py \
@@ -333,7 +334,7 @@ jobs:
           printf '0\n' > evidence/acquisition-contract.exit-code.txt
       - name: Check verified vendor acquisition with fake network data only
         id: vendor_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 harness/ci/issues-native/test_vendor_contract.py \
@@ -343,7 +344,7 @@ jobs:
           printf '0\n' > evidence/vendor-contract.exit-code.txt
       - name: Check comprehensive auth request provenance and real IPC copy with fake boundaries once
         id: comprehensive_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/verify_comprehensive_diagnostics.py \
@@ -352,7 +353,7 @@ jobs:
           printf '0\n' > evidence/comprehensive-diagnostics.exit-code.txt
       - name: Check setup recovery against exact delivered baseline with fake boundaries once
         id: setup_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/verify_setup_state_recovery.py run \
@@ -361,7 +362,7 @@ jobs:
           printf '0\n' > evidence/setup-state-recovery.exit-code.txt
       - name: Qualify additive Russian compiled resources and production localization
         id: russian_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/test_russian_localization.py
@@ -378,7 +379,7 @@ jobs:
           retention-days: 14
       - name: Install pinned transport build prerequisites
         id: build_tools
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
@@ -392,7 +393,7 @@ jobs:
           test "$(cargo +1.98.1 --version)" = 'cargo 1.98.1 (797e8a9bc 2026-08-05)'
       - name: Run Rust ownership and packet regressions
         id: rust_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' && steps.build_tools.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/run_issue_tests.py --idevice-native
@@ -409,7 +410,7 @@ jobs:
           retention-days: 14
       - name: Qualify bounded native profile readback and seal all refresh evidence
         id: refresh_truth_rust
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' && steps.build_tools.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/refresh-truth/run.py rust --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-rust-driver.log
@@ -427,7 +428,7 @@ jobs:
           retention-days: 14
       - name: Compile iOS transport and stage local framework
         id: transport_build
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' && steps.build_tools.outcome == 'success' }}
         run: |
           set -euo pipefail
           cd sources/idevice
@@ -448,7 +449,7 @@ jobs:
           cp -R sources/idevice/swift/IDevice.xcframework "$mux/IDevice.xcframework"
       - name: Inspect exact native archive symbols and generated header without execution
         id: abi_inspection
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.transport_build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' && steps.transport_build.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/idevice-abi-gate/verify_native_abi.py \

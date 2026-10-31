@@ -211,5 +211,65 @@ class FailureCollectionTests(unittest.TestCase):
         self.assertEqual(states[EVIDENCE], 'success')
 
 
+class ColdCMSFailFastTests(unittest.TestCase):
+    """Scheduling only: no skipped crypto suite can qualify downstream work."""
+    def setUp(self):
+        text = WORKFLOW.with_name('cold-vpn-native.yml').read_text()
+        self.text = text
+        self.rows = {}
+        for part in text.split('      - name: ')[1:]:
+            row = {'name': part.splitlines()[0], 'condition': 'success()', 'text': part}
+            for line in part.splitlines()[1:]:
+                match = re.fullmatch(r'        (id|if): (.+)', line)
+                if match:
+                    row['condition' if match[1] == 'if' else 'id'] = match[2]
+            self.rows[row.get('id', row['name'])] = row
+        self.expected = {key: ['source_gate', 'preservation_cms'] for key in (
+            'startup_tests', 'language_switch_tests', 'owned_oda_tests', 'issue_tests',
+            'upstream_tests', 'minimuxer_tests', 'vpn_tests', 'acquisition_tests',
+            'vendor_tests', 'comprehensive_tests', 'setup_tests', 'russian_tests', 'build_tools')}
+        for key in ('rust_tests', 'refresh_truth_rust', 'transport_build'):
+            self.expected[key] = ['source_gate', 'preservation_cms', 'build_tools']
+        self.expected['abi_inspection'] = ['source_gate', 'preservation_cms', 'transport_build']
+
+    def test_exact_prerequisite_addition_preserves_existing_dependencies(self):
+        self.assertEqual(self.rows['preservation_cms']['condition'], expression(['source_gate']))
+        for key, deps in self.expected.items():
+            self.assertEqual(self.rows[key]['condition'], expression(deps), key)
+        for key in ('refresh_truth_swift', 'schema_tests', 'multitask_tests', 'cold_vpn_tests'):
+            self.assertEqual(self.rows[key]['condition'], 'success()')
+        self.assertEqual(self.rows['openssl_inputs']['condition'], expression(['source_gate', 'preservation_cms']))
+
+    def test_crypto_failure_skip_or_cancel_blocks_all_expensive_tail(self):
+        for cms in ('failure', 'skipped', None):
+            for deps in self.expected.values():
+                states = {key: 'success' for key in deps}
+                states['preservation_cms'] = cms
+                self.assertFalse(all(states.get(key) == 'success' for key in deps))
+        # Successful prerequisites still require every unchanged command block.
+        for key, deps in self.expected.items():
+            self.assertTrue(all({d: 'success' for d in deps}[d] == 'success' for d in deps))
+            self.assertIn('        run: |\n', self.rows[key]['text'])
+            self.assertTrue(self.rows[key]['condition'].startswith('${{ !cancelled() && '))
+        self.assertNotIn('continue-on-error', self.text)
+        self.assertNotRegex(self.text, r'\|\|\s*(true|:|exit\s+0)')
+
+    def test_failure_evidence_survives_and_release_remains_success_only(self):
+        row = self.rows['Preserve early exact CMS build failure diagnostics']
+        self.assertEqual(row['condition'], "${{ !cancelled() && steps.preservation_cms.outcome == 'failure' }}")
+        self.assertEqual(self.rows[EVIDENCE]['condition'], expression(['initialize_evidence']))
+        for name in FINAL:
+            self.assertEqual(self.rows[name]['condition'], 'success()', name)
+        self.assertLess(self.text.index(row['name']), self.text.index('id: startup_tests'))
+
+    def test_control_is_mandatory_in_focused_and_full_source_gates(self):
+        command = 'python3 -B harness/ci/issues-native/test_workflow_failure_collection.py'
+        for filename, boundary in [('cold-vpn-native.yml', 'id: preservation_cms'),
+                                   ('refresh-truth-preflight.yml', 'id: swift_tests')]:
+            text = WORKFLOW.with_name(filename).read_text()
+            self.assertEqual(text.count(command), 1)
+            self.assertLess(text.index(command), text.index(boundary))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

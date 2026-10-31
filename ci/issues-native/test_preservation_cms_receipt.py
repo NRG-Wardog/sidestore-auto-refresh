@@ -32,7 +32,7 @@ class CMSControls(unittest.TestCase):
    with self.assertRaises(ValueError):c.validate_public_log(s)
  def fixture(self,d):
   root=pathlib.Path(d).resolve(strict=True);run={'workflow_commit':'a'*40,'run_id':'1','run_attempt':'2'}
-  host={'source':c.read(HERE.parent/'issue53-lts/source.json'),'static_archives_sha256':{'/exact/install/lib/libcrypto.a':'b'*64},'header_inventory_sha256':'c'*64}
+  host={'recipe_sha256':c.sha(HERE.parent/'issue53-lts/build.py'),'source':c.read(HERE.parent/'issue53-lts/source.json'),'static_archives_sha256':{'/exact/install/lib/libcrypto.a':'b'*64},'header_inventory_sha256':'c'*64}
   (root/'openssl-host-build-receipt.json').write_text(json.dumps(host))
   (root/c.LOGS[0]).write_text(json.dumps(self.cms()));(root/c.LOGS[1]).write_text(json.dumps(self.public()))
   r={'schema':c.SCHEMA,'status':c.STATUS,'run':run,'source_sha256':{'source':'d'*64},'crypto':{'version':'3.5.9','build_receipt_sha256':c.sha(root/'openssl-host-build-receipt.json'),'source_archive_sha256':host['source']['sha256'],'libcrypto_sha256':'b'*64,'headers_inventory_sha256':'c'*64},'tool_sha256':{'/usr/bin/clang':'e'*64},'openssl_cli_sha256':'f'*64,'cms_cases':list(c.CMS_CASES),'public_cases':list(c.PUBLIC_CASES),'log_sha256':{name:c.sha(root/name) for name in c.LOGS},'cms_verified':True,'device_executed':False,'public_profile_bytes_retained':False}
@@ -289,7 +289,7 @@ class CLIBuildDiagnostics(unittest.TestCase):
   block=workflow[start:end]
   paths=block.split('          path: |\n',1)[1].split('          if-no-files-found:',1)[0]
   actual=[line.strip() for line in paths.splitlines() if line.strip()]
-  self.assertEqual(actual,['evidence/preservation-cms-driver.log','evidence/preservation-cms-build-diagnostic.json','evidence/openssl-host-build.log','evidence/openssl-host-config.log','evidence/openssl-host-build-receipt.json','evidence/lts-build-driver.log','evidence/openssl-lts-controls.log','evidence/openssl-size-controls.log','evidence/openssl-admission-controls.log'])
+  self.assertEqual(actual,['evidence/preservation-cms-driver.log','evidence/preservation-cms-build-diagnostic.json','evidence/preservation-cms-failure-diagnostic.json','evidence/openssl-host-build.log','evidence/openssl-host-config.log','evidence/openssl-host-build-receipt.json','evidence/lts-build-driver.log','evidence/openssl-lts-controls.log','evidence/openssl-size-controls.log','evidence/openssl-admission-controls.log'])
   self.assertNotIn('*',paths);self.assertNotIn('public',paths);self.assertNotIn('cms-qualification',paths)
   self.assertIn("steps.preservation_cms.outcome == 'failure'",workflow[workflow.rfind('      - name:',0,start):start])
   driver=(HERE/'preservation_cms_receipt.py').read_text()
@@ -297,4 +297,161 @@ class CLIBuildDiagnostics(unittest.TestCase):
   self.assertIn("require(host_build(built,evidence)[1]==crypto,'qualified crypto changed during tests')",driver)
   build=(HERE.parent/'issue53-lts/build.py').read_text()
   self.assertIn("'no-shared','no-module'",build);self.assertIn("'enable-legacy','no-asm'",build);self.assertNotIn("'no-apps'",build)
+class CLIQualifiedEnvironment(unittest.TestCase):
+ def fixture(self,d):
+  root=pathlib.Path(d).resolve(strict=True);built=root/'built';built.mkdir();sdk=root/'MacOSX.sdk';sdk.mkdir();bindir=root/'toolchain/bin';bindir.mkdir(parents=True)
+  tools={};resolved={};selected={}
+  for name in ['clang','ar','ranlib','ld','dsymutil','dwarfdump','vtool']:
+   p=bindir/name
+   if name=='ranlib':
+    (bindir/'libtool').write_text('synthetic multicall tool');p.symlink_to(bindir/'libtool')
+   else:p.write_text('synthetic tool '+name)
+   tools[str(p)]=c.sha(p);resolved[str(p)]=str(p.resolve(strict=True));selected[name]=str(p)
+  for name in ['perl','make']:
+   p=pathlib.Path('/usr/bin')/name;tools[str(p)]=c.sha(p);resolved[str(p)]=str(p.resolve(strict=True))
+  architecture=c.platform.machine();minimum='11.0' if architecture=='arm64' else '10.15'
+  receipt={'architecture':architecture,'minimum_os':minimum,'optimization':'Os','recipe_sha256':c.sha(HERE.parent/'issue53-lts/build.py'),'sdk_path':str(sdk),'sdk_version':'26.4','tools_sha256':tools,'tool_resolved_paths':resolved,'build_environment':{'CFLAGS':'-Os -g -fPIC -mmacosx-version-min='+minimum,'LDFLAGS':'-mmacosx-version-min='+minimum,'ZERO_AR_DATE':'1','SOURCE_DATE_EPOCH':'1790640000'}}
+  (built/'build-receipt.json').write_text(json.dumps(receipt))
+  def query(argv,**kwargs):
+   self.assertEqual(argv[0],'/usr/bin/xcrun')
+   if argv[1:]==['--sdk','macosx','--show-sdk-path']:return str(sdk)+'\n'
+   if argv[1:]==['--sdk','macosx','--show-sdk-version']:return '26.4\n'
+   self.assertEqual(argv[1],'--find');return selected[argv[2]]+'\n'
+  return built,receipt,query,bindir
+ def test_reuses_actual_producer_sanitizer_and_qualified_environment(self):
+  import os
+  with tempfile.TemporaryDirectory() as d:
+   built,r,query,bindir=self.fixture(d)
+   hostile={'SDKROOT':'/wrong/sdk','CC':'untrusted-compiler','AR':'wrong-ar','RANLIB':'wrong-ranlib','CFLAGS':'-wrong','LDFLAGS':'-wrong','CPATH':'/wrong/include','LIBRARY_PATH':'/wrong/lib','MAKEFLAGS':'-f hostile','PERL5OPT':'hostile','OPENSSL_CONF':'/wrong/config','DYLD_INSERT_LIBRARIES':'wrong','PATH':'/wrong/bin'}
+   with patch.dict(os.environ,hostile),patch.object(c.subprocess,'check_output',side_effect=query):env=c.cli_environment(built)
+   self.assertEqual(env['SDKROOT'],r['sdk_path']);self.assertEqual(env['CC'],str(bindir/'clang'));self.assertEqual(env['AR'],str(bindir/'ar'));self.assertEqual(env['RANLIB'],str(bindir/'ranlib'))
+   self.assertNotEqual(env['RANLIB'],str((bindir/'ranlib').resolve()))
+   for key,value in r['build_environment'].items():self.assertEqual(env[key],value)
+   for key in ['CPATH','LIBRARY_PATH','MAKEFLAGS','PERL5OPT','OPENSSL_CONF','DYLD_INSERT_LIBRARIES']:self.assertNotIn(key,env)
+   self.assertEqual(env['PATH'],str(bindir)+':/usr/bin:/bin:/usr/sbin:/sbin')
+ def test_selected_sdk_and_version_mismatch_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   built,r,query,bindir=self.fixture(d);other=pathlib.Path(d)/'other-sdk';other.mkdir()
+   for flag,value in [('--show-sdk-path',str(other)),('--show-sdk-version','99.0')]:
+    def changed(argv,**kwargs):return value if argv[-1]==flag else query(argv,**kwargs)
+    with patch.object(c.subprocess,'check_output',side_effect=changed),self.assertRaisesRegex(ValueError,'selected SDK'):c.cli_environment(built)
+ def test_changed_tool_bytes_alias_or_selection_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   built,r,query,bindir=self.fixture(d);clang=bindir/'clang';original=clang.read_bytes();clang.write_text('changed executable')
+   with patch.object(c.subprocess,'check_output',side_effect=query),self.assertRaisesRegex(ValueError,'tool identity'):c.cli_environment(built)
+   clang.write_bytes(original)
+   (bindir/'wrong-clang').write_bytes(original)
+   def changed(argv,**kwargs):return str(bindir/'wrong-clang') if argv[-2:]==['--find','clang'] else query(argv,**kwargs)
+   with patch.object(c.subprocess,'check_output',side_effect=changed),self.assertRaisesRegex(ValueError,'selected tool'):c.cli_environment(built)
+   (bindir/'samebytes').write_bytes((bindir/'libtool').read_bytes());(bindir/'ranlib').unlink();(bindir/'ranlib').symlink_to(bindir/'samebytes')
+   with patch.object(c.subprocess,'check_output',side_effect=query),self.assertRaisesRegex(ValueError,'tool identity'):c.cli_environment(built)
+ def test_recipe_or_unknown_environment_fields_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   built,r,query,bindir=self.fixture(d)
+   for field,value in [('recipe_sha256','0'*64),('build_environment',dict(r['build_environment'],SDKROOT='/arbitrary')),('build_environment',dict(r['build_environment'],CFLAGS='-include /arbitrary/path')),('build_environment',dict(r['build_environment'],LDFLAGS='-Wl,-load,/arbitrary/plugin')),('minimum_os','99.0'),('architecture','unsupported'),('optimization','injected')]:
+    changed=copy.deepcopy(r);changed[field]=value;(built/'build-receipt.json').write_text(json.dumps(changed))
+    with patch.object(c.subprocess,'check_output',side_effect=query),self.assertRaises(ValueError):c.cli_environment(built)
+ def test_same_validated_environment_reaches_all_three_commands(self):
+  import sys
+  with tempfile.TemporaryDirectory() as d:
+   root=pathlib.Path(d).resolve(strict=True);mini=root/'SideStore/Dependencies/minimuxer';mini.mkdir(parents=True);evidence=root/'evidence';evidence.mkdir();cli=root/'openssl';cli.write_text('synthetic nonexecuted CLI')
+   validated={'SDKROOT':'/qualified/sdk','CC':'/qualified/clang','PATH':'/qualified/bin','CFLAGS':'qualified flags'};seen=[]
+   def make(built,ev,env,timeout):seen.append(dict(env));return cli
+   def execute(argv,cwd,env,timeout=600):
+    seen.append(dict(env))
+    if '--output' in argv:
+     self.assertEqual(argv[0],sys.executable)
+     pathlib.Path(argv[argv.index('--output')+1]).write_text(json.dumps(CMSControls().cms()));return '', ''
+    self.assertEqual(argv[-2:],['--python',sys.executable])
+    return json.dumps(CMSControls().public()), ''
+   with patch.object(c,'sources',return_value={}),patch.object(c,'host_build',return_value=(root,{})),patch.object(c,'cli_source',return_value=root),patch.object(c,'cli_environment',return_value=dict(validated)),patch.object(c,'build_cli',side_effect=make),patch.object(c,'execute',side_effect=execute),patch.object(c,'verify'),patch.object(c.shutil,'which',return_value=sys.executable),patch.object(c,'sha',return_value='1'*64),patch('builtins.print'):
+    # Preserve final path check while keeping all execution mocked.
+    apps=root/'apps';apps.mkdir();cli.rename(apps/'openssl');cli=apps/'openssl'
+    c.run(root,root,evidence,{}, {'workflow_commit':'a'*40,'run_id':'1','run_attempt':'1'})
+   self.assertEqual(len(seen),3)
+   for env in seen:
+    for key,value in validated.items():self.assertEqual(env[key],value)
+    self.assertEqual(env['CMS_REQUIRE_QUALIFIED'],'1')
+   self.assertEqual(seen[0],seen[1]);self.assertEqual(seen[1],seen[2])
+ def test_harness_python_binding_rejects_missing_relative_nonexecutable(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=pathlib.Path(d)/'nonexecutable';p.write_text('not executable')
+   for candidate in ['', 'python3', str(pathlib.Path(d)/'missing'), str(p),d]:
+    with patch.object(c.sys,'executable',candidate),self.assertRaisesRegex(ValueError,'harness interpreter'):c.qualification_python()
+ def test_harness_python_preserves_valid_invocation_symlink(self):
+  import sys
+  with tempfile.TemporaryDirectory() as d:
+   alias=pathlib.Path(d).resolve(strict=True)/'python-invocation';alias.symlink_to(pathlib.Path(sys.executable).resolve(strict=True))
+   with patch.object(c.sys,'executable',str(alias)),patch.dict(c.os.environ,{'PATH':'/arbitrary/unrelated/path'}):
+    self.assertEqual(c.qualification_python(),str(alias))
+ def test_portable_receipt_rejects_changed_host_recipe(self):
+  with tempfile.TemporaryDirectory() as d,patch.object(c,'sources',return_value={'source':'d'*64}):
+   path,receipt,identity=CMSControls().fixture(d);hostpath=pathlib.Path(d)/'openssl-host-build-receipt.json';host=c.read(hostpath);host['recipe_sha256']='0'*64;hostpath.write_text(json.dumps(host))
+   receipt['crypto']['build_receipt_sha256']=c.sha(hostpath);path.write_text(json.dumps(receipt))
+   with self.assertRaisesRegex(ValueError,'host recipe differs'):c.verify(path,d,{},identity)
+ def test_cli_only_consumes_environment_after_same_run_host_validation(self):
+  source=(HERE/'preservation_cms_receipt.py').read_text()
+  self.assertIn('env=cli_environment(built)',source)
+  self.assertIn('cli=build_cli(built,evidence,env,timeout=300)',source)
+  self.assertIn('],mini,env,evidence)',source)
+  self.assertIn("],root/'SideStore',env,evidence)",source)
+  self.assertIn("shutil.which(name,path=env['PATH'])",source)
+  self.assertLess(source.index('prefix,crypto=host_build(built,evidence)'),source.index('cli=build_cli('))
+  self.assertIn("require(host_build(built,evidence)[1]==crypto,'CLI build changed qualified crypto inputs')",source)
+  self.assertIn('env=module.sanitized_environment()',source)
+class FiniteFailureDiagnostics(unittest.TestCase):
+ def test_known_assertion_and_last_case_are_distinct(self):
+  cms=c.CMS_CASES[0];public=c.PUBLIC_CASES[0]
+  r=c.finite_stage_failure('syntheticC','failed',1,'AssertionError: '+cms)
+  self.assertEqual(r['confirmed_failed_case'],cms);self.assertIsNone(r['last_case'])
+  r=c.finite_stage_failure('publicSwift','failed',-6,'V3_PUBLIC_CASE_BEGIN '+public+'\nmain/main.swift:10: Fatal error: unexpected acceptance: '+c.PUBLIC_CASES[3])
+  self.assertEqual(r['last_case'],public);self.assertEqual(r['confirmed_failed_case'],c.PUBLIC_CASES[3])
+ def test_marker_without_assertion_does_not_claim_failed_case(self):
+  r=c.finite_stage_failure('publicSwift','failed',1,'V3_PUBLIC_CASE_BEGIN '+c.PUBLIC_CASES[1]+'\nError: secret profile message')
+  self.assertEqual(r['last_case'],c.PUBLIC_CASES[1]);self.assertIsNone(r['confirmed_failed_case'])
+ def test_hostile_data_and_unknown_ids_never_appear(self):
+  hostile='-----BEGIN PRIVATE KEY-----\nsecret-token-abc\n<plist>personal-profile</plist>\n'
+  stderr=hostile+'AssertionError: unknown-private-case\nV3_PUBLIC_CASE_BEGIN secret-token-abc\n/private/owner/profile/main.swift:12:4: error: '+hostile+'\n/private/token/unknown.swift:7:8: error: secret'
+  for phase in ['syntheticC','publicSwift']:
+   r=c.finite_stage_failure(phase,'failed',1,stderr);encoded=json.dumps(r)
+   for secret in ['PRIVATE KEY','secret','personal-profile','/private','unknown.swift','owner']:self.assertNotIn(secret,encoded)
+   self.assertIsNone(r['confirmed_failed_case']);self.assertIsNone(r['last_case'])
+   self.assertEqual(r['compiler_locations'],[{'file':'main.swift','line':12,'column':4}])
+ def test_cross_phase_or_nonexact_cases_ignored(self):
+  text='AssertionError: '+c.CMS_CASES[0]+' extra-private-data\nV3_PUBLIC_CASE_BEGIN '+c.PUBLIC_CASES[0]+' extra-private-data\nAssertionError: '+c.PUBLIC_CASES[0]
+  for phase in ['syntheticC','publicSwift']:
+   r=c.finite_stage_failure(phase,'failed',1,text);self.assertIsNone(r['confirmed_failed_case']);self.assertIsNone(r['last_case'])
+ def test_report_and_parsing_bounds(self):
+  text='private'*100000+'\n'+''.join('/private/main.swift:'+str(i)+':2: error: secret\n' for i in range(1,100))+'main.swift:9999999:2: error: secret\n'
+  r=c.finite_stage_failure('publicSwift','failed',1,text);self.assertEqual(len(r['compiler_locations']),8);self.assertLess(len(json.dumps(r)),4096)
+  self.assertNotIn('private',json.dumps(r));self.assertNotIn('secret',json.dumps(r))
+ def test_truncation_cannot_fabricate_exact_case_lines(self):
+  for phase,marker in [('syntheticC','AssertionError: '+c.CMS_CASES[0]),('publicSwift','V3_PUBLIC_CASE_BEGIN '+c.PUBLIC_CASES[0])]:
+   head='x'*(65536-len(marker)-1)+'\n'+marker+' extra-private-data'+'x'*140000
+   tail='x'*140000+'private-prefix-'+marker+'\n'+'x'*(65536-len(marker)-1)
+   for text in [head,tail]:
+    r=c.finite_stage_failure(phase,'failed',1,text)
+    self.assertIsNone(r['confirmed_failed_case']);self.assertIsNone(r['last_case'])
+ def test_failure_and_timeout_rethrown_without_raw_output(self):
+  import subprocess
+  for error in [c.QualificationCommandFailure(7,'private stdout','AssertionError: '+c.CMS_CASES[2]),subprocess.TimeoutExpired(['synthetic'],2,output=b'private stdout',stderr=b'private stderr')]:
+   with tempfile.TemporaryDirectory() as d,patch.object(c,'execute',side_effect=error):
+    with self.assertRaises(type(error)) as caught:c.execute_stage('syntheticC',['synthetic'],d,{},d)
+    self.assertIs(caught.exception,error);r=c.read(pathlib.Path(d)/c.FAILURE_DIAGNOSTIC)
+    self.assertEqual(r['status'],'timedOut' if isinstance(error,subprocess.TimeoutExpired) else 'failed')
+    self.assertFalse(r['raw_output_retained']);self.assertNotIn('private',json.dumps(r))
+ def test_success_emits_no_failure_diagnostic(self):
+  with tempfile.TemporaryDirectory() as d,patch.object(c,'execute',return_value=('finite-success','')):
+   self.assertEqual(c.execute_stage('publicSwift',['synthetic'],d,{},d),('finite-success',''));self.assertEqual(list(pathlib.Path(d).iterdir()),[])
+  for phase,status,code in [('unknown','failed',1),('publicSwift','passed',0),('publicSwift','failed',0),('publicSwift','failed',True)]:
+   with self.assertRaises(ValueError):c.finite_stage_failure(phase,status,code,'')
+ def test_existing_or_linked_diagnostic_cannot_mask_original_failure(self):
+  for linked in [False,True]:
+   with tempfile.TemporaryDirectory() as d:
+    root=pathlib.Path(d);other=root/'other';other.write_text('untouched');destination=root/c.FAILURE_DIAGNOSTIC
+    if linked:destination.symlink_to(other)
+    else:destination.write_text('untouched')
+    error=c.QualificationCommandFailure(2,'private','private')
+    with patch.object(c,'execute',side_effect=error),self.assertRaises(c.QualificationCommandFailure) as caught:c.execute_stage('publicSwift',[],d,{},d)
+    self.assertIs(caught.exception,error);self.assertEqual(destination.read_text(),'untouched');self.assertEqual(other.read_text(),'untouched')
 if __name__=='__main__':unittest.main()
