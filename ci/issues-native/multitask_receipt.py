@@ -20,6 +20,12 @@ def read(path):
 def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def canonical(value):return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 def identity():return {k:os.environ[v] for k,v in [('workflow_commit','GITHUB_SHA'),('run_id','GITHUB_RUN_ID'),('run_attempt','GITHUB_RUN_ATTEMPT')]}
+def verifier_sources():
+    import attachment_contract,diagnostics_contract
+    paths={'multitask_receipt.py':Path(__file__),'diagnostics_contract.py':Path(diagnostics_contract.__file__)}
+    for name in attachment_contract.CLEANUP_SOURCE_FILES:
+        paths[name]=Path(attachment_contract.__file__).parent/name
+    return {name:sha(path) for name,path in paths.items()}
 def verify_portable(value,graph,expected_identity):
     require(set(value)=={'schema','status','identity','source_graph','source','source_inventory_sha256','physical_device_execution','real_extension_launch','reports','artifact_sha256','embedded_sha256','verifier_sha256'},'Guest qualification fields differ')
     require(value['schema']==SCHEMA and value['status']==STATUS,'Guest qualification did not pass')
@@ -46,12 +52,14 @@ def verify_portable(value,graph,expected_identity):
     require(a['schema']=='multitask-attachment-ci-v2' and a['status']=='PASS_ACTUAL_ATTACHMENT_HELPER_NOT_GUEST_LAUNCH' and a['simulator_execution'] is True,'Actual UIKit helper qualification missing')
     require(a['result_sha256']==value['artifact_sha256'][FILES['attachment_fixture']],'UIKit helper result not bound')
     import attachment_contract,diagnostics_contract
-    require(value['verifier_sha256']=={'multitask_receipt.py':sha(Path(__file__)), 'attachment_contract.py':sha(Path(attachment_contract.__file__)), 'diagnostics_contract.py':sha(Path(diagnostics_contract.__file__))},'Guest portable verifier bytes differ')
+    require(value['verifier_sha256']==verifier_sources(),'Guest portable verifier bytes differ')
     require(set(a['production_source_sha256'])==set(attachment_contract.PRODUCTION_FILES),'UIKit helper source closure differs')
     for name,digest in a['production_source_sha256'].items():require(a['source_inventory'].get(name,{}).get('sha256')==digest,'UIKit helper differs from tracked source')
     require(a['wiring_test_sha256']==a['source_inventory'].get('tests/test_guest_host_attachment.py',{}).get('sha256'),'Guest host wiring test source differs')
     require(a['unchanged_bridge_sha256']==attachment_contract.UNCHANGED_BRIDGE_HASHES and a['historical_virtual_source_sha256']==attachment_contract.BASELINE_VIRTUAL_SHA,'Guest historical counterfactual changed')
     require(set(a['screenshot_sha256'])==set(attachment_contract.SCREENSHOTS) and all(re.fullmatch('[0-9a-f]{64}',h) is not None for h in a['screenshot_sha256'].values()),'Guest synthetic screenshot hash closure differs')
+    require(a['cleanup_source_sha256']=={name:value['verifier_sha256'][name] for name in attachment_contract.CLEANUP_SOURCE_FILES},'Cleanup runner/helper/test bytes differ')
+    attachment_contract.validate_cleanup_receipt(a)
     attachment_contract.validate(reports['attachment_fixture'])
     d=reports['diagnostics'];df=reports['diagnostics_fixture']
     require(d['schema']=='multitask-diagnostics-ci-v1' and d['status']=='PASS_ACTUAL_DIAGNOSTIC_BOUNDARIES_NOT_DEVICE','Actual guest diagnostic qualification missing')
@@ -125,7 +133,7 @@ def run(sources,evidence,graph,output):
     reports={key:read(evidence/name) for key,name in FILES.items()}
     value={'schema':SCHEMA,'status':STATUS,'identity':identity(),'source_graph':graph,'source':owner,'source_inventory_sha256':canonical(reports['completion']['source_inventory']),'physical_device_execution':False,'real_extension_launch':False,'reports':reports,'artifact_sha256':{name:sha(evidence/name) for name in FILES.values()},'embedded_sha256':{key:canonical(value) for key,value in reports.items()}}
     sys.path.insert(0,str(focused));import attachment_contract,diagnostics_contract
-    value['verifier_sha256']={'multitask_receipt.py':sha(Path(__file__)), 'attachment_contract.py':sha(Path(attachment_contract.__file__)), 'diagnostics_contract.py':sha(Path(diagnostics_contract.__file__))}
+    value['verifier_sha256']=verifier_sources()
     verify_portable(value,graph,identity());output.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n')
     verify_local(output,sources,evidence,graph,identity())
 if __name__=='__main__':

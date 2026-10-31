@@ -8,12 +8,14 @@ sys.path.insert(0,str(HERE.parent/'language-switch'))
 from run_language_switch_tests import wait_owned_simulator_boot,verify_boot_readiness
 from boot_evidence import available_device,selection_evidence,verify_selection
 from attachment_contract import *
+from owned_simulator_cleanup import creation_ownership,cleanup_owned
 
 def run(root,output):
     root=root.resolve(strict=True);require(output.is_dir() and not output.is_symlink(),'Owned evidence directory required');output=output.resolve(strict=True)
     work=output/'multitask-attachment';require(not work.exists(),'Fresh attachment evidence required');work.mkdir()
-    before=inventory(root);udid=None
+    before=inventory(root);udid=None;ownership=None
     report={'schema':'multitask-attachment-ci-v2','status':'FAILED','identity':identity(),'source':manifest(),'source_inventory':before,'physical_device_execution':False,'real_extension_launch':False}
+    report['cleanup_source_sha256']={name:sha(HERE/name) for name in CLEANUP_SOURCE_FILES}
     try:
         require(platform.system()=='Darwin','UIKit fixture requires installed Apple simulator')
         require(all(sha(root/name)==digest for name,digest in UNCHANGED_BRIDGE_HASHES.items()),'Language bridge changed outside attachment scope')
@@ -39,7 +41,10 @@ def run(root,output):
         (app/'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':bundle,'CFBundleName':'MultitaskAttachment','CFBundleExecutable':'MultitaskAttachment','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'1.0','MinimumOSVersion':'16.0','LSRequiresIPhoneOS':True,'UIDeviceFamily':[1],'UILaunchScreen':{},'UIApplicationSceneManifest':{'UIApplicationSupportsMultipleScenes':True}}))
         (work/'swift-compile.log').write_text(command(['xcrun','--sdk','iphonesimulator','swiftc','-swift-version','5','-parse-as-library','-sdk',sdk,'-target',target,'-import-objc-header',generated/'GuestBoundaryStubs.h',generated/'ProductionLanguageBridge.swift',generated/'ProductionHostSelection.swift',generated/'AttachmentFixture.swift',*objects,'-o',app/'MultitaskAttachment'],timeout=180))
         (work/'codesign.log').write_text(command(['/usr/bin/codesign','--force','--sign','-',app]))
-        udid=command(['xcrun','simctl','create','NRG-Multitask-'+os.environ['GITHUB_RUN_ID'],device['identifier'],runtime['identifier']]).strip();require(re.fullmatch('[A-Fa-f0-9-]{36}',udid),'Invalid owned simulator')
+        create_argv=['xcrun','simctl','create','NRG-Multitask-'+os.environ['GITHUB_RUN_ID'],device['identifier'],runtime['identifier']]
+        created_stdout=command(create_argv)
+        ownership=creation_ownership(created_stdout,create_argv);udid=ownership['udid']
+        (work/'simulator-create.log').write_text(created_stdout)
         command(['xcrun','simctl','boot',udid]);wait_owned_simulator_boot(udid,work);verify_boot_readiness(work/'boot-readiness.json',udid)
         report['simulator']={'runtime':runtime,'device_type':device,'udid':udid,'sdk':sdk}
         verify_selection(report)
@@ -59,15 +64,20 @@ def run(root,output):
         require(inventory(root)==before,'Source changed during observations')
         report.update(status='PASS_ACTUAL_ATTACHMENT_HELPER_NOT_GUEST_LAUNCH',result_sha256=sha(retained),generated_source_receipt_sha256=sha(generated/'source-receipt.json'),unchanged_bridge_sha256=UNCHANGED_BRIDGE_HASHES,historical_virtual_source_sha256=BASELINE_VIRTUAL_SHA,production_source_sha256={name:sha(root/name) for name in PRODUCTION_FILES},simulator_execution=True,screenshot_sha256=screenshots)
     finally:
-        if udid:
-            for action in ('shutdown','delete'):
-                try:command(['xcrun','simctl',action,udid],timeout=45)
-                except subprocess.SubprocessError as error:
-                    output_text=getattr(error,'output','') or type(error).__name__
-                    if isinstance(output_text,bytes):output_text=output_text.decode('utf-8','replace')
-                    (work/(action+'-cleanup.log')).write_text(output_text);report['status']='FAILED_SIMULATOR_CLEANUP'
+        # Observation status is immutable: successful resource cleanup cannot
+        # turn failed application assertions into a qualifying observation.
+        report['observation_status']=report['status']
+        if ownership is not None:
+            try:
+                report['cleanup']=cleanup_owned(ownership,work)
+                if report['cleanup']['status'] not in ('completeByCommand','completeByAbsence'):
+                    report['status']='FAILED_SIMULATOR_CLEANUP'
+            except Exception as error:
+                report['cleanup_error']=type(error).__name__
+                report['status']='FAILED_SIMULATOR_CLEANUP'
         (output/'multitask-attachment.json').write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
     require(report['status']=='PASS_ACTUAL_ATTACHMENT_HELPER_NOT_GUEST_LAUNCH','Attachment observation failed')
+    validate_cleanup_receipt(report)
     return report
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--source',type=Path,required=True);parser.add_argument('--output',type=Path,required=True);args=parser.parse_args();run(args.source,args.output)
