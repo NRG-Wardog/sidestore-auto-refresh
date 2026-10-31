@@ -6,9 +6,9 @@ from acquire import validate_metadata
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'ci/issues-native'))
 from recover_native_artifacts import API, sha
-EVIDENCE_ID = 13028099243
-EVIDENCE_BYTES = 408462234
-EVIDENCE_SHA = 'bea57dc6a3a72a2acf9d39d4c23e527d18b3f4a809d4c87ded3d1e9973d9e091'
+EVIDENCE_ID = 13052780702
+EVIDENCE_BYTES = 408585096
+EVIDENCE_SHA = '563ef0da9b1fbce765a21d15ef2e1fc34692317a67bda7d24f2f0225fd8a214d'
 EXPECTED_COUNT = 154
 
 def validate_read_only_archive(archive):
@@ -68,7 +68,7 @@ def main():
     require(len(sys.argv) == 1, 'arbitrary inputs forbidden')
     out = Path.cwd() / 'workspace'
     m = manifest(out / 'input-manifest.json')
-    require(m['run_id'] == 41160811783 and m['commit'] == 'fea02c69117bdfbe87fcda3c013852571b2fb067' and m['run_attempt'] == 1, 'projection candidate differs')
+    require(m['run_id'] == 41220384567 and m['commit'] == 'dd1b08d0124e43caa8a1c7b490612382d46f1735' and m['run_attempt'] == 2, 'projection candidate differs')
     api = API(os.environ['GH_TOKEN'])
     run = api.json(f"/repos/{REPO}/actions/runs/{m['run_id']}")
     ipa_artifact = api.json(f"/repos/{REPO}/actions/artifacts/{m['artifact_id']}")

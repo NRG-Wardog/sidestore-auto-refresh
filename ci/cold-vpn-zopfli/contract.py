@@ -58,18 +58,18 @@ def verify_round_schedule(result,original_bytes,final_bytes):
 # Exact native acquisition and exact recompressed bytes are both mandatory.
 CLOSEST_NATIVE_INPUT={
     "schema": "cold-vpn-green-native-input-v1",
-    "run_id": 41160811783,
-    "run_attempt": 1,
-    "commit": "fea02c69117bdfbe87fcda3c013852571b2fb067",
-    "artifact_id": 13028560658,
-    "artifact_bytes": 26594574,
-    "artifact_sha256": "0794412fed32b26e894809662ad9c19481081dbe4726e9937c94d4e4511adf41",
-    "ipa_bytes": 24907828,
-    "ipa_sha256": "660e2b8eb17cbf615cd068b66d4ca554f5c8bf98d885b976439247f31e0db236",
+    "run_id": 41220384567,
+    "run_attempt": 2,
+    "commit": "dd1b08d0124e43caa8a1c7b490612382d46f1735",
+    "artifact_id": 13052256751,
+    "artifact_bytes": 26619246,
+    "artifact_sha256": "b15f933e02bec2113ca5df2309d4b6b1d2148165bcd58048733eaf0693ee9496",
+    "ipa_bytes": 24927388,
+    "ipa_sha256": "d90deba007c45e6dda04cb5f383d8876f538b185b347d24f29623850457b753f",
     "entries": 274
 }
-CLOSEST_OUTPUT_BYTES=24230651
-CLOSEST_OUTPUT_SHA256='ca000b547a4ced3c3737cedd6abf77e1c8c68c19cddfbf6deeb88a114c075f86'
+CLOSEST_OUTPUT_BYTES=24246915
+CLOSEST_OUTPUT_SHA256='dbdc649aa059a3f4b577da330ff5fa3a4df98012df7f4e1472a3cc39a129d5fa'
 def verify_size_acceptance(input_manifest,final_bytes,final_sha256,target_met):
     require(type(final_bytes) is int and final_bytes>0 and final_bytes<=input_manifest['ipa_bytes'],'invalid or growing final size')
     require(type(target_met) is bool and target_met==(final_bytes<=TARGET_BYTES),'size target claim differs')
