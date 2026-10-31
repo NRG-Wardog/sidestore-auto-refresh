@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "e3688e6e0a3cfef87489fc95dceef187c12c1590"
+      "ddac736921f8051f4450b0139e52494b2a987604"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -204,7 +204,7 @@
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
-      "tree": "b5d367c56e43bcf7f533660c8828b561216c3a5a",
+      "tree": "9c7e656053d7c94873b1570333a0bf0aa607e51a",
       "files": {
         ".ci/branch-cleanup/allowlist.json": "f4fa7e585a01a176694441a15fb33bf8cfbc8ce7",
         ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
@@ -245,7 +245,7 @@
         "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": "17eaecc7697e03b731623a945b4bfcebd2b3eb08",
         "SideStore/Core/Operations/PipelineOperations/InstallAppOperation.swift": "e32caa58c468caa2b2018afdb01831c5cb0fb85c",
         "SideStore/Core/Operations/PipelineOperations/PrepareAppExtensionBundleIDsOperation.swift": "464b23b254c88f0f06448e3474402a02ca89000f",
-        "SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift": "07256dbf99bfc945f607a1f1551582b77793d3cc",
+        "SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift": "b70a77c89ac625e797a1ba1a7ba760a35ccb407f",
         "SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift": "7c80643f58e15c1c0fb6a898a310e2f4820901ba",
         "SideStore/Core/Operations/PipelineOperations/RemoveAppExtensionsOperation.swift": "6b08794d18a5807c40fb2663d458dd63cd2ddf3d",
         "SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift": "77ee14d6bad55ff8567b6fc7ea7ee38645c6e5b3",
@@ -288,16 +288,16 @@
         "tests/legacy_replacement_hooks/doubles.swift": "c2e4db39ae198ee17e37f0f584753c8fd03bfe65",
         "tests/legacy_replacement_hooks/test_contract.py": "2d91cf49bb45207ca5a65a690138834b96950dc8",
         "tests/preservation_der/PublicCases.swift": "b34ae12bf9b0488394c646efb2f65769fd3f9e22",
-        "tests/preservation_der/README.md": "c46a996030ad293030eca2529d3a42dc9bc36eb9",
-        "tests/preservation_der/SwiftCases.swift": "e23811981733166ade1b92b3f31022f82c127079",
-        "tests/preservation_der/expected-cases.json": "2383ef4dca72f6ccf716be9bf8b43f23b4abba92",
+        "tests/preservation_der/README.md": "9d904fc5d2524d6e0c5b8c8e91444a23fac62fc4",
+        "tests/preservation_der/SwiftCases.swift": "7707b62048f742a6f3efec475f34cc26815587cd",
+        "tests/preservation_der/expected-cases.json": "e6eb83fff08755f696d1c80c29d40cabb6908e4e",
         "tests/preservation_der/fetch_public_fixtures.py": "5810cc62804e77ba2359ddd313afa2fd77c010fc",
         "tests/preservation_der/generate_failure_diagnostic.py": "fedbfb050f2e85c75f7bf136b476f2a7da278057",
         "tests/preservation_der/public-fixtures.json": "c1944d7ffaf72e08b6d49c222397be8c56279cfe",
-        "tests/preservation_der/run.sh": "1aeb84b45b69daea915dc1e21cbeccfc0e9abdce",
+        "tests/preservation_der/run.sh": "a866898e22941e9ba26fa03774d8ea4645120202",
         "tests/preservation_der/run_public.sh": "5654fe30598d5fcdd9d596a8665e06470e1668ad",
-        "tests/preservation_der/swift-cases.json": "1ac241629f44e2f690fc73e6484bd30e449e0ffa",
-        "tests/preservation_der/test_contract.py": "386ea982d6eb358641020e9a59752fb08772b1c0",
+        "tests/preservation_der/swift-cases.json": "62102502f0073b87a8ea9ea98c8da44f31372fac",
+        "tests/preservation_der/test_contract.py": "661baa8a36c5ca4fbed24c098f824ecba4f8beb2",
         "tests/preservation_refresh/AuthenticatedAdapterCases.swift": "a4623f7a98671296f26aec995a0704b5003df1ae",
         "tests/preservation_refresh/BoundaryDoubles.swift": "f3f2733aea8e2c8f0af14dd4379c2e643b7696b5",
         "tests/preservation_refresh/IntegrationCases.swift": "654dc3d401649ac85406f9e8ae899051c599e155",
