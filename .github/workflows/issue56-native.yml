@@ -94,6 +94,7 @@ jobs:
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py
           python3 -B harness/ci/issues-native/test_russian_pairing_projection.py
           python3 -B harness/ci/issues-native/verify_candidate_graph.py
+          python3 -B harness/ci/issues-native/test_profile_static_closure_projection.py
           python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
           python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight

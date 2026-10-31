@@ -655,8 +655,8 @@ def additive_extraction(output, contract, suite):
                 value.get('host_activation_negative_static_mutations') == list(ACTIVATION_NEGATIVE_MUTATIONS),
                 'Connection finite activation negative controls differ')
     if suite == 'profile-preconditions':
-        require(value.get('check_count') == len(value.get('checks', [])) == 25 and
-                len(set(value['checks'])) == 25, 'Profile static controls differ')
+        from profile_static_closure_projection import validate as validate_profile_static_closure
+        validate_profile_static_closure(value, contract)
     return value
 
 

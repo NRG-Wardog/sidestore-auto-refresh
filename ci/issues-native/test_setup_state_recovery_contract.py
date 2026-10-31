@@ -40,6 +40,15 @@ class Controls(unittest.TestCase):
                            [('setup-localization', gate.LOCALIZATION_CASE_COUNT), ('early-refresh-boundaries', 24),
                             ('certificate-portal-evidence', 19), ('remote-identity-reuse', gate.IDENTITY_CASE_COUNT),
                             *((suite, spec['case_count']) for suite, spec in gate.ADDITIVE_SPECS.items())]}}
+        # This gate-control harness uses inert source bytes. Bind only its exact
+        # synthetic generator as the historical branch; production allowlist is
+        # unchanged and dedicated successor controls reject unknown revisions.
+        import profile_static_closure_projection as profile_static
+        fixture_pin = self.contract['input_sha256'][profile_static.GENERATOR]
+        patcher = mock.patch.object(profile_static, 'PRIOR_GENERATORS',
+                                    profile_static.PRIOR_GENERATORS | {fixture_pin})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.contract['case_names']['host-refresh-bundle'] = list(gate.HOST_BASELINE_CASES)
         self.contract_path = self.root / 'contract.json'
         self.save_contract()
