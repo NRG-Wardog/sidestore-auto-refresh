@@ -35,7 +35,7 @@ class ReceiptTests(unittest.TestCase):
   owner='SideStore-preservation-der'
   self.assertEqual(C.SUITES[owner],('tests/preservation_der/run.sh',6))
   self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
-  self.assertEqual(len(C.PRESERVATION_DER_CASES),33)
+  self.assertEqual(len(C.PRESERVATION_DER_CASES),45)
   original=self.value['parts']['swift']['logs'][owner]
   header=original[:original.index('{')]
   self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
