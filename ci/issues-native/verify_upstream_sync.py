@@ -147,16 +147,22 @@ def sidestore_tests(sources, output):
     manifest = {p.relative_to(sources / 'SideStore').as_posix(): sha(p)
                 for p in sorted(folder.glob('test_*.py'))}
     suite = unittest.defaultTestLoader.discover(str(folder), pattern='test_*.py')
-    require(suite.countTestCases() == SPEC['sidestore_test_count'], 'SideStore test inventory differs')
+    from preservation_upstream_tests_projection import bind, test_ids
+    names = test_ids(suite)
+    successor = bind(sources, names, SPEC['sidestore_test_count'])
+    expected_count = successor['count'] if successor is not None else SPEC['sidestore_test_count']
+    require(suite.countTestCases() == expected_count, 'SideStore test inventory differs')
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     report = {'status': 'PASS' if result.wasSuccessful() and not result.skipped else 'FAIL',
         'tests_run': result.testsRun, 'failures': len(result.failures), 'errors': len(result.errors),
         'skipped': len(result.skipped), 'test_sources_sha256': manifest,
         'target_native_executed': False, 'authentication_executed': False,
         'scope': 'source-owned fake-data/model and source tests only'}
+    if successor is not None: report['reviewed_preservation_successor'] = successor
     write(output, report)
     require(result.wasSuccessful() and not result.skipped and
-            result.testsRun == SPEC['sidestore_test_count'], 'SideStore source-owned tests did not all pass')
+            result.testsRun == expected_count, 'SideStore source-owned tests did not all pass')
+    require(bind(sources, names, SPEC['sidestore_test_count']) == successor, 'Upstream successor changed during execution')
     require(manifest == {p.relative_to(sources / 'SideStore').as_posix(): sha(p)
                         for p in sorted(folder.glob('test_*.py'))}, 'SideStore test sources changed')
     print(json.dumps(report, indent=2, sort_keys=True))

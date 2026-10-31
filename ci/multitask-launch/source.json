@@ -1,6 +1,6 @@
 {
   "schema": "multitask-launch-source-v1",
   "repository": "NRG-Wardog/LiveContainer",
-  "commit": "c6c16a0bf0a61218ae75c9a9691b4de7b8491b98",
+  "commit": "34c02cf5dbefeee6e4ec07fc5c9342e25a0eaa78",
   "baseline_app_builder": "830e827719a481efe7b752d2d05e712d9ea512bd"
 }

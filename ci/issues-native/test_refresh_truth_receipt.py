@@ -32,8 +32,8 @@ class ReceiptTests(unittest.TestCase):
   with self.assertRaises((ValueError,TypeError,KeyError)):self.verify(v)
  def test_observation_native_suite_is_mandatory(self):
   self.assertEqual(C.SUITE_OWNERS['LiveContainer-observations'],'LiveContainer')
-  self.assertEqual(C.SUITES['LiveContainer-observations'],('.ci/refresh-observations/test_refresh_observations.py',3))
-  self.assertEqual(len(C.OBSERVATION_CASES),47)
+  self.assertEqual(C.SUITES['LiveContainer-observations'],('.ci/refresh-observations/test_refresh_observations.py',4))
+  self.assertEqual(len(C.OBSERVATION_CASES),89)
   self.reject(lambda v:v['parts']['swift']['logs'].pop('LiveContainer-observations'))
   for replacement in ('Ran 3 tests in 0.1s\nOK (skipped=1)\n','Ran 3 tests in 0.1s\nOK\n'):
    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',replacement))

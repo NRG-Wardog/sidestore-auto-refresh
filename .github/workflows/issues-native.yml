@@ -93,6 +93,7 @@ jobs:
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py
           python3 -B harness/ci/issues-native/test_russian_pairing_projection.py
           python3 -B harness/ci/issues-native/verify_candidate_graph.py
+          python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
           python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
       - name: Qualify exact owned ODA source and verified local startup
@@ -114,8 +115,10 @@ jobs:
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
         run: |
           set -euo pipefail
+          python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
           python3 -B harness/ci/issues-native/verify_upstream_sync.py sidestore-tests \
             --output evidence/SideStore-upstream-sync-tests.json 2>&1 | tee evidence/SideStore-upstream-sync-tests.log
+          python3 -B harness/ci/issues-native/preservation_upstream_tests_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json
           # Run the committed AK logging policy/fake-output suite once, never vendor/guest fixtures.
           python3 -B sources/AnisetteKit/.ci/native-logging/test_native_logging_contract.py \
             2>&1 | tee evidence/AnisetteKit-native-logging-contract.log
