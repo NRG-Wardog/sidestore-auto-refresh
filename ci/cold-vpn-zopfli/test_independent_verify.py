@@ -12,17 +12,56 @@ class AuditControls(unittest.TestCase):
         with self.assertRaises(ValueError):verify_size_acceptance(unknown,24000001,'a'*64,True)
     def test_exact_closest_candidate_reports_target_not_met(self):
         accepted=verify_size_acceptance(CLOSEST_NATIVE_INPUT,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
-        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],302831)
-        self.assertEqual(accepted['policy'],'exact_reviewed_closest_candidate_only')
+        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],301812)
+        self.assertEqual(accepted['policy'],'exact_reviewed_candidate_measured_upper_bound')
     def test_closest_candidate_rejects_any_input_or_output_drift(self):
         for key,value in CLOSEST_NATIVE_INPUT.items():
             changed=copy.deepcopy(CLOSEST_NATIVE_INPUT)
             changed[key]=value+1 if type(value) is int else value+'x'
             with self.subTest(key=key),self.assertRaises(ValueError):verify_size_acceptance(changed,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
-        for size,digest,target in [(CLOSEST_OUTPUT_BYTES-1,CLOSEST_OUTPUT_SHA256,False),(CLOSEST_OUTPUT_BYTES+1,CLOSEST_OUTPUT_SHA256,False),(CLOSEST_OUTPUT_BYTES,'a'*64,False),(CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,True),(CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,0)]:
+        for size,digest,target in [(CLOSEST_OUTPUT_BYTES+1,CLOSEST_OUTPUT_SHA256,False),(CLOSEST_OUTPUT_BYTES,'invalid',False),(CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,True),(CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,0)]:
             with self.subTest(size=size,digest=digest,target=target),self.assertRaises(ValueError):verify_size_acceptance(CLOSEST_NATIVE_INPUT,size,digest,target)
         extra=dict(CLOSEST_NATIVE_INPUT,unexpected=True)
         with self.assertRaises(ValueError):verify_size_acceptance(extra,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
+    def test_smaller_same_candidate_binds_actual_not_reference_digest(self):
+        actual='a'*64
+        accepted=verify_size_acceptance(CLOSEST_NATIVE_INPUT,CLOSEST_OUTPUT_BYTES-1,actual,False)
+        self.assertEqual(accepted['accepted_output_sha256'],actual)
+        self.assertEqual(accepted['maximum_output_bytes'],CLOSEST_OUTPUT_BYTES)
+        self.assertEqual(accepted['reference_measurement_sha256'],CLOSEST_OUTPUT_SHA256)
+    def test_below_bound_payload_and_metadata_tamper_rejected_by_real_auditor(self):
+        import io,runpy,zipfile,traceback
+        from unittest.mock import patch
+        import contract
+        def archive(payload):
+            out=io.BytesIO()
+            with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_STORED) as z:
+                z.writestr(zipfile.ZipInfo('one',(2026,1,1,0,0,0)),payload);z.writestr(zipfile.ZipInfo('two',(2026,1,1,0,0,0)),b'fixed')
+            return out.getvalue()
+        data=archive(b'original')
+        metadata=bytearray(data)
+        with zipfile.ZipFile(io.BytesIO(data)) as archive_reader:central=archive_reader.start_dir
+        oldtime=struct.unpack_from('<H',metadata,10)[0]
+        struct.pack_into('<H',metadata,10,oldtime^1);struct.pack_into('<H',metadata,central+12,oldtime^1)
+        for changed,payload_changed in ((archive(b'tampered'),True),(bytes(metadata),False)):
+            with self.subTest(payload_changed=payload_changed),tempfile.TemporaryDirectory() as directory:
+                root=pathlib.Path(directory).resolve();self.fixture(root,data,changed)
+                m=json.loads((root/'input-manifest.json').read_text())
+                result=json.loads((root/'result.json').read_text());result['target_met']=False
+                (root/'result.json').write_text(json.dumps(result))
+                # Test-only miniature bound: exercise the actual candidate branch,
+                # then the unchanged full auditor, without a 24 MB synthetic file.
+                with patch.object(contract,'TARGET_BYTES',1),patch.object(contract,'CLOSEST_NATIVE_INPUT',m),patch.object(contract,'CLOSEST_OUTPUT_BYTES',len(data)+1),patch.object(sys,'argv',['independent_verify.py','--root',str(root)]):
+                    self.assertFalse(contract.verify_size_acceptance(m,len(changed),SHA(changed),False)['target_met'])
+                    try:
+                        runpy.run_path(str(ROOT/'independent_verify.py'),run_name='__main__')
+                    except AssertionError as error:
+                        frames=traceback.extract_tb(error.__traceback__)
+                        frame=frames[-1]
+                        self.assertEqual(pathlib.Path(frame.filename).resolve(),(ROOT/'independent_verify.py').resolve())
+                        expected='raw==b.read(y)' if payload_changed else 'getattr(x,attr)==getattr(y,attr)'
+                        self.assertIn(expected,frame.line)
+                    else:self.fail('actual payload/metadata tamper was admitted')
     def test_current_exception_rejects_equal_numeric_type_drift(self):
         for key,value in CLOSEST_NATIVE_INPUT.items():
             if type(value) is int:

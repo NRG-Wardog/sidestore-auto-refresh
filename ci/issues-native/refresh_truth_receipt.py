@@ -5,12 +5,13 @@ SCHEMA='refresh-truth-native-v1'
 STATUS='PASS_SOURCE_OWNED_NATIVE_FIXTURES_NOT_DEVICE'
 SUITES={
  'LiveContainer':('.ci/refresh-truth/test_refresh_truth.py',6),
- 'LiveContainer-observations':('.ci/refresh-observations/test_refresh_observations.py',4),
+ 'LiveContainer-observations':('.ci/refresh-observations/test_refresh_observations.py',5),
  'LiveContainer-legacy':('.ci/legacy-replacement/test_contract.py',4),
  'SideStore':('tests/refresh_truth/test_contract.py',8),
  'SideStore-preservation':('tests/preservation_refresh/run.sh',4),
  'SideStore-preservation-der':('tests/preservation_der/run.sh',6),
  'SideStore-reuse-lifecycle':('tests/reuse_main/run.sh',7),
+ 'SideStore-refresh-failure':('tests/refresh_failure/test_contract.py',6),
  'SideStore-direct':('tests/direct_refresh_evidence/test_contract.py',4),
  'SideStore-legacy-hooks':('tests/legacy_replacement_hooks/test_contract.py',4),
  'SideStore-legacy-coordinator':('tests/legacy_replacement/test_contract.py',4),
@@ -33,7 +34,8 @@ INPUTS['SideStore'] += ('SideStore/Core/Operations/PipelineOperations/CacheResig
 INPUTS['SideStore'] += ('SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift', 'tests/preservation_der/run.sh', 'tests/preservation_der/SwiftCases.swift', 'tests/preservation_der/swift-cases.json', 'tests/preservation_der/expected-cases.json', 'tests/preservation_der/test_contract.py', 'tests/preservation_der/generate_failure_diagnostic.py')
 INPUTS['SideStore/Dependencies/minimuxer'] += ('DeviceGateway/Package.swift', 'DeviceGateway/ProvisioningCMSCore/profile_cms.c', 'DeviceGateway/ProvisioningCMSCore/include/profile_cms.h', 'DeviceGateway/ProvisioningCMSCore/production_roots.h', 'DeviceGateway/ProvisioningCMSCore/approved_inner.h', 'DeviceGateway/libimobiledevice/ProvisioningCMSVerifier.swift', 'Sources/ProfileCMSVerifier.swift')
 INPUTS['SideStore/Dependencies/SideSign'] += ('Sources/Models/ProvisioningProfile.swift',)
-SUITE_OWNERS={key:({'SideStore-preservation-der':'SideStore','SideStore-preservation':'SideStore','SideStore-reuse-lifecycle':'SideStore','SideStore-direct':'SideStore','SideStore-legacy-hooks':'SideStore','SideStore-legacy-coordinator':'SideStore','LiveContainer-observations':'LiveContainer','LiveContainer-legacy':'LiveContainer'}.get(key,key)) for key in SUITES}
+INPUTS['SideStore'] += ('SideStore/Core/Operations/OperationStep.swift', 'SideStore/Core/Operations/AppOperation.swift', 'AltStore/Managing Apps/AppManager.swift', 'SideStore/Core/Operations/Errors/OperationError.swift', 'Shared/Extensions/NSError+AltStore.swift', 'Shared/Errors/ALTWrappedError.swift', 'tests/refresh_failure/test_contract.py', 'tests/refresh_failure/boundary_cases.swift', 'tests/refresh_failure/certificate_cases.swift', 'tests/refresh_failure/boundary_assertions.swift', 'tests/refresh_failure/pipeline_harness.swift')
+SUITE_OWNERS={key:({'SideStore-refresh-failure':'SideStore','SideStore-preservation-der':'SideStore','SideStore-preservation':'SideStore','SideStore-reuse-lifecycle':'SideStore','SideStore-direct':'SideStore','SideStore-legacy-hooks':'SideStore','SideStore-legacy-coordinator':'SideStore','LiveContainer-observations':'LiveContainer','LiveContainer-legacy':'LiveContainer'}.get(key,key)) for key in SUITES}
 OBSERVATION_CASES=('typed_guard_preserved', 'specific_safe_guard_copy', 'unknown_guard_dropped', 'orphan_scope_dropped', 'bad_scope_primary_failure_retained', 'wrong_source_guard_dropped', 'wrong_stage_guard_dropped', 'wrong_kind_guard_dropped', 'malformed_optional_primary_retained', 'nonstring_guard_dropped', 'finite_transport_observation', 'boolean_version_rejected', 'extra_transport_fields_rejected', 'unowned_transport_rejected', 'wire_preserves_owned_observation', 'wrong_run_observation_rejected', 'mixed_target_ack_not_aggregated', 'target_guard_scope_preserved', 'target_rows_no_identifiers', 'copy_preserves_individual_outcomes', 'copy_no_raw_values', 'transport_observed_even_renewal_failed', 'renewal_stays_unverified_independent', 'no_inferred_coredevice_transport', 'historical_ready_not_current_tunnel', 'active_generation_suppresses_history', 'no_transport_proof_no_transport_verified', 'malformed_history_no_transport_verified', 'wrong_run_history_no_transport_verified', 'floating_summary_version_rejected', 'boolean_summary_version_rejected', 'nonterminal_observation_not_promoted', 'mixed_aggregate_does_not_hide_target_guard', 'selection_guard_not_vpn_advice', 'stored_diagnostics_reject_raw_values', 'renewal_verified_without_transport_observation_not_inferred', 'overflow_summary_version_rejected', 'noncanonical_run_rejected', 'actual_summary_preserves_complete_observation', 'actual_summary_rejects_partial_observation', 'partial_manifest_no_target_rows', 'target_diagnostics_bounded_32', 'target_33_truncation_explicit', 'unknown_failure_kind_rejected', 'target_summary_float_version_rejected', 'nonterminal_target_summary_rejected', 'wrong_operation_guard_dropped')
 OBSERVATION_CASES += ('conflict_real_fetch_scope_retained', 'conflict_wire_roundtrip', 'conflict_all_finite_tokens_roundtrip', 'conflict_refresh_application_scope_retained', 'conflict_wrong_stage_dropped', 'conflict_wrong_step_dropped', 'conflict_wrong_operation_dropped', 'conflict_wrong_kind_dropped', 'conflict_wrong_guard_primary_retained', 'conflict_unknown_private_text_dropped', 'conflict_empty_dropped', 'conflict_malformed_optional_primary_retained', 'conflict_rows_bind_expected_not_sorted_results', 'conflict_rows_preserve_fetch_diagnosis', 'conflict_copy_finite_no_identity_data', 'conflict_old_rows_backward_compatible', 'conflict_row_unknown_optional_ignored', 'conflict_row_malformed_optional_ignored', 'conflict_row_wrong_guard_ignored', 'conflict_oversized_optional_primary_retained', 'conflict_scope_not_granted_to_other_preparation', 'conflict_unrelated_row_key_rejected', 'conflict_capacity_baseline_valid', 'conflict_capacity_preserves_existing_facts', 'conflict_wire_capacity_preserves_existing_facts', 'signer_source_verified_hash_retained', 'signer_source_wire_roundtrip', 'signer_source_unavailable_no_claim', 'signer_source_unavailable_conflicting_claim_dropped', 'signer_source_verified_missing_hash_dropped', 'signer_source_verified_false_present_dropped', 'signer_source_private_unknown_dropped', 'signer_source_oversized_primary_retained', 'signer_source_wrong_stage_dropped', 'signer_source_wrong_step_dropped', 'signer_source_wrong_kind_dropped', 'signer_source_wrong_guard_primary_retained', 'signer_source_refresh_application_allowed', 'signer_source_old_label_absent_retained', 'signer_source_nonstring_primary_retained', 'signer_source_capacity_preserves_prior_facts', 'signer_source_and_conflict_capacity_preserve_prior_facts')
 
@@ -200,6 +202,8 @@ def suite_tests(owner,log):
   value=rows[0]
   require(set(value)=={'schema','status','cases','device_executed'} and value['schema']=='reuse-main-producer-consumer-v1' and value['status']=='PASS' and value['device_executed'] is False,'reuse producer/consumer result closure/status differs')
   require(value['cases']==list(REUSE_PRODUCER_CONSUMER_CASES),'reuse producer/consumer cases differ')
+ if owner=='SideStore-refresh-failure':
+  require(log.splitlines().count('CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS')==1,'real signing bridge marker missing/duplicated')
  if owner=='SideStore-preservation-der':
   rows=[json.loads(line,object_pairs_hook=pairs) for line in log.splitlines() if line.startswith('{')]
   require(len(rows)==1,'DER parser native result missing/duplicated')
@@ -235,8 +239,10 @@ def legacy_native_tests(log,schema,expected):
  require(value['schema']==schema and value['status']=='PASS','legacy runtime schema/status differs')
  require(type(value['cases']) is list and value['cases']==list(expected),'legacy native cases differ')
 
+OBSERVATION_CASES += ('cms_bridge_realistic_eight_prior_fields_plus_diagnostic', 'cms_bridge_actual_wrapper_unknown_cause', 'cms_bridge_capture_keeps_all_nine_fields', 'cms_bridge_binary_roundtrip_within_cap', 'cms_bridge_primary_failure_unchanged', 'cms_bridge_whole_log_top_and_target_diagnostic', 'cms_bridge_mixed_target_batch_preserved', 'cms_bridge_existing_cache_facts_preserved', 'cms_bridge_whole_log_privacy', 'cms_unknown_cause_only_exception_concrete_cause_still_rejected', 'cms_bridge_completed_host_does_not_inherit_diagnostic', 'cms_bridge_unverified_finite_observation_roundtrip', 'cms_bridge_unverified_whole_log_top_and_target', 'cms_bridge_unverified_never_gains_fingerprint_or_role', 'cms_bridge_unverified_does_not_inherit_to_completed_host', 'cms_bridge_specific_transport_cause_still_rejected', 'cms_unknown_cause_wrong_operation_still_rejected', 'cms_unknown_cause_wrong_host_still_rejected', 'cms_unknown_cause_wrong_step_still_rejected')
+
 def observation_tests(log):
- completed_tests(log,4)
+ completed_tests(log,5)
  require(tuple(re.findall(r'^PASS ([a-z0-9_]+)$',log,re.M))==OBSERVATION_CASES,'observation native cases differ')
  require(len(re.findall(r'^REFRESH_OBSERVATIONS_PASS$',log,re.M))==1,'observation native completion missing/duplicated')
 def rust_tests(log,ffi=False):
