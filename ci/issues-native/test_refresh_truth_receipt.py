@@ -55,13 +55,26 @@ class ReceiptTests(unittest.TestCase):
  def test_observation_native_suite_is_mandatory(self):
   self.assertEqual(C.SUITE_OWNERS['LiveContainer-observations'],'LiveContainer')
   self.assertEqual(C.SUITES['LiveContainer-observations'],('.ci/refresh-observations/test_refresh_observations.py',4))
-  self.assertEqual(len(C.OBSERVATION_CASES),94)
+  self.assertEqual(len(C.OBSERVATION_CASES),143)
   self.reject(lambda v:v['parts']['swift']['logs'].pop('LiveContainer-observations'))
   for replacement in ('Ran 3 tests in 0.1s\nOK (skipped=1)\n','Ran 3 tests in 0.1s\nOK\n'):
    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',replacement))
  def test_observation_runtime_cases_and_completion_are_exact(self):
   for old,new in [('PASS '+C.OBSERVATION_CASES[0]+'\n',''),('PASS '+C.OBSERVATION_CASES[0],'PASS '+C.OBSERVATION_CASES[1]),('REFRESH_OBSERVATIONS_PASS',''),('REFRESH_OBSERVATIONS_PASS','REFRESH_OBSERVATIONS_PASS\nREFRESH_OBSERVATIONS_PASS')]:
    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',v['parts']['swift']['logs']['LiveContainer-observations'].replace(old,new)))
+ def test_signer_diagnostic_observation_cases_all_mandatory(self):
+  for case in C.OBSERVATION_CASES[94:]:
+   with self.subTest(case=case):
+    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',v['parts']['swift']['logs']['LiveContainer-observations'].replace('PASS '+case+'\n','')))
+ def test_signer_diagnostic_integration_and_static_controls_mandatory(self):
+  self.assertEqual(C.SUITES['SideStore-preservation'],('tests/preservation_refresh/run.sh',4))
+  for case in C.PRESERVATION_INTEGRATION_CASES[38:]:
+   def change(v):
+    log=v['parts']['swift']['logs']['SideStore-preservation']
+    row={'schema':'preservation-refresh-integration-v1','status':'PASS','cases':list(C.PRESERVATION_INTEGRATION_CASES),'device_executed':False}
+    before=json.dumps(row);row['cases'].remove(case)
+    v['parts']['swift']['logs']['SideStore-preservation']=log.replace(before,json.dumps(row))
+   with self.subTest(case=case):self.reject(change)
  def test_observation_source_closure_is_bound(self):
   for path in ('.ci/vpn-refresh-recovery/test_classifier_dependency.py','.ci/comprehensive-diagnostics/generate_wire_fixture.py','.ci/refresh-observations/test_refresh_observations.py','.ci/refresh-observations/cases.swift','.ci/refresh-observations/localization_keys.json'):
    self.assertIn(path,C.INPUTS['LiveContainer'])
@@ -136,7 +149,7 @@ class ReceiptTests(unittest.TestCase):
     log=header+'\n'.join(json.dumps(row) for row in altered)+'\n'
     self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('SideStore-preservation',log))
  def test_preservation_exact_production_and_fixture_inputs_are_bound(self):
-  self.assertEqual(len(C.PRESERVATION_INTEGRATION_CASES),38)
+  self.assertEqual(len(C.PRESERVATION_INTEGRATION_CASES),45)
   for path in ('SideStore/Core/Operations/PipelineOperations/CacheResignedMetadataOperation.swift','tests/preservation_refresh/run.sh','tests/preservation_refresh/generate_fixture.py','tests/preservation_refresh/expected-cases.json','tests/preservation_refresh/test_contract.py','tests/preservation_refresh/AuthenticatedAdapterCases.swift','tests/preservation_refresh/PolicyCases.swift','tests/preservation_refresh/IntegrationCases.swift','tests/preservation_refresh/BoundaryDoubles.swift','tests/reuse_main/run.sh','tests/reuse_main/Lifecycle.swift'):
    self.assertIn(path,C.INPUTS['SideStore'])
    self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))

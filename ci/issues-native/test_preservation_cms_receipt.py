@@ -4,20 +4,29 @@ from unittest.mock import patch
 import preservation_cms_receipt as c
 HERE=pathlib.Path(__file__).resolve().parent
 class CMSControls(unittest.TestCase):
- def cms(self):return {'schema':'profile-cms-native-v1','openssl':'3.5.9','qualified':True,'time_policy':'inner-current-system-time;legacy-no-check-time','tested_at_utc':'2026-10-31T18:00:00+00:00','checks':list(c.CMS_CASES),'count':28,'status':'passed'}
+ def cms(self):return {'schema':'profile-cms-native-v1','openssl':'3.5.9','qualified':True,'time_policy':'inner-current-system-time;legacy-no-check-time','tested_at_utc':'2026-10-31T18:00:00+00:00','checks':list(c.CMS_CASES),'count':40,'status':'passed'}
  def public(self):return {'schema':'preservation-der-public-v1','status':'PASS','cases':list(c.PUBLIC_CASES),'cms_verified':True,'device_executed':False}
  def test_exact_actual_case_contracts(self):
   c.validate_cms_report(self.cms());c.validate_public_log(json.dumps(self.public()))
-  self.assertEqual(len(c.CMS_CASES),28);self.assertEqual(len(c.PUBLIC_CASES),16)
+  self.assertEqual(len(c.CMS_CASES),40);self.assertEqual(len(c.PUBLIC_CASES),18)
+ def test_diagnostic_helper_and_every_new_case_mandatory(self):
+  self.assertIn('TestsCMS/diagnostic_support.py',c.INPUTS['SideStore/Dependencies/minimuxer'])
+  self.assertIn('TestsCMS/approved-inner-provenance.json',c.INPUTS['SideStore/Dependencies/minimuxer'])
+  for case in [name for name in c.PUBLIC_CASES if name.endswith('signer-diagnostic-facade')]:
+   r=self.public();r['cases'].remove(case)
+   with self.subTest(case=case),self.assertRaises(ValueError):c.validate_public_log(json.dumps(r))
+  for case in [name for name in c.CMS_CASES if name.startswith('diagnostic_')]:
+   r=self.cms();r['checks'].remove(case)
+   with self.subTest(case=case),self.assertRaises(ValueError):c.validate_cms_report(r)
  def test_development_or_other_openssl_rejected(self):
   for k,v in [('openssl','3.5.7'),('qualified',False),('qualified',1),('status','skipped'),('time_policy','ignore-all-time'),('tested_at_utc','raw-profile')]:
    r=self.cms();r[k]=v
    with self.subTest(k=k,v=v),self.assertRaises(ValueError):c.validate_cms_report(r)
  def test_cms_count_type_or_incomplete_cases_rejected(self):
-  for v in [27,28.0,True,'28']:
+  for v in [28,39,40.0,True,'40']:
    r=self.cms();r['count']=v
    with self.subTest(v=v),self.assertRaises(ValueError):c.validate_cms_report(r)
-  for rows in [list(c.CMS_CASES)[:-1],list(reversed(c.CMS_CASES)),list(c.CMS_CASES)+[c.CMS_CASES[0]],['fake']*28]:
+  for rows in [list(c.CMS_CASES)[:-1],list(reversed(c.CMS_CASES)),list(c.CMS_CASES)+[c.CMS_CASES[0]],['fake']*40]:
    r=self.cms();r['checks']=rows
    with self.assertRaises(ValueError):c.validate_cms_report(r)
  def test_cms_extra_raw_fields_rejected(self):

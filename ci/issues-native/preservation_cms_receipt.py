@@ -5,9 +5,9 @@ import argparse, datetime, hashlib, importlib.util, json, os, platform, re, shut
 from pathlib import Path
 SCHEMA = 'preservation-cms-native-v1'
 STATUS = 'PASS_EXACT_CRYPTO_AND_SWIFT_PUBLIC_BOUNDARY_NOT_DEVICE'
-CMS_CASES = ('production_has_no_injected_trust_exports', 'test_legacy_chain_and_math', 'test_inner_exact_pin_chain_and_math', 'production_rejects_synthetic_outer', 'production_rejects_unknown_inner_pin', 'test_rejects_wrong_inner_pin', 'signature_tamper_rejected', 'content_tamper_rejected', 'trailing_data_rejected', 'truncated_data_rejected', 'detached_rejected', 'no_signed_attributes_rejected', 'unsupported_digest_rejected', 'sha1_not_inner_authority', 'sha1_only_legacy_envelope', 'expired_inner_time_rejected', 'expired_legacy_documented_no_time', 'future_inner_time_rejected', 'future_legacy_documented_no_time', 'reordered_certificates_same_authority', 'duplicate_matching_sid_rejected', 'conflicting_same_sid_order_0', 'conflicting_same_sid_order_1', 'signed_content_type_tamper_rejected', 'multiple_signers_rejected', 'oversized_rsa_candidate_rejected_before_math', 'empty_input_rejected', 'oversized_input_rejected')
+CMS_CASES = ('production_has_no_injected_trust_exports', 'test_legacy_chain_and_math', 'test_inner_exact_pin_chain_and_math', 'production_rejects_synthetic_outer', 'production_rejects_unknown_inner_pin', 'test_rejects_wrong_inner_pin', 'diagnostic_unknown_pin_verified_hash_not_authority', 'diagnostic_verified_finite_role_observations', 'diagnostic_wrong_root_no_hash_unchecked_time_signature', 'diagnostic_bad_signature_no_hash', 'diagnostic_bad_content_digest_no_hash', 'diagnostic_malformed_resets_evidence', 'diagnostic_unsupported_algorithm_no_hash', 'diagnostic_profile_markers_are_not_authority', 'diagnostic_app_developer_distinct_not_authority', 'diagnostic_untrusted_role_markers_not_disclosed', 'signature_tamper_rejected', 'content_tamper_rejected', 'trailing_data_rejected', 'truncated_data_rejected', 'detached_rejected', 'no_signed_attributes_rejected', 'unsupported_digest_rejected', 'sha1_not_inner_authority', 'sha1_only_legacy_envelope', 'diagnostic_expired_time_no_hash', 'expired_inner_time_rejected', 'expired_legacy_documented_no_time', 'diagnostic_future_time_no_hash', 'future_inner_time_rejected', 'future_legacy_documented_no_time', 'reordered_certificates_same_authority', 'duplicate_matching_sid_rejected', 'conflicting_same_sid_order_0', 'conflicting_same_sid_order_1', 'signed_content_type_tamper_rejected', 'multiple_signers_rejected', 'oversized_rsa_candidate_rejected_before_math', 'empty_input_rejected', 'oversized_input_rejected')
 PUBLIC_CASES = tuple(f'public-{i}-{s}' for i in range(2) for s in (
- 'outer-role-authenticated', 'inner-pinned-role-authenticated', 'complete-authority-bound',
+ 'outer-role-authenticated', 'inner-pinned-role-authenticated', 'signer-diagnostic-facade', 'complete-authority-bound',
  'outer-tamper-rejected', 'inner-tamper-rejected', 'inner-cannot-be-outer-role',
  'outer-cannot-be-inner-role')) + tuple(f'public-{i}-cross-profile-binding-rejected' for i in range(2))
 INPUTS = {
@@ -19,7 +19,7 @@ INPUTS = {
   'DeviceGateway/ProvisioningCMSCore/include/profile_cms.h',
   'DeviceGateway/ProvisioningCMSCore/production_roots.h','DeviceGateway/ProvisioningCMSCore/approved_inner.h',
   'DeviceGateway/libimobiledevice/ProvisioningCMSVerifier.swift','Sources/ProfileCMSVerifier.swift',
-  'TestsCMS/run_native.py','TestsCMS/expected-cases.json','TestsCMS/verify_profile_cms.c'),
+  'TestsCMS/run_native.py','TestsCMS/diagnostic_support.py','TestsCMS/approved-inner-provenance.json','TestsCMS/expected-cases.json','TestsCMS/verify_profile_cms.c'),
 }
 LOGS = ('preservation-cms-native.json', 'preservation-cms-public.log')
 def require(ok, why):
