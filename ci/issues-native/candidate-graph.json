@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "4084eeedb77056f898a55c59a32adab8c558134e"
+      "95a2d276b2643f932ef98bf26ac8d8a3836067c2"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -204,7 +204,7 @@
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
-      "tree": "e5d482ed99fde8c082f190d7b41638f6dfca35d7",
+      "tree": "e2b02c4bf40c5ed780d3c0c441e220b67fc3eaf7",
       "files": {
         ".ci/branch-cleanup/allowlist.json": "f4fa7e585a01a176694441a15fb33bf8cfbc8ce7",
         ".ci/branch-cleanup/cleanup.py": "df045ca65ba6b522caa5412e58cac3b81f0c9467",
@@ -310,7 +310,7 @@
         "tests/provider_sequence/main.swift": "275a64df2e3de10212e6b804a021bd2397ff0b31",
         "tests/provider_sequence/noncooperative.swift": "de5bbcb68d805c27d9ce318b24d17f31f78de18d",
         "tests/refresh_failure/boundary_assertions.swift": "d3103220da4da37370aa60dcb5f33b3496b4675f",
-        "tests/refresh_failure/test_contract.py": "b527562616e19c4072e0a40295eb018c2c56e73b",
+        "tests/refresh_failure/test_contract.py": "336f546fb08b916ec1b0a911462601053b37e0ff",
         "tests/refresh_recovery/README.md": "4e1dda36ace09662ab24b8b6083a4e51cd1472a6",
         "tests/refresh_recovery/test_ownerless_snapshot.py": "a33c32bbd817e2ec161cf231ff8924f8029306a8",
         "tests/refresh_truth/README.md": "831f437ddba11e9f861e16b7ced3288023295901",
