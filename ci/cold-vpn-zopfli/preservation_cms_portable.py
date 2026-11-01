@@ -64,7 +64,7 @@ def verify(evidence_root, native_identity):
         receipt['status'] == 'PASS_EXACT_CRYPTO_AND_SWIFT_PUBLIC_BOUNDARY_NOT_DEVICE', 'CMS receipt status')
     identity(receipt['run'])
     require(receipt['run'] == native_identity, 'CMS native run differs')
-    require(receipt['source_sha256'] == contract['source_sha256'] and len(receipt['source_sha256']) == 18, 'CMS reviewed source closure differs')
+    require(receipt['source_sha256'] == contract['source_sha256'] and len(receipt['source_sha256']) == 20, 'CMS reviewed source closure differs')
     require(receipt['cms_verified'] is True and receipt['device_executed'] is False and
         receipt['public_profile_bytes_retained'] is False, 'CMS execution/privacy claim differs')
     require(receipt['cms_cases'] == contract['cms_cases'] and receipt['public_cases'] == contract['public_cases'], 'CMS receipt case closure differs')
@@ -98,14 +98,14 @@ def verify(evidence_root, native_identity):
     except (ValueError, TypeError):
         raise ValueError('CMS test timestamp malformed') from None
     require(timestamp.tzinfo is not None and timestamp.utcoffset() == dt.timedelta(0), 'CMS test timestamp must be UTC')
-    require(type(cms['count']) is int and cms['count'] == 28 and
+    require(type(cms['count']) is int and cms['count'] == 40 and
         type(cms['checks']) is list and cms['checks'] == contract['cms_cases'], 'CMS exact native cases differ')
     require(type(public) is dict and set(public) == {'schema','status','cases','cms_verified','device_executed'}, 'Public CMS result closure')
     require(public['schema'] == 'preservation-der-public-v1' and public['status'] == 'PASS' and
         public['cms_verified'] is True and public['device_executed'] is False and
         type(public['cases']) is list and public['cases'] == contract['public_cases'], 'Public exact CMS/Swift cases differ')
     return {'schema':'preservation-cms-portable-admission-v1','status':'PASS',
-        'native_identity':dict(native_identity),'source_count':18,'cms_case_count':28,'public_case_count':16,
+        'native_identity':dict(native_identity),'source_count':20,'cms_case_count':40,'public_case_count':18,
         'source_contract_sha256':sha(read_bytes(HERE/'cms-source-contract.json')),
         'evidence_sha256':{name:sha(data) for name,data in raw.items()},
         'device_executed':False,'public_profile_bytes_retained':False}

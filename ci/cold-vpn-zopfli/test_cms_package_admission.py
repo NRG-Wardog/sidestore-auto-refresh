@@ -46,7 +46,7 @@ class IntegrationTests(unittest.TestCase):
     def verify(self):return a.verify(self.root,self.manifest)
     def test_positive(self):
         result=self.verify();self.assertEqual(result['cms']['evidence_sha256'],self.native['evidence_sha256'])
-        self.assertEqual(result['cms']['source_count'],18)
+        self.assertEqual(result['cms']['source_count'],20)
     def test_wrong_native_identity(self):
         self.native['run_id']='999';self.build()
         with self.assertRaises(ValueError):self.verify()

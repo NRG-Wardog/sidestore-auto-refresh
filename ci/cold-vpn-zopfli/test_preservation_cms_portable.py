@@ -19,7 +19,7 @@ class PortableTests(unittest.TestCase):
             'header_inventory_sha256':'d'*64}
         self.cms = {'schema':'profile-cms-native-v1','status':'passed','openssl':'3.5.9','qualified':True,
             'time_policy':'inner-current-system-time;legacy-no-check-time','tested_at_utc':'2026-10-31T19:00:00+00:00',
-            'checks':self.contract['cms_cases'],'count':28}
+            'checks':self.contract['cms_cases'],'count':40}
         self.public = {'schema':'preservation-der-public-v1','status':'PASS','cases':self.contract['public_cases'],
             'cms_verified':True,'device_executed':False}
         self.receipt = {'schema':'preservation-cms-native-v1','status':'PASS_EXACT_CRYPTO_AND_SWIFT_PUBLIC_BOUNDARY_NOT_DEVICE',
@@ -42,8 +42,8 @@ class PortableTests(unittest.TestCase):
         self.flush()
         with self.assertRaises((ValueError,TypeError,KeyError)): self.verify()
     def test_positive_closed_scope(self):
-        r=self.verify();self.assertEqual(r['source_count'],18);self.assertEqual(r['cms_case_count'],28)
-        self.assertEqual(r['public_case_count'],16);self.assertFalse(r['device_executed'])
+        r=self.verify();self.assertEqual(r['source_count'],20);self.assertEqual(r['cms_case_count'],40)
+        self.assertEqual(r['public_case_count'],18);self.assertFalse(r['device_executed'])
     def test_wrong_run_attempt_builder(self):
         for key,value in [('run_id','124'),('run_attempt','1'),('workflow_commit','a'*40)]:
             original=self.receipt['run'];self.receipt['run']={**self.identity,key:value};self.reject();self.receipt['run']=original
@@ -53,6 +53,21 @@ class PortableTests(unittest.TestCase):
         old=self.receipt['source_sha256'];name=next(iter(old))
         for value in ({k:v for k,v in old.items() if k!=name},{**old,name:'e'*64},{**old,'extra':'f'*64}):
             self.receipt['source_sha256']=value;self.reject()
+    def test_new_diagnostic_source_dependencies_cannot_be_omitted(self):
+        original=self.receipt['source_sha256']
+        for suffix in ('/TestsCMS/diagnostic_support.py','/TestsCMS/approved-inner-provenance.json'):
+            names=[name for name in original if name.endswith(suffix)]
+            self.assertEqual(len(names),1)
+            self.receipt['source_sha256']={k:v for k,v in original.items() if k!=names[0]}
+            self.reject()
+        self.receipt['source_sha256']=original
+    def test_diagnostic_native_and_public_cases_cannot_be_omitted(self):
+        for obj,key,predicate in ((self.cms,'checks',lambda n:n.startswith('diagnostic_')),(self.public,'cases',lambda n:n.endswith('signer-diagnostic-facade'))):
+            original=obj[key]
+            for name in filter(predicate,original):
+                obj[key]=[n for n in original if n!=name]
+                self.reject()
+            obj[key]=original
     def test_no_device_or_profile_retention_or_unverified_claim(self):
         for key,value in [('device_executed',True),('public_profile_bytes_retained',True),('cms_verified',1)]:
             old=self.receipt[key];self.receipt[key]=value;self.reject();self.receipt[key]=old
@@ -65,7 +80,7 @@ class PortableTests(unittest.TestCase):
         for value in (original[1:],original+[original[0]],list(reversed(original)),original+['raw']):
             self.public['cases']=value;self.reject()
     def test_crypto_version_or_false_qualification(self):
-        for key,value in [('openssl','3.5.7'),('qualified',False),('qualified',1),('time_policy','ignore-time'),('count',28.0),('count',True)]:
+        for key,value in [('openssl','3.5.7'),('qualified',False),('qualified',1),('time_policy','ignore-time'),('count',40.0),('count',28),('count',True)]:
             old=self.cms[key];self.cms[key]=value;self.reject();self.cms[key]=old
     def test_host_source_recipe_header_archive_drift(self):
         original=copy.deepcopy(self.host)

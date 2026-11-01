@@ -6,6 +6,16 @@
     "production_rejects_synthetic_outer",
     "production_rejects_unknown_inner_pin",
     "test_rejects_wrong_inner_pin",
+    "diagnostic_unknown_pin_verified_hash_not_authority",
+    "diagnostic_verified_finite_role_observations",
+    "diagnostic_wrong_root_no_hash_unchecked_time_signature",
+    "diagnostic_bad_signature_no_hash",
+    "diagnostic_bad_content_digest_no_hash",
+    "diagnostic_malformed_resets_evidence",
+    "diagnostic_unsupported_algorithm_no_hash",
+    "diagnostic_profile_markers_are_not_authority",
+    "diagnostic_app_developer_distinct_not_authority",
+    "diagnostic_untrusted_role_markers_not_disclosed",
     "signature_tamper_rejected",
     "content_tamper_rejected",
     "trailing_data_rejected",
@@ -15,8 +25,10 @@
     "unsupported_digest_rejected",
     "sha1_not_inner_authority",
     "sha1_only_legacy_envelope",
+    "diagnostic_expired_time_no_hash",
     "expired_inner_time_rejected",
     "expired_legacy_documented_no_time",
+    "diagnostic_future_time_no_hash",
     "future_inner_time_rejected",
     "future_legacy_documented_no_time",
     "reordered_certificates_same_authority",
@@ -30,8 +42,8 @@
     "oversized_input_rejected"
   ],
   "host_recipe_sha256": "75a13eff9684760719f37b6a9598bb901e1eee2a91b81ca40fb08137a408f136",
-  "native_builder": "00062ed170dc16e9ba61a8ca2940d6386ed00791",
-  "native_cms_helper_sha256": "dd91061f62eaeccad0869a933a654d198277f9cb8c28e6394422cfbe461cdf33",
+  "native_builder": "c89d975a0c0abac2df32f9feb53493ed815f0c3d",
+  "native_cms_helper_sha256": "d0db4551ef8c21135f4242c0773b6e0b2b6be10e3636b5ac962a036aa822547b",
   "openssl": {
     "checked_on": "2026-10-25",
     "checksum_url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz.sha256",
@@ -45,17 +57,18 @@
   },
   "owners": {
     "SideStore": {
-      "commit": "5d89ede9a4def6c2d00c8996c50061a11a1dfdd8",
-      "tree": "778c9f41fc3ce3420feed5bb33a2374c2ed17109"
+      "commit": "7dc1738b26b1eafa18713a4ed91a60d91fe4b62b",
+      "tree": "75452274ea046817c4e624d429bc83c7a1cf27b0"
     },
     "SideStore/Dependencies/minimuxer": {
-      "commit": "c6aa78d695c636d3dc84727ccd69426a633e61b5",
-      "tree": "4a7878051af6764ed4e43b21126cd252622fa44d"
+      "commit": "68d8939b0bdccf026551faf2f418a11078a39c8a",
+      "tree": "dcacab41fa0e6c3e973ae9d10c5e86d9d9db6b9f"
     }
   },
   "public_cases": [
     "public-0-outer-role-authenticated",
     "public-0-inner-pinned-role-authenticated",
+    "public-0-signer-diagnostic-facade",
     "public-0-complete-authority-bound",
     "public-0-outer-tamper-rejected",
     "public-0-inner-tamper-rejected",
@@ -63,6 +76,7 @@
     "public-0-outer-cannot-be-inner-role",
     "public-1-outer-role-authenticated",
     "public-1-inner-pinned-role-authenticated",
+    "public-1-signer-diagnostic-facade",
     "public-1-complete-authority-bound",
     "public-1-outer-tamper-rejected",
     "public-1-inner-tamper-rejected",
@@ -75,21 +89,23 @@
   "source_sha256": {
     "SideStore/Dependencies/minimuxer/DeviceGateway/Package.swift": "987aa1d6df9edd7a8795f8ca7c369e9561cca3bdeef054f325952768094d8ab0",
     "SideStore/Dependencies/minimuxer/DeviceGateway/ProvisioningCMSCore/approved_inner.h": "220c8a6d000bf418c17fa72dca28bb474a426f36e97199015a73ae347d3f214d",
-    "SideStore/Dependencies/minimuxer/DeviceGateway/ProvisioningCMSCore/include/profile_cms.h": "990939646f6fb54c3cbf27eb13e0d1bfa9fb39235a691e6eaf039b84f81614ad",
+    "SideStore/Dependencies/minimuxer/DeviceGateway/ProvisioningCMSCore/include/profile_cms.h": "d9b70575ca962cdd78225870011db88c94de18e3b5fbef637297d157cdef6078",
     "SideStore/Dependencies/minimuxer/DeviceGateway/ProvisioningCMSCore/production_roots.h": "7493d5971d2fd34aef2f4b32be370d9a7267d3dd55b374691793f7cf24e88a53",
-    "SideStore/Dependencies/minimuxer/DeviceGateway/ProvisioningCMSCore/profile_cms.c": "fece46bfa3f92f01ae59c8789cde438a84ef9916c96b0d1d745a20ab59738753",
-    "SideStore/Dependencies/minimuxer/DeviceGateway/libimobiledevice/ProvisioningCMSVerifier.swift": "ec5b05a76be02cbb2ece9eb4a924db0c90fbd292b811fa5eb894cb5c65a5cbae",
+    "SideStore/Dependencies/minimuxer/DeviceGateway/ProvisioningCMSCore/profile_cms.c": "02f4e8f68a352d93e0e89174472ca1cd8d40836af39a666f0babe88f3c5fe6e9",
+    "SideStore/Dependencies/minimuxer/DeviceGateway/libimobiledevice/ProvisioningCMSVerifier.swift": "2e5df369ccd2c7917f21ec51f13bec0bd5ee5d3f9a17a13837d97e41a4f6abe5",
     "SideStore/Dependencies/minimuxer/Package.swift": "b4849af42725b7176206a3d76b2a9bd60dc6399217deb811963c41e316951aa5",
-    "SideStore/Dependencies/minimuxer/Sources/ProfileCMSVerifier.swift": "e212502cdd8735622870cf2ae7ddc9b4cbb58d3529ebc5be62ca1f28a5ed947a",
-    "SideStore/Dependencies/minimuxer/TestsCMS/expected-cases.json": "88075aa85121033433b07b59342735a705dc335f2af45c31f3880901aa4e0fc1",
-    "SideStore/Dependencies/minimuxer/TestsCMS/run_native.py": "0c0d9d055e30a79343a24eb311122ae1ed997e1b40b2565ea4b1462ec424026b",
+    "SideStore/Dependencies/minimuxer/Sources/ProfileCMSVerifier.swift": "6452bdd1932c5c853df677146f0bdc84d536aaa47bcf6a3b2038d0dd176cdad7",
+    "SideStore/Dependencies/minimuxer/TestsCMS/approved-inner-provenance.json": "596d40b1c2e1b3d4b5c8bed18f3250b820253bbd14250fbc8348098d1cded06c",
+    "SideStore/Dependencies/minimuxer/TestsCMS/diagnostic_support.py": "92a973637d1c475b1c08ad8d2b0cf1b4085cc4e703a0da53f80b96eb4183b377",
+    "SideStore/Dependencies/minimuxer/TestsCMS/expected-cases.json": "f9e1bbbf5e4336b6e81a451849427e11de01cafb6c05ad178222a63ff82e85dd",
+    "SideStore/Dependencies/minimuxer/TestsCMS/run_native.py": "3691a6e3094e0b3b734e86e37fa3c35a358fc9429ddc710160d368ab38312e80",
     "SideStore/Dependencies/minimuxer/TestsCMS/verify_profile_cms.c": "fdec9d31c892c70da5940d2e9b7405aa6e5390824ac2784a5bebcf25c9d8e319",
     "SideStore/SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift": "739450970cbcc24b5706066a49d62aec1909c6f7f19bb73968d0cb87a5c57712",
-    "SideStore/tests/preservation_der/PublicCases.swift": "6f1b6e77693933f659a6877e6fadea9d139398bb6001cc7c5fa42748beae8c3b",
-    "SideStore/tests/preservation_der/expected-cases.json": "02e437cf31d5017e211d8c2bab669b0730a28e4173518f9747d7e9cb1621c8a5",
+    "SideStore/tests/preservation_der/PublicCases.swift": "ff82884ea6eb767267c7116466383824d8132fee7a48f4d702caeea18bcb44df",
+    "SideStore/tests/preservation_der/expected-cases.json": "56b43228ec0f729282a4e67b954e7614d112dfb36e46846fc747e4906c801deb",
     "SideStore/tests/preservation_der/fetch_public_fixtures.py": "a591526d14c3b69931cfc577acabed9b90c20054909e731ff37bff79e9ef9ad3",
     "SideStore/tests/preservation_der/public-fixtures.json": "b1b9c84bdcf8221ef881bd2f9fde8d5577f591c965ffbec1f4c26b71b86d9cb0",
-    "SideStore/tests/preservation_der/run_public.sh": "a309ab574e60bd4125f7b2d69b61f355711763297a3bfba28050edab01a8c185",
-    "SideStore/tests/preservation_der/test_contract.py": "0e360f35303dee48538ebd3f615dc7ae1d7bfc5b437c5cca6834fa6e82976887"
+    "SideStore/tests/preservation_der/run_public.sh": "01d292b3d0aef43d2d32810664c5faa97eee6eb7543814400236ec572f8b7f85",
+    "SideStore/tests/preservation_der/test_contract.py": "4d654957db91b419e378218edf525a6a93ee52e15b542215a0990d1cfa82d9c8"
   }
 }
