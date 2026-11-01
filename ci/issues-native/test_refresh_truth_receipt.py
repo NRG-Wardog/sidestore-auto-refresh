@@ -17,6 +17,7 @@ def fixture():
    logs['SideStore-preservation']+=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.PRESERVATION_INTEGRATION_CASES)])
    logs['SideStore-reuse-lifecycle']+='\n'.join(C.REUSE_LIFECYCLE_MARKERS)+'\n'
    logs['SideStore-reuse-lifecycle']+=json.dumps({'schema':'reuse-main-producer-consumer-v1','status':'PASS','cases':list(C.REUSE_PRODUCER_CONSUMER_CASES),'device_executed':False})+'\n'
+  if kind=='swift':parts[kind]['logs']['SideStore-refresh-failure']+='CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\n'
   if kind=='swift':parts[kind]['logs']['LiveContainer-observations']+='\n'.join('PASS '+name for name in C.OBSERVATION_CASES)+'\nREFRESH_OBSERVATIONS_PASS\n'
   if kind=='swift':
    for owner,(schema,cases) in C.LEGACY_NATIVE.items():parts[kind]['logs'][owner]+=json.dumps({'schema':schema,'status':'PASS','cases':list(cases)})+'\n'
@@ -54,8 +55,8 @@ class ReceiptTests(unittest.TestCase):
    self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/Dependencies/minimuxer/'+path))
  def test_observation_native_suite_is_mandatory(self):
   self.assertEqual(C.SUITE_OWNERS['LiveContainer-observations'],'LiveContainer')
-  self.assertEqual(C.SUITES['LiveContainer-observations'],('.ci/refresh-observations/test_refresh_observations.py',4))
-  self.assertEqual(len(C.OBSERVATION_CASES),143)
+  self.assertEqual(C.SUITES['LiveContainer-observations'],('.ci/refresh-observations/test_refresh_observations.py',5))
+  self.assertEqual(len(C.OBSERVATION_CASES),162)
   self.reject(lambda v:v['parts']['swift']['logs'].pop('LiveContainer-observations'))
   for replacement in ('Ran 3 tests in 0.1s\nOK (skipped=1)\n','Ran 3 tests in 0.1s\nOK\n'):
    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',replacement))
@@ -81,6 +82,16 @@ class ReceiptTests(unittest.TestCase):
    self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('LiveContainer/'+path))
   for path in ('SideStore/Core/DeviceApi/MinimuxerWrapper.swift','tests/cold_vpn_readiness/test_transport_observation.py','tests/cold_vpn_readiness/transport_observation_cases.swift'):
    self.assertIn(path,C.INPUTS['SideStore'])
+ def test_actual_signing_bridge_suite_and_source_closure(self):
+  owner='SideStore-refresh-failure'
+  self.assertEqual(C.SUITES[owner],('tests/refresh_failure/test_contract.py',6))
+  self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
+  self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
+  for count in (0,2):
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,v['parts']['swift']['logs'][owner].replace('CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\n','CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\n'*count)))
+  for path in ('SideStore/Core/Operations/OperationStep.swift', 'SideStore/Core/Operations/AppOperation.swift', 'AltStore/Managing Apps/AppManager.swift', 'SideStore/Core/Operations/Errors/OperationError.swift', 'Shared/Extensions/NSError+AltStore.swift', 'Shared/Errors/ALTWrappedError.swift', 'tests/refresh_failure/test_contract.py', 'tests/refresh_failure/boundary_cases.swift', 'tests/refresh_failure/certificate_cases.swift', 'tests/refresh_failure/boundary_assertions.swift', 'tests/refresh_failure/pipeline_harness.swift'):
+   self.assertIn(path,C.INPUTS['SideStore'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
  def test_explicit_replacement_mutation_boundaries_are_source_bound(self):
   paths=('SideStore/Core/Operations/PipelineExecutionHandler.swift','SideStore/Core/Operations/PipelineOperations/UpdateAppCertificateOperation.swift','SideStore/Core/Operations/PipelineOperations/StageAppOperation.swift','SideStore/Core/Operations/PipelineOperations/SendAppOperation.swift','SideStore/Core/Operations/PipelineOperations/RemoveAppExtensionsOperation.swift','SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift','SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift')
   for path in paths:
