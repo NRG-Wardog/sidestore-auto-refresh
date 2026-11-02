@@ -1,12 +1,12 @@
 {
   "schema": "cold-vpn-green-native-input-v1",
-  "run_id": 41322807269,
+  "run_id": 41441341176,
   "run_attempt": 1,
-  "commit": "80b34a7f04eaf52f2276d884163f699a66d63e48",
-  "artifact_id": 13091491445,
-  "artifact_bytes": 26692568,
-  "artifact_sha256": "3d99fc077625bae4b3c8307cc2e5a440aac30899a07560958653eca403af86a7",
-  "ipa_bytes": 24980743,
-  "ipa_sha256": "8f9c6a6133c5baac10931cfb287e61f0d5832a3b5d8251069718ffe2917fec21",
+  "commit": "0ce0b994e8be93e004a8777dad12846a6b6c97a9",
+  "artifact_id": 13143497473,
+  "artifact_bytes": 26753225,
+  "artifact_sha256": "5f018b617ea8fde6407b31f7307fefed9a08401f41ea327d595603193dbce65d",
+  "ipa_bytes": 25028009,
+  "ipa_sha256": "a8eab0e4f8610b50e26cc9ecc0b6b28be40e931e38b7164a7dba718775ad48a4",
   "entries": 274
 }

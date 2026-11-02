@@ -98,14 +98,14 @@ def verify(evidence_root, native_identity):
     except (ValueError, TypeError):
         raise ValueError('CMS test timestamp malformed') from None
     require(timestamp.tzinfo is not None and timestamp.utcoffset() == dt.timedelta(0), 'CMS test timestamp must be UTC')
-    require(type(cms['count']) is int and cms['count'] == 40 and
+    require(type(cms['count']) is int and cms['count'] == 58 and
         type(cms['checks']) is list and cms['checks'] == contract['cms_cases'], 'CMS exact native cases differ')
     require(type(public) is dict and set(public) == {'schema','status','cases','cms_verified','device_executed'}, 'Public CMS result closure')
     require(public['schema'] == 'preservation-der-public-v1' and public['status'] == 'PASS' and
         public['cms_verified'] is True and public['device_executed'] is False and
         type(public['cases']) is list and public['cases'] == contract['public_cases'], 'Public exact CMS/Swift cases differ')
     return {'schema':'preservation-cms-portable-admission-v1','status':'PASS',
-        'native_identity':dict(native_identity),'source_count':20,'cms_case_count':40,'public_case_count':18,
+        'native_identity':dict(native_identity),'source_count':20,'cms_case_count':58,'public_case_count':24,
         'source_contract_sha256':sha(read_bytes(HERE/'cms-source-contract.json')),
         'evidence_sha256':{name:sha(data) for name,data in raw.items()},
         'device_executed':False,'public_profile_bytes_retained':False}
