@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "489b3ddb4ad272a6a94862e1ee7dc18ba48c3768"
+      "f60d560bd6b12a9556f67762893f1168608f97e7"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -266,9 +266,9 @@
         "tests/cache_compatibility/reviewed-refresh-truth-host-delta.json": "19a4e9d97f504999e66805536a2555491480b1fd",
         "tests/cache_compatibility/reviewed-transport-observation-host-delta.json": "ea055e1c6eeb66f79f804c670e5b5774f00573c6",
         "tests/cache_compatibility/test_host_preservation.py": "8d3caaf1085847745dfe08ad8c8448667a56cba3",
-        "tests/cold_vpn_readiness/boundary_doubles.swift": "5157a2095c2c1c74dcef73992c28a2a3cb8a029b",
+        "tests/cold_vpn_readiness/boundary_doubles.swift": "5e7a88733e916d92c1f778d4e07d79ce7d4abdaf",
         "tests/cold_vpn_readiness/runtime_cases.swift": "4235feae804dade1a0ad1e975b5ac80c6b433dd5",
-        "tests/cold_vpn_readiness/test_contract.py": "582ea3a52f091bec90ef3ade7f1fc3aff6c4c38f",
+        "tests/cold_vpn_readiness/test_contract.py": "e004cc21303eb89f4d965a357a4350c419355568",
         "tests/cold_vpn_readiness/test_transport_observation.py": "f15645e662bf72d49f247d69085651cc857b4ed9",
         "tests/cold_vpn_readiness/transport_observation_cases.swift": "3b9d51deab31d7bca711d1584dfb6b2971004302",
         "tests/direct_refresh_evidence/.gitignore": "7a60b85e148f80966a550e5ab6a762a907c69ca6",
@@ -345,7 +345,7 @@
         "tests/vpn_transport_recovery/generate_fixture.py": "ac0087b25c74408501b324f5e7675cfb0f884858",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "57f9cded5e6da52069d59343ef0725edf95b239c"
+      "tree": "54cd1210eaac953b53e6c9951ef38bf6d37bcd97"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
