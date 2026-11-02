@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "d04e9a3039ee0d27a3205fac9e1f7450eb062f06"
+      "0fbea7120873ab40ad36505433365b7299db3c4c"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -100,11 +100,12 @@
         ".ci/comprehensive-diagnostics/test_refresh_failure_contract.py": "870a7dc7dfbbfe022017e43baaf91ca9bcdc921e",
         ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "964242b3b101ab6e33e919f5abbc1bf23765f6d4",
         ".ci/early-refresh-boundaries/PROFILE-PRECONDITIONS.md": "3dd0e316ef6de9b81a8bb2c2e307970118246dd6",
-        ".ci/early-refresh-boundaries/early_cases.swift": "8ace99364dff25993bb071e3b7efc36c91f415a4",
-        ".ci/early-refresh-boundaries/early_doubles.swift": "842cf57352479e2dda93ae137c37918696c915f7",
+        ".ci/early-refresh-boundaries/README.md": "27654d3b5e4db0b7f8df896c6438b8c3cd6471fe",
+        ".ci/early-refresh-boundaries/early_cases.swift": "c1c2f4ecc19f7443f2350e120bab86fdb6939175",
+        ".ci/early-refresh-boundaries/early_doubles.swift": "32e5f7081b353ba4dbb0fa9cf35b66f482044864",
         ".ci/early-refresh-boundaries/generate_profile_regression.py": "8f5099d1540c992ab57419446b82a45daa1f67a7",
-        ".ci/early-refresh-boundaries/generate_regression.py": "11b748e3182700e400f37bd064f96b4904db311e",
-        ".ci/early-refresh-boundaries/test_contract.py": "cf47b78d904e02fc8b72676453dc02d24875e323",
+        ".ci/early-refresh-boundaries/generate_regression.py": "5fe66e1370621fcf061446175101aadaed2d811f",
+        ".ci/early-refresh-boundaries/test_contract.py": "99dac55204e65fd09f3490740f5e734c622ddd20",
         ".ci/extension-selection/Cases.swift": "124f2b2b16d0164f114898a48c6062735443a805",
         ".ci/extension-selection/Doubles.swift": "28d28f0a0e05056622dd5b306de8cc04568e6fc3",
         ".ci/extension-selection/generate_fixture.py": "fa361fa60c78f132b3432cbbd5e36620474adf61",
@@ -201,7 +202,7 @@
         "tests/test_startup_diagnosis_card.py": "64f5d544c21d538342c988797b94c3c4da856c71",
         "tests/test_startup_diagnostics.py": "ca6d8634f460aea00ceb274d777a8fdff2ff8b49"
       },
-      "tree": "4ff86b2190974c05612a0fde74efd8cfdce98ea8"
+      "tree": "7b2cfa64942611c49b818b9ccd380781e9faf1db"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",

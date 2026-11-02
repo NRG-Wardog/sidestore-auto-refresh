@@ -58,6 +58,30 @@ class NativeQualificationControls(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'source input closure'):
                     C.suite_tests('SideStore-preservation-serialization', log.replace(json.dumps(row), json.dumps(bad)))
 
+    def test_actual_native_integration_claim_schema(self):
+        # Exact finite JSON from official run41516599781 attempt1 artifact
+        # 13175558545 SHA256 ec4bc0e8ec94b1c438b899b02279e02d3242c311ad2bf65879ceada2a9bb1ec8.
+        # No profiles, identifiers or runtime values are retained in this fixture.
+        row = json.loads((Path(__file__).resolve().parent/'test-fixtures/preservation-integration-80.json').read_text())
+        self.assertEqual(row['cases'], list(C.PRESERVATION_INTEGRATION_CASES))
+        good = self.value['parts']['swift']['logs']['SideStore-preservation']
+        old = next(x for x in good.splitlines() if x.startswith('{') and json.loads(x)['schema']=='preservation-refresh-integration-v1')
+        log = good.replace(old, json.dumps(row))
+        C.suite_tests('SideStore-preservation', log)
+        for key in ('cms_verified','platform_tls_executed','portal_executed'):
+            for bad in (True, 0, None, 'false'):
+                changed = copy.deepcopy(row); changed[key] = bad
+                self.reject_log('SideStore-preservation', log.replace(json.dumps(row), json.dumps(changed)))
+            changed = copy.deepcopy(row); changed.pop(key)
+            self.reject_log('SideStore-preservation', log.replace(json.dumps(row), json.dumps(changed)))
+            duplicate = json.dumps(row)[:-1]+', '+json.dumps(key)+': false}'
+            self.reject_log('SideStore-preservation', log.replace(json.dumps(row), duplicate))
+        changed = copy.deepcopy(row); changed['unexpected_claim'] = False
+        self.reject_log('SideStore-preservation', log.replace(json.dumps(row), json.dumps(changed)))
+        policy = next(x for x in log.splitlines() if x.startswith('{') and json.loads(x)['schema']=='preservation-refresh-policy-v1')
+        changed = json.loads(policy); changed['cms_verified'] = False
+        self.reject_log('SideStore-preservation', log.replace(policy, json.dumps(changed)))
+
     def test_prior_serialization_inventory_cannot_claim_success(self):
         owner = 'SideStore-preservation-serialization'
         log = self.value['parts']['swift']['logs'][owner]

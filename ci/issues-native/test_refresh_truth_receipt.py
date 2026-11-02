@@ -15,7 +15,7 @@ def fixture():
   if kind=='swift':
    logs['SideStore-preservation-origin']+=json.dumps({'schema':'preservation-origin-transport-v1','status':'PASS','cases':list(C.ORIGIN_TRANSPORT_CASES),'network_executed':False,'platform_tls_executed':False,'cms_verified':False,'device_executed':False})+'\n'+json.dumps({'schema':'preservation-origin-visibility-v1','status':'PASS','cases':list(C.ORIGIN_VISIBILITY_CASES),'device_executed':False})+'\n'
    logs['SideStore-preservation-der']+=json.dumps({'schema':'preservation-der-parser-v1','status':'PASS','cases':list(C.PRESERVATION_DER_CASES),'cms_verified':False,'device_executed':False})+'\n'
-   logs['SideStore-preservation']+=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.PRESERVATION_INTEGRATION_CASES)])
+   logs['SideStore-preservation']+=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False,**({'cms_verified':False,'platform_tls_executed':False,'portal_executed':False} if name=='integration' else {})})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.PRESERVATION_INTEGRATION_CASES)])
    logs['SideStore-reuse-lifecycle']+='\n'.join(C.REUSE_LIFECYCLE_MARKERS)+'\n'
    logs['SideStore-reuse-lifecycle']+=json.dumps({'schema':'reuse-main-producer-consumer-v1','status':'PASS','cases':list(C.REUSE_PRODUCER_CONSUMER_CASES),'device_executed':False})+'\n'
   if kind=='swift':
@@ -106,9 +106,10 @@ class ReceiptTests(unittest.TestCase):
   for case in C.PRESERVATION_INTEGRATION_CASES[38:]:
    def change(v):
     log=v['parts']['swift']['logs']['SideStore-preservation']
-    row={'schema':'preservation-refresh-integration-v1','status':'PASS','cases':list(C.PRESERVATION_INTEGRATION_CASES),'device_executed':False}
-    before=json.dumps(row);row['cases'].remove(case)
-    v['parts']['swift']['logs']['SideStore-preservation']=log.replace(before,json.dumps(row))
+    before=next(line for line in log.splitlines() if line.startswith('{') and json.loads(line).get('schema')=='preservation-refresh-integration-v1')
+    row=json.loads(before);row['cases'].remove(case)
+    changed=log.replace(before,json.dumps(row));self.assertNotEqual(log,changed)
+    v['parts']['swift']['logs']['SideStore-preservation']=changed
    with self.subTest(case=case):self.reject(change)
  def test_observation_source_closure_is_bound(self):
   for path in ('.ci/vpn-refresh-recovery/test_classifier_dependency.py','.ci/comprehensive-diagnostics/generate_wire_fixture.py','.ci/refresh-observations/test_refresh_observations.py','.ci/refresh-observations/cases.swift','.ci/refresh-observations/localization_keys.json'):

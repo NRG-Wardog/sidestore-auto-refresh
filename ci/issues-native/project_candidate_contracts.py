@@ -13,7 +13,8 @@ import sys
 from preservation_selection_projection import add as add_refresh_observation_vpn
 from local_wifi_fixture_projection import PATH as LOCAL_WIFI_FIXTURE_INPUT, add as add_local_wifi_fixture
 from grace_recovery_projection import add as add_grace_recovery
-from early_readiness_projection import GENERATOR as EARLY_READINESS_GENERATOR, GENERATOR_SHA as EARLY_READINESS_SHA, add as add_early_readiness
+from early_progress_fixture_projection import GENERATOR as EARLY_READINESS_GENERATOR, GENERATOR_SHA as EARLY_PROGRESS_SHA, add as add_early_readiness
+from early_readiness_projection import GENERATOR_SHA as EARLY_READINESS_SHA
 from current_vpn_guard_projection import PATH as CURRENT_VPN_GUARD_INPUT, add as add_current_vpn_guard
 from cold_vpn_cache_projection import PATH as COLD_VPN_CACHE_INPUT, TRUTH_PATH as TRUTH_CACHE_INPUT
 from transport_observation_cache_projection import PATH as OBSERVATION_CACHE_INPUT
@@ -165,7 +166,7 @@ def contracts(sources, output, verify=False):
             additional_inputs = additional_inputs + (TRUTH_CACHE_INPUT,)
         projected, changes = project(json.loads(original.read_text()), graph, sources, additional_inputs)
         if name == 'setup-state-recovery-contract.json':
-            if projected['input_sha256'][EARLY_READINESS_GENERATOR] == EARLY_READINESS_SHA: projected = add_early_readiness(projected)
+            if projected['input_sha256'][EARLY_READINESS_GENERATOR] in (EARLY_READINESS_SHA, EARLY_PROGRESS_SHA): projected = add_early_readiness(projected)
             if projected['input_sha256'][CURRENT_VPN_GUARD_INPUT] != json.loads(original.read_text())['input_sha256'][CURRENT_VPN_GUARD_INPUT]:
                 projected = add_current_vpn_guard(projected)
                 projected = add_grace_recovery(projected)

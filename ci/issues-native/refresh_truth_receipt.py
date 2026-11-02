@@ -274,7 +274,8 @@ def suite_tests(owner,log):
    schema='preservation-refresh-'+name+'-v1'
    require(schema in rows,'preservation native result missing: '+name)
    value=rows[schema]
-   require(set(value)=={'schema','status','cases','device_executed'} and value['status']=='PASS' and value['device_executed'] is False,'preservation native result closure/status differs')
+   claims=('device_executed',) if name=='policy' else ('device_executed','cms_verified','platform_tls_executed','portal_executed')
+   require(set(value)=={'schema','status','cases',*claims} and value['status']=='PASS' and all(value[key] is False for key in claims),'preservation native result closure/status differs')
    require(value['cases']==list(cases),'preservation native cases differ: '+name)
 
 def legacy_native_tests(log,schema,expected):
