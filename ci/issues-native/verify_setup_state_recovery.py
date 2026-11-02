@@ -11,8 +11,8 @@ from preservation_selection_projection import inputs as local_wifi_fixture_input
 from refresh_truth_flow_projection import vpn_count as grace_recovery_count, connection_count
 from early_readiness_projection import inputs as early_readiness_inputs, verify_static as verify_early_static
 from current_vpn_guard_projection import verify as verify_current_vpn_guard
-from preservation_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
-from preservation_localization_projection import variant as russian_setup_variant
+from profile_transaction_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
+from observed_constraints_localization_projection import variant as russian_setup_variant
 from preservation_host_projection import inputs as legacy_host_inputs, expected_cases as preservation_host_cases
 from preservation_host_projection import assertions as truth_host_assertions
 

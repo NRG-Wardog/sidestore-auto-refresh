@@ -69,7 +69,7 @@ class PreservationSuccessors(unittest.TestCase):
   with self.assertRaises(ValueError):cache.preservation_binding(changed)
 class PreservationSelectionSuccessor(unittest.TestCase):
  def base(self, current=True):
-  return {'input_sha256':{selection.PATH:selection.SHA if current else selection.prior.SHA},
+  return {'input_sha256':{selection.PATH:selection.SHA if current else selection.prior.SHA,selection.MAPPER:selection.MAPPER_SHA},
           'additive_suite_inputs':{'vpn-refresh-recovery':{'transport_fixture':['frozen']}},
           'case_names':['unchanged'],'delivered_baseline':{'source':'frozen'}}
  def test_exact_selection_normalizes_through_prior_and_retains_closure(self):
@@ -81,7 +81,7 @@ class PreservationSelectionSuccessor(unittest.TestCase):
   self.assertEqual(selection.add(self.base(False)),selection.prior.add(self.base(False)))
  def test_missing_changed_duplicate_selection_fails(self):
   result=selection.add(self.base())
-  for mutate in [lambda c:c[selection.KEY].update(extra=True),lambda c:c['input_sha256'].__setitem__(selection.PATH,'0'*64),lambda c:c['input_sha256'].pop(selection.PATH),lambda c:c.pop(selection.prior.KEY),lambda c:c[selection.prior.KEY].update(sha256='0'*64)]:
+  for mutate in [lambda c:c[selection.KEY].update(extra=True),lambda c:c['input_sha256'].__setitem__(selection.PATH,'0'*64),lambda c:c['input_sha256'].pop(selection.PATH),lambda c:c.pop(selection.prior.KEY),lambda c:c[selection.prior.KEY].update(sha256='0'*64),lambda c:c['input_sha256'].pop(selection.MAPPER),lambda c:c['input_sha256'].__setitem__(selection.MAPPER,'0'*64)]:
    changed=copy.deepcopy(result);mutate(changed)
    with self.assertRaises(ValueError):selection.normalized(changed)
   with self.assertRaises(ValueError):selection.add(result)
@@ -92,7 +92,7 @@ class PreservationSelectionSuccessor(unittest.TestCase):
    root=Path(tmp);selected=root/selection.PATH;mapper=root/upstream.OBSERVATION_MAPPER
    selected.parent.mkdir(parents=True);mapper.parent.mkdir(parents=True)
    selected.write_bytes(b'exact successor');mapper.write_bytes(b'unchanged mapper')
-   with patch.object(selection,'SHA',hashlib.sha256(selected.read_bytes()).hexdigest()),patch.object(upstream,'OBSERVATION_MAPPER_SHA',hashlib.sha256(mapper.read_bytes()).hexdigest()):
+   with patch.object(selection,'SHA',hashlib.sha256(selected.read_bytes()).hexdigest()),patch.object(selection,'MAPPER_SHA',hashlib.sha256(mapper.read_bytes()).hexdigest()):
     self.assertEqual(selection.validate_upstream_dependencies(root),selection.descriptor())
     for path in (selected,mapper):
      original=path.read_bytes();path.write_bytes(original+b' changed')

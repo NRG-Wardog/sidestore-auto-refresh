@@ -46,8 +46,8 @@ class LocalizationSuccessor(unittest.TestCase):
   with self.assertRaises(ValueError):p.add(result)
  def test_harness_correction_is_exact_and_does_not_change_case_or_baseline_counts(self):
   self.assertEqual(p.HARNESS,'LiveContainer/.ci/comprehensive-diagnostics/setup_localization_harness.swift')
-  self.assertEqual(p.PINS[p.HARNESS],'809ea23d9e95020ebf2b903cc228a7455ccacca17aad80247bb924d08edd7879')
-  self.assertEqual(p.PINS[p.INVENTORY_TEST],'9bd7a25653bf5964e5aabb657a2129c22aca033be70a3ba3044ab4dacc0a6ba3')
+  self.assertEqual(p.PINS[p.HARNESS],'57a020935f12faa00d9e586dc84b96bd5d7dbf13a259a7838bae89137c598067')
+  self.assertEqual(p.PINS[p.INVENTORY_TEST],'52847863e5a420a9adfecbdcec5d4850b371a024c73bfd0c463b504e3bb8bc0c')
   self.assertEqual(p.CURRENT,{'cases':2079,'values':1080,'baseline_missing':504,'keys':216})
   self.assertEqual(p.PRIOR,{'cases':1979,'values':1030,'baseline_missing':454,'keys':206})
   result=p.add(self.base)
@@ -65,5 +65,5 @@ class LocalizationSuccessor(unittest.TestCase):
   source=(HERE/'project_candidate_contracts.py').read_text()
   self.assertIn('preservation_localization.INVENTORY_TEST',source)
   self.assertIn('projected = preservation_localization.add(projected)',source)
-  self.assertIn('from preservation_localization_projection import variant as russian_setup_variant',(HERE/'verify_setup_state_recovery.py').read_text())
+  self.assertIn('from observed_constraints_localization_projection import variant as russian_setup_variant',(HERE/'verify_setup_state_recovery.py').read_text())
 if __name__=='__main__':unittest.main()

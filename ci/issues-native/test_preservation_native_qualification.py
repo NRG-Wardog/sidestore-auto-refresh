@@ -1,0 +1,108 @@
+"""Synthetic rejection/orchestration controls. These never claim native execution."""
+import copy
+import json
+from pathlib import Path
+import unittest
+import refresh_truth_receipt as C
+from test_refresh_truth_receipt import fixture
+
+
+class NativeQualificationControls(unittest.TestCase):
+    def setUp(self):
+        self.value = fixture()
+
+    def reject_log(self, owner, log):
+        value = copy.deepcopy(self.value)
+        value['parts']['swift']['logs'][owner] = log
+        value['part_sha256']['swift'] = C.digest(value['parts']['swift'])
+        with self.assertRaises((ValueError, TypeError, KeyError)):
+            C.verify_portable(value, value['source_graph'], value['identity'])
+
+    def test_new_suites_cannot_use_only_unittest_or_skip(self):
+        for owner in ('SideStore-preservation-serialization', 'SideStore-preservation-outcome', 'LiveContainer-postdispatch-wire'):
+            for log in ('', 'Ran 3 tests in 0.1s\nOK\n', 'Ran 3 tests in 0.1s\nOK (skipped=1)\n'):
+                with self.subTest(owner=owner, log=log): self.reject_log(owner, log)
+
+    def test_serialization_native_markers_and_guards_exact(self):
+        owner = 'SideStore-preservation-serialization'
+        log = self.value['parts']['swift']['logs'][owner]
+        for marker in (*C.SERIALIZATION_MARKERS, '25 serialization source guards passed; Swift/device not executed'):
+            for count in (0, 2):
+                with self.subTest(marker=marker, count=count): self.reject_log(owner, log.replace(marker+'\n', (marker+'\n')*count))
+        self.reject_log(owner, log+'Ran 1 test in 0.1s\nOK\n')
+
+    def test_outcome_and_postdispatch_bridge_completion_exact(self):
+        for owner, marker in [('SideStore-preservation-outcome','PASS 7 actual outcome cases and SS-to-LC wire'), ('SideStore-refresh-failure','PRESERVATION_POSTDISPATCH_REAL_BRIDGE_PASS')]:
+            log = self.value['parts']['swift']['logs'][owner]
+            for count in (0, 2): self.reject_log(owner, log.replace(marker+'\n',(marker+'\n')*count))
+
+    def test_wire_result_cases_claims_and_source_seal_exact(self):
+        owner = 'LiveContainer-postdispatch-wire'
+        log = self.value['parts']['swift']['logs'][owner]
+        row = json.loads(next(x for x in log.splitlines() if x.startswith('{')))
+        header = log[:log.index('{')]
+        self.reject_log(owner, log+json.dumps(row)+'\n')
+        for key, value in [('status','STATIC_PASS'),('cases',list(reversed(C.POSTDISPATCH_CASES))),('cases',list(C.POSTDISPATCH_CASES[:1])),('device_executed',True),('network_executed',True),('inputs',{}),('extra','unowned')]:
+            changed = copy.deepcopy(row); changed[key] = value
+            self.reject_log(owner, header+json.dumps(changed)+'\n')
+        for key in C.POSTDISPATCH_INPUTS:
+            changed = copy.deepcopy(row); changed['inputs'].pop(key)
+            self.reject_log(owner, header+json.dumps(changed)+'\n')
+            changed = copy.deepcopy(row); changed['inputs'][key] = 'e'*64
+            self.reject_log(owner, header+json.dumps(changed)+'\n')
+
+    def test_serialization_source_receipt_cannot_claim_native_or_change_hash(self):
+        owner = 'SideStore-preservation-serialization'
+        log = self.value['parts']['swift']['logs'][owner]
+        row = json.loads(next(x for x in log.splitlines() if x.startswith('{')))
+        header = log[:log.index('{')]
+        for key,value in [('source_guard_count',24),('source_guard_count',True),('swift_executed',True),('device_executed',True),('inputs',{}),('generated_sha256','invalid')]:
+            changed = copy.deepcopy(row); changed[key] = value
+            self.reject_log(owner, header+json.dumps(changed)+'\n')
+        for key in C.SERIALIZATION_INPUTS:
+            changed = copy.deepcopy(row); changed['inputs'][key] = 'e'*64
+            self.reject_log(owner, header+json.dumps(changed)+'\n')
+
+    def test_all_host_runtime_cases_required(self):
+        owner='LiveContainer'; log=self.value['parts']['swift']['logs'][owner]
+        self.assertGreaterEqual(len(C.LC_TRUTH_CASES),9)
+        for name in C.LC_TRUTH_CASES:
+            self.reject_log(owner,log.replace('PASS '+name+'\n',''))
+
+    def test_all_suite_python_counts_match_reviewed_source_inventory(self):
+        # Independently enumerated by AST audit of every actual suite entrypoint.
+        # Shell entries execute their sibling test_contract.py explicitly; the
+        # serialization argparse runner must never fabricate a unittest count.
+        expected = {
+            'LiveContainer':6, 'LiveContainer-postdispatch-wire':2,
+            'LiveContainer-observations':5, 'LiveContainer-legacy':4,
+            'SideStore':8, 'SideStore-preservation':5,
+            'SideStore-preservation-origin':5, 'SideStore-preservation-der':6,
+            'SideStore-preservation-outcome':3,
+            'SideStore-preservation-serialization':None,
+            'SideStore-reuse-lifecycle':7, 'SideStore-refresh-failure':6,
+            'SideStore-direct':4, 'SideStore-legacy-hooks':4,
+            'SideStore-legacy-coordinator':4, 'SideStore/Dependencies/minimuxer':6,
+        }
+        self.assertEqual({key:spec[1] for key,spec in C.SUITES.items()},expected)
+        for owner in ('SideStore-preservation','SideStore-preservation-origin'):
+            log=self.value['parts']['swift']['logs'][owner]
+            C.suite_tests(owner,log)
+            self.reject_log(owner,log.replace('Ran 5 tests','Ran 4 tests'))
+
+    def test_successor_inventory_remains_exact_and_source_owned(self):
+        self.assertEqual((len(C.PRESERVATION_POLICY_CASES),len(C.PRESERVATION_INTEGRATION_CASES),len(C.ORIGIN_TRANSPORT_CASES)),(55,80,58))
+        for key in C.POSTDISPATCH_INPUTS:
+            self.assertIn(key,{o+'/'+p for o,paths in C.INPUTS.items() for p in paths})
+        for key in C.SERIALIZATION_INPUTS: self.assertIn(key,C.INPUTS['SideStore'])
+        self.assertIsNone(C.SUITES['SideStore-preservation-serialization'][1])
+
+    def test_workflows_run_rejection_controls(self):
+        root=Path(__file__).resolve().parents[2]
+        for name in ('cold-vpn-native','cold-vpn-preflight','refresh-truth-preflight'):
+            self.assertIn('python3 -B harness/ci/issues-native/test_preservation_native_qualification.py',(root/'.github/workflows'/f'{name}.yml').read_text())
+        runner=(root/'ci/refresh-truth/run.py').read_text()
+        for key in ('V3_REQUIRE_SWIFT','V3_HOST_SOURCE_ROOT','V3_SIDESTORE_SOURCE_ROOT'): self.assertIn(key,runner)
+
+
+if __name__ == '__main__': unittest.main(verbosity=2)
