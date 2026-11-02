@@ -13,6 +13,16 @@ KEYS = ('ENABLE_CODE_COVERAGE', 'CLANG_ENABLE_CODE_COVERAGE', 'CLANG_COVERAGE_MA
         'SWIFT_OPTIMIZATION_LEVEL', 'DEBUG_INFORMATION_FORMAT', 'ENABLE_TESTABILITY')
 FLAGS = re.compile(r'(?<![\w-])(?:-fprofile-instr-generate|-fcoverage-mapping|-profile-generate|-profile-coverage-mapping|-fprofile-arcs|-ftest-coverage)(?=[\s=\x27\x22]|$)')
 
+# Fixture-only URLProtocol injection must never enter effective Release settings
+# or actual app compiler commands. Reject exact macro in attached/separate -D,
+# forwarded flags and active compilation conditions; no fixture log is an input.
+FORBIDDEN_TEST_MACROS=('SIDESIGN_PROFILE_TRANSPORT_TESTING',)
+def reject_test_macros(text):
+    for name in FORBIDDEN_TEST_MACROS:
+        if re.search(r'(?<![A-Za-z0-9_])'+re.escape(name)+r'(?![A-Za-z0-9_])',text) or ('-D'+name) in text:
+            raise ValueError('Test-only transport macro in Release compilation: '+name)
+
+
 def canonical_row(row):
     # Includes all original settings and identity metadata, not just our whitelist.
     return json.dumps(row, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False).encode('utf-8')
@@ -25,6 +35,7 @@ def settings(rows, require_support_size=False):
     originals = {}
     for row in rows:
         values = row['buildSettings']
+        reject_test_macros(json.dumps(values,sort_keys=True))
         if values.get('CONFIGURATION') != 'Release':
             raise ValueError('Not Release settings')
         if values.get('ENABLE_CODE_COVERAGE') != 'NO':
@@ -90,6 +101,7 @@ def support_commands(text):
 
 def build_log(data, require_support_size=False):
     text = data.decode('utf-8', errors='strict')
+    reject_test_macros(text)
     support = support_commands(text) if require_support_size else None
     if '** BUILD SUCCEEDED **' not in text or (support is None and not re.search(r'/(?:swiftc|clang(?:\+\+)?)\s', text)):
         raise ValueError('Missing successful actual native compiler log')

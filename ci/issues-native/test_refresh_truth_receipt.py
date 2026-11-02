@@ -13,11 +13,12 @@ def fixture():
   logs={o:('\nRan '+str(n)+' tests in 0.123s\n\nOK\n' if n is not None else '') for o,(_,n) in C.SUITES.items()} if kind=='swift' else {'idevice':'\n'.join('test '+name+' ... ok' for name in C.RUST_CASES)+'\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'}
   parts[kind]={'schema':C.SCHEMA+'-part','kind':kind,'status':'PASS','identity':identity,'source_graph':graph,'source':source,'logs':logs,'compiler':{'path_sha256':'e'*64,'version':'synthetic compiler model'},'physical_device_execution':False}
   if kind=='swift':
+   logs['SideStore-preservation-origin']+=json.dumps({'schema':'preservation-origin-transport-v1','status':'PASS','cases':list(C.ORIGIN_TRANSPORT_CASES),'network_executed':False,'platform_tls_executed':False,'cms_verified':False,'device_executed':False})+'\n'+json.dumps({'schema':'preservation-origin-visibility-v1','status':'PASS','cases':list(C.ORIGIN_VISIBILITY_CASES),'device_executed':False})+'\n'
    logs['SideStore-preservation-der']+=json.dumps({'schema':'preservation-der-parser-v1','status':'PASS','cases':list(C.PRESERVATION_DER_CASES),'cms_verified':False,'device_executed':False})+'\n'
    logs['SideStore-preservation']+=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.PRESERVATION_INTEGRATION_CASES)])
    logs['SideStore-reuse-lifecycle']+='\n'.join(C.REUSE_LIFECYCLE_MARKERS)+'\n'
    logs['SideStore-reuse-lifecycle']+=json.dumps({'schema':'reuse-main-producer-consumer-v1','status':'PASS','cases':list(C.REUSE_PRODUCER_CONSUMER_CASES),'device_executed':False})+'\n'
-  if kind=='swift':parts[kind]['logs']['SideStore-refresh-failure']+='CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\n'
+  if kind=='swift':parts[kind]['logs']['SideStore-refresh-failure']+='CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\nAPPLE_PROFILE_ORIGIN_REAL_SIGNING_BRIDGE_PASS\n'
   if kind=='swift':parts[kind]['logs']['LiveContainer-observations']+='\n'.join('PASS '+name for name in C.OBSERVATION_CASES)+'\nREFRESH_OBSERVATIONS_PASS\n'
   if kind=='swift':
    for owner,(schema,cases) in C.LEGACY_NATIVE.items():parts[kind]['logs'][owner]+=json.dumps({'schema':schema,'status':'PASS','cases':list(cases)})+'\n'
@@ -32,6 +33,33 @@ class ReceiptTests(unittest.TestCase):
   v=copy.deepcopy(self.value);change(v)
   if rehash:v['part_sha256']={k:C.digest(p) for k,p in v['parts'].items()}
   with self.assertRaises((ValueError,TypeError,KeyError)):self.verify(v)
+ def test_origin_transport_visibility_records_and_claims_exact(self):
+  owner='SideStore-preservation-origin';original=self.value['parts']['swift']['logs'][owner]
+  self.assertEqual(C.SUITES[owner],('tests/preservation_origin/run.sh',4));self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
+  self.assertEqual(len(C.ORIGIN_TRANSPORT_CASES),58);self.assertEqual(len(C.ORIGIN_VISIBILITY_CASES),3)
+  self.assertEqual(len(C.PRESERVATION_INTEGRATION_CASES),64)
+  self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
+  header=original[:original.index('{')];records=[json.loads(x) for x in original.splitlines() if x.startswith('{')]
+  for index,row in enumerate(records):
+   for field,value in [('status','STATIC_PASS'),('device_executed',True),('cases',row['cases'][1:]),('cases',list(reversed(row['cases']))),('cases',row['cases']+[row['cases'][0]]),('unexpected','private')]+([(k,True) for k in ('network_executed','platform_tls_executed','cms_verified')] if index==0 else []):
+    changed=copy.deepcopy(records);changed[index][field]=value
+    bad=header+''.join(json.dumps(r)+'\n' for r in changed)
+    with self.subTest(index=index,field=field):self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+  for changed in (records[:1],records+records[:1],list(reversed(records))):
+   bad=header+''.join(json.dumps(r)+'\n' for r in changed)
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+  for case in C.ORIGIN_TRANSPORT_CASES:
+   bad=original.replace('"'+case+'",','',1)
+   if bad==original:bad=original.replace(', "'+case+'"','',1)
+   with self.subTest(case=case):self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+ def test_origin_source_and_bridge_marker_mandatory(self):
+  paths={'SideStore':('SideStore/Core/Auth/DeveloperPortalProxy.swift','tests/preservation_refresh/OriginAdapterCases.swift','tests/preservation_origin/run.sh','tests/preservation_origin/generate_fixture.py','tests/preservation_origin/SDKDoubles.swift','tests/preservation_origin/TransportCases.swift','tests/preservation_origin/expected-cases.json','tests/preservation_origin/test_contract.py'),'SideStore/Dependencies/SideSign':('Sources/DeveloperPortal/AppleProfileOperation.swift','Sources/Models/DeveloperPortalResponses.swift','Sources/Models/ProvisioningProfile.swift')}
+  for owner,files in paths.items():
+   for path in files:
+    self.assertIn(path,C.INPUTS[owner])
+    self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop(owner+'/'+path))
+  marker='APPLE_PROFILE_ORIGIN_REAL_SIGNING_BRIDGE_PASS\n';owner='SideStore-refresh-failure'
+  for count in (0,2):self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,v['parts']['swift']['logs'][owner].replace(marker,marker*count)))
  def test_der_parser_native_exact_result_and_claims(self):
   owner='SideStore-preservation-der'
   self.assertEqual(C.SUITES[owner],('tests/preservation_der/run.sh',6))
@@ -56,7 +84,7 @@ class ReceiptTests(unittest.TestCase):
  def test_observation_native_suite_is_mandatory(self):
   self.assertEqual(C.SUITE_OWNERS['LiveContainer-observations'],'LiveContainer')
   self.assertEqual(C.SUITES['LiveContainer-observations'],('.ci/refresh-observations/test_refresh_observations.py',5))
-  self.assertEqual(len(C.OBSERVATION_CASES),162)
+  self.assertEqual(len(C.OBSERVATION_CASES),189)
   self.reject(lambda v:v['parts']['swift']['logs'].pop('LiveContainer-observations'))
   for replacement in ('Ran 3 tests in 0.1s\nOK (skipped=1)\n','Ran 3 tests in 0.1s\nOK\n'):
    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',replacement))
@@ -160,7 +188,7 @@ class ReceiptTests(unittest.TestCase):
     log=header+'\n'.join(json.dumps(row) for row in altered)+'\n'
     self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('SideStore-preservation',log))
  def test_preservation_exact_production_and_fixture_inputs_are_bound(self):
-  self.assertEqual(len(C.PRESERVATION_INTEGRATION_CASES),45)
+  self.assertEqual(len(C.PRESERVATION_INTEGRATION_CASES),64)
   for path in ('SideStore/Core/Operations/PipelineOperations/CacheResignedMetadataOperation.swift','tests/preservation_refresh/run.sh','tests/preservation_refresh/generate_fixture.py','tests/preservation_refresh/expected-cases.json','tests/preservation_refresh/test_contract.py','tests/preservation_refresh/AuthenticatedAdapterCases.swift','tests/preservation_refresh/PolicyCases.swift','tests/preservation_refresh/IntegrationCases.swift','tests/preservation_refresh/BoundaryDoubles.swift','tests/reuse_main/run.sh','tests/reuse_main/Lifecycle.swift'):
    self.assertIn(path,C.INPUTS['SideStore'])
    self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
