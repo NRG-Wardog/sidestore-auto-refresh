@@ -5,6 +5,13 @@ from test_sweep import sample
 from zip32 import parse
 ROOT=pathlib.Path(__file__).resolve().parent
 class AuditControls(unittest.TestCase):
+    def test_measured_exception_binds_complete_current_manifest(self):
+        from contract import manifest
+        self.assertEqual(CLOSEST_NATIVE_INPUT,manifest(ROOT/'input-manifest.json'))
+    def test_previous_delivered_candidate_cannot_use_current_bound(self):
+        previous={'schema': 'cold-vpn-green-native-input-v1', 'run_id': 41441341176, 'run_attempt': 1, 'commit': '0ce0b994e8be93e004a8777dad12846a6b6c97a9', 'artifact_id': 13143497473, 'artifact_bytes': 26753225, 'artifact_sha256': '5f018b617ea8fde6407b31f7307fefed9a08401f41ea327d595603193dbce65d', 'ipa_bytes': 25028009, 'ipa_sha256': 'a8eab0e4f8610b50e26cc9ecc0b6b28be40e931e38b7164a7dba718775ad48a4', 'entries': 274}
+        with self.assertRaisesRegex(ValueError,'closest-result native input differs'):
+            verify_size_acceptance(previous,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
     def test_standard_size_target_remains_strict_for_other_candidates(self):
         unknown=dict(CLOSEST_NATIVE_INPUT,commit='a'*40)
         self.assertTrue(verify_size_acceptance(unknown,24000000,'a'*64,True)['target_met'])
@@ -12,7 +19,7 @@ class AuditControls(unittest.TestCase):
         with self.assertRaises(ValueError):verify_size_acceptance(unknown,24000001,'a'*64,True)
     def test_exact_closest_candidate_reports_target_not_met(self):
         accepted=verify_size_acceptance(CLOSEST_NATIVE_INPUT,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
-        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],346034)
+        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],348757)
         self.assertEqual(accepted['policy'],'exact_reviewed_candidate_measured_upper_bound')
     def test_closest_candidate_rejects_any_input_or_output_drift(self):
         for key,value in CLOSEST_NATIVE_INPUT.items():

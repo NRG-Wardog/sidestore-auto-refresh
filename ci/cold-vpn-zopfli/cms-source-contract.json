@@ -60,7 +60,7 @@
     "oversized_input_rejected"
   ],
   "host_recipe_sha256": "75a13eff9684760719f37b6a9598bb901e1eee2a91b81ca40fb08137a408f136",
-  "native_builder": "0ce0b994e8be93e004a8777dad12846a6b6c97a9",
+  "native_builder": "ea7d7fed1a5a5751dbaa71a919e688a322d694c9",
   "native_cms_helper_sha256": "7faa046c8fe1f5eb01029fa5afec2a50de5f86ea8d5090c2d8a2440da2ec1b5d",
   "openssl": {
     "checked_on": "2026-10-25",
@@ -75,8 +75,8 @@
   },
   "owners": {
     "SideStore": {
-      "commit": "f60d560bd6b12a9556f67762893f1168608f97e7",
-      "tree": "54cd1210eaac953b53e6c9951ef38bf6d37bcd97"
+      "commit": "e28b3eb7d7ceb6ad564c7ea9a1dabc66c986369f",
+      "tree": "ea0d3b237fcae23b396d61db27af5f82f7d495d7"
     },
     "SideStore/Dependencies/minimuxer": {
       "commit": "49c430dc46d87a330b45fa07d467b821983ccbfd",
@@ -124,7 +124,7 @@
     "SideStore/Dependencies/minimuxer/TestsCMS/expected-cases.json": "f832ea489e3586000159ea18a2606c03d81b395e40197eb110d49790d8201fa6",
     "SideStore/Dependencies/minimuxer/TestsCMS/run_native.py": "c17ace228025fb03fcd984fed720be9416267c97c419d351514db021ed347178",
     "SideStore/Dependencies/minimuxer/TestsCMS/verify_profile_cms.c": "fdec9d31c892c70da5940d2e9b7405aa6e5390824ac2784a5bebcf25c9d8e319",
-    "SideStore/SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift": "739450970cbcc24b5706066a49d62aec1909c6f7f19bb73968d0cb87a5c57712",
+    "SideStore/SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift": "d10c97c4b2e4bf3b053e1b5098fb2fb9bc8c0098008ff43863571880e4e90ae9",
     "SideStore/tests/preservation_der/PublicCases.swift": "22a6f4063fa93a96337a0e0d3f989581e1080c7e6589b331cf1c9ee3fd07b9d4",
     "SideStore/tests/preservation_der/expected-cases.json": "5007335df5407b4c9b9d1d931bb4901f15ac166af219d460fdf376920ed32991",
     "SideStore/tests/preservation_der/fetch_public_fixtures.py": "a591526d14c3b69931cfc577acabed9b90c20054909e731ff37bff79e9ef9ad3",
