@@ -19,7 +19,8 @@ from cold_vpn_cache_projection import PATH as COLD_VPN_CACHE_INPUT, TRUTH_PATH a
 from transport_observation_cache_projection import PATH as OBSERVATION_CACHE_INPUT
 from legacy_replacement_cache_projection import PATH as LEGACY_CACHE_INPUT, STAGE as LEGACY_STAGE_INPUT
 from preservation_cache_projection import PATH as PRESERVATION_CACHE_INPUT, INSTALL as PRESERVATION_INSTALL_INPUT
-from profile_transaction_cache_projection import PATH as TRANSACTION_CACHE_INPUT, add as add_cold_vpn_cache
+from profile_transaction_cache_projection import PATH as TRANSACTION_CACHE_INPUT
+from progress_owner_cache_projection import PATH as PROGRESS_CACHE_INPUT, add as add_cold_vpn_cache
 import preservation_host_projection as preservation_host
 import observed_constraints_localization_projection as preservation_localization
 from russian_pairing_projection import add as add_russian_pairing
@@ -94,7 +95,7 @@ def sha(data):
 def project(contract, graph, sources, additional_inputs=()):
     result = copy.deepcopy(contract)
     changes = {}
-    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, OBSERVATION_KEY_MANIFEST, TRUTH_CACHE_INPUT, OBSERVATION_CACHE_INPUT, CLASSIFIER_DEPENDENCY_TEST, LEGACY_RISK_KEY_MANIFEST, LEGACY_CACHE_INPUT, LEGACY_STAGE_INPUT, PRESERVATION_CACHE_INPUT, PRESERVATION_INSTALL_INPUT, TRANSACTION_CACHE_INPUT, preservation_localization.INVENTORY_TEST}
+    allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, OBSERVATION_KEY_MANIFEST, TRUTH_CACHE_INPUT, OBSERVATION_CACHE_INPUT, CLASSIFIER_DEPENDENCY_TEST, LEGACY_RISK_KEY_MANIFEST, LEGACY_CACHE_INPUT, LEGACY_STAGE_INPUT, PRESERVATION_CACHE_INPUT, PRESERVATION_INSTALL_INPUT, TRANSACTION_CACHE_INPUT, PROGRESS_CACHE_INPUT, preservation_localization.INVENTORY_TEST}
     require(set(additional_inputs) <= allowed, 'unreviewed additive contract input')
     inputs = dict(contract['input_sha256'])
     for path in additional_inputs:
@@ -144,6 +145,8 @@ def contracts(sources, output, verify=False):
         if observations and name == "setup-state-recovery-contract.json": additional_inputs = additional_inputs + (OBSERVATION_KEY_MANIFEST,)
         if preservation_localization.INVENTORY_TEST.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
             additional_inputs = additional_inputs + (preservation_localization.INVENTORY_TEST,)
+        if name == 'setup-state-recovery-contract.json' and PROGRESS_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
+            additional_inputs = additional_inputs + (PROGRESS_CACHE_INPUT,)
         if name == 'setup-state-recovery-contract.json' and TRANSACTION_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):
             additional_inputs = additional_inputs + (TRANSACTION_CACHE_INPUT,)
         if name == 'setup-state-recovery-contract.json' and PRESERVATION_CACHE_INPUT.removeprefix('SideStore/') in graph['reviewed_deltas'].get('SideStore', {}).get('files', {}):

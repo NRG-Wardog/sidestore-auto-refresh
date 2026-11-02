@@ -120,6 +120,7 @@ jobs:
           python3 -B harness/ci/issues-native/test_preservation_localization_projection.py
           python3 -B harness/ci/issues-native/test_observed_constraints_localization_projection.py
           python3 -B harness/ci/issues-native/test_profile_transaction_cache_projection.py
+          python3 -B harness/ci/issues-native/test_progress_owner_cache_projection.py
           python3 -B harness/ci/issues-native/test_preservation_native_qualification.py
           python3 -B sources/LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py
           python3 -B harness/ci/issues-native/project_candidate_contracts.py

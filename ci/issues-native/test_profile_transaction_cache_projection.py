@@ -37,8 +37,8 @@ class ProfileTransaction(unittest.TestCase):
   p.verify_proof(self.old.proof(),p.add(old))
  def test_registered_current_routes_and_controls(self):
   here=Path(__file__).resolve().parent
-  self.assertIn('from profile_transaction_cache_projection import PATH as TRANSACTION_CACHE_INPUT, add as add_cold_vpn_cache',(here/'project_candidate_contracts.py').read_text())
-  self.assertIn('from profile_transaction_cache_projection import inputs as cold_cache_inputs',(here/'verify_setup_state_recovery.py').read_text())
+  self.assertIn('from profile_transaction_cache_projection import PATH as TRANSACTION_CACHE_INPUT',(here/'project_candidate_contracts.py').read_text())
+  self.assertIn('from progress_owner_cache_projection import inputs as cold_cache_inputs',(here/'verify_setup_state_recovery.py').read_text())
   self.assertEqual(p.prior.RUNNER_SHA,'af4766d57bfec9c72ff16d93127bfd1ac2a42a7efc2b67acfc648e17ff2d7348')
   for name in ('refresh-truth-preflight','cold-vpn-preflight','cold-vpn-native'):
    self.assertEqual((here.parents[1]/'.github/workflows'/f'{name}.yml').read_text().count('python3 -B harness/ci/issues-native/test_profile_transaction_cache_projection.py'),1)

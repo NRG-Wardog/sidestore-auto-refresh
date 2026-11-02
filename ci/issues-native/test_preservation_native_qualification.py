@@ -3,6 +3,9 @@ import copy
 import json
 from pathlib import Path
 import unittest
+import subprocess
+import sys
+import tempfile
 import refresh_truth_receipt as C
 from test_refresh_truth_receipt import fixture
 
@@ -26,10 +29,47 @@ class NativeQualificationControls(unittest.TestCase):
     def test_serialization_native_markers_and_guards_exact(self):
         owner = 'SideStore-preservation-serialization'
         log = self.value['parts']['swift']['logs'][owner]
-        for marker in (*C.SERIALIZATION_MARKERS, '25 serialization source guards passed; Swift/device not executed'):
+        for marker in (*C.SERIALIZATION_MARKERS, '37 serialization source guards passed; Swift/device not executed'):
             for count in (0, 2):
                 with self.subTest(marker=marker, count=count): self.reject_log(owner, log.replace(marker+'\n', (marker+'\n')*count))
         self.reject_log(owner, log+'Ran 1 test in 0.1s\nOK\n')
+
+    def test_actual_serialization_generator_receipt_closure(self):
+        # These workflow controls run after exact source acquisition. Local
+        # reviewed worktrees use SS; native workflows use sources/SideStore.
+        harness = Path(__file__).resolve().parents[2]
+        roots = (harness.parent/'sources'/'SideStore', harness.parent/'SS')
+        source = next((p for p in roots if (p/'tests/preservation_serialization/generate_fixture.py').is_file()), None)
+        self.assertIsNotNone(source, 'actual acquired SideStore generator is required')
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run([sys.executable, '-B', str(source/'tests/preservation_serialization/generate_fixture.py'), '--repo', str(source), '--out', tmp], check=True, capture_output=True, text=True)
+            row = json.loads((Path(tmp)/'sources.json').read_text())
+            self.assertEqual(set(row['inputs']), set(C.SERIALIZATION_INPUTS))
+            self.assertEqual(row['source_guard_count'], 37)
+            for path, digest in row['inputs'].items():
+                self.assertEqual(C.sha(source/path), digest)
+            self.assertEqual(C.sha(Path(tmp)/'preservation-serialization.swift'), row['generated_sha256'])
+            # Synthetic markers exercise portable validation only. The source
+            # generator explicitly reports no Swift or device execution.
+            log = '37 serialization source guards passed; Swift/device not executed\n'+json.dumps(row)+'\n'+'\n'.join(C.SERIALIZATION_MARKERS)+'\n'
+            C.suite_tests('SideStore-preservation-serialization', log)
+            for omitted in ('tests/preservation_serialization/generate_fixture.py','tests/preservation_serialization/test_contract.py'):
+                bad = copy.deepcopy(row); bad['inputs'].pop(omitted)
+                with self.assertRaisesRegex(ValueError, 'source input closure'):
+                    C.suite_tests('SideStore-preservation-serialization', log.replace(json.dumps(row), json.dumps(bad)))
+
+    def test_prior_serialization_inventory_cannot_claim_success(self):
+        owner = 'SideStore-preservation-serialization'
+        log = self.value['parts']['swift']['logs'][owner]
+        self.assertEqual(len(C.SERIALIZATION_MARKERS), 13)
+        for marker in C.SERIALIZATION_MARKERS:
+            if marker.startswith('PASS_composed_preentry_'):
+                log = log.replace(marker+'\n', '')
+        log = log.replace('37 serialization source guards passed', '25 serialization source guards passed')
+        row = json.loads(next(x for x in log.splitlines() if x.startswith('{')))
+        old = json.dumps(row); row['source_guard_count'] = 25
+        log = log.replace(old, json.dumps(row))
+        self.reject_log(owner, log)
 
     def test_outcome_and_postdispatch_bridge_completion_exact(self):
         for owner, marker in [('SideStore-preservation-outcome','PASS 7 actual outcome cases and SS-to-LC wire'), ('SideStore-refresh-failure','PRESERVATION_POSTDISPATCH_REAL_BRIDGE_PASS')]:
@@ -56,7 +96,7 @@ class NativeQualificationControls(unittest.TestCase):
         log = self.value['parts']['swift']['logs'][owner]
         row = json.loads(next(x for x in log.splitlines() if x.startswith('{')))
         header = log[:log.index('{')]
-        for key,value in [('source_guard_count',24),('source_guard_count',True),('swift_executed',True),('device_executed',True),('inputs',{}),('generated_sha256','invalid')]:
+        for key,value in [('source_guard_count',25),('source_guard_count',36),('source_guard_count',True),('swift_executed',True),('device_executed',True),('inputs',{}),('generated_sha256','invalid')]:
             changed = copy.deepcopy(row); changed[key] = value
             self.reject_log(owner, header+json.dumps(changed)+'\n')
         for key in C.SERIALIZATION_INPUTS:

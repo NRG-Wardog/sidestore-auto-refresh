@@ -20,8 +20,8 @@ def fixture():
    logs['SideStore-reuse-lifecycle']+=json.dumps({'schema':'reuse-main-producer-consumer-v1','status':'PASS','cases':list(C.REUSE_PRODUCER_CONSUMER_CASES),'device_executed':False})+'\n'
   if kind=='swift':
    logs['LiveContainer']+='\n'.join('PASS '+name for name in C.LC_TRUTH_CASES)+'\nREFRESH_TRUTH_RUNTIME_PASS\n'
-   logs['SideStore-preservation-serialization']='25 serialization source guards passed; Swift/device not executed\n'+'\n'.join(C.SERIALIZATION_MARKERS)+'\n'
-   logs['SideStore-preservation-serialization']+=json.dumps({'source_guard_count':25,'swift_executed':False,'device_executed':False,'inputs':{key:'d'*64 for key in C.SERIALIZATION_INPUTS},'generated_sha256':'f'*64})+'\n'
+   logs['SideStore-preservation-serialization']='37 serialization source guards passed; Swift/device not executed\n'+'\n'.join(C.SERIALIZATION_MARKERS)+'\n'
+   logs['SideStore-preservation-serialization']+=json.dumps({'source_guard_count':37,'swift_executed':False,'device_executed':False,'inputs':{key:'d'*64 for key in C.SERIALIZATION_INPUTS},'generated_sha256':'f'*64})+'\n'
    logs['SideStore-preservation-outcome']+='PASS 7 actual outcome cases and SS-to-LC wire\n'
    logs['LiveContainer-postdispatch-wire']+=json.dumps({'schema':'ss-lc-postdispatch-wire-v1','status':'PASS','cases':list(C.POSTDISPATCH_CASES),'device_executed':False,'network_executed':False,'inputs':{key:'d'*64 for key in C.POSTDISPATCH_INPUTS}})+'\n'
   if kind=='swift':parts[kind]['logs']['SideStore-refresh-failure']+='CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\nAPPLE_PROFILE_ORIGIN_REAL_SIGNING_BRIDGE_PASS\nPRESERVATION_POSTDISPATCH_REAL_BRIDGE_PASS\n'
