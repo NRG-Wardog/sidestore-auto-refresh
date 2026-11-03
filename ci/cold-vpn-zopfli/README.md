@@ -1,63 +1,52 @@
-# Bounded lossless packaging for observed profile constraints
+# Bounded lossless packaging for owned-provider login
 
-Exact native run `41521418679`, attempt `2`, builder
-`ea7d7fed1a5a5751dbaa71a919e688a322d694c9` passed; focused `41519534294` passed.
-The complete input manifest binds the official archive and 25,028,830-byte IPA.
-Both app builds passed. Native cases include policy 55, integration 80, decoder 59,
-observations 189, nonce 7 and legacy 81. Mandatory serialization runs 37 source
-guards and 13 native cases; outcome 7 and two executable SS-to-LC wire cases also
-passed. These are isolated production-source tests, not an owner-device trial.
-Exact same-run OpenSSL 3.5.9 passed C 58 and public Swift 24. Public profiles were
-only temporary test inputs and are not retained in the delivery.
+Exact native run `41656076254`, attempt `2`, builder
+`bfe6432d9eeb23dffa60ff9e550e0f15fe14171e` passed; focused `41654009382` passed.
+The complete input manifest binds the official archive and 25,028,780-byte IPA.
+Both apps compiled with corrected AnisetteKit `25fc5b5d` consumer manifest,
+locks and SideSign gitlink. Early source verification and late actual resolver
+sealing are mandatory. Historical contracts remain unchanged.
 
-Observed old-profile contents now constrain identity and authorization; they do
-not grant signer authority and do not require the old UUID to remain in the portal.
-The fresh candidate still requires its own independent exact Apple-origin evidence,
-cryptographic checks and full normalized constraint match. Generic signer allowlists,
-trust roots and platform TLS rules are unchanged. The validated path adds a fresh
-UUID and verifies every old raw profile remains unchanged in the full inventory.
-No overwrite, re-sign, replacement, pruning or OS-policy substitute is introduced.
-Actual free-account endpoint availability and Spotify/device success remain unproven.
+The production change symmetrically canonicalizes the stored library URL in the
+owned on-device provider input guard. Identity, state-directory and blob bounds
+remain enforced. No reset, stored-data deletion, trust expansion or fallback is
+introduced. Actual caller paths pass; arbitrary alias URL metadata observations
+are retained separately, not claimed as an input contract. An exact frozen
+predecessor rejection witness remains required.
 
-A process-wide operation gate prevents overlapping mutation transactions. The original
-Progress reference is retained before preflight awaits, including registry eviction or
-replacement. Installation is single-attempt: lost acknowledgement remains unknown,
-without hidden replay; post-dispatch mismatches cannot produce success or clear the
-UI uncertainty hold. Actual wrapper-to-wire-to-LC-reader tests are mandatory.
-Origin transport uses 58 isolated cases and 3 external compile-negative visibility
-checks, not real Apple network/TLS/account calls. The test transport macro is rejected
-in effective and actual Release compiler commands. All three real signing/postdispatch
-bridge markers remain mandatory; no raw profiles, certificates or private names are logged.
-Actual UIKit cleanup passed by successful shutdown and delete commands.
+Actual source boundary qualification has 34 strictly typed fields: 17 required true,
+2 required false and 15 observations. Nine owned-attempt XTests passed, including
+cached blob to actual constructor/client/C loader rejection and cleanup, with no
+account/provisioning request. The malformed-library case executes no guest instructions.
+Separate verified startup and all seven ODA suites passed. These do not prove
+owner-account authentication or device success.
 
-Local fixed 5/10/20/30 compression completed all four rounds in 302.6410 seconds:
-110 attempts per round, 440 verified streams, no timeout and no extra round.
-The measured output is 24,348,757 bytes, SHA256
-`76e92bd9a5d7edd39d3fa6c81e9489d39f38d7d08311f9a16c04f4624aaab225`,
-saving 680,073 bytes. Final CI output still requires independent payload/hash audit.
-Two workers, 2 GiB/process, 600 seconds/entry, 900 seconds aggregate; no extra rounds.
-Official Zopfli pin `df1517dd8518113a245e4d203a04b8a0e02ab493`; all 81 official
-blobs/full tree verified before compilation. Payload, signatures, raw ZIP metadata
-and nested Backup remain unchanged.
+Previous refresh safeguards remain intact. Native cases include policy 55,
+integration 80, decoder 59, observations 189 and legacy 81; serialization 37 source
+guards/13 native cases, outcome 7 and two executable SS-to-LC wire cases.
+Same-run OpenSSL 3.5.9 passed C 58/public Swift 24. Temporary public profiles are
+excluded from retained delivery. No Apple account call was performed.
 
-General target stays 24,000,000 bytes. ONLY the complete exact input manifest above
-has an explicitly reviewed measured upper bound of 24,348,757 bytes. The local
-measurement exceeds the target by 348,757 bytes; it is NOT under 24 MB. CI reruns
-the same bounded schedule; independently audited final bytes may differ but must
-remain within this exact-candidate bound. Size admission is never payload qualification:
-matching packaging CI and complete payload/signature/raw ZIP metadata, source/evidence,
-schedule and privacy audits remain mandatory. The actual final CI output SHA256 is
-independently audited and pinned before private delivery. Wrong native inputs,
-oversized results and below-bound payload/metadata tampering fail closed.
+Original top-level projection retains all 166 exact native references. A separate
+nine-file owned-ODA capsule binds the aggregate receipt to its nested receipt,
+seven logs and startup record. The unchanged reviewed native verifier is reused
+through trusted source snapshots, never artifact code. Capsule projection/admission,
+CMS admission and final independent audit are mandatory and retained.
 
-Official full evidence artifact 13183679797 is 408,865,567 bytes. Its SHA256 and all
-165 references are validated before producing a separate <=31 MiB projection.
-No archived content is executed or permissions restored; symlinks/special types/bits,
-traversal and collisions remain rejected. Original receipt bytes must match across
-both official artifacts. CMS admission binds 4 finite evidence files, 20 genuine
-source blobs, owner commits/trees, exact helper snapshot, host recipe/source/header/
-libcrypto hashes, run/attempt and 58/24 ordered cases. It is mandatory before compression
-and repeated in the final audit. Current refresh qualification separately binds all
-140 source inputs and new transaction/cancellation/outcome/wire suites. Cleanup's
-3 extra sources are hash-only inputs. No credentials, tokens, private keys or personal
-pairing/provisioning data may be delivered. Private owner-only; no public release.
+Local fixed 5/10/20/30 compression completed four rounds in 460.9793 seconds:
+110 attempts per round, 440 verified streams, no timeout or extra round.
+Measured output: 24,346,923 bytes, SHA256
+`d7dd0a5f8b1b93e96c6f2efa3d1631089351c30da183013b890b12acf56b6a68`,
+saving 681,857 bytes. Two workers, 2 GiB/process, 600 seconds/entry and 900 seconds
+aggregate remain unchanged. Official Zopfli pin
+`df1517dd8518113a245e4d203a04b8a0e02ab493`; all 81 source blobs/full tree verified.
+
+General target stays 24,000,000 bytes. ONLY this complete exact input manifest has
+measured upper bound 24,346,923 bytes. It exceeds target by 346,923 bytes, not under
+24 MB. CI repeats the same bounded schedule; audited final bytes may differ within
+this exact-candidate bound. Size admission is not payload qualification: complete
+payload/signature/raw ZIP metadata and nested backup equality, source/evidence,
+schedule and privacy audits remain mandatory. Actual final CI output SHA256 is
+independently pinned before private owner-only delivery. Wrong native inputs,
+oversize results and below-bound payload/metadata tampering are rejected separately.
+No public release or device/authentication claim.

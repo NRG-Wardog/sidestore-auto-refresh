@@ -1,0 +1,14 @@
+{
+  "files_sha256": {
+    "candidate-graph.json": "0b68b6e1147caeae7fcad6abb825568aa3424bfa990aa642497a5d2b96680938",
+    "run_owned_oda.py": "f0d1c8169debfcfeae79bae3504b0b80421c63456b65585882727272bfd58bd3",
+    "verify_candidate_graph.py": "a7684ae0f85f4ba3298418bbff906755b0b43c2b30d34303e38ec3cf51660b36"
+  },
+  "git_blobs": {
+    "candidate-graph.json": "79d80e68a4673f95d488c5deee5898306d72da17",
+    "run_owned_oda.py": "23576de088b4b4c20c0540c1d1f001527a17d7f0",
+    "verify_candidate_graph.py": "9fa4a118a42a547f0daa13f2d4612a1ebcad9d10"
+  },
+  "native_builder": "bfe6432d9eeb23dffa60ff9e550e0f15fe14171e",
+  "schema": "reviewed-owned-oda-package-contract-v1"
+}

@@ -6,10 +6,10 @@ from acquire import validate_metadata
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'ci/issues-native'))
 from recover_native_artifacts import API, sha
-EVIDENCE_ID = 13183679797
-EVIDENCE_BYTES = 408865567
-EVIDENCE_SHA = '70d3db4d8a7846623aecb5ccdc093578735157f88c3d779224d3b0b086ea9428'
-EXPECTED_COUNT = 165
+EVIDENCE_ID = 13251640762
+EVIDENCE_BYTES = 408858796
+EVIDENCE_SHA = '9774e61766bfe726bed06005a13eb52caf13c2f6fdc98a0e0d93b7630a6020d4'
+EXPECTED_COUNT = 166
 
 def validate_read_only_archive(archive):
     """Validate data indexes only; never restore archived permissions or execute entries."""
@@ -82,6 +82,8 @@ def main():
     report = project(archive, (out / 'native-receipt.json').read_bytes(), out / 'native-evidence-projection.zip', expected_sha=EVIDENCE_SHA, expected_bytes=EVIDENCE_BYTES, expected_count=EXPECTED_COUNT)
     report['native_run'] = {'run_id': m['run_id'], 'run_attempt': m['run_attempt'], 'commit': m['commit']}
     (out / 'native-evidence-projection.json').write_text(json.dumps(report, indent=2) + '\n')
+    from owned_oda_package_binding import project as project_owned_oda
+    project_owned_oda(archive, out, m, Path(__file__).resolve())
     print('Verified and projected all', report['verified_reference_count'], 'exact native evidence references')
 
 if __name__ == '__main__':
