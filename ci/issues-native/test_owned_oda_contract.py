@@ -323,34 +323,69 @@ class OwnedODAControls(unittest.TestCase):
                 self.assertEqual(list((root / 'qualification-inputs').iterdir()), [])
                 self.assertFalse(any(p.suffix in ('.zip', '.apk', '.so') for p in evidence.rglob('*')))
 
+    def exercise_boundary_failure(self, root):
+        source = root / 'sources/AnisetteKit'
+        tests = source / 'Tests/AnisetteKitTests'; tests.mkdir(parents=True)
+        (tests / 'OwnedOnDeviceAnisetteAttemptTests.swift').write_text('\n'.join('    func ' + name + '() {}' for name in oda.SWIFT_TESTS))
+        evidence = root / 'evidence/owned-oda'; evidence.mkdir(parents=True); calls = []
+        stale = ('receipt.json', 'trusted-startup.json', *(name + '.log' for name in oda.SUITES))
+        for name in stale: (evidence / name).write_text('stale success')
+        def fake_git(path, *args):
+            self.assertEqual(path, source.resolve())
+            return 'a' * 40 if args == ('rev-parse', 'HEAD') else 'b' * 40 if args == ('rev-parse', 'HEAD^{tree}') else ''
+        def fake_execute(name, command, cwd, out, timeout, rows):
+            self.assertEqual(cwd, source.resolve())
+            self.assertEqual(out, evidence.resolve())
+            calls.append(name); rows[name] = {'status': 'FAIL' if name == 'input_boundary' else 'PASS'}
+            if name == 'input_boundary':
+                self.assertTrue(all(not (out / previous).exists() for previous in stale))
+                self.assertEqual(command[-2:], ['--expect', 'pass'])
+                self.assertEqual(Path(command[-3]), source.resolve() / '.ci/owned-attempt/run_input_boundary_probe.py')
+                self.assertEqual(timeout, 180)
+            if name == 'startup': (out / 'trusted-startup.json').write_text(json.dumps(startup()))
+            return name != 'input_boundary'
+        args = ['runner', '--sources', str(root / 'sources'), '--evidence', str(evidence), '--inputs', str(root / 'qualification-inputs')]
+        with patch.object(oda.sys, 'argv', args), patch.object(oda, 'load_candidate_graph', return_value=GRAPH), \
+             patch.object(oda, 'git', side_effect=fake_git), patch.object(oda, 'download'), \
+             patch.object(oda, 'digest', return_value=oda.UNICORN_SHA), patch.object(oda, 'execute', side_effect=fake_execute), \
+             patch.object(oda, 'verify_input_boundary_sources'), \
+             patch.object(oda, 'verify_receipt', side_effect=ValueError('expected fail-closed final gate')):
+            with self.assertRaises(ValueError): oda.main()
+        self.assertEqual(calls, ['input_boundary', 'native', 'historical_engine', 'legacy', 'logging', 'swift', 'startup'])
+        receipt = json.loads((evidence / 'receipt.json').read_text())
+        self.assertFalse(receipt['all_passed'])
+        self.assertEqual(receipt['input_boundary_source_inputs'], oda.INPUT_BOUNDARY_FILES)
+        self.assertTrue(all(row['status'] == 'PASS' for name, row in receipt['suites'].items() if name != 'input_boundary'))
+        self.assertEqual(list((root / 'qualification-inputs').iterdir()), [])
+        self.assertFalse(any((evidence / (name + '.log')).exists() for name in oda.SUITES))
+
     def test_input_boundary_failure_still_collects_six_suites_but_blocks_success(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp); source = root / 'sources/AnisetteKit'
-            tests = source / 'Tests/AnisetteKitTests'; tests.mkdir(parents=True)
-            (tests / 'OwnedOnDeviceAnisetteAttemptTests.swift').write_text('\n'.join('    func ' + name + '() {}' for name in oda.SWIFT_TESTS))
-            evidence = root / 'evidence/owned-oda'; calls = []
-            def fake_git(path, *args):
-                return 'a' * 40 if args == ('rev-parse', 'HEAD') else 'b' * 40 if args == ('rev-parse', 'HEAD^{tree}') else ''
-            def fake_execute(name, command, cwd, out, timeout, rows):
-                calls.append(name); rows[name] = {'status': 'FAIL' if name == 'input_boundary' else 'PASS'}
-                if name == 'input_boundary':
-                    self.assertEqual(command[-2:], ['--expect', 'pass'])
-                    self.assertEqual(Path(command[-3]), source / '.ci/owned-attempt/run_input_boundary_probe.py')
-                    self.assertEqual(timeout, 180)
-                if name == 'startup': (out / 'trusted-startup.json').write_text(json.dumps(startup()))
-                return name != 'input_boundary'
-            args = ['runner', '--sources', str(root / 'sources'), '--evidence', str(evidence), '--inputs', str(root / 'qualification-inputs')]
-            with patch.object(oda.sys, 'argv', args), patch.object(oda, 'load_candidate_graph', return_value=GRAPH), \
-                 patch.object(oda, 'git', side_effect=fake_git), patch.object(oda, 'download'), \
-                 patch.object(oda, 'digest', return_value=oda.UNICORN_SHA), patch.object(oda, 'execute', side_effect=fake_execute), \
-                 patch.object(oda, 'verify_input_boundary_sources'), \
-                 patch.object(oda, 'verify_receipt', side_effect=ValueError('expected fail-closed final gate')):
-                with self.assertRaises(ValueError): oda.main()
-            self.assertEqual(calls, ['input_boundary', 'native', 'historical_engine', 'legacy', 'logging', 'swift', 'startup'])
-            receipt = json.loads((evidence / 'receipt.json').read_text())
-            self.assertFalse(receipt['all_passed'])
-            self.assertEqual(receipt['input_boundary_source_inputs'], oda.INPUT_BOUNDARY_FILES)
-            self.assertTrue(all(row['status'] == 'PASS' for name, row in receipt['suites'].items() if name != 'input_boundary'))
+            self.exercise_boundary_failure(Path(temp))
+
+    def test_main_canonicalizes_symlink_ancestor_and_clears_stale_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            physical = Path(temp) / 'physical'; physical.mkdir()
+            alias = Path(temp) / 'alias'; alias.symlink_to(physical, target_is_directory=True)
+            self.assertNotEqual(alias, alias.resolve())
+            self.exercise_boundary_failure(alias)
+            for relative in ('sources/AnisetteKit', 'evidence/owned-oda', 'qualification-inputs'):
+                self.assertTrue((alias / relative).is_dir())
+                self.assertFalse((alias / relative).is_symlink())
+            self.assertFalse(json.loads((physical / 'evidence/owned-oda/receipt.json').read_text())['all_passed'])
+
+    def test_main_still_rejects_symlink_qualification_root_leaves(self):
+        for leaf in ('evidence', 'inputs'):
+            with self.subTest(leaf=leaf), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp); real = root / 'real'; real.mkdir()
+                linked = root / 'linked'; linked.symlink_to(real, target_is_directory=True)
+                evidence = linked if leaf == 'evidence' else root / 'evidence'
+                inputs = linked if leaf == 'inputs' else root / 'inputs'
+                args = ['runner', '--sources', str(root / 'sources'), '--evidence', str(evidence), '--inputs', str(inputs)]
+                with patch.object(oda.sys, 'argv', args), patch.object(oda, 'load_candidate_graph') as graph, \
+                     patch.object(oda, 'execute') as execute:
+                    with self.assertRaisesRegex(ValueError, 'No symlink qualification roots'): oda.main()
+                graph.assert_not_called(); execute.assert_not_called()
 
     def test_invalid_preflight_removes_stale_success_before_any_execution(self):
         with tempfile.TemporaryDirectory() as temp:
