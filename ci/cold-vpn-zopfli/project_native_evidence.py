@@ -6,9 +6,9 @@ from acquire import validate_metadata
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'ci/issues-native'))
 from recover_native_artifacts import API, sha
-EVIDENCE_ID = 13251640762
-EVIDENCE_BYTES = 408858796
-EVIDENCE_SHA = '9774e61766bfe726bed06005a13eb52caf13c2f6fdc98a0e0d93b7630a6020d4'
+EVIDENCE_ID = 13266705416
+EVIDENCE_BYTES = 408852533
+EVIDENCE_SHA = '77ef37d92d6000a6cd653f2c633fc27dc9d2296ea237573610c789f4fa5ac3d7'
 EXPECTED_COUNT = 166
 
 def validate_read_only_archive(archive):

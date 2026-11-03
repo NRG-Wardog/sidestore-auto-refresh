@@ -1,52 +1,50 @@
-# Bounded lossless packaging for owned-provider login
+# Bounded lossless packaging for automatic provider UI
 
-Exact native run `41656076254`, attempt `2`, builder
-`bfe6432d9eeb23dffa60ff9e550e0f15fe14171e` passed; focused `41654009382` passed.
-The complete input manifest binds the official archive and 25,028,780-byte IPA.
-Both apps compiled with corrected AnisetteKit `25fc5b5d` consumer manifest,
-locks and SideSign gitlink. Early source verification and late actual resolver
-sealing are mandatory. Historical contracts remain unchanged.
+Exact native run `41699105117`, attempt `1`, builder
+`5a6ea2020a23386661b9ab5ba9a025c693ac0a66` passed; focused `41695849420` passed.
+The complete input manifest binds the official archive and 25,031,534-byte IPA.
+LiveContainer source is `1657265f999b6f394e45f23f25692349f6a505fa`.
+Other product owners, dependency locks and authentication paths are unchanged.
 
-The production change symmetrically canonicalizes the stored library URL in the
-owned on-device provider input guard. Identity, state-directory and blob bounds
-remain enforced. No reset, stored-data deletion, trust expansion or fallback is
-introduced. Actual caller paths pass; arbitrary alias URL metadata observations
-are retained separately, not claimed as an input contract. An exact frozen
-predecessor rejection witness remains required.
+Normal credential Submit already chooses Remote Mac automatically. This candidate
+makes that existing default visible and places optional provider sequencing inside
+an initially collapsed Advanced diagnostics section. An explicitly enabled manual
+sequence remains visibly identified even when collapsed. Expanding/collapsing does
+not change selection or order. No authentication header/backend change, data reset,
+new fallback or credential replay is introduced. This is not a proven fix for
+Apple's on-device `-80045` rejection, and working Remote Mac behavior is preserved.
 
-Actual source boundary qualification has 34 strictly typed fields: 17 required true,
-2 required false and 15 observations. Nine owned-attempt XTests passed, including
-cached blob to actual constructor/client/C loader rejection and cleanup, with no
-account/provisioning request. The malformed-library case executes no guest instructions.
-Separate verified startup and all seven ODA suites passed. These do not prove
-owner-account authentication or device success.
+Actual extracted prompt code passed 88 assertions, including 15 localized values.
+The compiled IPA's same 15 strings were independently compared with source.
+This is not SwiftUI rendering or owner-account/device authentication evidence.
+Mandatory issue qualification seals all 23 relevant source files before and after
+execution. Existing exact graph/consumer-lock, source and runtime gates remain.
 
-Previous refresh safeguards remain intact. Native cases include policy 55,
-integration 80, decoder 59, observations 189 and legacy 81; serialization 37 source
-guards/13 native cases, outcome 7 and two executable SS-to-LC wire cases.
-Same-run OpenSSL 3.5.9 passed C 58/public Swift 24. Temporary public profiles are
-excluded from retained delivery. No Apple account call was performed.
+Previous refresh safeguards and ODA qualification remain intact: CMS C 58/public
+Swift 24 on same-run OpenSSL 3.5.9; ODA seven suites/nine owned-attempt XTests and
+34 typed input-boundary fields. Temporary public profiles are excluded from retained
+delivery. No Apple account call was performed by this qualification.
 
-Original top-level projection retains all 166 exact native references. A separate
-nine-file owned-ODA capsule binds the aggregate receipt to its nested receipt,
-seven logs and startup record. The unchanged reviewed native verifier is reused
-through trusted source snapshots, never artifact code. Capsule projection/admission,
-CMS admission and final independent audit are mandatory and retained.
+Original top-level projection retains all 166 exact native references. The separate
+nine-file ODA capsule binds aggregate receipt, nested receipt, seven logs and startup
+record. Trusted source snapshots, CMS/ODA admission and final independent audit
+remain mandatory. The actual native audit checked 2,063 compiler-sealed files,
+274 IPA members, signature inventory and tested private-data indicators.
 
-Local fixed 5/10/20/30 compression completed four rounds in 460.9793 seconds:
+Local fixed 5/10/20/30 compression completed four rounds in 383.1536 seconds:
 110 attempts per round, 440 verified streams, no timeout or extra round.
-Measured output: 24,346,923 bytes, SHA256
-`d7dd0a5f8b1b93e96c6f2efa3d1631089351c30da183013b890b12acf56b6a68`,
-saving 681,857 bytes. Two workers, 2 GiB/process, 600 seconds/entry and 900 seconds
+Measured output: 24,348,956 bytes, SHA256
+`3b7a94b258a1fcde3b62602c5f0a142c3dd64cf0ad5e3eec4f95311d4703a522`,
+saving 682,578 bytes. Two workers, 2 GiB/process, 600 seconds/entry and 900 seconds
 aggregate remain unchanged. Official Zopfli pin
 `df1517dd8518113a245e4d203a04b8a0e02ab493`; all 81 source blobs/full tree verified.
 
 General target stays 24,000,000 bytes. ONLY this complete exact input manifest has
-measured upper bound 24,346,923 bytes. It exceeds target by 346,923 bytes, not under
-24 MB. CI repeats the same bounded schedule; audited final bytes may differ within
-this exact-candidate bound. Size admission is not payload qualification: complete
-payload/signature/raw ZIP metadata and nested backup equality, source/evidence,
+measured upper bound 24,348,956 bytes, exceeding target by 348,956 bytes.
+CI repeats the same bounded schedule; audited final bytes may differ within this
+exact-candidate bound. Size admission alone does not qualify payloads: complete
+payload/signature-byte/raw ZIP metadata and nested backup equality, source/evidence,
 schedule and privacy audits remain mandatory. Actual final CI output SHA256 is
 independently pinned before private owner-only delivery. Wrong native inputs,
 oversize results and below-bound payload/metadata tampering are rejected separately.
-No public release or device/authentication claim.
+No public release or device/authentication/Apple-trust claim.

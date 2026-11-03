@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "0fbea7120873ab40ad36505433365b7299db3c4c"
+      "1657265f999b6f394e45f23f25692349f6a505fa"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -100,7 +100,7 @@
         ".ci/comprehensive-diagnostics/test_pairing_recovery_contract.py": "b1e1ff62080b80eb0ac343581b0b682d11956000",
         ".ci/comprehensive-diagnostics/test_preservation_localization_inventory.py": "d8635d8b57e5b468fa413b72ebd477d174a34811",
         ".ci/comprehensive-diagnostics/test_refresh_failure_contract.py": "870a7dc7dfbbfe022017e43baaf91ca9bcdc921e",
-        ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "964242b3b101ab6e33e919f5abbc1bf23765f6d4",
+        ".ci/comprehensive-diagnostics/test_setup_localization_contract.py": "9bcb2386263e2caf6699116d4cb5fd87b6dcc18f",
         ".ci/early-refresh-boundaries/PROFILE-PRECONDITIONS.md": "3dd0e316ef6de9b81a8bb2c2e307970118246dd6",
         ".ci/early-refresh-boundaries/README.md": "27654d3b5e4db0b7f8df896c6438b8c3cd6471fe",
         ".ci/early-refresh-boundaries/early_cases.swift": "c1c2f4ecc19f7443f2350e120bab86fdb6939175",
@@ -156,7 +156,7 @@
         "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift": "1d471e3d70db4501a9fb6c85b9f01416b5a860cc",
         "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift": "28ce2d6621a5a9512b07da9a79f2336e4ccb36b8",
         "LiveContainerSwiftUI/Views/Settings/LCMultitaskSettingView.swift": "4edfe376cf5264f31752c515d4c89d72a56174aa",
-        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "06845f49f7dc373857d12a86e12b3c85fd484941",
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "0410ebca13a8ffe58775de53f5b4f6db5fb8c8f1",
         "MultitaskSupport/AppSceneViewController.h": "ecc9927a4ebd256346429a6dd60a7ff4c227bb6e",
         "MultitaskSupport/AppSceneViewController.m": "7f03549ff88da7c1ccc019232680612b30054e32",
         "MultitaskSupport/DecoratedAppSceneViewController.h": "a6df0d79276542f27c09dda5ef27012854b8cdfa",
@@ -167,10 +167,10 @@
         "MultitaskSupport/UIKitHooks.m": "9def2e0164f2b3d9910461206bcfffcc18035688",
         "MultitaskSupport/VirtualWindowsHostView.h": "079cb3f2bf679a3a9e96f395920448ea4902e2b3",
         "MultitaskSupport/VirtualWindowsHostView.m": "4185db73b6a1f79447af283acdb51152b6ca4938",
-        "Resources/Localizable.xcstrings": "da63ebbdc9036b0df6412c6a43c7fbd1f0d11823",
+        "Resources/Localizable.xcstrings": "3044e50de0bac68826ac901860826eaf4d0fbad1",
         "Resources/ru.lproj/InfoPlist.strings": "2b181bbb36354e981df0f4746b95eee7b030ade4",
         "SideStoreSupport/SideStore.swift": "ef6e9eb926fdeeb37a24c135a4ea6b48e90bdbd1",
-        "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "908237f851dd7b3310149a9cb8237eb5e0a7b633",
+        "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "dc2ea442d5350b9aef4195e95898d5667bc3191b",
         "docs/integration/GENERATED_OPENSSL35.md": "113c76d38fd59f03050a3faf68285585ce1ca363",
         "docs/localization/RUSSIAN_UI.md": "fa5d4fdea01507775e5eb63a3c390657904ab3e9",
         "docs/validation/P1_LAYOUT_HARDENING.md": "58ca36616e11a93cadc97988222243f1b6d2b659",
@@ -186,10 +186,11 @@
         "tests/guest_launch_diagnostics/README.md": "947495b695f98a6fe761109808a3e8db5ddbd215",
         "tests/guest_launch_diagnostics/fixture.m": "0a9139a615e1e583ce3711e6431ada4b52844280",
         "tests/provider_sequence/main.swift": "275a64df2e3de10212e6b804a021bd2397ff0b31",
+        "tests/provider_sequence/prompt_main.swift": "3726be90eff5b166ddc5f66d81f8fec04285504c",
         "tests/run_guest_launch_completion.py": "bc80779c9770e1eda5747af8194ffc684d0bcbdf",
         "tests/run_guest_launch_diagnostics.py": "2eb4c039058f187fa3642cd163f2ef1ad93cef12",
         "tests/startup_diagnostics/cases.swift": "ae3122a08cd972b538d98738e5056d5a3432752e",
-        "tests/test_diagnostic_provider_sequence.py": "59b47f64e5841c456fa4f1bba40fb17eaabf2ca0",
+        "tests/test_diagnostic_provider_sequence.py": "ad6027db3e115526d213f30a49b36a5f88350dc3",
         "tests/test_guest_host_attachment.py": "0d4fbe5fd98c56cbdf1c734f324a537d2748ca6f",
         "tests/test_guest_input_lifecycle.py": "39bf0e8c348d5da7ea5f24c08851aa51adadfa84",
         "tests/test_guest_launch_diagnostics.py": "d6b13151da858a79e12ecb8d3676a2618788c629",
@@ -204,7 +205,7 @@
         "tests/test_startup_diagnosis_card.py": "64f5d544c21d538342c988797b94c3c4da856c71",
         "tests/test_startup_diagnostics.py": "ca6d8634f460aea00ceb274d777a8fdff2ff8b49"
       },
-      "tree": "7b2cfa64942611c49b818b9ccd380781e9faf1db"
+      "tree": "c64ed9375be1ab4f30a14f78a1db973a2a1d3aba"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
