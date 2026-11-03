@@ -406,6 +406,8 @@ def acquire():
             if mode == '160000':
                 key = name + '/' + child
                 require(key in OWNERS and OWNERS[key][1] == oid, 'Unexpected child gitlink: ' + key)
+    from verify_anisette_dependency_pins import verify as verify_anisette_dependency_pins
+    write('anisette-dependency-pins.json', verify_anisette_dependency_pins(S, Path(__file__).with_name('candidate-graph.json')))
     project = (S / 'LiveContainer/LiveContainer.xcodeproj/project.pbxproj').read_text()
     require('XCRemoteSwiftPackageReference' not in project and
             re.search(r'packageReferences\s*=\s*\(\s*\);', project),

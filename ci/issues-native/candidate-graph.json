@@ -22,11 +22,11 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "e28b3eb7d7ceb6ad564c7ea9a1dabc66c986369f"
+      "244f2072a8b9a33a0c84bd8a6fde2270f61ebe82"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
-      "3455844ccf57139ea5faef23a16a1209eec5b2ba"
+      "6fe37780bc1acb5340f1db2afdd3c02ad31aa10d"
     ],
     "SideStore/Dependencies/minimuxer": [
       "NRG-Wardog/minimuxer",
@@ -229,11 +229,11 @@
         ".github/workflows/reviewed-branch-cleanup.yml": "3c84d751489af85c66ac56f934b557fc083ac6d8",
         "AGENTS.md": null,
         "AltStore.xcodeproj/project.pbxproj": "53a042b65192b1d6c2ed27926fdab69d4a09d51e",
-        "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "c0ef6619c1f9971d78c809b9df3ac0e66b72d331",
+        "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "4a24e9f29f0dac26f5c4c58d0984e0c533f6a2a9",
         "AltStore/AppDelegate.swift": "bcd9206110c36decc8427dd64d0ff4f0db9c44fa",
         "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "43667573ccd1efb2d36fb25f7a4e7f4f894d1732",
         "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "b38c58967d8296e162c55f64e7e5d29679c42fef",
-        "Dependencies/SideSign": "3455844ccf57139ea5faef23a16a1209eec5b2ba",
+        "Dependencies/SideSign": "6fe37780bc1acb5340f1db2afdd3c02ad31aa10d",
         "Dependencies/minimuxer": "49c430dc46d87a330b45fa07d467b821983ccbfd",
         "SideStore/Core/Anisette/AnisetteProvider.swift": "9899b064e45a6d8f005c000f15453b3b11730452",
         "SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift": "475c914fd4342bfdf33a8ac8d10f301e94b435e5",
@@ -360,7 +360,7 @@
         "tests/vpn_transport_recovery/generate_fixture.py": "ac0087b25c74408501b324f5e7675cfb0f884858",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "ea0d3b237fcae23b396d61db27af5f82f7d495d7"
+      "tree": "705f383835d9026ead5a146b77d81c7175f33725"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
@@ -390,8 +390,8 @@
         ".github/workflows/owned-oda-qualification.yml": "2e7abe31ed9ae57c5c9d9c1ecb92e608640b5e8c",
         ".github/workflows/reviewed-branch-cleanup.yml": "32e136f1df8c9adbb5e1f3b03cc88937bb8223cc",
         "CLI/CommandHandler.swift": "d80a9b661d5c198fa8d47c2775668aef4c730622",
-        "Package.resolved": "e6fd8dbce750ef9281c1666272f2dd0039b0f356",
-        "Package.swift": "3f1c463578f777d413c9cc9f8797c0809bd254e4",
+        "Package.resolved": "23fb9d2dd3a7747c95af641e0fa8417deea0fc05",
+        "Package.swift": "145b595340d76e366cccacd93c07fd1bb955384e",
         "Sources/Anisette/ILoaderRemoteAnisette.swift": "c4ffdc804ad6597a801406a7903592a7524dc772",
         "Sources/Anisette/ILoaderRemoteHTTPTransport.swift": "49ac64a6449efd7bf78740b475f71161c685c155",
         "Sources/Anisette/OwnedODAAuthenticationContext.swift": "997ec2581e533a5cda25ab2ba33b55cd9c68984b",
@@ -405,7 +405,7 @@
         "Sources/Models/ProvisioningProfile.swift": "d1d81ba80ecaea28bd0e97f507e9720d9198272d",
         "Tests/SideSignTests/ILoaderRemoteHTTPTransportTests.swift": "3f06fd743c9adf1e5d90636b531c76f008ae8669"
       },
-      "tree": "f45163a54e896d3fef2dbf8e601e7edb88ed23a2"
+      "tree": "2f6f8ab00a6c76abb48f72b0a84775f09df08da4"
     },
     "SideStore/Dependencies/minimuxer": {
       "baseline": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
