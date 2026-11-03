@@ -23,9 +23,9 @@
     "baseline-reproduces-missing-owned-copy-zh-Hant-Review the observed profile validity and signing setup before another action. No automatic retry will occur."
   ],
   "candidate_inputs": {
-    "LiveContainer/Resources/Localizable.xcstrings": "4d589a0367588db57cff606343bf17710f5a53fb4fd298d043d134c9b9ee125b",
+    "LiveContainer/Resources/Localizable.xcstrings": "1594460cf6298b746abf1866467af0cf637c95bbb46d1d92a8e680c3313ad530",
     "LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "154c18a26e69a8be402ff61a563f57c28991f48d1fe690a02252406a70874e36",
-    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "ee6a5d992a3b911597bf6e385993bc1bbd3dd26ceae9070574a8273d930fbd58",
+    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "3f02a1e15691ec247e127cd9d4db33e9ec3ece4f433ea4a95a3b9887273915c3",
     "LiveContainer/.ci/refresh-truth/localization_keys.json": "7f6c105a831d0f9bded2ef4c87de972d2337ba4a0e185a554e52097e707624b9"
   },
   "key_count": 186,

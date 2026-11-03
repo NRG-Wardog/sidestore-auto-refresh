@@ -77,6 +77,111 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'actual committed inputs'):
             verify_owned_receipt(value, changed)
 
+    def test_actual_prompt_suite_and_complete_source_closure_are_required(self):
+        self.assertIn(('LiveContainer', 'tests', 'test_diagnostic_provider_sequence.py'), SUITES)
+        required = {
+            'LiveContainerSwiftUI/Views/V3UnifiedShell.swift',
+            'LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift',
+            'LiveContainerSwiftUI/Utilities/V3Localization.swift',
+            'Resources/Localizable.xcstrings',
+            'tests/test_diagnostic_provider_sequence.py',
+            'tests/provider_sequence/main.swift',
+            'tests/provider_sequence/prompt_main.swift',
+        }
+        self.assertTrue(required <= set(OWNED_INPUTS['LiveContainer']))
+        value = owned_receipt()
+        provenance = {k: value[k] for k in ('source_graph', 'source_sha256')}
+        for name in sorted(required):
+            path = 'LiveContainer/' + name
+            with self.subTest(path=path):
+                changed = copy.deepcopy(value); del changed['source_sha256'][path]
+                with self.assertRaises(ValueError): verify_owned_receipt(changed, provenance)
+                changed = copy.deepcopy(value); changed['source_sha256'][path] = 'b' * 64
+                with self.assertRaisesRegex(ValueError, 'actual committed inputs'):
+                    verify_owned_receipt(changed, provenance)
+
+    def test_source_owned_wrapper_rejects_skipped_and_empty_suites(self):
+        import subprocess
+        import sys
+        from run_issue_tests import RUNNER
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'test_prompt.py'
+            for body in ('', 'import unittest\nclass Prompt(unittest.TestCase):\n'
+                         ' @unittest.skip("Swift unavailable")\n'
+                         ' def test_native(self): pass\n'):
+                path.write_text(body)
+                result = subprocess.run([sys.executable, '-B', '-c', RUNNER, temp,
+                                         path.name], capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_prompt_gate_controls_precede_native_suite_in_each_workflow(self):
+        root = Path(__file__).resolve().parents[2]
+        control = 'python3 -B harness/ci/issues-native/test_issue_receipt.py'
+        native = 'python3 -B harness/ci/issues-native/run_issue_tests.py 2>&1'
+        for name in ('issues-native.yml', 'cold-vpn-native.yml', 'refresh-truth-preflight.yml'):
+            with self.subTest(workflow=name):
+                text = (root / '.github/workflows' / name).read_text()
+                self.assertEqual(text.count(control), 1)
+                self.assertEqual(text.count(native), 1)
+                self.assertLess(text.index(control), text.index(native))
+
+    def test_prompt_compile_failure_cannot_write_aggregate_success(self):
+        import os
+        import subprocess
+        from unittest.mock import patch
+        from run_issue_tests import main
+        old = Path.cwd()
+        provenance = owned_receipt(); provenance.pop('swift_suites'); provenance.pop('target_device_execution')
+        calls = []
+        def execute(command, **kwargs):
+            calls.append(command)
+            if command[-1] == 'test_diagnostic_provider_sequence.py':
+                raise subprocess.CalledProcessError(1, command, output='prompt Swift compilation failed')
+            return subprocess.CompletedProcess(command, 0)
+        with tempfile.TemporaryDirectory() as temp:
+            try:
+                os.chdir(temp)
+                for owner, folder, pattern in SUITES:
+                    path = Path('sources') / owner / folder / pattern
+                    path.parent.mkdir(parents=True, exist_ok=True); path.write_text('synthetic fixture')
+                Path('evidence').mkdir(); Path('evidence/issue-tests.json').write_text('stale success')
+                with patch('run_issue_tests.shutil.which', return_value='/synthetic/swiftc'), \
+                     patch('run_issue_tests.collect_owned_sources', return_value=provenance) as seal, \
+                     patch('run_issue_tests.subprocess.run', side_effect=execute), \
+                     patch('run_issue_tests.run_owned_swift_suites') as owned:
+                    with self.assertRaises(subprocess.CalledProcessError): main()
+                    seal.assert_called_once_with('sources')
+                    owned.assert_not_called()
+                self.assertTrue(calls)
+                self.assertEqual(calls[-1][-1], 'test_diagnostic_provider_sequence.py')
+                self.assertFalse(Path('evidence/issue-tests.json').exists())
+            finally: os.chdir(old)
+
+    def test_prompt_inputs_must_match_before_and_after_native_execution(self):
+        import os
+        from unittest.mock import patch
+        from run_issue_tests import main
+        old = Path.cwd()
+        value = owned_receipt()
+        provenance = {k: copy.deepcopy(value[k]) for k in ('source_graph', 'source_sha256')}
+        value['source_sha256']['LiveContainer/tests/provider_sequence/prompt_main.swift'] = 'b' * 64
+        with tempfile.TemporaryDirectory() as temp:
+            try:
+                os.chdir(temp)
+                for owner, folder, pattern in SUITES:
+                    path = Path('sources') / owner / folder / pattern
+                    path.parent.mkdir(parents=True, exist_ok=True); path.write_text('synthetic fixture')
+                Path('evidence').mkdir(); Path('evidence/issue-tests.json').write_text('stale success')
+                with patch('run_issue_tests.shutil.which', return_value='/synthetic/swiftc'), \
+                     patch('run_issue_tests.collect_owned_sources', return_value=provenance) as seal, \
+                     patch('run_issue_tests.subprocess.run') as execute, \
+                     patch('run_issue_tests.run_owned_swift_suites', return_value=value):
+                    with self.assertRaisesRegex(ValueError, 'actual committed inputs'): main()
+                    seal.assert_called_once_with('sources')
+                    self.assertTrue(execute.called)
+                self.assertFalse(Path('evidence/issue-tests.json').exists())
+            finally: os.chdir(old)
+
     def test_each_script_is_bounded_and_required_marker_count_is_exact(self):
         import subprocess
         from unittest.mock import patch

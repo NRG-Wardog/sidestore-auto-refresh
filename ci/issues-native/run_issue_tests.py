@@ -52,7 +52,12 @@ OWNED_INPUTS = {
         '.ci/owned-oda/IdentityCases.swift', '.ci/owned-oda/generate_identity.py',
         '.ci/owned-oda/run.sh', '.ci/owned-oda/test_sources.py'),
     'LiveContainer': ('LiveContainerSwiftUI/Views/V3UnifiedShell.swift',
-        'Resources/Localizable.xcstrings', '.ci/owned-oda-note/test_source.py'),
+        'LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift',
+        'LiveContainerSwiftUI/Utilities/V3Localization.swift',
+        'Resources/Localizable.xcstrings', '.ci/owned-oda-note/test_source.py',
+        'tests/test_diagnostic_provider_sequence.py',
+        'tests/provider_sequence/main.swift',
+        'tests/provider_sequence/prompt_main.swift'),
 }
 
 
@@ -209,6 +214,9 @@ def main():
     Path('evidence/issue-tests.json').unlink(missing_ok=True)
     if not shutil.which('swiftc'):
         raise SystemExit('Swift compiler required; no skipped policy execution is accepted')
+    # Bind the actual prompt extraction, production policy and native fixtures
+    # before their mandatory source-owned suite executes, not only afterward.
+    owned_before = collect_owned_sources('sources')
     rows = []
     for owner, folder, pattern in SUITES:
         cwd = Path('sources') / owner
@@ -219,6 +227,7 @@ def main():
     subprocess.run(['bash', 'tests/reuse_main/run.sh'], cwd='sources/SideStore', check=True)
     subprocess.run(['bash', '.ci/reuse-main/run.sh'], cwd='sources/SideStore/Dependencies/SideSign', check=True)
     owned = run_owned_swift_suites('sources', 'evidence')
+    verify_owned_receipt(owned, owned_before)
     for pattern in HARNESS_SUITES:
         subprocess.run([sys.executable, '-B', '-c', RUNNER, 'tests', pattern], cwd='harness', check=True)
     Path('evidence/issue-tests.json').write_text(json.dumps({'suites': rows, 'owned_authentication': owned,
