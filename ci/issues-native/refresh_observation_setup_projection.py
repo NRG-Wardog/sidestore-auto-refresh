@@ -2,6 +2,7 @@
 Normalizes only reviewed cases back to the unchanged prior validator.
 """
 import copy, hashlib, json, re
+import direct_host_projection as direct_host
 from pathlib import Path
 from refresh_truth_setup_projection import variant as prior_variant
 HERE=Path(__file__).resolve().parent
@@ -30,6 +31,7 @@ def extension():
  require(all(type(h) is str and re.fullmatch('[0-9a-f]{64}',h) for h in value['candidate_inputs'].values()),'observation source digest invalid')
  return value,hashlib.sha256(data).hexdigest()
 def binding(contract,value):
+ contract=direct_host.normalize(contract)
  require(all(contract['input_sha256'].get(p)==h for p,h in value['candidate_inputs'].items()),'observation source hashes differ')
 def add(contract):
  require(TAG not in contract and prior_variant(contract)==PRIOR,'observation requires exact prior setup coverage')

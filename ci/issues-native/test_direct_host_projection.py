@@ -1,4 +1,9 @@
 import copy
+import json
+import test_preservation_localization_projection as historical
+import russian_setup_projection as russian
+import refresh_truth_setup_projection as truth
+import refresh_observation_setup_projection as observation
 import hashlib
 import unittest
 from unittest.mock import patch
@@ -12,6 +17,31 @@ class DirectHostProjectionTests(unittest.TestCase):
         before=copy.deepcopy(value);L.bind(value);self.assertEqual(value,before)
         value['input_sha256'][P.PATH]='0'*64
         with self.assertRaises(ValueError):L.bind(value)
+
+    def test_composed_russian_truth_observation_preservation_chain(self):
+        helper=historical.LocalizationSuccessor();helper.setUp();self.addCleanup(helper.doCleanups)
+        value=json.loads((historical.HERE/'setup-state-recovery-contract.json').read_text())
+        for module in (russian,truth,observation):
+            extension=module.extension()[0]
+            value['input_sha256'].update(extension['candidate_inputs'])
+        value['input_sha256'].update(L.PINS)
+        actual=P.specification()['after_sha256']
+        value['input_sha256'][P.PATH]=actual
+        before=copy.deepcopy(value)
+        composed=L.add(observation.add(truth.add(russian.add(value))))
+        self.assertEqual(value,before)
+        self.assertEqual(L.variant(composed),L.CURRENT)
+        self.assertEqual(composed['input_sha256'][P.PATH],actual)
+        self.assertEqual(len(composed['case_names']['setup-localization']),2079)
+        tampered=copy.deepcopy(composed)
+        tampered['input_sha256'][P.PATH]='0'*64
+        with self.assertRaises(ValueError):L.variant(tampered)
+        # Both the pre-preservation observation validator and final validator
+        # must accept only the exact successor, rather than masking the failure.
+        pre=observation.add(truth.add(russian.add(value)))
+        self.assertEqual(observation.variant(pre),observation.CURRENT)
+        pre['input_sha256'][P.PATH]='0'*64
+        with self.assertRaises(ValueError):observation.variant(pre)
 
     def test_inverse_proves_untouched_remainder(self):
         old=b'copy\nold\nkept\n';new=b'copy\nnew\nkept\n'
