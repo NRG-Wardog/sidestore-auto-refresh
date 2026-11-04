@@ -99,6 +99,8 @@ jobs:
           python3 -B harness/ci/issues-native/test_early_progress_fixture_projection.py
           python3 -B harness/ci/issues-native/test_initial_provider_rejection_projection.py
           python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_receipt.py
           python3 -B harness/ci/issues-native/test_current_bindings.py
           python3 -B harness/ci/issues-native/test_anisette_dependency_pins.py
           python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py
@@ -213,6 +215,42 @@ jobs:
             evidence/startup-upgrade/*.log
           if-no-files-found: warn
           retention-days: 14
+      - name: Require exact native database recovery and full Core Data DELETE and WAL
+        id: database_recovery_tests
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/test_database_recovery_receipt.py --source "$PWD/schema-sources/SideStore"
+          python3 -B harness/ci/issues-native/run_database_recovery.py run --native-sources sources --schema-sources schema-sources --evidence evidence --output evidence/database-recovery-tests.json 2>&1 | tee evidence/database-recovery-driver.log
+      - name: Preserve finite database recovery failure evidence
+        if: ${{ !cancelled() && steps.database_recovery_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: database-recovery-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/database-recovery-driver.log
+            evidence/database-recovery-tests.json
+            evidence/database-recovery/source-before.json
+            evidence/database-recovery/source-after.json
+            evidence/database-recovery/source-immutability.json
+            evidence/database-recovery/failure.json
+            evidence/database-recovery/engine-driver.log
+            evidence/database-recovery/coredata-driver.log
+            evidence/database-recovery/engine/report.json
+            evidence/database-recovery/engine/failure.json
+            evidence/database-recovery/engine/compile-c.log
+            evidence/database-recovery/engine/compile-swift.log
+            evidence/database-recovery/engine/native.log
+            evidence/database-recovery/coredata/receipt.json
+            evidence/database-recovery/coredata/momc.log
+            evidence/database-recovery/coredata/clang.log
+            evidence/database-recovery/coredata/swiftc.log
+            evidence/database-recovery/coredata/delete-seed.log
+            evidence/database-recovery/coredata/delete-recover.log
+            evidence/database-recovery/coredata/wal-seed.log
+            evidence/database-recovery/coredata/wal-recover.log
+          if-no-files-found: warn
+          retention-days: 14
       - name: Require actual guest completion diagnostics and UIKit attachment qualification
         id: multitask_tests
         timeout-minutes: 20
@@ -302,9 +340,10 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py
           python3 -B harness/ci/issues-native/verify_upstream_sync.py sidestore-tests \
             --output evidence/SideStore-upstream-sync-tests.json 2>&1 | tee evidence/SideStore-upstream-sync-tests.log
-          python3 -B harness/ci/issues-native/preservation_upstream_tests_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json
+          python3 -B harness/ci/issues-native/database_recovery_upstream_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json
           # Run the committed AK logging policy/fake-output suite once, never vendor/guest fixtures.
           python3 -B sources/AnisetteKit/.ci/native-logging/test_native_logging_contract.py \
             2>&1 | tee evidence/AnisetteKit-native-logging-contract.log
@@ -582,6 +621,7 @@ jobs:
               --output "evidence/release-settings/$owner.json"
             if [ "$query_status" -ne 0 ]; then exit "$query_status"; fi
           done
+          python3 -B harness/ci/issues-native/run_database_recovery.py settings --input "$RUNNER_TEMP/SideStore-release-settings.json" --evidence evidence
           python3 harness/ci/issues-native/release_coverage.py settings --require-support-size \
             --inputs "$RUNNER_TEMP/LiveContainer-release-settings.json" "$RUNNER_TEMP/SideStore-release-settings.json" \
             --output evidence/release-coverage-settings.json 2>&1 | tee evidence/release-settings/policy.log

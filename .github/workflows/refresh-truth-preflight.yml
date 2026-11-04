@@ -52,6 +52,8 @@ jobs:
           python3 -B harness/ci/issues-native/test_early_progress_fixture_projection.py
           python3 -B harness/ci/issues-native/test_initial_provider_rejection_projection.py
           python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_receipt.py
           python3 -B harness/ci/issues-native/test_current_bindings.py
           python3 -B harness/ci/issues-native/test_anisette_dependency_pins.py
           python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py
@@ -195,9 +197,10 @@ jobs:
           python3 -B harness/ci/issues-native/record.py snapshot before-upstream_tests
           cmp evidence/acquired.json evidence/before-upstream_tests.json
           python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py
           python3 -B harness/ci/issues-native/verify_upstream_sync.py sidestore-tests \
             --output evidence/SideStore-upstream-sync-tests.json 2>&1 | tee evidence/SideStore-upstream-sync-tests.log
-          python3 -B harness/ci/issues-native/preservation_upstream_tests_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json
+          python3 -B harness/ci/issues-native/database_recovery_upstream_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json
           # Run the committed AK logging policy/fake-output suite once, never vendor/guest fixtures.
           python3 -B sources/AnisetteKit/.ci/native-logging/test_native_logging_contract.py \
             2>&1 | tee evidence/AnisetteKit-native-logging-contract.log

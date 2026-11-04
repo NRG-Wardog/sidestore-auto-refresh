@@ -146,6 +146,13 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         verify_refresh_truth(refresh_truth_receipt, Path('sources'), load_candidate_graph(), native_identity, compiler_evidence=Path('evidence'))
         if receipt.get('evidence_sha256', {}).get(refresh_truth_receipt.name) != sha(refresh_truth_receipt):
             raise ValueError('Refresh truth qualification differs from native receipt')
+        from run_database_recovery import verify_local as verify_database_recovery
+        database_recovery_receipt = Path('evidence/database-recovery-tests.json')
+        verify_database_recovery(database_recovery_receipt, Path('sources'), Path('schema-sources'), Path('evidence'), load_candidate_graph()['owners'], native_identity)
+        if receipt.get('evidence_sha256', {}).get(database_recovery_receipt.name) != sha(database_recovery_receipt):
+            raise ValueError('Database recovery qualification differs from native receipt')
+        if receipt.get('evidence_sha256', {}).get('database-recovery-settings.json') != sha(Path('evidence/database-recovery-settings.json')):
+            raise ValueError('Database recovery effective settings differ from native receipt')
         from startup_upgrade_receipt import verify_local as verify_startup_upgrade
         schema_receipt = Path('evidence/startup-upgrade-tests.json')
         verify_startup_upgrade(schema_receipt, Path('sources'), Path('schema-sources'), Path('evidence'), load_candidate_graph()['owners'], native_identity)
@@ -367,6 +374,15 @@ def main(*, recover_fixed_native=False, strip_unsigned_widget=False, strip_widge
         if sha(Path('diagnostic/startup-upgrade-tests.json')) != sha(schema_receipt):
             raise ValueError('Retained Core Data qualification receipt differs')
         provenance['startup_upgrade_regression_sha256'] = sha(schema_receipt)
+        verify_database_recovery(database_recovery_receipt, Path('sources'), Path('schema-sources'), Path('evidence'), load_candidate_graph()['owners'], native_identity)
+        shutil.copyfile(database_recovery_receipt, 'diagnostic/database-recovery-tests.json')
+        if sha(Path('diagnostic/database-recovery-tests.json')) != sha(database_recovery_receipt):
+            raise ValueError('Retained database recovery receipt differs')
+        provenance['database_recovery_regression_sha256'] = sha(database_recovery_receipt)
+        shutil.copyfile('evidence/database-recovery-settings.json', 'diagnostic/database-recovery-settings.json')
+        if sha(Path('diagnostic/database-recovery-settings.json')) != sha(Path('evidence/database-recovery-settings.json')):
+            raise ValueError('Retained recovery Swift settings differ')
+        provenance['database_recovery_settings_sha256'] = sha(Path('diagnostic/database-recovery-settings.json'))
         verify_refresh_truth(refresh_truth_receipt, Path('sources'), load_candidate_graph(), native_identity, compiler_evidence=Path('evidence'))
         shutil.copyfile(refresh_truth_receipt, 'diagnostic/refresh-truth-tests.json')
         if sha(Path('diagnostic/refresh-truth-tests.json')) != sha(refresh_truth_receipt):

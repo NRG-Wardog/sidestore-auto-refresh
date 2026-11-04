@@ -40,7 +40,7 @@ class RegistryTests(unittest.TestCase):
         ids = {row['id'] for row in registry['features']}
         self.assertTrue({'packaging', 'authentication-provider-sequencing', 'extension-signing', 'preserved-refresh',
                          'refresh-results-and-xpc', 'diagnostics-and-recovery', 'transport-readiness',
-                         'build-membership-and-dependencies', 'integration-maintenance'} <= ids)
+                         'build-membership-and-dependencies', 'integration-maintenance', 'database-preserving-recovery'} <= ids)
         for owner, path in c.references(registry):
             if owner == 'sidestore-auto-refresh':
                 self.assertTrue((ROOT / path).is_file(), path)
@@ -212,6 +212,215 @@ class ReviewedOwnershipDeltaTests(unittest.TestCase):
         self.assertEqual(result['affected_features'], ['ffi-ownership'])
         self.assertTrue(any(row['path'] == '.ci/issue53/check_provider_ownership.py' for row in result['required_regressions']))
         self.assertTrue(any(row['path'] == 'ci/issues-native/test_issue_receipt.py' for row in result['required_regressions']))
+
+
+class ReviewedRecoveryBoundaryTests(unittest.TestCase):
+    # Exact expected path/status pairs keep the historical fixture finite and explicit.
+    SOURCE_PATHS = (
+        ('.github/workflows/database-recovery.yml', 'A'),
+        ('AltStore/Core/Model/DatabaseManager/DatabaseManager.swift', 'M'),
+        ('AltStore/Core/Model/DatabaseManager/PersistentContainer.swift', 'M'),
+        ('AltStore/Core/Model/InstalledApp.swift', 'M'),
+        ('SideStore/DatabaseRecovery.swift', 'A'),
+        ('SideStore/DatabaseRecoverySQLite.c', 'A'),
+        ('SideStore/MaintenanceManager.swift', 'M'),
+        ('docs/database-recovery/README.md', 'A'),
+        ('tests/cache_compatibility/Cases.swift', 'M'),
+        ('tests/cache_compatibility/generate_fixture.py', 'M'),
+        ('tests/cache_compatibility/test_host_preservation.py', 'M'),
+        ('tests/database_recovery/README.md', 'A'),
+        ('tests/database_recovery/main.swift', 'A'),
+        ('tests/database_recovery/run.py', 'A'),
+        ('tests/database_recovery/test_runner.py', 'A'),
+        ('tests/database_recovery/target_settings.py', 'A'),
+        ('tests/database_recovery_coredata/Cases.swift', 'A'),
+        ('tests/database_recovery_coredata/run.py', 'A'),
+        ('tests/database_recovery_coredata/test_contract.py', 'A'),
+        ('tests/upstream_sync/test_maintenance_preservation.py', 'M'),
+    )
+
+    def setUp(self):
+        self.registry = c.load_registry()
+        self.feature = next(row for row in self.registry['features']
+                            if row['id'] == 'database-preserving-recovery')
+        self.fixture = json.loads((ROOT / 'tests/fixtures/issue56-recovery-delta.json').read_text(),
+                                  object_pairs_hook=c.unique_pairs)
+        self.changes = [{key: row[key] for key in ('path', 'status', 'old_mode', 'new_mode')}
+                        for row in self.fixture['changes']]
+
+    def test_frozen_delta_retains_exact_published_identity_modes_and_blob_ids(self):
+        self.assertEqual(self.fixture['owner'], 'SideStore')
+        self.assertEqual(self.fixture['base_commit'], '4f1021277ccc49572a17649bf062cd02c583071f')
+        self.assertEqual(self.fixture['candidate_commit'], 'dd7c095d8c6c4f7fd0475bb6782a5d6d844ecb19')
+        self.assertEqual(self.fixture['base_tree'], '030ca9722b1f46ad660fb414c85b90d5ae0d72d7')
+        self.assertEqual(self.fixture['candidate_tree'], '55fcc68146c53dd6d5f647f507f2dc5a5196b37a')
+        self.assertEqual(len(self.changes), 20)
+        self.assertEqual(len({row['path'] for row in self.changes}), 20)
+        self.assertEqual({(row['path'], row['status']) for row in self.changes}, set(self.SOURCE_PATHS))
+        for row in self.fixture['changes']:
+            self.assertEqual(set(row), {'path', 'status', 'old_mode', 'new_mode', 'old_blob', 'new_blob'})
+            self.assertEqual(row['old_mode'], '000000' if row['status'] == 'A' else '100644')
+            self.assertEqual(row['new_mode'], '100644')
+            self.assertRegex(row['old_blob'], r'^[0-9a-f]{40}$')
+            self.assertRegex(row['new_blob'], r'^[0-9a-f]{40}$')
+            self.assertNotEqual(row['new_blob'], '0' * 40)
+            self.assertEqual(row['old_blob'] == '0' * 40, row['status'] == 'A')
+
+    def test_exact_recovery_paths_select_both_native_suites_and_portable_controls(self):
+        result = c.plan_changes(self.registry, 'SideStore', self.changes)
+        self.assertEqual(result['result'], 'IMPACT_CLASSIFIED_NOT_TESTED')
+        self.assertEqual(result['unclassified'], [])
+        self.assertEqual(len(result['classified']), 20)
+        self.assertEqual(result['affected_features'], ['database-preserving-recovery', 'preserved-refresh'])
+        self.assertFalse(result['regressions_executed'])
+        self.assertFalse(result['native_compilation'])
+        self.assertFalse(result['physical_device_validation'])
+        required = {(row['owner'], row['path']) for row in result['required_regressions']}
+        self.assertTrue({('SideStore', 'tests/database_recovery/run.py'),
+                         ('SideStore', 'tests/database_recovery_coredata/run.py'),
+                         ('SideStore', 'tests/database_recovery/test_runner.py'),
+                         ('SideStore', 'tests/database_recovery_coredata/test_contract.py'),
+                         ('SideStore', 'tests/upstream_sync/test_maintenance_preservation.py')} <= required)
+
+    def test_each_recovery_mapping_is_required_individually(self):
+        for changed in self.changes:
+            registry = copy.deepcopy(self.registry)
+            for feature in registry['features']:
+                for kind in ('modules', 'integration_points', 'regressions'):
+                    feature[kind] = [row for row in feature[kind]
+                                     if (row['owner'], row['path']) != ('SideStore', changed['path'])]
+            with self.subTest(path=changed['path']):
+                result = c.plan_changes(registry, 'SideStore', self.changes)
+                self.assertEqual(result['result'], 'MANUAL_REVIEW_REQUIRED')
+                self.assertEqual(result['unclassified'], [changed['path']])
+
+    def test_unknown_engine_fixture_and_schema_neighbors_still_require_review(self):
+        for path in ('SideStore/DatabaseRecoveryUnreviewed.swift',
+                     'tests/database_recovery/unreviewed_case.swift',
+                     'AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 18.xcdatamodel/contents'):
+            result = c.plan_changes(self.registry, 'SideStore',
+                                    self.changes + [change(path, 'A', old='000000')])
+            with self.subTest(path=path):
+                self.assertEqual(result['result'], 'MANUAL_REVIEW_REQUIRED')
+                self.assertEqual(result['unclassified'], [path])
+
+    def test_removed_recovery_module_and_symlink_fixture_are_not_safe(self):
+        for row in (change('SideStore/DatabaseRecovery.swift', 'D', new='000000'),
+                    change('tests/database_recovery/main.swift', 'T', new='120000')):
+            result = c.plan_changes(self.registry, 'SideStore', [row])
+            self.assertEqual(result['result'], 'MANUAL_REVIEW_REQUIRED')
+
+    def test_original_model_resources_have_exact_reviewed_paths(self):
+        prefix = 'AltStore/Core/Model/AltStore.xcdatamodeld/'
+        paths = {row['path'] for row in self.feature['integration_points']
+                 if row['path'].startswith(prefix)}
+        versions = ('', ' 2', ' 3', ' 4', ' 5', ' 6', ' 7', ' 8', ' 9', ' 10', ' 11',
+                    ' 17_1', ' 17_2', ' 17_3', ' 17_4', ' 17_5', ' 17_6', ' 17_7')
+        expected = {prefix + 'AltStore' + version + '.xcdatamodel/contents' for version in versions}
+        expected.add(prefix + '.xccurrentversion')
+        self.assertEqual(paths, expected)
+        for path in sorted(paths):
+            with self.subTest(path=path):
+                result = c.plan_changes(self.registry, 'SideStore', [change(path)])
+                self.assertEqual(result['affected_features'], ['database-preserving-recovery'])
+                self.assertTrue(any(row['path'] == 'tests/database_recovery_coredata/run.py'
+                                    for row in result['required_regressions']))
+
+    def test_shared_xcode_membership_selects_recovery_and_build_checks(self):
+        result = c.plan_changes(self.registry, 'SideStore', [change('AltStore.xcodeproj/project.pbxproj')])
+        self.assertEqual(result['affected_features'],
+                         ['build-membership-and-dependencies', 'database-preserving-recovery'])
+        self.assertTrue(any(row['path'] == 'tests/database_recovery/run.py' for row in result['required_regressions']))
+        self.assertTrue(any(row['path'] == 'ci/issues-native/test_candidate_graph.py' for row in result['required_regressions']))
+
+    def test_cache_getter_and_fixture_seams_select_preservation_and_recovery(self):
+        for path in ('AltStore/Core/Model/InstalledApp.swift',
+                     'tests/cache_compatibility/generate_fixture.py',
+                     'tests/cache_compatibility/Cases.swift',
+                     'tests/cache_compatibility/test_host_preservation.py'):
+            with self.subTest(path=path):
+                result = c.plan_changes(self.registry, 'SideStore', [change(path)])
+                self.assertEqual(result['affected_features'],
+                                 ['database-preserving-recovery', 'preserved-refresh'])
+                required = {row['path'] for row in result['required_regressions']}
+                self.assertTrue({'tests/preservation_refresh/test_contract.py',
+                                 'tests/cache_compatibility/test_host_preservation.py',
+                                 'ci/issues-native/verify_setup_state_recovery.py',
+                                 'tests/database_recovery_coredata/run.py'} <= required)
+        command = next(row['command'] for row in self.feature['regressions']
+                       if row['path'] == 'tests/cache_compatibility/Cases.swift')
+        self.assertIn('verify_setup_state_recovery.py', command)
+        self.assertIn('--contract "$SETUP_RECOVERY_CONTRACT"', command)
+        self.assertIn('inert optional-URL MaintenanceManager boundary', self.feature['limitations'])
+
+    def test_native_builder_entrypoints_select_recovery_receipt_and_native_suites(self):
+        paths = ('ci/issues-native/run_database_recovery.py',
+                 'ci/issues-native/test_database_recovery_receipt.py',
+                 'ci/issues-native/record.py', 'ci/issues-native/package_candidate.py',
+                 'ci/startup-upgrade/acquire.py', 'ci/startup-upgrade/test_acquire.py',
+                 '.github/workflows/cold-vpn-native.yml')
+        for path in paths:
+            with self.subTest(path=path):
+                result = c.plan_changes(self.registry, 'sidestore-auto-refresh', [change(path)])
+                self.assertEqual(result['result'], 'IMPACT_CLASSIFIED_NOT_TESTED')
+                self.assertIn('database-preserving-recovery', result['affected_features'])
+                required = {row['path'] for row in result['required_regressions']}
+                self.assertTrue({'ci/issues-native/test_database_recovery_receipt.py',
+                                 'tests/database_recovery/run.py',
+                                 'tests/database_recovery_coredata/run.py',
+                                 'ci/startup-upgrade/test_acquire.py'} <= required)
+        unknown = change('ci/issues-native/unreviewed_recovery_verifier.py', 'A', old='000000')
+        self.assertEqual(c.plan_changes(self.registry, 'sidestore-auto-refresh', [unknown])['result'],
+                         'MANUAL_REVIEW_REQUIRED')
+
+    def test_upstream_successor_paths_select_explicit_case_map_controls(self):
+        paths = ('ci/issues-native/database_recovery_upstream_projection.py',
+                 'ci/issues-native/test_database_recovery_upstream_projection.py',
+                 'ci/issues-native/database-recovery-upstream-tests-extension.json',
+                 'ci/issues-native/upstream_candidate_projection.py',
+                 'ci/issues-native/verify_upstream_sync.py',
+                 'ci/issues-native/test_preservation_upstream_tests_projection.py',
+                 '.github/workflows/refresh-truth-preflight.yml',
+                 '.github/workflows/cold-vpn-native.yml',
+                 '.github/workflows/issues-native.yml',
+                 '.github/workflows/language-switch-native.yml',
+                 '.github/workflows/issue56-native.yml')
+        for path in paths:
+            with self.subTest(path=path):
+                result = c.plan_changes(self.registry, 'sidestore-auto-refresh', [change(path)])
+                self.assertEqual(result['result'], 'IMPACT_CLASSIFIED_NOT_TESTED')
+                self.assertIn('database-preserving-recovery', result['affected_features'])
+                required = {row['path'] for row in result['required_regressions']}
+                self.assertTrue({'ci/issues-native/test_database_recovery_upstream_projection.py',
+                                 'ci/issues-native/test_preservation_upstream_tests_projection.py'} <= required)
+
+    def test_every_recovery_builder_path_triggers_the_inventory_workflow(self):
+        workflow = (ROOT / '.github/workflows/custom-integration-contract.yml').read_text()
+        paths = {row['path'] for kind in ('modules', 'integration_points', 'regressions')
+                 for row in self.feature[kind] if row['owner'] == 'sidestore-auto-refresh'}
+        paths.update(('ci/issues-native/run_issue_tests.py', 'ci/issues-native/test_issue_receipt.py'))
+        for path in sorted(paths):
+            with self.subTest(path=path):
+                self.assertEqual(workflow.count("      - '" + path + "'"), 2,
+                                 'Exact push and pull-request trigger required')
+
+    def test_evidence_levels_do_not_promote_inventory_or_synthetic_coredata(self):
+        regressions = {row['path']: row for row in self.feature['regressions']}
+        for path in ('tests/database_recovery/main.swift', 'tests/database_recovery/run.py',
+                     'tests/database_recovery_coredata/Cases.swift', 'tests/database_recovery_coredata/run.py'):
+            self.assertEqual(regressions[path]['level'], 'native')
+        for path in ('tests/database_recovery/test_runner.py', 'tests/database_recovery_coredata/test_contract.py',
+                     'tests/upstream_sync/test_maintenance_preservation.py'):
+            self.assertIn('run_required_tests.py', regressions[path]['command'])
+        builder_command = regressions['ci/issues-native/test_database_recovery_receipt.py']['command']
+        self.assertIn('--source "$SIDESTORE_ROOT"', builder_command)
+        self.assertIn('run_required_tests.py', builder_command)
+        self.assertIn(' && ', builder_command)
+        self.assertIn('synthetic validation callback, not Core Data', self.feature['limitations'])
+        self.assertIn('v17.6-to-v17.7 DELETE and committed-WAL', self.feature['limitations'])
+        self.assertIn('physical-device upgrade', self.feature['limitations'])
+        self.assertIn('full recovered-store lifetime', next(row for row in self.feature['integration_points']
+                          if row['path'] == 'SideStore/MaintenanceManager.swift')['rationale'])
 
 
 class GitImpactTests(unittest.TestCase):

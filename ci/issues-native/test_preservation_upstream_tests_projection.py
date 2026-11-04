@@ -58,7 +58,7 @@ class UpstreamSuccessorTests(unittest.TestCase):
   for name in ('refresh-truth-preflight','cold-vpn-native','issues-native','language-switch-native','issue56-native'):
    text=(root/'.github/workflows'/ (name+'.yml')).read_text()
    self.assertEqual(text.count('python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py'),2)
-   command='python3 -B harness/ci/issues-native/preservation_upstream_tests_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json'
+   command='python3 -B harness/ci/issues-native/database_recovery_upstream_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json'
    self.assertEqual(text.count(command),1)
    self.assertLess(text.index('verify_upstream_sync.py sidestore-tests'),text.index(command))
  def test_descriptor_drift_rejected(self):

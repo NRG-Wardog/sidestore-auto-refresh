@@ -656,6 +656,10 @@ def receipt():
         from refresh_truth_receipt import verify_local as verify_refresh_truth
         verify_refresh_truth(E / 'refresh-truth-tests.json', S, load_candidate_graph(),
             {k: os.environ[v] for k,v in [('workflow_commit','GITHUB_SHA'),('run_id','GITHUB_RUN_ID'),('run_attempt','GITHUB_RUN_ATTEMPT')]}, compiler_evidence=E)
+        from run_database_recovery import verify_local as verify_database_recovery
+        verify_database_recovery(E / 'database-recovery-tests.json', S, ROOT / 'schema-sources', E,
+            {k:list(v) for k,v in OWNERS.items()},
+            {k: os.environ[v] for k,v in [('workflow_commit','GITHUB_SHA'),('run_id','GITHUB_RUN_ID'),('run_attempt','GITHUB_RUN_ATTEMPT')]})
         from startup_upgrade_receipt import verify_local as verify_startup_upgrade
         verify_startup_upgrade(E / 'startup-upgrade-tests.json', S, ROOT / 'schema-sources', E,
             {k:list(v) for k,v in OWNERS.items()},

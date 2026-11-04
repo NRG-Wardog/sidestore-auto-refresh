@@ -285,13 +285,19 @@
     {
       "id": "preserved-refresh",
       "contract": "Refresh preserves validated installed-app identity and profiles; installation success remains authoritative and cache mismatches fail explicitly.",
-      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate. Cache qualification uses the exact production Apps getter with an inert optional-URL MaintenanceManager boundary, not the recovery engine. Native setup verification requires matching BUILDER_ROOT, SOURCES_ROOT, SWIFTC, a fresh SETUP_RECOVERY_OUTPUT outside source checkouts and the reviewed same-graph SETUP_RECOVERY_CONTRACT; source generation and portable controls do not prove compilation or execution.",
       "modules": [
         {
           "owner": "SideStore",
           "path": "SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift",
           "interface": "Preserved profile decoder",
           "rationale": "Bound profile parsing separately from operations."
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/generate_fixture.py",
+          "interface": "verify_installed_recovery_selection / verify_production_apps_getter / main",
+          "rationale": "Generate the exact production Apps getter with an inert optional-URL selection boundary; retain the historical whole-file pin through one exact getter-expression inverse, never a broad repin. Generation alone is not native execution."
         }
       ],
       "integration_points": [
@@ -312,6 +318,12 @@
           "path": "SideStore/Core/Operations/PipelineOperations/CacheAppOperation.swift",
           "interface": "Cached payload admission",
           "rationale": "Prevent upstream cache rewrites from bypassing identity checks."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/InstalledApp.swift",
+          "interface": "InstalledApp.appsDirectoryURL / payloadDirectoryURL / payloadURL",
+          "rationale": "Cache payload paths depend on the selected recovered Apps root and the retained nil-selection fallback; review both preservation and recovery when this getter changes."
         }
       ],
       "regressions": [
@@ -324,13 +336,31 @@
         {
           "owner": "SideStore",
           "path": "tests/cache_compatibility/test_host_preservation.py",
-          "command": "python3 -B tests/cache_compatibility/test_host_preservation.py",
+          "command": "python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/cache_compatibility --pattern test_host_preservation.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
           "level": "executable-fixture"
         },
         {
           "owner": "SideStore",
           "path": "tests/host_refresh_bundle/test_contract.py",
           "command": "python3 -B tests/host_refresh_bundle/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/Cases.swift",
+          "command": "python3 -B \"$BUILDER_ROOT/ci/issues-native/verify_setup_state_recovery.py\" run --sources \"$SOURCES_ROOT\" --swiftc \"$SWIFTC\" --output \"$SETUP_RECOVERY_OUTPUT\" --contract \"$SETUP_RECOVERY_CONTRACT\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/verify_setup_state_recovery.py",
+          "command": "python3 -B \"$BUILDER_ROOT/ci/issues-native/verify_setup_state_recovery.py\" run --sources \"$SOURCES_ROOT\" --swiftc \"$SWIFTC\" --output \"$SETUP_RECOVERY_OUTPUT\" --contract \"$SETUP_RECOVERY_CONTRACT\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_setup_state_recovery_contract.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_setup_state_recovery_contract.py --allowlist scripts/required_test_skip_allowlist.json",
           "level": "executable-fixture"
         }
       ]
@@ -989,6 +1019,371 @@
       ]
     },
     {
+      "id": "database-preserving-recovery",
+      "contract": "Preserve original databases and Apps while selecting a verified recovery generation. Hold source SQLite write reservations for the selected store lifetime, migrate only an owned staged copy, publish the complete generation exclusively, and reject divergent data, unsafe layouts or resets of recovered generations.",
+      "limitations": "The exact-engine native SQLite fixture uses a synthetic validation callback, not Core Data. The separate native Core Data fixture compiles the complete production PersistentContainer and original models; it exercises v17.6-to-v17.7 DELETE and committed-WAL migration with generic managed-object classes, not account/keychain code. Both require macOS and matching Xcode/Swift/C toolchains and derive the Swift language mode from the actual SideStore Release target; use distinct fresh output directories outside the source tree via RECOVERY_ENGINE_OUTPUT and RECOVERY_COREDATA_OUTPUT. Set SIDESTORE_ROOT to the matching acquired owner checkout for the real-source case/input inventory gate in the builder receipt tests. That gate and portable runner/source tests never substitute for native execution. Source reservations do not exclude independent legacy filesystem-only Apps writers; pre/post inventories reject observed edits. No arbitrary divergent-store merge, power-loss durability, physical-device upgrade or app-group entitlement success is claimed. Repeated native command references describe shared inputs; one complete invocation covers them. Cache qualification uses the exact production Apps getter with an inert optional-URL MaintenanceManager boundary, not the recovery engine. Native setup verification requires matching BUILDER_ROOT, SOURCES_ROOT, SWIFTC, a fresh SETUP_RECOVERY_OUTPUT outside source checkouts and the reviewed same-graph SETUP_RECOVERY_CONTRACT; source generation and portable controls do not prove compilation or execution.",
+      "modules": [
+        {
+          "owner": "SideStore",
+          "path": "SideStore/DatabaseRecovery.swift",
+          "interface": "DatabaseRecovery.resolve / Selection / SourceReservation / withResetLock",
+          "rationale": "Own SQLite snapshots, retained original-source reservations, Apps inventory and exclusive recovery-generation publication independently of Core Data and UI."
+        },
+        {
+          "owner": "SideStore",
+          "path": "SideStore/DatabaseRecoverySQLite.c",
+          "interface": "sidestore_recovery_disable_close_checkpoint",
+          "rationale": "Bridge the variadic SQLite configuration API and prevent source-close checkpoints from rewriting retained persistent bytes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/run_database_recovery.py",
+          "interface": "produce / verify_local / verify_portable / seal_effective / verify_effective",
+          "rationale": "Bind both actual source-owned native suites, pristine acquired and compiled source closures, required cases, retained evidence and actual Release Swift build-setting proof to the exact workflow commit, run and attempt. Portable receipt checks do not execute native code."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/database_recovery_upstream_projection.py",
+          "interface": "specification / bind / verify_report",
+          "rationale": "Layer a finite reviewed recovery successor over the frozen predecessor; admit the explicit source-case substitution without silently weakening unrelated tests or claiming native execution."
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/generate_fixture.py",
+          "interface": "verify_installed_recovery_selection / verify_production_apps_getter / main",
+          "rationale": "Generate the exact production Apps getter with an inert optional-URL selection boundary; retain the historical whole-file pin through one exact getter-expression inverse, never a broad repin. Generation alone is not native execution."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "SideStore",
+          "path": "SideStore/MaintenanceManager.swift",
+          "interface": "preparePersistentStoreURLs / recoveredAppsDirectory / performDatabaseResetIfSafe",
+          "rationale": "Retain the selection and source reservations for the full recovered-store lifetime; serialize startup/retry and reset and preserve underlying startup causes."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
+          "interface": "performStart / deleteDatabase / recreateDatabase",
+          "rationale": "Select recovery before normal store loading and refuse legacy destructive reset for recovered generations, including before attachment."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift",
+          "interface": "validateRecoveryStore / progressive Core Data migration",
+          "rationale": "Migrate and materialize only the owned staging store; restore the original description URL and validate the selected store identity before reuse."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/InstalledApp.swift",
+          "interface": "InstalledApp.appsDirectoryURL",
+          "rationale": "Select recovered Apps storage together with the recovered database rather than mixing database and cached-app generations."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore.xcodeproj/project.pbxproj",
+          "interface": "SideStore synchronized source membership and model resources",
+          "rationale": "Review actual target inclusion of the Swift recovery engine, C shim, production callers and original model resources; inventory alone is not a link/build pass."
+        },
+        {
+          "owner": "SideStore",
+          "path": ".github/workflows/database-recovery.yml",
+          "interface": "Isolated macOS native recovery qualification",
+          "rationale": "Keep portable controls, exact-engine SQLite execution and real Core Data execution independently mandatory; uploaded logs are not by themselves a passing receipt."
+        },
+        {
+          "owner": "SideStore",
+          "path": "docs/database-recovery/README.md",
+          "interface": "Recovery invariants, preserved-source ownership and qualification limits",
+          "rationale": "Keep the ownership and failure contract explicit without treating documentation as execution evidence."
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery/README.md",
+          "interface": "Exact-engine native fixture scope and command",
+          "rationale": "Separate synthetic validation, interruption tests and host requirements from real Core Data and device acceptance."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/.xccurrentversion",
+          "interface": "Current persistent model selection",
+          "rationale": "Keep the native model-bundle selection aligned with the production migration target."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore.xcdatamodel/contents",
+          "interface": "Original AltStore persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 2.xcdatamodel/contents",
+          "interface": "Original AltStore 2 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 3.xcdatamodel/contents",
+          "interface": "Original AltStore 3 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 4.xcdatamodel/contents",
+          "interface": "Original AltStore 4 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 5.xcdatamodel/contents",
+          "interface": "Original AltStore 5 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 6.xcdatamodel/contents",
+          "interface": "Original AltStore 6 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 7.xcdatamodel/contents",
+          "interface": "Original AltStore 7 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 8.xcdatamodel/contents",
+          "interface": "Original AltStore 8 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 9.xcdatamodel/contents",
+          "interface": "Original AltStore 9 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 10.xcdatamodel/contents",
+          "interface": "Original AltStore 10 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 11.xcdatamodel/contents",
+          "interface": "Original AltStore 11 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_1.xcdatamodel/contents",
+          "interface": "Original AltStore 17_1 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_2.xcdatamodel/contents",
+          "interface": "Original AltStore 17_2 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_3.xcdatamodel/contents",
+          "interface": "Original AltStore 17_3 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_4.xcdatamodel/contents",
+          "interface": "Original AltStore 17_4 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_5.xcdatamodel/contents",
+          "interface": "Original AltStore 17_5 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_6.xcdatamodel/contents",
+          "interface": "Original AltStore 17_6 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_7.xcdatamodel/contents",
+          "interface": "Original AltStore 17_7 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery/target_settings.py",
+          "interface": "inspect_project / settings_from_objects",
+          "rationale": "Select the actual SideStore Release target Swift language mode for both native suites; reject ambiguous, inherited or unsupported settings instead of silently downgrading or using another target."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/record.py",
+          "interface": "receipt database recovery admission",
+          "rationale": "Require the same-run recovery receipt and actual Release Swift build-setting proof before recording successful native qualification; retain exact evidence hashes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/package_candidate.py",
+          "interface": "Native package admission and retained recovery provenance",
+          "rationale": "Reject missing or mismatched recovery evidence or effective Release Swift settings before packaging and replay admission before retaining the final diagnostic receipts."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/startup-upgrade/acquire.py",
+          "interface": "harness_hashes / acquire / verify",
+          "rationale": "Include the recovery verifier in the independently acquired source/fixture harness identity; preserve original acquisition checks."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/cold-vpn-native.yml",
+          "interface": "Mandatory exact recovery execution and finite failure collection",
+          "rationale": "Run both SQLite and Core Data suites before native/package success; collect bounded logs on failure without treating upload success as qualification."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/database-recovery-upstream-tests-extension.json",
+          "interface": "Exact recovery source-case map, case inventory and source hashes",
+          "rationale": "Retain the reviewed replacement of the old no-relocation source assertion with preserving recovery; preserve the unrelated historical case inventory and predecessor identity."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/upstream_candidate_projection.py",
+          "interface": "current_spec recovery successor selection",
+          "rationale": "Report the reviewed source-case replacement explicitly while preserving existing runtime case and marker claims; do not describe all original source cases as unchanged."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/verify_upstream_sync.py",
+          "interface": "sidestore_tests successor binding",
+          "rationale": "Bind actual discovered source-owned cases and their files to the finite recovery descriptor before execution and report verification."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/refresh-truth-preflight.yml",
+          "interface": "Recovery upstream successor controls and source-report verification",
+          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/issues-native.yml",
+          "interface": "Recovery upstream successor controls and source-report verification",
+          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/language-switch-native.yml",
+          "interface": "Recovery upstream successor controls and source-report verification",
+          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/issue56-native.yml",
+          "interface": "Recovery upstream successor controls and source-report verification",
+          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery/main.swift",
+          "command": "python3 -B tests/database_recovery/run.py --output \"$RECOVERY_ENGINE_OUTPUT\"",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery/run.py",
+          "command": "python3 -B tests/database_recovery/run.py --output \"$RECOVERY_ENGINE_OUTPUT\"",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery/test_runner.py",
+          "command": "python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/database_recovery --pattern test_runner.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery_coredata/Cases.swift",
+          "command": "python3 -B tests/database_recovery_coredata/run.py --output \"$RECOVERY_COREDATA_OUTPUT\"",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery_coredata/run.py",
+          "command": "python3 -B tests/database_recovery_coredata/run.py --output \"$RECOVERY_COREDATA_OUTPUT\"",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery_coredata/test_contract.py",
+          "command": "python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/database_recovery_coredata --pattern test_contract.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "source-contract"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/upstream_sync/test_maintenance_preservation.py",
+          "command": "python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/upstream_sync --pattern test_maintenance_preservation.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_database_recovery_receipt.py",
+          "command": "python3 -B ci/issues-native/test_database_recovery_receipt.py --source \"$SIDESTORE_ROOT\" && python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_database_recovery_receipt.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_database_recovery_upstream_projection.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_database_recovery_upstream_projection.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_preservation_upstream_tests_projection.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_preservation_upstream_tests_projection.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/startup-upgrade/test_acquire.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/startup-upgrade --pattern test_acquire.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/test_host_preservation.py",
+          "command": "python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/cache_compatibility --pattern test_host_preservation.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/Cases.swift",
+          "command": "python3 -B \"$BUILDER_ROOT/ci/issues-native/verify_setup_state_recovery.py\" run --sources \"$SOURCES_ROOT\" --swiftc \"$SWIFTC\" --output \"$SETUP_RECOVERY_OUTPUT\" --contract \"$SETUP_RECOVERY_CONTRACT\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/verify_setup_state_recovery.py",
+          "command": "python3 -B \"$BUILDER_ROOT/ci/issues-native/verify_setup_state_recovery.py\" run --sources \"$SOURCES_ROOT\" --swiftc \"$SWIFTC\" --output \"$SETUP_RECOVERY_OUTPUT\" --contract \"$SETUP_RECOVERY_CONTRACT\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_setup_state_recovery_contract.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_setup_state_recovery_contract.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
       "id": "localization",
       "contract": "Live language changes preserve host state and cover user-visible owned strings without altering locale-sensitive authentication inputs.",
       "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
@@ -1166,6 +1561,12 @@
         {
           "owner": "sidestore-auto-refresh",
           "path": "tests/fixtures/issue53-ownership-delta.json",
+          "command": "python3 -B -m unittest discover -s tests -p test_integration_contracts.py -v",
+          "level": "source-contract"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/fixtures/issue56-recovery-delta.json",
           "command": "python3 -B -m unittest discover -s tests -p test_integration_contracts.py -v",
           "level": "source-contract"
         }

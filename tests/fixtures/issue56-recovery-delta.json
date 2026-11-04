@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "purpose": "Exact reviewed issue #56 source delta used only to exercise maintenance impact classification, not native or device evidence.",
+  "owner": "SideStore",
+  "base_commit": "4f1021277ccc49572a17649bf062cd02c583071f",
+  "candidate_commit": "dd7c095d8c6c4f7fd0475bb6782a5d6d844ecb19",
+  "base_tree": "030ca9722b1f46ad660fb414c85b90d5ae0d72d7",
+  "candidate_tree": "55fcc68146c53dd6d5f647f507f2dc5a5196b37a",
+  "changes": [
+    {
+      "path": ".github/workflows/database-recovery.yml",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "ed32540d218055cdac7828455aacb0fac34da53e"
+    },
+    {
+      "path": "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "43667573ccd1efb2d36fb25f7a4e7f4f894d1732",
+      "new_blob": "78f72785e9a31383e83f00d983bd3fc21bc51db2"
+    },
+    {
+      "path": "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "b38c58967d8296e162c55f64e7e5d29679c42fef",
+      "new_blob": "5c0b21210a81bb2d47cb484797eec686a33d7817"
+    },
+    {
+      "path": "AltStore/Core/Model/InstalledApp.swift",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "92428470696ce151eaf81f9552fa74dc5fc22157",
+      "new_blob": "563d41026d95e73d797dda1fb0902a930dbe6504"
+    },
+    {
+      "path": "SideStore/DatabaseRecovery.swift",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "cf67a50f667d47a4d94712b95b5661f44d95cbbb"
+    },
+    {
+      "path": "SideStore/DatabaseRecoverySQLite.c",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "d0c84d7595dfe2524d25d1c2a16160cb7df53a0c"
+    },
+    {
+      "path": "SideStore/MaintenanceManager.swift",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "99f7824e47d34daf300242d38920fa932533a8b7",
+      "new_blob": "cb99830aa299f3c01060b997ce8cfe3c1d85b20c"
+    },
+    {
+      "path": "docs/database-recovery/README.md",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "b076875170c084a8463e0795a1283274f2193929"
+    },
+    {
+      "path": "tests/cache_compatibility/Cases.swift",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "5c2f028991df83adc2487a05fa490525ef650fff",
+      "new_blob": "d456a44ded7e01e0ebb15dd9ac2a884309fb16ac"
+    },
+    {
+      "path": "tests/cache_compatibility/generate_fixture.py",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "e3ad096c301865b9495ea9992a2254f92263690a",
+      "new_blob": "c1bcbb8375b666c9265d26d78a399c205622e22e"
+    },
+    {
+      "path": "tests/cache_compatibility/test_host_preservation.py",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "d46271ea0cf5f9c88e976454b5b2e4f619847d21",
+      "new_blob": "eabae9d85dcd98cd56a87f4d1732eeeabc45c6ea"
+    },
+    {
+      "path": "tests/database_recovery/README.md",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "3133e934f872d7bafa8501614c8209a83aeb6d66"
+    },
+    {
+      "path": "tests/database_recovery/main.swift",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "a63e1555dcc74ea175cbd8c77462eec5d9985115"
+    },
+    {
+      "path": "tests/database_recovery/run.py",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "608ad5dcbbe6145d4675a68b0cef229792d2647e"
+    },
+    {
+      "path": "tests/database_recovery/target_settings.py",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "62d4d5301e4c9e5653ac2a04b7f0ee8757094bb5"
+    },
+    {
+      "path": "tests/database_recovery/test_runner.py",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "5c6af387df02c19b67546ff2df8b66e9328c8fb2"
+    },
+    {
+      "path": "tests/database_recovery_coredata/Cases.swift",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "031a62a77458ca4206c72a7642f742cc5ab57a99"
+    },
+    {
+      "path": "tests/database_recovery_coredata/run.py",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "1f5489915553bb5516d998e6ce160a26ee465d7e"
+    },
+    {
+      "path": "tests/database_recovery_coredata/test_contract.py",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "e8acd1392ee5db683c70530da020ac5bee885307"
+    },
+    {
+      "path": "tests/upstream_sync/test_maintenance_preservation.py",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "a2bc6223a034086090473225360930860145a683",
+      "new_blob": "0c8e82583b707475b858521027b9d06a0b02387e"
+    }
+  ]
+}

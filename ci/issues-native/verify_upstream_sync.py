@@ -147,7 +147,7 @@ def sidestore_tests(sources, output):
     manifest = {p.relative_to(sources / 'SideStore').as_posix(): sha(p)
                 for p in sorted(folder.glob('test_*.py'))}
     suite = unittest.defaultTestLoader.discover(str(folder), pattern='test_*.py')
-    from preservation_upstream_tests_projection import bind, test_ids
+    from database_recovery_upstream_projection import bind, test_ids
     names = test_ids(suite)
     successor = bind(sources, names, SPEC['sidestore_test_count'])
     expected_count = successor['count'] if successor is not None else SPEC['sidestore_test_count']

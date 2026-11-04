@@ -17,7 +17,7 @@ on a device.
 ## Authoritative maintenance inventory
 
 [`CUSTOM_INTEGRATION_CONTRACTS.json`](CUSTOM_INTEGRATION_CONTRACTS.json) records
-16 feature boundaries across the builder and all seven maintained runtime owners.
+17 feature boundaries across the builder and all seven maintained runtime owners.
 Each entry names actual modules, integration call sites or build inputs, the
 interface and rationale, regression commands, and the evidence limitations.
 Paths are relative to their declared owner, not necessarily this repository.
@@ -37,6 +37,7 @@ Paths are relative to their declared owner, not necessarily this repository.
 | TCP reliability | jktcp adapter and handle | idevice dependency and TCP package interface |
 | Guest input/geometry | LiveContainer safe-area policy | Scene editing cleanup and activation |
 | Shared storage/startup | App Group identity/selection and shared storage | Host storage bridge, embedded launch and service initialization |
+| Preserving database recovery | SideStore recovery engine and SQLite checkpoint shim | Retained source ownership, staged Core Data migration, paired Apps/database selection, exclusive publication and reset refusal |
 | Localization | Language settings and lookup modules | Live presentation and compiled catalog |
 | Build membership/dependencies | Maintained-source and candidate-graph validators | Xcode/SwiftPM/Cargo inclusion and exact owner pins |
 | Maintenance tooling | Generic inventory/change planner | Registry, CI and regression/rehearsal evidence |
@@ -74,6 +75,81 @@ combined builder tree containing the updated registry, candidate graph and
 native runner/receipt changes. Run the dedicated inventory workflow and full
 native qualification on that same commit. A prior registry run against the old
 owner graph does not qualify the new composition.
+
+### Preserving database recovery integration
+
+The database recovery boundary explicitly names the production Swift engine,
+its SQLite C shim, all four startup/storage/reset callers and Xcode target
+membership. It names every original model resource compiled by the native
+Core Data fixture, the isolated qualification workflow, documentation, exact
+native fixture inputs and portable runner/source controls. Both native runners
+use the explicit target-settings helper to select the actual SideStore Release
+Swift language mode; unknown or inherited modes must not silently fall back. These are finite
+path entries, not an allowance for arbitrary files under a recovery directory.
+
+Original databases and Apps remain retained. The selected recovery generation
+owns source SQLite write reservations for its entire lifetime, and only an owned
+staging copy may undergo schema migration. The complete generation is published
+exclusively; divergent originals and unsafe layouts remain blocked. This does
+not promise a merge of divergent databases, exclusion of an independently
+running legacy filesystem-only Apps writer, or power-loss durability.
+
+The SQLite engine suite and Core Data suite are separate evidence levels. The
+first compiles the exact engine and C shim with a synthetic validation callback.
+The second compiles the full production PersistentContainer and original model
+resources, then exercises v17.6-to-v17.7 DELETE and committed-WAL stores using
+generic managed-object classes. It does not execute account/keychain code or
+establish an affected user's physical-device upgrade result. Set BUILDER_ROOT
+for strict portable controls and distinct fresh RECOVERY_ENGINE_OUTPUT and
+RECOVERY_COREDATA_OUTPUT paths outside the source checkout for native runs.
+Set SIDESTORE_ROOT to the matching acquired SideStore checkout when running
+the builder receipt controls: its --source gate compares the real source-owned
+case and input inventory, followed by the strict no-skips runner. That source
+inspection is not native execution. Unsupported hosts must fail, never turn a
+missing native run into a pass.
+
+`tests/fixtures/issue56-recovery-delta.json` retains the exact reviewed 20-file
+`4f102127` to `dd7c095d` delta, modes and blob IDs only as a maintenance
+regression input. It does not select the production candidate or claim native
+success. Tests require every named change to be classified, make each removed
+mapping unclassified, and keep unknown neighboring engine, fixture and model
+paths in manual review. The earlier #53 lifetime and published-provenance
+regressions remain unchanged.
+
+The cache fixture depends on the production InstalledApp Apps getter. Its exact
+source generator, native Cases.swift input and portable controls therefore map
+to both preserving recovery and preserved refresh, as does the caller itself.
+The generator retains the historical whole-file pin through a single reviewed
+inverse of the recovered-root expression and emits the exact getter with an
+inert optional-URL MaintenanceManager boundary. Native cases exercise both the
+nil fallback and selected-root branch; they do not run the recovery engine.
+Generation alone is not a compile or runtime pass. Native execution uses the
+existing setup verifier and its same-graph projected contract: set BUILDER_ROOT,
+SOURCES_ROOT, matching SWIFTC, fresh SETUP_RECOVERY_OUTPUT outside the source
+checkouts and SETUP_RECOVERY_CONTRACT. Its source, compile, case and retained
+receipt checks remain mandatory, including the unchanged original case IDs.
+
+The native builder boundary names its recovery producer/verifier, adversarial
+receipt tests, acquisition binding, mandatory native workflow step and the
+record/package admission call sites. Their source-owned receipts must bind the
+actual SQLite and Core Data executions and effective Release Swift build-setting
+proof to the same workflow commit, run and attempt. Receipt-unit-test success is not a native pass. Later standalone
+package-pipeline additions require their own explicit boundary review before
+being added; nonexistent future paths are never silently inventoried.
+
+The reviewed upstream successor keeps its predecessor descriptor frozen and
+explicitly maps the replaced no-relocation source assertion to the new recovery
+assertion. Its exact descriptor, projector, routes, controls and five workflow
+call sites are inventoried. The projection must disclose that source-case change
+rather than claiming all original cases are unchanged. Inventory push/PR triggers
+name these builder admission paths explicitly, including the existing #53 runner
+and receipt entrypoints.
+
+The final builder must compose this registry with its exact reviewed SideStore
+candidate graph and mandatory same-run recovery receipt admission. Rerun the
+dedicated inventory workflow and full native/package qualification on that same
+combined commit; prior #52/#53 or isolated #56 evidence cannot qualify a different
+source composition.
 
 ## Reusable upstream change review
 
@@ -187,7 +263,7 @@ owner, native, compatibility, regression and artifact checks.
 
 | Issue #52 acceptance | Concrete evidence |
 | --- | --- |
-| Document and independently test custom seams where practical | Sixteen owned feature contracts, concrete hook/build/test paths and practical regression commands; inventory checks against all current owner inputs |
+| Document and independently test custom seams where practical | Seventeen owned feature contracts, concrete hook/build/test paths and practical regression commands; inventory checks against all current owner inputs |
 | Complete a representative upstream integration without rewriting custom logic | Two retained real script revisions, one explicit anchor-only compatibility profile, identical custom replacements and preserved unrelated upstream change |
 | Make conflicts and behavior changes visible | Exact-path impact reports; unknown/deleted/structural/gitlink review gates; missing/duplicate/overlap adapter negatives; existing owner behavioral/native tests remain required |
 | Keep the approach generic and reusable | Revision-independent registry, language-independent exact-path planner, unrelated-owner fixture, generic original-span rule engine and immutable revision CLI |

@@ -66,11 +66,15 @@ def current_spec(sources,graph=None):
  require({k:v for k,v in target.items() if k not in ('source_inputs','input_rows','generated_sha256')}=={k:v for k,v in frozen['vpn_transport_regression'].items() if k not in ('source_inputs','input_rows','generated_sha256')},'VPN runtime semantics changed')
  report={'schema':'reviewed-current-upstream-runtime-projection-v1','frozen_contract_sha256':sha(frozen_path.read_bytes()),'source_graph':graph['owners'],'minimuxer_rebound_inputs':mm_changes,'vpn_rebound_inputs':vpn_changes,'vpn_generated_before_sha256':frozen['vpn_transport_regression']['generated_sha256'],'vpn_generated_after_sha256':target['generated_sha256'],'original_cases_and_markers_unchanged':True,'runtime_executed':False,'projection_helper_sha256':sha(Path(__file__).read_bytes())}
  if selection_successor is not None:report['preservation_selection_successor']=selection_successor
- from preservation_upstream_tests_projection import bind as bind_tests, specification as test_specification
- test_successor=bind_tests(sources,test_specification()['case_names'],frozen['sidestore_test_count'])
+ from database_recovery_upstream_projection import bind as bind_tests, specification as test_specification
+ test_successor=bind_tests(sources,test_specification(sources)['case_names'],frozen['sidestore_test_count'])
  if test_successor is not None:
   result['sidestore_test_count']=test_successor['count']
   report['preservation_upstream_tests_successor']=test_successor
+  if test_successor['schema']=='reviewed-database-recovery-upstream-tests-v1':
+   report['original_cases_and_markers_unchanged']=False
+   report['original_runtime_cases_and_markers_unchanged']=True
+   report['reviewed_source_case_map']=dict(test_successor['case_map'])
  return result,report
 
 if __name__=='__main__':
