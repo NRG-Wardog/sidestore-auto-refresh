@@ -163,7 +163,12 @@ struct V3RefreshAdmissionLease {
     private(set) var expiresAt: Date?
     private(set) var ownerLost = false
 
+    // A retained run still fences new mutations after its owner is lost.
     var isActive: Bool { runID != nil }
+    // Snapshot activity must describe a live owner, not a durable recovery hold.
+    // Otherwise a restarted host cannot accept the very snapshot needed to
+    // present and explicitly reconcile an interrupted refresh.
+    var hasLiveOwner: Bool { isActive && !ownerLost }
 
     mutating func expire(now: Date = Date()) -> Bool {
         guard let expiresAt, expiresAt <= now, !ownerLost else { return false }
