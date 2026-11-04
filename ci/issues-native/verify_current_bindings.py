@@ -12,7 +12,7 @@ import re
 from verify_candidate_graph import load_candidate_graph, unique_pairs, valid_path
 
 HERE = Path(__file__).resolve().parent
-HASH_MANIFESTS = ('russian-pairing-extension.json', 'russian-setup-extension.json', 'refresh-truth-setup-extension.json', 'refresh-truth-flow-extension.json')
+HASH_MANIFESTS = ('russian-pairing-extension.json', 'russian-setup-extension.json', 'refresh-truth-setup-extension.json', 'refresh-truth-flow-extension.json', 'refresh-observation-setup-extension.json')
 
 
 def require(value, message):

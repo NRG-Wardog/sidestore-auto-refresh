@@ -70,7 +70,7 @@ class ProjectionTests(unittest.TestCase):
             opener.return_value.open.side_effect=failure
             with self.assertRaises(ValueError) as found:gate.API('private-token').download(1,Path(d)/'output')
             text=''.join(traceback.format_exception(found.exception))
-            self.assertIn('HTTP 403',text)
+            self.assertIn('Signed artifact storage request failed; URL withheld',text)
             for secret in ['private-fixture','private-token',location]:self.assertNotIn(secret,text)
     def test_storage_network_type_without_reason(self):
         location='https://fixture.blob.core.windows.net/a?signature=private-fixture'
@@ -78,7 +78,7 @@ class ProjectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, patch.object(gate.API,'request',side_effect=redirect), patch.object(gate.urllib.request,'build_opener') as opener:
             opener.return_value.open.side_effect=urllib.error.URLError(OSError('private-fixture'))
             with self.assertRaises(ValueError) as found:gate.API('private-token').download(1,Path(d)/'output')
-            self.assertIn('network_type=OSError',str(found.exception));self.assertNotIn('private-fixture',str(found.exception))
+            self.assertEqual('Signed artifact storage request failed; URL withheld',str(found.exception));self.assertNotIn('private-fixture',str(found.exception));self.assertNotIn('https://',str(found.exception));self.assertNotIn('token',str(found.exception))
     def test_read_only_evidence_accepts_ordinary_modes_without_restoring(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'modes.zip'

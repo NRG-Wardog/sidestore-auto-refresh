@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from project_candidate_contracts import project, sha, add_reviewed_host_coverage, HERE, HOST_CONTEXT_INPUT, HOST_ADDITIONAL_CASES, IDENTITY_CANDIDATE_INPUT
+from project_candidate_contracts import project, sha, add_reviewed_host_coverage, HERE, HOST_CONTEXT_INPUT, HOST_ADDITIONAL_CASES, IDENTITY_CANDIDATE_INPUT, CLASSIFIER_DEPENDENCY_TEST, LEGACY_RISK_KEY_MANIFEST
 import json
 
 
@@ -30,6 +30,44 @@ class ProjectionTests(unittest.TestCase):
         with patch('project_candidate_contracts.git', side_effect=git):
             return project(contract or self.contract, self.graph, self.root)
 
+    def test_preservation_inventory_exact_input_not_arbitrary_fixture_allowance(self):
+        import preservation_localization_projection as preservation
+        path = preservation.INVENTORY_TEST
+        fixture = self.root / path
+        fixture.parent.mkdir(parents=True, exist_ok=True)
+        fixture.write_bytes(self.data)
+        relative = path.removeprefix('LiveContainer/')
+        self.graph['reviewed_deltas']['LiveContainer']['files'][relative] = self.blob
+        with patch('project_candidate_contracts.git', side_effect=lambda root, *args: 'a' * 40 if args[-1] == 'HEAD' else self.blob):
+            with self.assertRaisesRegex(ValueError, 'Unreviewed preservation inventory'):
+                project(self.contract, self.graph, self.root, (path,))
+            with patch.dict(preservation.PINS, {path: sha(self.data)}):
+                projected, _ = project(self.contract, self.graph, self.root, (path,))
+                self.assertEqual(projected['input_sha256'][path], sha(self.data))
+                changed = copy.deepcopy(self.graph)
+                changed['reviewed_deltas']['LiveContainer']['files'].pop(relative)
+                with self.assertRaisesRegex(ValueError, 'absent from reviewed'):
+                    project(self.contract, changed, self.root, (path,))
+                with self.assertRaisesRegex(ValueError, 'unreviewed additive'):
+                    project(self.contract, self.graph, self.root, (path + '.extra',))
+
+    def test_preservation_localization_harness_requires_exact_reviewed_bytes(self):
+        import preservation_localization_projection as preservation
+        inventory, harness = preservation.INVENTORY_TEST, preservation.HARNESS
+        for path in (inventory, harness):
+            file = self.root / path; file.parent.mkdir(parents=True, exist_ok=True); file.write_bytes(self.data)
+            self.graph['reviewed_deltas']['LiveContainer']['files'][path.removeprefix('LiveContainer/')] = self.blob
+        contract = copy.deepcopy(self.contract); contract['input_sha256'][harness] = '0' * 64
+        with patch('project_candidate_contracts.git', side_effect=lambda root, *args: 'a' * 40 if args[-1] == 'HEAD' else self.blob), patch.dict(preservation.PINS, {inventory: sha(self.data)}):
+            with self.assertRaisesRegex(ValueError, 'Unreviewed preservation localization harness'):
+                project(contract, self.graph, self.root, (inventory,))
+            with patch.dict(preservation.PINS, {harness: sha(self.data)}):
+                projected, _ = project(contract, self.graph, self.root, (inventory,))
+                self.assertEqual(projected['input_sha256'][harness], sha(self.data))
+                (self.root / harness).unlink()
+                with self.assertRaisesRegex(ValueError, 'nonregular contract input'):
+                    project(contract, self.graph, self.root, (inventory,))
+
     def test_only_current_hashes_rebound(self):
         before = copy.deepcopy(self.contract)
         result, changes = self.call()
@@ -54,6 +92,42 @@ class ProjectionTests(unittest.TestCase):
                     project(contract, self.graph, self.root, (path,))
         with self.assertRaisesRegex(ValueError, 'unreviewed additive'):
             project(contract, self.graph, self.root, ('unknown.swift',))
+
+    def test_classifier_control_requires_exact_reviewed_blob(self):
+        path = self.root / CLASSIFIER_DEPENDENCY_TEST
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.data)
+        relative = CLASSIFIER_DEPENDENCY_TEST.removeprefix('LiveContainer/')
+        self.graph['reviewed_deltas']['LiveContainer']['files'][relative] = self.blob
+        with patch('project_candidate_contracts.git', side_effect=lambda root, *args: 'a' * 40 if args[-1] == 'HEAD' else self.blob):
+            result, _ = project(self.contract, self.graph, self.root, (CLASSIFIER_DEPENDENCY_TEST,))
+            self.assertEqual(result['input_sha256'][CLASSIFIER_DEPENDENCY_TEST], sha(self.data))
+            self.assertEqual(result['case_names'], self.contract['case_names'])
+            path.write_bytes(b'unreviewed change')
+            with self.assertRaises(ValueError):
+                project(self.contract, self.graph, self.root, (CLASSIFIER_DEPENDENCY_TEST,))
+            path.write_bytes(self.data)
+            del self.graph['reviewed_deltas']['LiveContainer']['files'][relative]
+            with self.assertRaisesRegex(ValueError, 'absent from reviewed'):
+                project(self.contract, self.graph, self.root, (CLASSIFIER_DEPENDENCY_TEST,))
+
+    def test_legacy_risk_manifest_requires_exact_reviewed_blob(self):
+        path = self.root / LEGACY_RISK_KEY_MANIFEST
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.data)
+        relative = LEGACY_RISK_KEY_MANIFEST.removeprefix('LiveContainer/')
+        self.graph['reviewed_deltas']['LiveContainer']['files'][relative] = self.blob
+        with patch('project_candidate_contracts.git', side_effect=lambda root, *args: 'a' * 40 if args[-1] == 'HEAD' else self.blob):
+            result, _ = project(self.contract, self.graph, self.root, (LEGACY_RISK_KEY_MANIFEST,))
+            self.assertEqual(result['input_sha256'][LEGACY_RISK_KEY_MANIFEST], sha(self.data))
+            self.assertEqual(result['case_names'], self.contract['case_names'])
+            path.write_bytes(b'unreviewed change')
+            with self.assertRaises(ValueError):
+                project(self.contract, self.graph, self.root, (LEGACY_RISK_KEY_MANIFEST,))
+            path.write_bytes(self.data)
+            del self.graph['reviewed_deltas']['LiveContainer']['files'][relative]
+            with self.assertRaisesRegex(ValueError, 'absent from reviewed'):
+                project(self.contract, self.graph, self.root, (LEGACY_RISK_KEY_MANIFEST,))
 
     def test_host_additions_preserve_every_frozen_case_and_baseline(self):
         original = json.loads((HERE / 'setup-state-recovery-contract.json').read_text())

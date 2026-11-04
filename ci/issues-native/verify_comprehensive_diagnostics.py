@@ -1,6 +1,7 @@
 """Consolidated source-owned fake diagnostics; never links or executes native providers."""
 from russian_pairing_projection import resources as russian_pairing_resources
 import argparse
+import initial_provider_rejection_projection as initial_provider_rejection
 import hashlib
 import json
 import os
@@ -277,6 +278,7 @@ def load_contract(path):
     require(isinstance(hashes, dict) and set(hashes) == set(SETUP_FIXTURES['deferred-device-setup']['sources']) and
             all(isinstance(v, str) and re.fullmatch('[0-9a-f]{64}', v) for v in hashes.values()),
             'Incomplete deferred baseline source hashes')
+    initial_provider_rejection.validate(contract)
     return contract
 
 
@@ -293,6 +295,10 @@ def source_inventory(root, contract):
             if path.is_file():
                 relative = path.relative_to(root).as_posix()
                 require(relative in actual, 'Unpinned fixture file: ' + relative)
+    if initial_provider_rejection.validate(contract):
+        folder = root / initial_provider_rejection.ROOT
+        require(not any(p.is_symlink() for p in folder.rglob('*')), 'Linked initial provider rejection fixture input')
+        require({p.relative_to(root).as_posix() for p in folder.rglob('*') if p.is_file()} == set(initial_provider_rejection.NEW_INPUTS), 'Initial provider rejection fixture file closure differs')
     return actual
 
 
@@ -528,6 +534,7 @@ def extraction_receipt(output, contract):
             {key: inputs[path] for key, path in legacy_paths.items()}, 'Legacy extraction input evidence differs')
     auth = values['auth-request']
     require(auth.get('schema') == 'auth-request-source-evidence-v1', 'Auth extraction evidence schema differs')
+    initial_provider_rejection.verify_extraction(contract, auth)
     auth_inputs = auth.get('inputs', {})
     require({'Sources/DeveloperPortal/Authentication.swift', 'Sources/Models/AuthenticationDiagnosticTrace.swift',
              'Sources/Models/Errors.swift'} <= set(auth_inputs), 'Missing actual authentication source evidence')
@@ -596,7 +603,9 @@ def extraction_receipt(output, contract):
         require(inputs.get(name) == row.get('sha256'), 'Profile extraction input hash differs: ' + relative)
     require(profile.get('generated_sha256') == digest(regular(output, 'profile-provenance/fixture.swift').read_bytes()),
             'Profile generated-source hash differs')
-    wire_paths = WIRE_INPUT_PATHS
+    wire_paths = dict(WIRE_INPUT_PATHS)
+    if initial_provider_rejection.validate(contract):
+        wire_paths['authentication'] = SIGN + '/Sources/DeveloperPortal/Authentication.swift'
     require(values['wire-copy'].get('input_sha256') == {key: inputs[path] for key, path in wire_paths.items()},
             'Wire extraction input evidence differs')
     require(values['wire-copy'].get('generated_sha256') ==
@@ -775,6 +784,7 @@ def verify_receipt(path, contract_path=None):
         row = by_name[name]
         require(row.get('success_marker') == marks[key], 'Success-marker receipt differs')
         require_marker(regular(path.parent, row['log']).read_text(), marks[key])
+    initial_provider_rejection.verify_runtime(contract, regular(path.parent, by_name['auth-run']['log']).read_text())
     for owner, schema, count in (('auth-request','auth-request-cases-v1',None),
                                  ('profile-provenance','profile-provenance-cases-v1',12)):
         export = exported_cases(regular(path.parent, owner + '/cases.json'), schema, count)
@@ -858,7 +868,8 @@ def run(sources, swiftc, output, contract_path=None):
         runner.command('auth-generate', python(AUTH + '/generate.py') + ['--output-dir', auth])
         require({p.name for p in auth.glob('*.swift')} == set(AUTH_FILES), 'Auth seven-file Swift closure differs')
         compile_fixture('auth-compile', [auth / name for name in AUTH_FILES], auth / 'fixture', library=True)
-        runner.command('auth-run', [auth / 'fixture', auth / 'cases.json'], marks['auth'])
+        auth_text = runner.command('auth-run', [auth / 'fixture', auth / 'cases.json'], marks['auth'])
+        initial_provider_rejection.verify_runtime(contract, auth_text)
         report['source_owned_fake_authentication_executed'] = True
         report['producer_exports']['auth-request'] = exported_cases(auth / 'cases.json', 'auth-request-cases-v1')
         report['suites'].append('auth-request')

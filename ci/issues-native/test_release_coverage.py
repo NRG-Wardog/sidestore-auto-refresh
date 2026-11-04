@@ -13,6 +13,17 @@ class ReleaseCoverageTests(unittest.TestCase):
         return [{'target': 'App', 'buildSettings': {'CONFIGURATION': 'Release',
                  'ENABLE_CODE_COVERAGE': 'NO', 'DEBUG_INFORMATION_FORMAT': 'dwarf-with-dsym'}}]
 
+    def test_test_only_transport_macro_rejected_in_all_release_forms(self):
+        macro='SIDESIGN_PROFILE_TRANSPORT_TESTING'
+        for key,value in [('SWIFT_ACTIVE_COMPILATION_CONDITIONS',macro),('OTHER_SWIFT_FLAGS','-D '+macro),('OTHER_SWIFT_FLAGS','-D'+macro),('OTHER_CFLAGS',['-D'+macro+'=1']),('GCC_PREPROCESSOR_DEFINITIONS',macro+'=1')]:
+            rows=self.row();rows[0]['buildSettings'][key]=value
+            with self.subTest(key=key,value=value),self.assertRaisesRegex(ValueError,'Test-only transport macro'):policy.settings(rows)
+        for compiler in ('swiftc','swift-frontend','clang','clang++'):
+            for flag in ('-D '+macro,'-D'+macro,'-D"'+macro+'"','-Xcc -D'+macro+'=1'):
+                log=('/trusted/'+compiler+' '+flag+' file.swift\n** BUILD SUCCEEDED **\n').encode()
+                with self.subTest(compiler=compiler,flag=flag),self.assertRaisesRegex(ValueError,'Test-only transport macro'):policy.build_log(log)
+        self.assertTrue(policy.build_log(b'/trusted/swiftc -O file.swift\n** BUILD SUCCEEDED **\n')['native_build_succeeded'])
+
     def test_explicit_no_preserves_diagnostic_setting(self):
         self.assertEqual(policy.settings(self.row())[0]['settings']['DEBUG_INFORMATION_FORMAT'], 'dwarf-with-dsym')
 

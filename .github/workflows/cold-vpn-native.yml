@@ -95,10 +95,27 @@ jobs:
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py
           python3 -B harness/ci/issues-native/test_russian_pairing_projection.py
           python3 -B harness/ci/issues-native/verify_candidate_graph.py
+          python3 -B harness/ci/issues-native/test_profile_static_closure_projection.py
+          python3 -B harness/ci/issues-native/test_early_progress_fixture_projection.py
+          python3 -B harness/ci/issues-native/test_initial_provider_rejection_projection.py
+          python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_receipt.py
+          python3 -B harness/ci/issue56-startup/test_startup_runner.py
+          python3 -B sources/SideStore/tests/startup_outcome/test_contract.py --source-only 2>&1 | tee evidence/startup-source-controls.log
           python3 -B harness/ci/issues-native/test_current_bindings.py
+          python3 -B harness/ci/issues-native/test_anisette_dependency_pins.py
+          python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py
+          python3 -B harness/ci/issues-native/test_refresh_observation_setup_projection.py
+          python3 -B harness/ci/issues-native/test_refresh_observation_vpn_projection.py
+          python3 -B harness/ci/issues-native/test_transport_observation_cache_projection.py
+          python3 -B harness/ci/issues-native/test_legacy_replacement_cache_projection.py
+          python3 -B harness/ci/issues-native/test_legacy_replacement_host_projection.py
+          python3 -B harness/ci/issues-native/test_preservation_successor_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_setup_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_host_bundle_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_flow_projection.py
+          python3 -B sources/LiveContainer/.ci/vpn-refresh-recovery/test_classifier_dependency.py
           python3 -B harness/ci/issues-native/verify_current_bindings.py --sources sources --output evidence/current-source-bindings.json
           python3 -B harness/ci/issues-native/test_upstream_candidate_projection.py
           python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py
@@ -107,8 +124,57 @@ jobs:
           python3 -B harness/ci/issues-native/test_local_wifi_fixture_projection.py
           python3 -B harness/ci/issues-native/test_early_readiness_projection.py
           python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
+          python3 -B harness/ci/issues-native/test_preservation_localization_projection.py
+          python3 -B harness/ci/issues-native/test_observed_constraints_localization_projection.py
+          python3 -B harness/ci/issues-native/test_profile_transaction_cache_projection.py
+          python3 -B harness/ci/issues-native/test_progress_owner_cache_projection.py
+          python3 -B harness/ci/issues-native/test_preservation_native_qualification.py
+          python3 -B sources/LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
           python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
+      - name: Qualify exact same-run CMS before simulator and app work
+        id: preservation_cms
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          collect_crypto_evidence() {
+            status=$?
+            trap - EXIT
+            if test -f lts-host-build/build.log; then cp lts-host-build/build.log evidence/openssl-host-build.log; fi
+            if test -f lts-host-build/configdata.txt; then cp lts-host-build/configdata.txt evidence/openssl-host-config.log; fi
+            if test -f lts-ios-build/build-ios.log; then cp lts-ios-build/build-ios.log evidence/; fi
+            for slice in ios-arm64 sim-arm64 sim-x86_64; do
+              if test -f "lts-ios-build/$slice/configdata.txt"; then cp "lts-ios-build/$slice/configdata.txt" "evidence/$slice-openssl-config.log"; fi
+            done
+            exit "$status"
+          }
+          trap collect_crypto_evidence EXIT
+          python3 -B -m unittest discover -s harness/ci/issue53-lts -p 'test_*.py' 2>&1 | tee evidence/openssl-lts-controls.log
+          python3 -B harness/ci/issue55-openssl-size/test_experiment.py 2>&1 | tee evidence/openssl-size-controls.log
+          python3 -B harness/ci/issue55-openssl-size/test_admission.py 2>&1 | tee evidence/openssl-admission-controls.log
+          python3 -B harness/ci/issue53-lts/build.py --output lts-host-build --optimization Os 2>&1 | tee evidence/lts-build-driver.log
+          cp lts-host-build/build-receipt.json evidence/openssl-host-build-receipt.json
+          python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py
+          python3 -B harness/ci/issues-native/preservation_cms_receipt.py --sources sources --built lts-host-build --evidence evidence 2>&1 | tee evidence/preservation-cms-driver.log
+      - name: Preserve early exact CMS build failure diagnostics
+        if: ${{ !cancelled() && steps.preservation_cms.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preservation-cms-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/preservation-cms-driver.log
+            evidence/preservation-cms-build-diagnostic.json
+            evidence/preservation-cms-failure-diagnostic.json
+            evidence/openssl-host-build.log
+            evidence/openssl-host-config.log
+            evidence/openssl-host-build-receipt.json
+            evidence/lts-build-driver.log
+            evidence/openssl-lts-controls.log
+            evidence/openssl-size-controls.log
+            evidence/openssl-admission-controls.log
+          if-no-files-found: warn
+          retention-days: 14
       - name: Qualify truthful refresh outcomes with actual Swift source fixtures
         id: refresh_truth_swift
         run: |
@@ -149,6 +215,42 @@ jobs:
             evidence/schema-*.log
             evidence/startup-upgrade/*.json
             evidence/startup-upgrade/*.log
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Require exact native database recovery and full Core Data DELETE and WAL
+        id: database_recovery_tests
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/test_database_recovery_receipt.py --source "$PWD/schema-sources/SideStore"
+          python3 -B harness/ci/issues-native/run_database_recovery.py run --native-sources sources --schema-sources schema-sources --evidence evidence --output evidence/database-recovery-tests.json 2>&1 | tee evidence/database-recovery-driver.log
+      - name: Preserve finite database recovery failure evidence
+        if: ${{ !cancelled() && steps.database_recovery_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: database-recovery-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/database-recovery-driver.log
+            evidence/database-recovery-tests.json
+            evidence/database-recovery/source-before.json
+            evidence/database-recovery/source-after.json
+            evidence/database-recovery/source-immutability.json
+            evidence/database-recovery/failure.json
+            evidence/database-recovery/engine-driver.log
+            evidence/database-recovery/coredata-driver.log
+            evidence/database-recovery/engine/report.json
+            evidence/database-recovery/engine/failure.json
+            evidence/database-recovery/engine/compile-c.log
+            evidence/database-recovery/engine/compile-swift.log
+            evidence/database-recovery/engine/native.log
+            evidence/database-recovery/coredata/receipt.json
+            evidence/database-recovery/coredata/momc.log
+            evidence/database-recovery/coredata/clang.log
+            evidence/database-recovery/coredata/swiftc.log
+            evidence/database-recovery/coredata/delete-seed.log
+            evidence/database-recovery/coredata/delete-recover.log
+            evidence/database-recovery/coredata/wal-seed.log
+            evidence/database-recovery/coredata/wal-recover.log
           if-no-files-found: warn
           retention-days: 14
       - name: Require actual guest completion diagnostics and UIKit attachment qualification
@@ -193,7 +295,7 @@ jobs:
           retention-days: 14
       - name: Run current source-owned startup failure regressions without skips
         id: startup_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issue56-startup/test_startup_runner.py
@@ -201,7 +303,7 @@ jobs:
             2>&1 | tee evidence/issue56-startup-driver.log
       - name: Verify same-session language transitions without skips
         id: language_switch_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         timeout-minutes: 15
         run: |
           set -euo pipefail
@@ -222,7 +324,7 @@ jobs:
           retention-days: 14
       - name: Qualify exact owned ODA source and verified local startup
         id: owned_oda_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         timeout-minutes: 25
         run: |
           set -euo pipefail
@@ -230,31 +332,34 @@ jobs:
           python3 -B harness/ci/issues-native/run_owned_oda.py --sources sources --evidence evidence/owned-oda --inputs qualification-inputs
       - name: Run issue regression suite without skips
         id: issue_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/run_issue_tests.py 2>&1 | tee evidence/issue-tests.log
       - name: Check all SideStore source-owned upstream regressions without skips
         id: upstream_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
+          python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py
           python3 -B harness/ci/issues-native/verify_upstream_sync.py sidestore-tests \
             --output evidence/SideStore-upstream-sync-tests.json 2>&1 | tee evidence/SideStore-upstream-sync-tests.log
+          python3 -B harness/ci/issues-native/database_recovery_upstream_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json
           # Run the committed AK logging policy/fake-output suite once, never vendor/guest fixtures.
           python3 -B sources/AnisetteKit/.ci/native-logging/test_native_logging_contract.py \
             2>&1 | tee evidence/AnisetteKit-native-logging-contract.log
           printf '0\n' > evidence/AnisetteKit-native-logging-contract.exit-code.txt
       - name: Check minimuxer extracted-production Swift with fake dependencies only
         id: minimuxer_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/verify_upstream_sync.py minimuxer-tests \
             --swiftc "$(command -v swiftc)" --output evidence/minimuxer-upstream-sync-tests.json
       - name: Check VPN transport recovery source and runtime matrix without skips
         id: vpn_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           VPN_TRANSPORT_SOURCE_ROOT="$GITHUB_WORKSPACE/sources" \
@@ -265,7 +370,7 @@ jobs:
           printf '0\n' > evidence/vpn-transport-recovery.exit-code.txt
       - name: Check bounded acquisition diagnostics with fake errors only
         id: acquisition_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 harness/ci/issues-native/test_acquisition_contract.py \
@@ -277,7 +382,7 @@ jobs:
           printf '0\n' > evidence/acquisition-contract.exit-code.txt
       - name: Check verified vendor acquisition with fake network data only
         id: vendor_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 harness/ci/issues-native/test_vendor_contract.py \
@@ -287,7 +392,7 @@ jobs:
           printf '0\n' > evidence/vendor-contract.exit-code.txt
       - name: Check comprehensive auth request provenance and real IPC copy with fake boundaries once
         id: comprehensive_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/verify_comprehensive_diagnostics.py \
@@ -296,7 +401,7 @@ jobs:
           printf '0\n' > evidence/comprehensive-diagnostics.exit-code.txt
       - name: Check setup recovery against exact delivered baseline with fake boundaries once
         id: setup_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/verify_setup_state_recovery.py run \
@@ -305,7 +410,7 @@ jobs:
           printf '0\n' > evidence/setup-state-recovery.exit-code.txt
       - name: Qualify additive Russian compiled resources and production localization
         id: russian_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/test_russian_localization.py
@@ -322,7 +427,7 @@ jobs:
           retention-days: 14
       - name: Install pinned transport build prerequisites
         id: build_tools
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         run: |
           set -euo pipefail
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
@@ -336,7 +441,7 @@ jobs:
           test "$(cargo +1.98.1 --version)" = 'cargo 1.98.1 (797e8a9bc 2026-08-05)'
       - name: Run Rust ownership and packet regressions
         id: rust_tests
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' && steps.build_tools.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/run_issue_tests.py --idevice-native
@@ -353,7 +458,7 @@ jobs:
           retention-days: 14
       - name: Qualify bounded native profile readback and seal all refresh evidence
         id: refresh_truth_rust
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' && steps.build_tools.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/refresh-truth/run.py rust --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-rust-driver.log
@@ -371,7 +476,7 @@ jobs:
           retention-days: 14
       - name: Compile iOS transport and stage local framework
         id: transport_build
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.build_tools.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' && steps.build_tools.outcome == 'success' }}
         run: |
           set -euo pipefail
           cd sources/idevice
@@ -392,7 +497,7 @@ jobs:
           cp -R sources/idevice/swift/IDevice.xcframework "$mux/IDevice.xcframework"
       - name: Inspect exact native archive symbols and generated header without execution
         id: abi_inspection
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.transport_build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' && steps.transport_build.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 -B harness/ci/issues-native/idevice-abi-gate/verify_native_abi.py \
@@ -402,7 +507,7 @@ jobs:
             --output evidence/idevice-abi-inspection.json 2>&1 | tee evidence/idevice-abi-inspection.log
       - name: Build and seal explicit generated LTS inputs for both consumers
         id: openssl_inputs
-        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.preservation_cms.outcome == 'success' }}
         timeout-minutes: 35
         run: |
           set -euo pipefail
@@ -418,11 +523,15 @@ jobs:
             exit "$status"
           }
           trap collect_crypto_evidence EXIT
-          python3 -B -m unittest discover -s harness/ci/issue53-lts -p 'test_*.py' 2>&1 | tee evidence/openssl-lts-controls.log
-          python3 -B harness/ci/issue55-openssl-size/test_experiment.py 2>&1 | tee evidence/openssl-size-controls.log
-          python3 -B harness/ci/issue55-openssl-size/test_admission.py 2>&1 | tee evidence/openssl-admission-controls.log
-          python3 -B harness/ci/issue53-lts/build.py --output lts-host-build --optimization Os 2>&1 | tee evidence/lts-build-driver.log
-          cp lts-host-build/build-receipt.json evidence/openssl-host-build-receipt.json
+          python3 -B - <<'PY_VERIFY_CMS'
+          import os, pathlib, sys
+          sys.path.insert(0, str(pathlib.Path('harness/ci/issues-native').resolve()))
+          import preservation_cms_receipt as cms
+          from verify_candidate_graph import load_candidate_graph
+          cms.host_build(pathlib.Path('lts-host-build'), pathlib.Path('evidence'))
+          cms.verify(pathlib.Path('evidence/preservation-cms-tests.json'), pathlib.Path('sources').resolve(), load_candidate_graph(), {'workflow_commit': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT']})
+          print('PASS unchanged same-run host inputs and early CMS qualification')
+          PY_VERIFY_CMS
           python3 -B harness/ci/issue53-crypto/acquire.py --output openssl-qualification-inputs 2>&1 | tee evidence/comparison-acquisition.log
           python3 -B harness/ci/issue53-crypto/consumer.py acquire --inputs openssl-qualification-inputs 2>&1 | tee evidence/signer-acquisition.log
           python3 -B harness/ci/issue53-lts/qualify.py --built lts-host-build --inputs openssl-qualification-inputs --evidence evidence 2>&1 | tee evidence/lts-qualification-driver.log
@@ -514,6 +623,7 @@ jobs:
               --output "evidence/release-settings/$owner.json"
             if [ "$query_status" -ne 0 ]; then exit "$query_status"; fi
           done
+          python3 -B harness/ci/issues-native/run_database_recovery.py settings --input "$RUNNER_TEMP/SideStore-release-settings.json" --evidence evidence 2>&1 | tee evidence/release-settings/recovery-policy.log
           python3 harness/ci/issues-native/release_coverage.py settings --require-support-size \
             --inputs "$RUNNER_TEMP/LiveContainer-release-settings.json" "$RUNNER_TEMP/SideStore-release-settings.json" \
             --output evidence/release-coverage-settings.json 2>&1 | tee evidence/release-settings/policy.log

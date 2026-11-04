@@ -41,10 +41,10 @@ def trusted():
     safe.require(c['source_provenance']['source_graph'] == expected_graph, 'Fallback expected source graph differs')
     return c, safe.sha(raw), graph, helper, data
 
-def verify(root, manifest, projector):
+def projected_evidence(root, manifest, projector, contract, graph, files):
+    """Shared read-only projection admission; never load or execute archive code."""
     root = Path(root).resolve(strict=True)
-    c, contract_sha, graph_module, helper, graph = trusted()
-    identity = safe.native_identity(manifest, c)
+    identity = safe.native_identity(manifest, contract)
     expected_artifact, projector_sha = artifact_from_source(projector)
     raw = safe.read(root/'native-receipt.json')
     native = safe.decode(raw)
@@ -52,7 +52,7 @@ def verify(root, manifest, projector):
     safe.require(native.get('status') == 'COMPILE_ONLY_PASS_REQUIRES_REVIEW' and native.get('requested_graph') == graph['owners'], 'Fallback native graph/status differs')
     refs = native.get('evidence_sha256')
     safe.require(type(refs) is dict and all(type(k) is str and safe.digest(v) for k,v in refs.items()), 'Fallback native reference map')
-    safe.require(set(FILES) <= set(refs), 'Fallback mandatory evidence absent')
+    safe.require(set(files) <= set(refs), 'Fallback mandatory evidence absent')
     report = safe.decode(safe.read(root/'native-evidence-projection.json'))
     archive = safe.read(root/'native-evidence-projection.zip', 31*1024*1024)
     safe.require(report.get('schema') == 'exact-native-evidence-projection-v1' and report.get('execution') is False, 'Fallback projection scope')
@@ -71,11 +71,20 @@ def verify(root, manifest, projector):
             p=PurePosixPath(info.filename);mode=info.external_attr >> 16
             safe.require(not p.is_absolute() and p.as_posix() == info.filename and all(x not in ('','.','..') for x in p.parts) and '\\' not in info.filename, 'Fallback unsafe member path')
             safe.require(not info.is_dir() and not info.flag_bits & 1 and stat.S_IFMT(mode) in (0,stat.S_IFREG) and not mode & 0o7000, 'Fallback unsafe member type')
-            if info.filename in (*FILES,'native-receipt.json'):
+            if info.filename in (*files,'native-receipt.json'):
                 safe.require(0 < info.file_size <= 8*1024*1024, 'Fallback member size')
                 selected[info.filename] = z.read(info)
     safe.require(selected.pop('native-receipt.json') == raw, 'Fallback native receipt differs in projection')
-    for name in FILES: safe.require(safe.sha(selected[name]) == refs[name], 'Fallback evidence reference hash differs')
+    for name in files: safe.require(safe.sha(selected[name]) == refs[name], 'Fallback evidence reference hash differs')
+    return selected, {'native_identity':identity, 'trusted_projector_sha256':projector_sha,
+        'source_archive':expected_artifact, 'native_receipt_sha256':safe.sha(raw),
+        'projection_report_sha256':safe.sha(safe.read(root/'native-evidence-projection.json')),
+        'projection_sha256':safe.sha(archive), 'evidence_sha256':{k:refs[k] for k in files}}, native
+
+def verify(root, manifest, projector):
+    c, contract_sha, graph_module, helper, graph = trusted()
+    selected, binding, native = projected_evidence(root, manifest, projector, c, graph, FILES)
+    identity = binding['native_identity']; projector_sha = binding['trusted_projector_sha256']; refs = binding['evidence_sha256']
     value = safe.decode(selected['issue-tests.json'])
     safe.require(set(value) == {'suites','owned_authentication','registry_runtime_double','signer_policy_and_production_body_double','target_device_execution','harness_suites','all_suites_passed_no_skips'}, 'Fallback issue receipt closure')
     previous=sys.modules.get('verify_candidate_graph');sys.modules['verify_candidate_graph']=graph_module

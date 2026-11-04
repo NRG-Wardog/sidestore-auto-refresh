@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from run_issue_tests import (SUITES, HARNESS_SUITES, verify_issue_receipt, OWNED_INPUTS,
-    OWNED_SWIFT_SUITES, owned_expected_graph, verify_owned_receipt, run_owned_swift_suites)
+    OWNED_SWIFT_SUITES, INITIAL_REJECTION_INPUTS, INITIAL_REJECTION_MARKERS, owned_expected_graph, verify_owned_receipt, run_owned_swift_suites)
 
 
 def test_owned_graph():
@@ -77,18 +77,123 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'actual committed inputs'):
             verify_owned_receipt(value, changed)
 
+    def test_actual_prompt_suite_and_complete_source_closure_are_required(self):
+        self.assertIn(('LiveContainer', 'tests', 'test_diagnostic_provider_sequence.py'), SUITES)
+        required = {
+            'LiveContainerSwiftUI/Views/V3UnifiedShell.swift',
+            'LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift',
+            'LiveContainerSwiftUI/Utilities/V3Localization.swift',
+            'Resources/Localizable.xcstrings',
+            'tests/test_diagnostic_provider_sequence.py',
+            'tests/provider_sequence/main.swift',
+            'tests/provider_sequence/prompt_main.swift',
+        }
+        self.assertTrue(required <= set(OWNED_INPUTS['LiveContainer']))
+        value = owned_receipt()
+        provenance = {k: value[k] for k in ('source_graph', 'source_sha256')}
+        for name in sorted(required):
+            path = 'LiveContainer/' + name
+            with self.subTest(path=path):
+                changed = copy.deepcopy(value); del changed['source_sha256'][path]
+                with self.assertRaises(ValueError): verify_owned_receipt(changed, provenance)
+                changed = copy.deepcopy(value); changed['source_sha256'][path] = 'b' * 64
+                with self.assertRaisesRegex(ValueError, 'actual committed inputs'):
+                    verify_owned_receipt(changed, provenance)
+
+    def test_source_owned_wrapper_rejects_skipped_and_empty_suites(self):
+        import subprocess
+        import sys
+        from run_issue_tests import RUNNER
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'test_prompt.py'
+            for body in ('', 'import unittest\nclass Prompt(unittest.TestCase):\n'
+                         ' @unittest.skip("Swift unavailable")\n'
+                         ' def test_native(self): pass\n'):
+                path.write_text(body)
+                result = subprocess.run([sys.executable, '-B', '-c', RUNNER, temp,
+                                         path.name], capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_prompt_gate_controls_precede_native_suite_in_each_workflow(self):
+        root = Path(__file__).resolve().parents[2]
+        control = 'python3 -B harness/ci/issues-native/test_issue_receipt.py'
+        native = 'python3 -B harness/ci/issues-native/run_issue_tests.py 2>&1'
+        for name in ('issues-native.yml', 'cold-vpn-native.yml', 'refresh-truth-preflight.yml'):
+            with self.subTest(workflow=name):
+                text = (root / '.github/workflows' / name).read_text()
+                self.assertEqual(text.count(control), 1)
+                self.assertEqual(text.count(native), 1)
+                self.assertLess(text.index(control), text.index(native))
+
+    def test_prompt_compile_failure_cannot_write_aggregate_success(self):
+        import os
+        import subprocess
+        from unittest.mock import patch
+        from run_issue_tests import main
+        old = Path.cwd()
+        provenance = owned_receipt(); provenance.pop('swift_suites'); provenance.pop('target_device_execution')
+        calls = []
+        def execute(command, **kwargs):
+            calls.append(command)
+            if command[-1] == 'test_diagnostic_provider_sequence.py':
+                raise subprocess.CalledProcessError(1, command, output='prompt Swift compilation failed')
+            return subprocess.CompletedProcess(command, 0)
+        with tempfile.TemporaryDirectory() as temp:
+            try:
+                os.chdir(temp)
+                for owner, folder, pattern in SUITES:
+                    path = Path('sources') / owner / folder / pattern
+                    path.parent.mkdir(parents=True, exist_ok=True); path.write_text('synthetic fixture')
+                Path('evidence').mkdir(); Path('evidence/issue-tests.json').write_text('stale success')
+                with patch('run_issue_tests.shutil.which', return_value='/synthetic/swiftc'), \
+                     patch('run_issue_tests.collect_owned_sources', return_value=provenance) as seal, \
+                     patch('run_issue_tests.subprocess.run', side_effect=execute), \
+                     patch('run_issue_tests.run_owned_swift_suites') as owned:
+                    with self.assertRaises(subprocess.CalledProcessError): main()
+                    seal.assert_called_once_with('sources')
+                    owned.assert_not_called()
+                self.assertTrue(calls)
+                self.assertEqual(calls[-1][-1], 'test_diagnostic_provider_sequence.py')
+                self.assertFalse(Path('evidence/issue-tests.json').exists())
+            finally: os.chdir(old)
+
+    def test_prompt_inputs_must_match_before_and_after_native_execution(self):
+        import os
+        from unittest.mock import patch
+        from run_issue_tests import main
+        old = Path.cwd()
+        value = owned_receipt()
+        provenance = {k: copy.deepcopy(value[k]) for k in ('source_graph', 'source_sha256')}
+        value['source_sha256']['LiveContainer/tests/provider_sequence/prompt_main.swift'] = 'b' * 64
+        with tempfile.TemporaryDirectory() as temp:
+            try:
+                os.chdir(temp)
+                for owner, folder, pattern in SUITES:
+                    path = Path('sources') / owner / folder / pattern
+                    path.parent.mkdir(parents=True, exist_ok=True); path.write_text('synthetic fixture')
+                Path('evidence').mkdir(); Path('evidence/issue-tests.json').write_text('stale success')
+                with patch('run_issue_tests.shutil.which', return_value='/synthetic/swiftc'), \
+                     patch('run_issue_tests.collect_owned_sources', return_value=provenance) as seal, \
+                     patch('run_issue_tests.subprocess.run') as execute, \
+                     patch('run_issue_tests.run_owned_swift_suites', return_value=value):
+                    with self.assertRaisesRegex(ValueError, 'actual committed inputs'): main()
+                    seal.assert_called_once_with('sources')
+                    self.assertTrue(execute.called)
+                self.assertFalse(Path('evidence/issue-tests.json').exists())
+            finally: os.chdir(old)
+
     def test_each_script_is_bounded_and_required_marker_count_is_exact(self):
         import subprocess
         from unittest.mock import patch
         provenance = owned_receipt(); provenance.pop('swift_suites'); provenance.pop('target_device_execution')
-        results = [subprocess.CompletedProcess([], 0, stdout=(marker + ' synthetic test output\n') * count)
-                   for _, _, marker, count, _ in OWNED_SWIFT_SUITES]
+        results = [subprocess.CompletedProcess([], 0, stdout=('\n'.join(INITIAL_REJECTION_MARKERS) + '\n') if script == '.ci/initial-provider-rejection/run.sh' else (marker + ' synthetic test output\n') * count)
+                   for _, script, marker, count, _ in OWNED_SWIFT_SUITES]
         with tempfile.TemporaryDirectory() as temp:
             with patch('run_issue_tests.collect_owned_sources', return_value=provenance), \
                  patch('run_issue_tests.subprocess.run', side_effect=results) as run:
                 value = run_owned_swift_suites(temp, Path(temp) / 'evidence')
                 verify_owned_receipt(value)
-                self.assertEqual([c.kwargs['timeout'] for c in run.call_args_list], [300, 120])
+                self.assertEqual([c.kwargs['timeout'] for c in run.call_args_list], [300, 120, 300])
             for output in ['', OWNED_SWIFT_SUITES[0][2] + ' incomplete\n']:
                 with patch('run_issue_tests.collect_owned_sources', return_value=provenance), \
                      patch('run_issue_tests.subprocess.run', return_value=subprocess.CompletedProcess([], 0, stdout=output)):
@@ -96,6 +201,50 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
             with patch('run_issue_tests.collect_owned_sources', return_value=provenance), \
                  patch('run_issue_tests.subprocess.run', return_value=subprocess.CompletedProcess([], 1, stdout='compile failed')):
                 with self.assertRaises(subprocess.CalledProcessError): run_owned_swift_suites(temp, Path(temp) / 'evidence')
+
+    def test_initial_rejection_markers_and_separate_logs(self):
+        import subprocess
+        from unittest.mock import patch
+        provenance = owned_receipt(); provenance.pop('swift_suites'); provenance.pop('target_device_execution')
+        base = [(marker + ' synthetic test output\n') * count for _, _, marker, count, _ in OWNED_SWIFT_SUITES[:2]]
+        valid = '\n'.join(INITIAL_REJECTION_MARKERS) + '\n'
+        invalid = ['', valid.replace('cases=27', 'cases=26'), valid.replace('account_calls=false', 'account_calls=true'), valid + INITIAL_REJECTION_MARKERS[0].replace('cases=27', 'cases=999') + '\n']
+        for marker in INITIAL_REJECTION_MARKERS:
+            invalid += [valid.replace(marker + '\n', ''), valid + marker + '\n']
+        with tempfile.TemporaryDirectory() as temp:
+            for output in [valid] + invalid:
+                results = [subprocess.CompletedProcess([], 0, stdout=text) for text in base + [output]]
+                with patch('run_issue_tests.collect_owned_sources', return_value=provenance), patch('run_issue_tests.subprocess.run', side_effect=results):
+                    if output == valid:
+                        run_owned_swift_suites(temp, Path(temp) / 'evidence')
+                        self.assertEqual((Path(temp)/'evidence/owned-SideStore.log').read_text(), base[1])
+                        self.assertEqual((Path(temp)/'evidence/owned-initial-provider-rejection.log').read_text(), valid)
+                    else:
+                        with self.assertRaises(ValueError): run_owned_swift_suites(temp, Path(temp) / 'evidence')
+
+    def test_actual_generated_initial_rejection_inputs_are_all_sealed(self):
+        import subprocess, sys
+        root = Path(__file__).resolve().parents[3]
+        side = root / 'SS'
+        if not side.is_dir():
+            side = root / 'sources/SideStore'
+        script = side / '.ci/initial-provider-rejection/generate.py'
+        self.assertTrue(script.is_file())
+        with tempfile.TemporaryDirectory() as temp:
+            subprocess.run([sys.executable, '-B', str(script), '--output', temp, '--sidesign-root', str(side / 'Dependencies/SideSign')], check=True, timeout=60)
+            actual = json.loads((Path(temp)/'source-evidence.json').read_text())
+            for raw in actual['inputs']:
+                path = Path(raw).resolve()
+                prefix = side / 'Dependencies/SideSign'
+                owner = 'SideStore/Dependencies/SideSign' if path.is_relative_to(prefix) else 'SideStore'
+                base = prefix if owner.endswith('SideSign') else side
+                self.assertIn(str(path.relative_to(base)), INITIAL_REJECTION_INPUTS[owner])
+        self.assertIn(('SideStore', '.ci/initial-provider-rejection', 'test_source.py'), SUITES)
+        value = owned_receipt()
+        for owner, names in INITIAL_REJECTION_INPUTS.items():
+            for name in names:
+                broken = copy.deepcopy(value); del broken['source_sha256'][owner + '/' + name]
+                with self.assertRaises(ValueError): verify_owned_receipt(broken)
 
     def test_actual_input_bytes_and_symlink_or_wrong_source_rejected(self):
         import hashlib
@@ -146,6 +295,17 @@ class NativeIssueReceiptTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         validate_rust_output(package, bad)
 
+    def test_generated_header_provider_executions_are_exact(self):
+        from run_issue_tests import GENERATED_PROVIDER_MARKERS, validate_generated_provider_output
+        valid = '\n'.join(GENERATED_PROVIDER_MARKERS) + '\n'
+        validate_generated_provider_output(valid)
+        for marker in GENERATED_PROVIDER_MARKERS:
+            for invalid in (valid.replace(marker + '\n', ''), valid + marker + '\n',
+                            valid.replace('paths=13', 'paths=12')):
+                with self.subTest(marker=marker, invalid=invalid):
+                    with self.assertRaises(ValueError):
+                        validate_generated_provider_output(invalid)
+
     def test_native_receipt_exact_closure(self):
         from run_issue_tests import RUST_FEATURES, REQUIRED_RUST_TESTS, verify_native_receipt
         value = {'features': RUST_FEATURES, 'required_tests': {k: list(v) for k, v in REQUIRED_RUST_TESTS.items()},
@@ -193,6 +353,39 @@ class NativeIssueReceiptTests(unittest.TestCase):
         self.assertNotIn('aws-lc', features)
         runner = (Path(__file__).parent / 'run_issue_tests.py').read_text()
         self.assertIn("'--no-default-features'", runner)
+
+    def test_all_borrowed_provider_tests_are_mandatory(self):
+        from run_issue_tests import RUST_FEATURES, REQUIRED_RUST_TESTS, validate_rust_output
+        features = set(RUST_FEATURES['idevice-ffi'].split(','))
+        self.assertTrue({'afc', 'amfi', 'bt_packet_logger', 'companion_proxy',
+            'heartbeat', 'location_simulation', 'misagent', 'mobileactivationd',
+            'notification_proxy', 'pcapd', 'preboard_service', 'screenshotr'} <= features)
+        expected = {
+            'afc_client_connect_errors_preserve_provider',
+            'afc2_client_connect_errors_preserve_provider',
+            'amfi_connect_errors_preserve_provider',
+            'bt_packet_logger_connect_errors_preserve_provider',
+            'companion_proxy_connect_errors_preserve_provider',
+            'heartbeat_connect_errors_preserve_provider',
+            'lockdown_location_simulation_connect_errors_preserve_provider',
+            'misagent_connect_errors_preserve_provider',
+            'notification_proxy_connect_errors_preserve_provider',
+            'pcapd_connect_errors_preserve_provider',
+            'preboard_service_connect_errors_preserve_provider',
+            'screenshotr_connect_errors_preserve_provider',
+            'mobileactivationd_client_borrows_provider_until_freed',
+        }
+        names = REQUIRED_RUST_TESTS['idevice-ffi']
+        self.assertTrue(expected <= set(names))
+        self.assertEqual(len(names), len(set(names)))
+        output = '\n'.join('test provider::ownership_tests::' + name + ' ... ok' for name in names)
+        output += '\ntest result: ok. ' + str(len(names)) + ' passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;'
+        validate_rust_output('idevice-ffi', output)
+        for missing in expected:
+            with self.subTest(missing=missing):
+                incomplete = output.replace('test provider::ownership_tests::' + missing + ' ... ok', '')
+                with self.assertRaises(ValueError):
+                    validate_rust_output('idevice-ffi', incomplete)
 
     def test_feature_and_workflow_closure(self):
         from run_issue_tests import RUST_FEATURES, SUITES

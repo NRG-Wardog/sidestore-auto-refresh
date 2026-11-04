@@ -19,16 +19,38 @@ class IntegrationRule:
 def apply_rules(text, rules):
     """Apply an explicitly supplied immutable rule sequence, never fuzzy matching."""
     rules = tuple(rules)
+    if any(not isinstance(rule, IntegrationRule) for rule in rules):
+        raise ValueError('Expected immutable integration rules')
     names = [rule.name for rule in rules]
-    if len(names) != len(set(names)) or any(not name for name in names):
+    if any(not isinstance(name, str) or not name.strip() for name in names) or len(names) != len(set(names)):
         raise ValueError('Integration rule names must be nonempty and unique')
+    spans = []
     for rule in rules:
-        if not rule.owner or not rule.rationale or not rule.anchor:
-            raise ValueError('Integration rule contract is incomplete: ' + rule.name)
-        if text.count(rule.anchor) != 1:
+        if not all(isinstance(value, str) and value.strip()
+                   for value in (rule.name, rule.owner, rule.rationale, rule.anchor)):
+            raise ValueError('Integration rule contract is incomplete: ' + str(rule.name))
+        if not isinstance(rule.replacement, str):
+            raise ValueError('Integration replacement must be text: ' + rule.name)
+        # Inspect the original upstream text, never another rule's output.
+        # Searching from start + 1 also catches overlapping duplicate anchors.
+        start = text.find(rule.anchor)
+        if start < 0 or text.find(rule.anchor, start + 1) >= 0:
             raise ValueError('Upstream packaging anchor changed [' + rule.name + ']: ' + rule.anchor)
-        text = text.replace(rule.anchor, rule.replacement, 1)
-    return text
+        spans.append((start, start + len(rule.anchor), rule))
+    spans.sort(key=lambda item: item[0])
+    for left, right in zip(spans, spans[1:]):
+        if left[1] > right[0]:
+            raise ValueError('Overlapping integration anchors: ' + left[2].name + ', ' + right[2].name)
+    # Apply disjoint original-source spans. Inserted custom text is never parsed
+    # as a subsequent upstream anchor, independent of rule ordering.
+    pieces = []
+    cursor = 0
+    for start, end, rule in spans:
+        pieces.extend((text[cursor:start], rule.replacement))
+        cursor = end
+    pieces.append(text[cursor:])
+    return ''.join(pieces)
+
 
 
 def configure_anchors(rules, overrides):

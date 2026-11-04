@@ -1,4 +1,5 @@
 import copy,hashlib,json,subprocess,tempfile,unittest
+from unittest.mock import patch
 from pathlib import Path
 import upstream_candidate_projection as P
 class ProjectionTests(unittest.TestCase):
@@ -19,17 +20,84 @@ class ProjectionTests(unittest.TestCase):
    p.write_text('unreviewed mutation\n')
    with self.assertRaises(ValueError):P.bind(original,{'Owner/code.swift'},graph,sources)
  def test_no_case_or_marker_inputs_can_be_rebound(self):
-  self.assertEqual(len(P.ALLOWED_MM),3);self.assertEqual(len(P.ALLOWED_VPN),5)
+  self.assertEqual(len(P.ALLOWED_MM),3);self.assertEqual(len(P.ALLOWED_VPN),7)
   for path in P.ALLOWED_MM|P.ALLOWED_VPN:
    self.assertNotIn('policy_cases.swift',path);self.assertNotIn('Original',path);self.assertNotIn('baseline-receipt',path);self.assertNotIn('interface_doubles',path)
  def test_exact_additive_wifi_role_preserves_original_roles(self):
   original={'producer':{'path':'fixed/producer.swift','sha256':'1'*64}}
   value=P.reviewed_vpn_rows(original)
   self.assertEqual(value['producer'],original['producer'])
-  self.assertEqual(set(value),set(original)|{P.WIFI_ROLE})
+  self.assertEqual(set(value),set(original)|{P.WIFI_ROLE,P.SELECTION_ROLE})
   self.assertEqual(value[P.WIFI_ROLE],{'path':P.WIFI_PATH,'sha256':P.WIFI_SHA})
+  self.assertEqual(value[P.SELECTION_ROLE],{'path':P.SELECTION_PATH,'sha256':P.SELECTION_SHA})
+  with self.assertRaises(ValueError):P.reviewed_vpn_rows({'other':{'path':P.SELECTION_PATH,'sha256':P.SELECTION_SHA}})
+  with self.assertRaises(ValueError):P.reviewed_vpn_rows({P.SELECTION_ROLE:{'path':'unexpected','sha256':'a'*64}})
   with self.assertRaises(ValueError):P.reviewed_vpn_rows(value)
   with self.assertRaises(ValueError):P.reviewed_vpn_rows({'other':{'path':P.WIFI_PATH,'sha256':P.WIFI_SHA}})
+ def test_exact_observation_dependency_bytes_reject_tamper(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp).resolve();selection=root/P.SELECTION_PATH;mapper=root/P.OBSERVATION_MAPPER
+   selection.parent.mkdir(parents=True);mapper.parent.mkdir(parents=True)
+   selection.write_bytes(b'reviewed selection');mapper.write_bytes(b'reviewed mapper')
+   with patch.object(P,'SELECTION_SHA',P.sha(selection.read_bytes())),patch.object(P,'OBSERVATION_MAPPER_SHA',P.sha(mapper.read_bytes())):
+    P.validate_observation_dependencies(root)
+    for path in (selection,mapper):
+     original=path.read_bytes();path.write_bytes(b'unreviewed change')
+     with self.assertRaises(ValueError):P.validate_observation_dependencies(root)
+     path.write_bytes(original)
+ def test_comprehensive_preflight_inventory_precedes_any_generator(self):
+  import preflight_comprehensive_pairing as preflight
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);sources=root/'sources';sources.mkdir();output=root/'output';calls=[]
+   contract={'pairing_recovery_case_names':['fixture']}
+   def inventory(s,c):
+    self.assertEqual(s,sources.resolve());self.assertIs(c,contract);calls.append('inventory');return {'exact.py':'1'*64}
+   def generate(*args,**kwargs):
+    self.assertEqual(calls,['inventory']);calls.append('generate')
+   with patch.object(preflight,'contracts',side_effect=lambda s,o:o.mkdir(parents=True)),patch.object(preflight,'load_contract',return_value=contract),patch.object(preflight,'source_inventory',side_effect=inventory),patch.object(preflight.subprocess,'run',side_effect=generate),patch.object(preflight,'pairing_recovery_extraction',return_value={'source_only':True}):
+    report=preflight.run(sources,output)
+   self.assertEqual(calls,['inventory','generate']);self.assertEqual(report['source_inventory_sha256'],{'exact.py':'1'*64})
+   self.assertIs(report['native_runtime_executed'],False)
+ def test_comprehensive_preflight_canonicalizes_symlinked_temp_root_without_bypassing_inventory(self):
+  import preflight_comprehensive_pairing as preflight
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp).resolve();real=root/'real';real.mkdir();(real/'sources').mkdir()
+   alias=root/'alias';alias.symlink_to(real,target_is_directory=True)
+   sources=alias/'sources';output=alias/'output'
+   canonical_sources=(real/'sources').resolve();canonical_output=(real/'output').resolve()
+   self.assertNotEqual(sources,canonical_sources)
+   contract={'pairing_recovery_case_names':['fixture']};calls=[]
+   def contracts(s,o):
+    self.assertEqual(s,canonical_sources);self.assertEqual(o,canonical_output/'contracts')
+    o.mkdir(parents=True,exist_ok=True);calls.append('contracts')
+   def inventory(s,c):
+    self.assertEqual(s,canonical_sources);self.assertIs(c,contract)
+    calls.append('inventory');return {'exact.py':'1'*64}
+   def generate(argv,**kwargs):
+    self.assertEqual(calls,['contracts','inventory'])
+    self.assertEqual(kwargs['cwd'],canonical_sources)
+    self.assertEqual(argv[argv.index('--sources')+1],str(canonical_sources))
+    self.assertEqual(argv[argv.index('--output')+1],str(canonical_output/'pairing-recovery'))
+    calls.append('generate')
+   def extraction(out,c,**kwargs):
+    self.assertEqual(out,canonical_output);self.assertIs(c,contract)
+    self.assertTrue(kwargs['before_compile']);return {'source_only':True}
+   with patch.object(preflight,'contracts',side_effect=contracts),patch.object(preflight,'load_contract',return_value=contract),patch.object(preflight,'source_inventory',side_effect=inventory),patch.object(preflight.subprocess,'run',side_effect=generate),patch.object(preflight,'pairing_recovery_extraction',side_effect=extraction):
+    report=preflight.run(sources,output)
+   self.assertEqual(calls,['contracts','inventory','generate'])
+   self.assertIs(report['native_runtime_executed'],False)
+   with patch.object(preflight,'contracts'),patch.object(preflight,'load_contract',return_value=contract),patch.object(preflight,'source_inventory',side_effect=ValueError('Unpinned fixture file')) as rejected,patch.object(preflight.subprocess,'run') as generate:
+    with self.assertRaisesRegex(ValueError,'Unpinned'):preflight.run(sources,output)
+    rejected.assert_called_once_with(canonical_sources,contract);generate.assert_not_called()
+
+ def test_comprehensive_preflight_unpinned_inventory_stops_before_generator(self):
+  import preflight_comprehensive_pairing as preflight
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);sources=root/'sources';sources.mkdir()
+   with patch.object(preflight,'contracts'),patch.object(preflight,'load_contract',return_value={}),patch.object(preflight,'source_inventory',side_effect=ValueError('Unpinned fixture file')),patch.object(preflight.subprocess,'run') as generate:
+    with self.assertRaisesRegex(ValueError,'Unpinned'):preflight.run(sources,root/'output')
+    generate.assert_not_called()
+
  def test_cli_and_native_receipt_use_current_projection(self):
   verify=(P.HERE/'verify_upstream_sync.py').read_text();record=(P.HERE/'record.py').read_text()
   self.assertIn("current['minimuxer_fake_tests']",verify)
@@ -41,4 +109,8 @@ class ProjectionTests(unittest.TestCase):
   self.assertIn("row['sha256']==vpn[row['path']]",helper)
   self.assertIn("sha((sources/WIFI_TEST_PATH).read_bytes())==WIFI_TEST_SHA",helper)
   self.assertEqual(P.WIFI_TEST_PATH,'SideStore/tests/vpn_transport_recovery/test_contract.py')
+  for workflow in ('refresh-truth-preflight.yml','cold-vpn-native.yml'):
+   text=(P.HERE.parents[1]/'.github/workflows'/workflow).read_text()
+   for command in ('upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json','preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight'):
+    self.assertIn(command,text)
 if __name__=='__main__':unittest.main(verbosity=2)

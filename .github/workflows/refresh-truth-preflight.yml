@@ -48,13 +48,42 @@ jobs:
           python3 -B harness/ci/issues-native/record.py acquire 2>&1 | tee evidence/acquisition.log
           python3 -B harness/ci/issues-native/record.py snapshot acquired
           python3 -B harness/ci/issues-native/verify_candidate_graph.py
+          python3 -B harness/ci/issues-native/test_profile_static_closure_projection.py
+          python3 -B harness/ci/issues-native/test_early_progress_fixture_projection.py
+          python3 -B harness/ci/issues-native/test_initial_provider_rejection_projection.py
+          python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_receipt.py
+          python3 -B harness/ci/issue56-startup/test_startup_runner.py
+          python3 -B sources/SideStore/tests/startup_outcome/test_contract.py --source-only 2>&1 | tee evidence/startup-source-controls.log
           python3 -B harness/ci/issues-native/test_current_bindings.py
+          python3 -B harness/ci/issues-native/test_anisette_dependency_pins.py
+          python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py
+          python3 -B harness/ci/issues-native/test_owned_oda_contract.py
+          python3 -B harness/ci/issues-native/test_workflow_failure_collection.py
+          python3 -B harness/ci/issues-native/test_refresh_observation_setup_projection.py
+          python3 -B harness/ci/issues-native/test_refresh_observation_vpn_projection.py
+          python3 -B harness/ci/issues-native/test_transport_observation_cache_projection.py
+          python3 -B harness/ci/issues-native/test_legacy_replacement_cache_projection.py
+          python3 -B harness/ci/issues-native/test_legacy_replacement_host_projection.py
+          python3 -B harness/ci/issues-native/test_preservation_successor_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_setup_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_host_bundle_projection.py
           python3 -B harness/ci/issues-native/test_refresh_truth_flow_projection.py
+          python3 -B sources/LiveContainer/.ci/vpn-refresh-recovery/test_classifier_dependency.py
           python3 -B harness/ci/issues-native/test_cold_vpn_cache_projection.py
           python3 -B harness/ci/issues-native/verify_current_bindings.py --sources sources --output evidence/current-source-bindings.json
+          python3 -B harness/ci/issues-native/test_upstream_candidate_projection.py
+          python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
+          python3 -B harness/ci/issues-native/test_preservation_localization_projection.py
+          python3 -B harness/ci/issues-native/test_observed_constraints_localization_projection.py
+          python3 -B harness/ci/issues-native/test_profile_transaction_cache_projection.py
+          python3 -B harness/ci/issues-native/test_progress_owner_cache_projection.py
+          python3 -B harness/ci/issues-native/test_preservation_native_qualification.py
+          python3 -B harness/ci/issues-native/test_issue_receipt.py
+          python3 -B sources/LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py
           python3 -B harness/ci/issues-native/project_candidate_contracts.py
+          python3 -B harness/ci/issues-native/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
           python3 -B harness/ci/issues-native/test_refresh_truth_receipt.py
           python3 -B harness/ci/issues-native/test_refresh_truth_generated_lifecycle.py
           python3 -B harness/ci/issues-native/test_refresh_truth_orchestration.py
@@ -154,6 +183,63 @@ jobs:
             evidence/russian-localization/
           if-no-files-found: error
           retention-days: 14
+      - name: Run issue regression suite without skips
+        id: issue_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/record.py snapshot before-issue_tests
+          cmp evidence/acquired.json evidence/before-issue_tests.json
+          python3 -B harness/ci/issues-native/run_issue_tests.py 2>&1 | tee evidence/issue-tests.log
+      - name: Check all SideStore source-owned upstream regressions without skips
+        id: upstream_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/record.py snapshot before-upstream_tests
+          cmp evidence/acquired.json evidence/before-upstream_tests.json
+          python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
+          python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py
+          python3 -B harness/ci/issues-native/verify_upstream_sync.py sidestore-tests \
+            --output evidence/SideStore-upstream-sync-tests.json 2>&1 | tee evidence/SideStore-upstream-sync-tests.log
+          python3 -B harness/ci/issues-native/database_recovery_upstream_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json
+          # Run the committed AK logging policy/fake-output suite once, never vendor/guest fixtures.
+          python3 -B sources/AnisetteKit/.ci/native-logging/test_native_logging_contract.py \
+            2>&1 | tee evidence/AnisetteKit-native-logging-contract.log
+          printf '0\n' > evidence/AnisetteKit-native-logging-contract.exit-code.txt
+      - name: Check minimuxer extracted-production Swift with fake dependencies only
+        id: minimuxer_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/record.py snapshot before-minimuxer_tests
+          cmp evidence/acquired.json evidence/before-minimuxer_tests.json
+          python3 -B harness/ci/issues-native/verify_upstream_sync.py minimuxer-tests \
+            --swiftc "$(command -v swiftc)" --output evidence/minimuxer-upstream-sync-tests.json
+      - name: Check VPN transport recovery source and runtime matrix without skips
+        id: vpn_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/record.py snapshot before-vpn_tests
+          cmp evidence/acquired.json evidence/before-vpn_tests.json
+          VPN_TRANSPORT_SOURCE_ROOT="$GITHUB_WORKSPACE/sources" \
+          REQUIRE_SWIFT_VPN_TRANSPORT_TESTS=1 \
+          VPN_TRANSPORT_EVIDENCE_OUTPUT="$GITHUB_WORKSPACE/evidence/vpn-transport-recovery" \
+          python3 -B sources/SideStore/tests/vpn_transport_recovery/test_contract.py \
+            2>&1 | tee evidence/vpn-transport-recovery.log
+          printf '0\n' > evidence/vpn-transport-recovery.exit-code.txt
+      - name: Retain immediate pipeline dependency failure evidence
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.issue_tests.outcome == 'failure' || steps.upstream_tests.outcome == 'failure' || steps.minimuxer_tests.outcome == 'failure' || steps.vpn_tests.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-pipeline-dependencies-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/*.json
+            evidence/*.log
+            evidence/vpn-transport-recovery/
+          if-no-files-found: error
+          retention-days: 14
       - name: Select exact previously qualified Rust compiler
         id: rust_tools
         if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
@@ -178,6 +264,10 @@ jobs:
           test '${{ steps.comprehensive_tests.outcome }}' = success
           test '${{ steps.setup_tests.outcome }}' = success
           test '${{ steps.russian_tests.outcome }}' = success
+          test '${{ steps.issue_tests.outcome }}' = success
+          test '${{ steps.upstream_tests.outcome }}' = success
+          test '${{ steps.minimuxer_tests.outcome }}' = success
+          test '${{ steps.vpn_tests.outcome }}' = success
           python3 -B harness/ci/refresh-truth/run.py seal --sources sources --output evidence
           python3 -B harness/ci/issues-native/record.py snapshot after-fixtures
           cmp evidence/acquired.json evidence/after-fixtures.json
@@ -194,5 +284,6 @@ jobs:
             evidence/russian-localization/
             evidence/cold-vpn/*.log
             evidence/cold-vpn/*.json
+            evidence/vpn-transport-recovery/
           if-no-files-found: error
           retention-days: 14

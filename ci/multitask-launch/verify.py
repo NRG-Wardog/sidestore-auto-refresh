@@ -38,7 +38,16 @@ def verify(source,evidence,expected_identity=None,*,validated_native_inventory=N
     require('GUEST_LAUNCH_DIAGNOSTICS_PASS' in (diagnostic_fixture.parent/'runtime.log').read_text(),'Diagnostic runtime success marker missing')
     require('GUEST_DIAGNOSTIC_COPY_PASS' in (diagnostic_fixture.parent/'copy-runtime.log').read_text(),'Diagnostic copy runtime success marker missing')
     require(attachment['schema']=='multitask-attachment-ci-v2' and attachment['status']=='PASS_ACTUAL_ATTACHMENT_HELPER_NOT_GUEST_LAUNCH' and attachment['simulator_execution'] is True,'Attachment observations incomplete')
+    run_attachment.validate_cleanup_receipt(attachment)
+    for name,digest in attachment['cleanup_source_sha256'].items():
+        require(sha(run_attachment.HERE/name)==digest,'Cleanup source differs')
     work=evidence/'multitask-attachment'
+    cleanup=attachment['cleanup']
+    require(sha(work/'simulator-create.log')==cleanup['ownership']['create_stdout_sha256'],'Creation log differs')
+    for row in cleanup['actions']:
+        require(sha(work/row['log'])==row['log_sha256'],'Cleanup command log differs')
+    if cleanup['readback'] is not None:
+        require(sha(work/'cleanup-final-inventory.json')==cleanup['readback']['inventory_sha256'],'Cleanup inventory file differs')
     require(sha(source/'tests/test_guest_host_attachment.py')==attachment['wiring_test_sha256'] and sha(work/'source-wiring.log')==attachment['wiring_log_sha256'],'Host wiring test source/output differs')
     require(sha(work/'simulator-result.json')==attachment['result_sha256'],'Attachment result changed')
     run_attachment.validate(read(work/'simulator-result.json'))

@@ -1,5 +1,5 @@
 {
-  "native_builder": "849742a0718bdf5409926a6885e92cc013c7a6ef",
+  "native_builder": "a78ea0efece1afde269a893522b79dca797de578",
   "required_markers": [
     "INITIAL_PROVIDER_REJECTION_AUTH_PASS cases=27 actual_authenticate=true native_provider=false",
     "INITIAL_PROVIDER_REJECTION_CONSUMER_PASS actual_mapper=true actual_sequence=true account_calls=false",
@@ -18,8 +18,8 @@
         "tree": "9f27b5d843f26edbf358ef7b201c963f653f9de6"
       },
       "SideStore": {
-        "commit": "4f1021277ccc49572a17649bf062cd02c583071f",
-        "tree": "030ca9722b1f46ad660fb414c85b90d5ae0d72d7"
+        "commit": "e1d2f47405f8becc102608ab066513a8754ce8da",
+        "tree": "8e1e1b1f1115a191633fa8cbfb3e52be9df28129"
       },
       "SideStore/Dependencies/SideSign": {
         "commit": "3036cfb7803844842d604d17d9697ddbbbc4d50f",
@@ -81,8 +81,8 @@
     }
   },
   "trusted_files_sha256": {
-    "candidate-graph.json": "7637aee916ae8a5c687369bffc39111077e0cc2a781f0dedebc51a8635593d39",
-    "run_issue_tests.py": "7f41be39d8e317f413118e171782a545036c245851de084993e99215d5dd79f5",
+    "candidate-graph.json": "9312c5d78303a32d52561396f82ec61ab0960f5bacaa845eda7acbdc58f6ab92",
+    "run_issue_tests.py": "4978954116ee9c9de6ec2bbe9c5389730a2a09d63b3b7042527908bc7f9c327f",
     "verify_candidate_graph.py": "a7684ae0f85f4ba3298418bbff906755b0b43c2b30d34303e38ec3cf51660b36"
   }
 }

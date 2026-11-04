@@ -406,6 +406,8 @@ def acquire():
             if mode == '160000':
                 key = name + '/' + child
                 require(key in OWNERS and OWNERS[key][1] == oid, 'Unexpected child gitlink: ' + key)
+    from verify_anisette_dependency_pins import verify as verify_anisette_dependency_pins
+    write('anisette-dependency-pins.json', verify_anisette_dependency_pins(S, Path(__file__).with_name('candidate-graph.json')))
     project = (S / 'LiveContainer/LiveContainer.xcodeproj/project.pbxproj').read_text()
     require('XCRemoteSwiftPackageReference' not in project and
             re.search(r'packageReferences\s*=\s*\(\s*\);', project),
@@ -646,10 +648,18 @@ def working_app_lock_differs():
 
 
 def receipt():
+    if os.environ.get('GITHUB_REF') == 'refs/heads/validation/cold-vpn':
+        from preservation_cms_receipt import verify as verify_preservation_cms
+        verify_preservation_cms(E / 'preservation-cms-tests.json', S, load_candidate_graph(),
+            {k: os.environ[v] for k,v in [('workflow_commit','GITHUB_SHA'),('run_id','GITHUB_RUN_ID'),('run_attempt','GITHUB_RUN_ATTEMPT')]})
     if os.environ.get('GITHUB_REF') == 'refs/heads/validation/cold-vpn' or (E / 'multitask-launch-tests.json').exists():
         from refresh_truth_receipt import verify_local as verify_refresh_truth
         verify_refresh_truth(E / 'refresh-truth-tests.json', S, load_candidate_graph(),
             {k: os.environ[v] for k,v in [('workflow_commit','GITHUB_SHA'),('run_id','GITHUB_RUN_ID'),('run_attempt','GITHUB_RUN_ATTEMPT')]}, compiler_evidence=E)
+        from run_database_recovery import verify_local as verify_database_recovery
+        verify_database_recovery(E / 'database-recovery-tests.json', S, ROOT / 'schema-sources', E,
+            {k:list(v) for k,v in OWNERS.items()},
+            {k: os.environ[v] for k,v in [('workflow_commit','GITHUB_SHA'),('run_id','GITHUB_RUN_ID'),('run_attempt','GITHUB_RUN_ATTEMPT')]})
         from startup_upgrade_receipt import verify_local as verify_startup_upgrade
         verify_startup_upgrade(E / 'startup-upgrade-tests.json', S, ROOT / 'schema-sources', E,
             {k:list(v) for k,v in OWNERS.items()},

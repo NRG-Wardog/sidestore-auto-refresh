@@ -10,8 +10,26 @@ def fixture():
  source={'owners':{o:{'repository':g[0],'commit':g[1],'tree':'c'*40} for o,g in graph.items()},'source_sha256':{o+'/'+p:'d'*64 for o,paths in C.INPUTS.items() for p in paths}}
  parts={}
  for kind in ('swift','rust'):
-  logs={o:'\nRan '+str(n)+' tests in 0.123s\n\nOK\n' for o,(_,n) in C.SUITES.items()} if kind=='swift' else {'idevice':'\n'.join('test '+name+' ... ok' for name in C.RUST_CASES)+'\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'}
+  logs={o:('\nRan '+str(n)+' tests in 0.123s\n\nOK\n' if n is not None else '') for o,(_,n) in C.SUITES.items()} if kind=='swift' else {'idevice':'\n'.join('test '+name+' ... ok' for name in C.RUST_CASES)+'\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'}
   parts[kind]={'schema':C.SCHEMA+'-part','kind':kind,'status':'PASS','identity':identity,'source_graph':graph,'source':source,'logs':logs,'compiler':{'path_sha256':'e'*64,'version':'synthetic compiler model'},'physical_device_execution':False}
+  if kind=='swift':
+   logs['SideStore-preservation-origin']+=json.dumps({'schema':'preservation-origin-transport-v1','status':'PASS','cases':list(C.ORIGIN_TRANSPORT_CASES),'network_executed':False,'platform_tls_executed':False,'cms_verified':False,'device_executed':False})+'\n'+json.dumps({'schema':'preservation-origin-visibility-v1','status':'PASS','cases':list(C.ORIGIN_VISIBILITY_CASES),'device_executed':False})+'\n'
+   logs['SideStore-preservation-der']+=json.dumps({'schema':'preservation-der-parser-v1','status':'PASS','cases':list(C.PRESERVATION_DER_CASES),'cms_verified':False,'device_executed':False})+'\n'
+   logs['SideStore-preservation']+=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False,**({'cms_verified':False,'platform_tls_executed':False,'portal_executed':False} if name=='integration' else {})})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.PRESERVATION_INTEGRATION_CASES)])
+   logs['SideStore-reuse-lifecycle']+='\n'.join(C.REUSE_LIFECYCLE_MARKERS)+'\n'
+   logs['SideStore-reuse-lifecycle']+=json.dumps({'schema':'reuse-main-producer-consumer-v1','status':'PASS','cases':list(C.REUSE_PRODUCER_CONSUMER_CASES),'device_executed':False})+'\n'
+  if kind=='swift':
+   logs['LiveContainer']+='\n'.join('PASS '+name for name in C.LC_TRUTH_CASES)+'\nREFRESH_TRUTH_RUNTIME_PASS\n'
+   logs['SideStore-preservation-serialization']='37 serialization source guards passed; Swift/device not executed\n'+'\n'.join(C.SERIALIZATION_MARKERS)+'\n'
+   logs['SideStore-preservation-serialization']+=json.dumps({'source_guard_count':37,'swift_executed':False,'device_executed':False,'inputs':{key:'d'*64 for key in C.SERIALIZATION_INPUTS},'generated_sha256':'f'*64})+'\n'
+   logs['SideStore-preservation-outcome']+='PASS 7 actual outcome cases and SS-to-LC wire\n'
+   logs['LiveContainer-postdispatch-wire']+=json.dumps({'schema':'ss-lc-postdispatch-wire-v1','status':'PASS','cases':list(C.POSTDISPATCH_CASES),'device_executed':False,'network_executed':False,'inputs':{key:'d'*64 for key in C.POSTDISPATCH_INPUTS}})+'\n'
+  if kind=='swift':parts[kind]['logs']['SideStore-refresh-failure']+='CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\nAPPLE_PROFILE_ORIGIN_REAL_SIGNING_BRIDGE_PASS\nPRESERVATION_POSTDISPATCH_REAL_BRIDGE_PASS\n'
+  if kind=='swift':parts[kind]['logs']['LiveContainer-observations']+='\n'.join('PASS '+name for name in C.OBSERVATION_CASES)+'\nREFRESH_OBSERVATIONS_PASS\n'
+  if kind=='swift':
+   for owner,(schema,cases) in C.LEGACY_NATIVE.items():parts[kind]['logs'][owner]+=json.dumps({'schema':schema,'status':'PASS','cases':list(cases)})+'\n'
+  if kind=='swift':parts[kind]['logs']['SideStore-legacy-coordinator']+='\n'.join(C.LEGACY_COORDINATOR_MARKERS)+'\n'
+  if kind=='swift':parts[kind]['logs']['LiveContainer-legacy']+='\n'.join('PASS '+name for name in C.LEGACY_HOST_CASES)+'\nLEGACY_REPLACEMENT_HOST_PASS\n'
   if kind=='rust':parts[kind]['logs']['idevice-ffi']='\n'.join('test '+name+' ... ok' for name in C.FFI_CASES)+'\ntest result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'
  return {'schema':C.SCHEMA,'status':C.STATUS,'identity':identity,'source_graph':graph,'parts':parts,'part_sha256':{k:C.digest(v) for k,v in parts.items()},'physical_device_execution':False,'os_profile_selection_proven':False,'future_certificate_trust_proven':False}
 class ReceiptTests(unittest.TestCase):
@@ -21,6 +39,180 @@ class ReceiptTests(unittest.TestCase):
   v=copy.deepcopy(self.value);change(v)
   if rehash:v['part_sha256']={k:C.digest(p) for k,p in v['parts'].items()}
   with self.assertRaises((ValueError,TypeError,KeyError)):self.verify(v)
+ def test_origin_transport_visibility_records_and_claims_exact(self):
+  owner='SideStore-preservation-origin';original=self.value['parts']['swift']['logs'][owner]
+  self.assertEqual(C.SUITES[owner],('tests/preservation_origin/run.sh',5));self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
+  self.assertEqual(len(C.ORIGIN_TRANSPORT_CASES),58);self.assertEqual(len(C.ORIGIN_VISIBILITY_CASES),3)
+  self.assertEqual(len(C.PRESERVATION_INTEGRATION_CASES),80)
+  self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
+  header=original[:original.index('{')];records=[json.loads(x) for x in original.splitlines() if x.startswith('{')]
+  for index,row in enumerate(records):
+   for field,value in [('status','STATIC_PASS'),('device_executed',True),('cases',row['cases'][1:]),('cases',list(reversed(row['cases']))),('cases',row['cases']+[row['cases'][0]]),('unexpected','private')]+([(k,True) for k in ('network_executed','platform_tls_executed','cms_verified')] if index==0 else []):
+    changed=copy.deepcopy(records);changed[index][field]=value
+    bad=header+''.join(json.dumps(r)+'\n' for r in changed)
+    with self.subTest(index=index,field=field):self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+  for changed in (records[:1],records+records[:1],list(reversed(records))):
+   bad=header+''.join(json.dumps(r)+'\n' for r in changed)
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+  for case in C.ORIGIN_TRANSPORT_CASES:
+   bad=original.replace('"'+case+'",','',1)
+   if bad==original:bad=original.replace(', "'+case+'"','',1)
+   with self.subTest(case=case):self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+ def test_origin_source_and_bridge_marker_mandatory(self):
+  paths={'SideStore':('SideStore/Core/Auth/DeveloperPortalProxy.swift','tests/preservation_refresh/OriginAdapterCases.swift','tests/preservation_origin/run.sh','tests/preservation_origin/generate_fixture.py','tests/preservation_origin/SDKDoubles.swift','tests/preservation_origin/TransportCases.swift','tests/preservation_origin/expected-cases.json','tests/preservation_origin/test_contract.py'),'SideStore/Dependencies/SideSign':('Sources/DeveloperPortal/AppleProfileOperation.swift','Sources/Models/DeveloperPortalResponses.swift','Sources/Models/ProvisioningProfile.swift')}
+  for owner,files in paths.items():
+   for path in files:
+    self.assertIn(path,C.INPUTS[owner])
+    self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop(owner+'/'+path))
+  marker='APPLE_PROFILE_ORIGIN_REAL_SIGNING_BRIDGE_PASS\nPRESERVATION_POSTDISPATCH_REAL_BRIDGE_PASS\n';owner='SideStore-refresh-failure'
+  for count in (0,2):self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,v['parts']['swift']['logs'][owner].replace(marker,marker*count)))
+ def test_der_parser_native_exact_result_and_claims(self):
+  owner='SideStore-preservation-der'
+  self.assertEqual(C.SUITES[owner],('tests/preservation_der/run.sh',6))
+  self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
+  self.assertEqual(len(C.PRESERVATION_DER_CASES),59)
+  original=self.value['parts']['swift']['logs'][owner]
+  header=original[:original.index('{')]
+  self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
+  for bad in ('',original+original[original.index('{'):],original.replace('"PASS"','"STATIC_PASS"'),original.replace('"cms_verified": false','"cms_verified": true'),original.replace('"device_executed": false','"device_executed": true'),original.replace(C.PRESERVATION_DER_CASES[0],C.PRESERVATION_DER_CASES[1])):
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+  for key,value in [('cases',list(C.PRESERVATION_DER_CASES)[1:]),('cases',list(reversed(C.PRESERVATION_DER_CASES))),('cases',list(C.PRESERVATION_DER_CASES)+['extra']),('unexpected',True)]:
+   row=json.loads(next(line for line in original.splitlines() if line.startswith('{')));row[key]=value
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,header+json.dumps(row)+'\n'))
+ def test_der_parser_source_closure_is_bound(self):
+  for path in ('SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift', 'tests/preservation_der/run.sh', 'tests/preservation_der/SwiftCases.swift', 'tests/preservation_der/swift-cases.json', 'tests/preservation_der/expected-cases.json', 'tests/preservation_der/test_contract.py', 'tests/preservation_der/generate_failure_diagnostic.py'):
+   self.assertIn(path,C.INPUTS['SideStore'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
+ def test_der_crypto_production_source_closure_is_bound(self):
+  for path in ('DeviceGateway/Package.swift', 'DeviceGateway/ProvisioningCMSCore/profile_cms.c', 'DeviceGateway/ProvisioningCMSCore/include/profile_cms.h', 'DeviceGateway/ProvisioningCMSCore/production_roots.h', 'DeviceGateway/ProvisioningCMSCore/approved_inner.h', 'DeviceGateway/libimobiledevice/ProvisioningCMSVerifier.swift', 'Sources/ProfileCMSVerifier.swift'):
+   self.assertIn(path,C.INPUTS['SideStore/Dependencies/minimuxer'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/Dependencies/minimuxer/'+path))
+ def test_observation_native_suite_is_mandatory(self):
+  self.assertEqual(C.SUITE_OWNERS['LiveContainer-observations'],'LiveContainer')
+  self.assertEqual(C.SUITES['LiveContainer-observations'],('.ci/refresh-observations/test_refresh_observations.py',5))
+  self.assertEqual(len(C.OBSERVATION_CASES),189)
+  self.reject(lambda v:v['parts']['swift']['logs'].pop('LiveContainer-observations'))
+  for replacement in ('Ran 3 tests in 0.1s\nOK (skipped=1)\n','Ran 3 tests in 0.1s\nOK\n'):
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',replacement))
+ def test_observation_runtime_cases_and_completion_are_exact(self):
+  for old,new in [('PASS '+C.OBSERVATION_CASES[0]+'\n',''),('PASS '+C.OBSERVATION_CASES[0],'PASS '+C.OBSERVATION_CASES[1]),('REFRESH_OBSERVATIONS_PASS',''),('REFRESH_OBSERVATIONS_PASS','REFRESH_OBSERVATIONS_PASS\nREFRESH_OBSERVATIONS_PASS')]:
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',v['parts']['swift']['logs']['LiveContainer-observations'].replace(old,new)))
+ def test_signer_diagnostic_observation_cases_all_mandatory(self):
+  for case in C.OBSERVATION_CASES[94:]:
+   with self.subTest(case=case):
+    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',v['parts']['swift']['logs']['LiveContainer-observations'].replace('PASS '+case+'\n','')))
+ def test_signer_diagnostic_integration_and_static_controls_mandatory(self):
+  self.assertEqual(C.SUITES['SideStore-preservation'],('tests/preservation_refresh/run.sh',5))
+  for case in C.PRESERVATION_INTEGRATION_CASES[38:]:
+   def change(v):
+    log=v['parts']['swift']['logs']['SideStore-preservation']
+    before=next(line for line in log.splitlines() if line.startswith('{') and json.loads(line).get('schema')=='preservation-refresh-integration-v1')
+    row=json.loads(before);row['cases'].remove(case)
+    changed=log.replace(before,json.dumps(row));self.assertNotEqual(log,changed)
+    v['parts']['swift']['logs']['SideStore-preservation']=changed
+   with self.subTest(case=case):self.reject(change)
+ def test_observation_source_closure_is_bound(self):
+  for path in ('.ci/vpn-refresh-recovery/test_classifier_dependency.py','.ci/comprehensive-diagnostics/generate_wire_fixture.py','.ci/refresh-observations/test_refresh_observations.py','.ci/refresh-observations/cases.swift','.ci/refresh-observations/localization_keys.json'):
+   self.assertIn(path,C.INPUTS['LiveContainer'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('LiveContainer/'+path))
+  for path in ('SideStore/Core/DeviceApi/MinimuxerWrapper.swift','tests/cold_vpn_readiness/test_transport_observation.py','tests/cold_vpn_readiness/transport_observation_cases.swift'):
+   self.assertIn(path,C.INPUTS['SideStore'])
+ def test_actual_signing_bridge_suite_and_source_closure(self):
+  owner='SideStore-refresh-failure'
+  self.assertEqual(C.SUITES[owner],('tests/refresh_failure/test_contract.py',6))
+  self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
+  self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
+  for count in (0,2):
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,v['parts']['swift']['logs'][owner].replace('CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\n','CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\n'*count)))
+  for path in ('SideStore/Core/Operations/OperationStep.swift', 'SideStore/Core/Operations/AppOperation.swift', 'AltStore/Managing Apps/AppManager.swift', 'SideStore/Core/Operations/Errors/OperationError.swift', 'Shared/Extensions/NSError+AltStore.swift', 'Shared/Errors/ALTWrappedError.swift', 'tests/refresh_failure/test_contract.py', 'tests/refresh_failure/boundary_cases.swift', 'tests/refresh_failure/certificate_cases.swift', 'tests/refresh_failure/boundary_assertions.swift', 'tests/refresh_failure/pipeline_harness.swift'):
+   self.assertIn(path,C.INPUTS['SideStore'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
+ def test_explicit_replacement_mutation_boundaries_are_source_bound(self):
+  paths=('SideStore/Core/Operations/PipelineExecutionHandler.swift','SideStore/Core/Operations/PipelineOperations/UpdateAppCertificateOperation.swift','SideStore/Core/Operations/PipelineOperations/StageAppOperation.swift','SideStore/Core/Operations/PipelineOperations/SendAppOperation.swift','SideStore/Core/Operations/PipelineOperations/RemoveAppExtensionsOperation.swift','SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift','SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift')
+  for path in paths:
+   self.assertIn(path,C.INPUTS['SideStore'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
+ def test_legacy_native_results_cannot_be_missing_duplicated_or_static(self):
+  for owner,(schema,cases) in C.LEGACY_NATIVE.items():
+   self.assertIn(owner,C.SUITES)
+   self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
+   header='Ran '+str(C.SUITES[owner][1])+' tests in 0.1s\nOK\n'
+   row=json.dumps({'schema':schema,'status':'PASS','cases':list(cases)})
+   for bad in (header,header+row+'\n'+row,header+row.replace('"PASS"','"STATIC_PASS"'),header+row.replace(cases[0],cases[1]),header+row.replace('"status": "PASS"','"status": "PASS", "status": "PASS"')):
+    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+ def test_legacy_hook_fixture_inputs_bound(self):
+  self.assertEqual(C.SUITES['SideStore-legacy-hooks'],('tests/legacy_replacement_hooks/test_contract.py',4))
+  self.assertEqual(C.SUITE_OWNERS['SideStore-legacy-hooks'],'SideStore')
+  self.assertEqual(len(C.LEGACY_NATIVE['SideStore-legacy-hooks'][1]),35)
+  for path in ('SideStore/Utils/common/AppBundleFingerprint.swift','tests/legacy_replacement_hooks/test_contract.py','tests/legacy_replacement_hooks/doubles.swift','tests/legacy_replacement_hooks/cases.swift'):
+   self.assertIn(path,C.INPUTS['SideStore'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
+  for path in ('Sources/CodeSigning/CodeSignerAPI.swift','Sources/CodeSigning/ExtensionSigningPolicy.swift'):
+   self.assertIn(path,C.INPUTS['SideStore/Dependencies/SideSign'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/Dependencies/SideSign/'+path))
+ def test_legacy_coordinator_counterfactual_evidence_required(self):
+  owner='SideStore-legacy-coordinator'
+  self.assertEqual(C.SUITES[owner],('tests/legacy_replacement/test_contract.py',4))
+  self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
+  for marker in C.LEGACY_COORDINATOR_MARKERS:
+   for replacement in ('',marker+'\n'+marker):
+    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,v['parts']['swift']['logs'][owner].replace(marker,replacement)))
+  for path in ('tests/legacy_replacement/test_contract.py','tests/legacy_replacement/Boundary.swift','tests/legacy_replacement/Cases.swift','tests/legacy_replacement/README.md'):
+   self.assertIn(path,C.INPUTS['SideStore'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
+ def test_legacy_host_native_case_and_source_closure_required(self):
+  owner='LiveContainer-legacy'
+  self.assertEqual(C.SUITES[owner],('.ci/legacy-replacement/test_contract.py',4))
+  self.assertEqual(C.SUITE_OWNERS[owner],'LiveContainer')
+  self.assertEqual(len(C.LEGACY_HOST_CASES),81)
+  for old,new in [('PASS '+C.LEGACY_HOST_CASES[0]+'\n',''),('PASS '+C.LEGACY_HOST_CASES[0],'PASS '+C.LEGACY_HOST_CASES[1]),('LEGACY_REPLACEMENT_HOST_PASS',''),('LEGACY_REPLACEMENT_HOST_PASS','LEGACY_REPLACEMENT_HOST_PASS\nLEGACY_REPLACEMENT_HOST_PASS')]:
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,v['parts']['swift']['logs'][owner].replace(old,new)))
+  for path in ('.ci/legacy-replacement/test_contract.py','.ci/legacy-replacement/cases.swift','.ci/legacy-replacement/localization_keys.json'):
+   self.assertIn(path,C.INPUTS['LiveContainer'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('LiveContainer/'+path))
+ def test_preservation_native_integration_and_reuse_lifecycle_are_mandatory(self):
+  for owner in ('SideStore-preservation','SideStore-reuse-lifecycle'):
+   self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
+   self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
+  good=self.value['parts']['swift']['logs']['SideStore-preservation']
+  header=good[:good.index('{')]
+  row=json.loads(good.splitlines()[-1])
+  for log in ('',good+good,'Ran 1 test in 0.1s\nOK\n',json.dumps({**row,'device_executed':True}),json.dumps({**row,'cases':row['cases'][:-1]}),json.dumps({**row,'cases':row['cases'][1:]+row['cases'][:1]}),json.dumps({**row,'status':'STATIC_PASS'})):
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('SideStore-preservation',log))
+  for marker in C.REUSE_LIFECYCLE_MARKERS:
+   for replacement in ('',marker+'\n'+marker):
+    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('SideStore-reuse-lifecycle',v['parts']['swift']['logs']['SideStore-reuse-lifecycle'].replace(marker,replacement)))
+ def test_each_preservation_native_record_is_independently_exact(self):
+  good=self.value['parts']['swift']['logs']['SideStore-preservation']
+  header=good[:good.index('{')]
+  rows=[json.loads(line) for line in good.splitlines() if line.startswith('{')]
+  for index in range(2):
+   for key,bad in [('cases',rows[index]['cases'][:-1]),('cases',rows[index]['cases'][1:]+rows[index]['cases'][:1]),('cases',rows[index]['cases']+[rows[index]['cases'][0]]),('status','FAIL'),('device_executed',True),('schema','unrelated')]:
+    altered=copy.deepcopy(rows);altered[index][key]=bad
+    log=header+'\n'.join(json.dumps(row) for row in altered)+'\n'
+    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('SideStore-preservation',log))
+   for altered in (rows[:index]+rows[index+1:],rows+[rows[index]]):
+    log=header+'\n'.join(json.dumps(row) for row in altered)+'\n'
+    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('SideStore-preservation',log))
+ def test_preservation_exact_production_and_fixture_inputs_are_bound(self):
+  self.assertEqual(len(C.PRESERVATION_INTEGRATION_CASES),80)
+  for path in ('SideStore/Core/Operations/PipelineOperations/CacheResignedMetadataOperation.swift','tests/preservation_refresh/run.sh','tests/preservation_refresh/generate_fixture.py','tests/preservation_refresh/expected-cases.json','tests/preservation_refresh/test_contract.py','tests/preservation_refresh/AuthenticatedAdapterCases.swift','tests/preservation_refresh/PolicyCases.swift','tests/preservation_refresh/IntegrationCases.swift','tests/preservation_refresh/BoundaryDoubles.swift','tests/reuse_main/run.sh','tests/reuse_main/Lifecycle.swift'):
+   self.assertIn(path,C.INPUTS['SideStore'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
+  self.assertIn('Sources/Models/ProvisioningProfile.swift',C.INPUTS['SideStore/Dependencies/SideSign'])
+  self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/Dependencies/SideSign/Sources/Models/ProvisioningProfile.swift'))
+ def test_actual_producer_consumer_runtime_and_source_are_mandatory(self):
+  owner='SideStore-reuse-lifecycle';good=self.value['parts']['swift']['logs'][owner]
+  line=next(line for line in good.splitlines() if line.startswith('{'))
+  row=json.loads(line)
+  for key,bad in [('schema','static-only'),('status','FAIL'),('device_executed',True),('cases',row['cases'][:-1]),('cases',row['cases'][1:]+row['cases'][:1]),('cases',row['cases']+[row['cases'][0]])]:
+   changed=json.dumps({**row,key:bad})
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,good.replace(line,changed)))
+  for changed in ('',line+'\n'+line,json.dumps({**row,'extra':True})):
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,good.replace(line,changed)))
+  for path in ('tests/reuse_main/generate_producer_consumer.py','tests/reuse_main/ProducerConsumerDoubles.swift','tests/reuse_main/ProducerConsumerCases.swift','SideStore/Utils/common/AppBundleFingerprint.swift'):
+   self.assertIn(path,C.INPUTS['SideStore'])
+   self.reject(lambda v:v['parts']['swift']['source']['source_sha256'].pop('SideStore/'+path))
  def test_valid_synthetic_contract(self):self.assertIs(self.verify(self.value),self.value)
  def test_identity_source_status_and_claims_rejected(self):
   for key,bad in [('status','PASS_STATIC'),('physical_device_execution',True),('os_profile_selection_proven',True),('future_certificate_trust_proven',1)]:

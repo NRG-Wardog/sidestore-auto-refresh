@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
-from verify_candidate_graph import load_candidate_graph, git
+from verify_candidate_graph import load_candidate_graph, git, unique_pairs
 
 HERE = Path(__file__).resolve().parent
 UNICORN_URL = 'https://github.com/mahee96/unicorn/releases/download/2.1.4-xcf-a53ddc9/Unicorn.xcframework.zip'
@@ -28,10 +28,88 @@ SWIFT_TESTS = (
     'testFreshProvisioningCancellationWaitsForSessionAndNativeDrain',
     'testExplicitCancelAtCompletedNativeReturnBoundarySuppressesHeaders',
     'testMemoryOnlyClientNeverReadsOrDeletesExistingDiskState',
+    'testCachedBlobCrossesSwiftGuardAndCleansAfterNativeRejection',
 )
-SUITES = ('native', 'historical_engine', 'legacy', 'logging', 'swift', 'startup')
+SUITES = ('native', 'historical_engine', 'legacy', 'logging', 'swift', 'startup', 'input_boundary')
 STARTUP_FLAGS = ('engine_returned', 'libraries_initialized', 'provisioning_path_initialized',
                  'android_id_initialized', 'invalid_blob_rejected', 'drained', 'owned_root_removed')
+
+# Reviewed exact successor descriptor, not caller-supplied hash-shaped claims.
+# Re-sealing requires review of the producer, source guards, generated Swift,
+# XCTest, and an actual macOS producer result. The graph separately pins the
+# complete source commit/tree; UUID is unchanged from the reviewed baseline.
+INPUT_BOUNDARY_FILES = {
+    'Sources/OwnedOnDeviceAnisetteAttempt.swift': {
+        'sha256': 'a984414b6892035e53eae5b98c958655fc1dc6d25a7e242620e04464d0a91836',
+        'git_blob': '97a397dd2780840a1018ad94f2bf5e1be7a592a9'},
+    'Sources/AnisetteKit.swift': {
+        'sha256': '8c8878134fa565363d40b8ffa280580628c6a90d6bd5c3b2046f14e1b2d3b6f2',
+        'git_blob': '256db1da8e9a28f00c4ea94cf018f113cbd77981'},
+    '.ci/owned-attempt/run_input_boundary_probe.py': {
+        'sha256': 'fe9718fbe049e8f5c15d417db92642b418562e623a906f9257ee119a2f329cf1',
+        'git_blob': '24288e7643fc31b7701c3d1f5f4cff0f56b0d03f'},
+    'Tests/AnisetteKitTests/OwnedOnDeviceAnisetteAttemptTests.swift': {
+        'sha256': '4f2ddd669be0abdf7af99ae0b5c764a81870c9a2e28d26f3d4ec92bdf607d96d',
+        'git_blob': 'ee50ccfb0108c6c2dbbfd879f349ba890e01caed'},
+}
+INPUT_BOUNDARY_METADATA = {
+    'mode': 'pass',
+    'scope': 'Exact production Swift validate/input; required C-owned URL.path, dot and trailing-slash inputs; arbitrary symlink alias URL admission is observational only; synthetic directories/blob; no FFI/network/account/device claim',
+    'source_sha256': INPUT_BOUNDARY_FILES['Sources/OwnedOnDeviceAnisetteAttempt.swift']['sha256'],
+    'validate_sha256': '6ff9725adcedbb0cd28b5f19f7660e66d23a11fd6b9b6eb98e915c974db4287b',
+    'legacy_source_commit': '7b603283248d972b050ed4940592bf5dc2fe0d41',
+    'legacy_validate_sha256': 'c9a2e1116f950732ac07acb1abfd0a159b7922f31c92903a60f5d48f46fbfcba',
+    'input_sha256': 'dc65425a6990752a07ef3156e0996f86bc2f7d817ee1e5ca2121ce6360cc0fc7',
+    'uuid_extension_sha256': '68fbd07caee624e990fd7af14acc65a3ab631739ee375afdeca57d1f8dfd0c1b',
+    'fixture_sha256': 'c0f08ae74a2a2a3c2b4693cbef6e281bb5592b710db5b609101e40e648007b35',
+    'legacy_url_mismatch_reproduced': True,
+    'runtime_returncode': 0,
+    'qualification_passed': True,
+    'classification': 'matching_directories_admitted_with_predecessor_rejection_witness',
+}
+INPUT_BOUNDARY_RESULTS = dict.fromkeys((
+    'matching_realpath_directories_admitted',
+    'trailing_slash_directories_admitted',
+    'lexical_dot_directories_admitted',
+    'incoming_library_equals_canonical_owned_library',
+    'legacy_matching_realpath_directories_rejected',
+    'incoming_state_equals_canonical_owned_state',
+    'incoming_identifier_equals_owned_identifier',
+    'different_library_rejected',
+    'different_state_rejected',
+    'different_identifier_rejected',
+    'short_identifier_rejected',
+    'empty_input_rejected',
+    'oversized_input_rejected',
+    'one_byte_input_preserved',
+    'maximum_input_preserved',
+    'retargeted_library_alias_rejected',
+    'retargeted_state_alias_rejected',
+), True)
+INPUT_BOUNDARY_RESULTS.update({
+    'legacy_incoming_library_equals_raw_owned_library': False,
+    'canonical_library_equals_raw_library': False,
+})
+# These fields describe Foundation URL metadata for inputs that the private
+# caller never supplies. Preserve the observations without expanding its input
+# contract or turning platform-specific observations into pass requirements.
+INPUT_BOUNDARY_OBSERVATIONS = (
+    'raw_library_has_directory_hint',
+    'canonical_library_has_directory_hint',
+    'equivalent_symlink_aliases_admitted',
+    'library_symlink_alias_admitted',
+    'state_symlink_alias_admitted',
+    'alias_library_canonical_path_matches_owned',
+    'alias_state_canonical_path_matches_owned',
+    'alias_library_canonical_url_matches_owned',
+    'alias_state_canonical_url_matches_owned',
+    'alias_library_explicit_directory_canonical_url_matches_owned',
+    'alias_state_explicit_directory_canonical_url_matches_owned',
+    'alias_library_inferred_directory_hint',
+    'alias_state_inferred_directory_hint',
+    'alias_library_canonical_directory_hint',
+    'alias_state_canonical_directory_hint',
+)
 
 
 def require(value, message):
@@ -47,8 +125,45 @@ def digest(path):
     return h.hexdigest()
 
 
+def validate_input_boundary(value):
+    require(type(value) is dict and set(value) == set(INPUT_BOUNDARY_METADATA) | {'results'},
+            'Input boundary schema closure differs')
+    for name, expected in INPUT_BOUNDARY_METADATA.items():
+        require(type(value[name]) is type(expected) and value[name] == expected,
+                'Input boundary metadata differs: ' + name)
+    results = value['results']
+    require(type(results) is dict and set(results) == set(INPUT_BOUNDARY_RESULTS) | set(INPUT_BOUNDARY_OBSERVATIONS),
+            'Input boundary case closure differs')
+    require(all(type(observed) is bool for observed in results.values()), 'Input boundary result type differs')
+    # Exact positives make the independent mismatch/security checks non-vacuous.
+    # Strict bool types reject JSON 0/1, which Python otherwise equals False/True.
+    for name, expected in INPUT_BOUNDARY_RESULTS.items():
+        require(type(results[name]) is bool and results[name] is expected,
+                'Input boundary case failed or type differs: ' + name)
+
+
+def verify_input_boundary_graph(graph):
+    files = graph['reviewed_deltas']['AnisetteKit']['files']
+    for relative, sealed in INPUT_BOUNDARY_FILES.items():
+        if relative == 'Sources/AnisetteKit.swift' and relative not in files:
+            continue  # Unchanged baseline input has its own exact sealed digest.
+        require(files.get(relative) == sealed['git_blob'],
+                'Input boundary reviewed graph blob differs: ' + relative)
+
+
+def verify_input_boundary_sources(source):
+    for relative, sealed in INPUT_BOUNDARY_FILES.items():
+        path = source / relative
+        require(path.is_file() and not path.is_symlink() and digest(path) == sealed['sha256'],
+                'Input boundary exact source differs: ' + relative)
+        require(git(source, 'rev-parse', 'HEAD:' + relative) == sealed['git_blob'],
+                'Input boundary checked source blob differs: ' + relative)
+
+
 def validate_log(name, output):
-    if name == 'native':
+    if name == 'input_boundary':
+        validate_input_boundary(json.loads(output, object_pairs_hook=unique_pairs))
+    elif name == 'native':
         for marker in ('PASS: control, filesystem, pinned-header syntax, actual C ABI with mock engine',
                        'PASS: pinned real Unicorn synthetic ARM64 procedures'):
             require(output.count(marker) == 1, 'Missing/duplicated native execution marker')
@@ -95,14 +210,20 @@ def source_identity(graph):
 def verify_receipt(path, graph_path=HERE / 'candidate-graph.json'):
     path = Path(path)
     value = json.loads(path.read_text())
-    expected = source_identity(load_candidate_graph(graph_path))
+    graph = load_candidate_graph(graph_path)
+    expected = source_identity(graph)
+    verify_input_boundary_graph(graph)
     require(value.get('schema') == 'owned-oda-candidate-v1' and value.get('source') == expected, 'Owned ODA source receipt differs')
     require(value.get('all_passed') is True and value.get('device_or_authentication_proven') is False, 'Owned ODA qualification incomplete')
     require(value.get('unicorn_sha256') == UNICORN_SHA, 'Owned ODA dependency pin differs')
+    require(value.get('input_boundary_source_inputs') == INPUT_BOUNDARY_FILES, 'Input boundary receipt source descriptor differs')
     require(set(value.get('suites', {})) == set(SUITES), 'Owned ODA suite closure differs')
     for name in SUITES:
         row = value['suites'][name]
         require(row.get('status') == 'PASS' and row.get('returncode') == 0, 'Owned ODA suite did not pass: ' + name)
+        if name == 'input_boundary':
+            require(set(row) == {'status', 'returncode', 'log_sha256'} and type(row['returncode']) is int,
+                    'Input boundary suite row differs')
         log = path.parent / (name + '.log')
         require(log.is_file() and not log.is_symlink() and digest(log) == row.get('log_sha256'), 'Owned ODA log drift: ' + name)
         validate_log(name, log.read_text())
@@ -175,18 +296,24 @@ def main():
     # Preflight failure must never leave an earlier successful attempt receipt.
     for name in ('receipt.json', 'trusted-startup.json', *(suite + '.log' for suite in SUITES)):
         (evidence / name).unlink(missing_ok=True)
-    expected = source_identity(load_candidate_graph(args.graph))
+    graph = load_candidate_graph(args.graph)
+    expected = source_identity(graph)
+    verify_input_boundary_graph(graph)
     def verify_source():
         require(git(source, 'rev-parse', 'HEAD') == expected['commit'] and git(source, 'rev-parse', 'HEAD^{tree}') == expected['tree'], 'Candidate AK commit/tree differs')
         require(not git(source, 'diff', '--name-only', 'HEAD'), 'Candidate AK tracked inputs changed')
+        verify_input_boundary_sources(source)
     verify_source()
     test_source = (source / 'Tests/AnisetteKitTests/OwnedOnDeviceAnisetteAttemptTests.swift').read_text()
     require(set(re.findall(r'^    func (test\w+)\(', test_source, re.M)) == set(SWIFT_TESTS), 'Owned Swift source inventory differs')
     inputs.mkdir(parents=True, exist_ok=True, mode=0o700)
     rows = {}
     receipt = {'schema': 'owned-oda-candidate-v1', 'source': expected, 'suites': rows,
+               'input_boundary_source_inputs': INPUT_BOUNDARY_FILES,
                'all_passed': False, 'device_or_authentication_proven': False}
     try:
+        execute('input_boundary', [sys.executable, '-B', source / '.ci/owned-attempt/run_input_boundary_probe.py',
+                '--expect', 'pass'], source, evidence, 180, rows)
         with tempfile.TemporaryDirectory(prefix='owned-oda-', dir=inputs) as temp:
             working = Path(temp)
             unicorn, apk = working / 'Unicorn.xcframework.zip', working / 'applemusic.apk'

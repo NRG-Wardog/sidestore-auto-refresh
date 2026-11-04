@@ -1,0 +1,195 @@
+name: Verify reusable custom integration contracts
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'docs/CUSTOM_INTEGRATION*'
+      - 'docs/PACKAGING_PATCH_SURFACE.json'
+      - 'ci/issue52-integration/**'
+      - 'ci/issues-native/candidate-graph.json'
+      - '.github/workflows/cold-vpn-zopfli.yml'
+      - 'ci/cold-vpn-zopfli/README.md'
+      - 'ci/cold-vpn-zopfli/acquire.py'
+      - 'ci/cold-vpn-zopfli/cms-native-graph.json'
+      - 'ci/cold-vpn-zopfli/cms-native-helper.snapshot'
+      - 'ci/cold-vpn-zopfli/cms-source-contract.json'
+      - 'ci/cold-vpn-zopfli/cms_package_admission.py'
+      - 'ci/cold-vpn-zopfli/contract.py'
+      - 'ci/cold-vpn-zopfli/database-recovery-source-contract.json'
+      - 'ci/cold-vpn-zopfli/database_recovery_package_admission.py'
+      - 'ci/cold-vpn-zopfli/fallback-source-contract.json'
+      - 'ci/cold-vpn-zopfli/fixtures/actual-macos-boundary-25fc5b5d.json'
+      - 'ci/cold-vpn-zopfli/independent_verify.py'
+      - 'ci/cold-vpn-zopfli/initial_rejection_package_admission.py'
+      - 'ci/cold-vpn-zopfli/input-manifest.json'
+      - 'ci/cold-vpn-zopfli/owned-oda-source-contract.json'
+      - 'ci/cold-vpn-zopfli/owned_oda_package_admission.py'
+      - 'ci/cold-vpn-zopfli/owned_oda_package_binding.py'
+      - 'ci/cold-vpn-zopfli/preservation_cms_portable.py'
+      - 'ci/cold-vpn-zopfli/project_native_evidence.py'
+      - 'ci/cold-vpn-zopfli/provider_ownership_package_admission.py'
+      - 'ci/cold-vpn-zopfli/reviewed-native/candidate-graph.json'
+      - 'ci/cold-vpn-zopfli/reviewed-native/refresh_truth_receipt.py'
+      - 'ci/cold-vpn-zopfli/reviewed-native/run_database_recovery.py'
+      - 'ci/cold-vpn-zopfli/reviewed-native/run_issue_tests.py'
+      - 'ci/cold-vpn-zopfli/reviewed-native/run_owned_oda.py'
+      - 'ci/cold-vpn-zopfli/reviewed-native/verify_candidate_graph.py'
+      - 'ci/cold-vpn-zopfli/test_acquire.py'
+      - 'ci/cold-vpn-zopfli/test_cms_package_admission.py'
+      - 'ci/cold-vpn-zopfli/test_database_recovery_package_admission.py'
+      - 'ci/cold-vpn-zopfli/test_independent_verify.py'
+      - 'ci/cold-vpn-zopfli/test_initial_rejection_package_admission.py'
+      - 'ci/cold-vpn-zopfli/test_owned_oda_package_admission.py'
+      - 'ci/cold-vpn-zopfli/test_owned_oda_package_binding.py'
+      - 'ci/cold-vpn-zopfli/test_preservation_cms_portable.py'
+      - 'ci/cold-vpn-zopfli/test_project_native_evidence.py'
+      - 'ci/cold-vpn-zopfli/test_provider_ownership_package_admission.py'
+      - 'ci/issue56-startup/test_startup_runner.py'
+      - 'ci/issues-native/capture_release_settings.py'
+      - 'ci/issues-native/test_release_settings_cache.py'
+      - '.github/workflows/cold-vpn-native.yml'
+      - '.github/workflows/issue56-native.yml'
+      - '.github/workflows/issues-native.yml'
+      - '.github/workflows/language-switch-native.yml'
+      - '.github/workflows/refresh-truth-preflight.yml'
+      - 'ci/issues-native/database-recovery-upstream-tests-extension.json'
+      - 'ci/issues-native/database_recovery_upstream_projection.py'
+      - 'ci/issues-native/package_candidate.py'
+      - 'ci/issues-native/record.py'
+      - 'ci/issues-native/run_database_recovery.py'
+      - 'ci/issues-native/run_issue_tests.py'
+      - 'ci/issues-native/test_database_recovery_receipt.py'
+      - 'ci/issues-native/test_setup_state_recovery_contract.py'
+      - 'ci/issues-native/verify_setup_state_recovery.py'
+      - 'ci/issues-native/test_database_recovery_upstream_projection.py'
+      - 'ci/issues-native/test_issue_receipt.py'
+      - 'ci/issues-native/test_preservation_upstream_tests_projection.py'
+      - 'ci/issues-native/upstream_candidate_projection.py'
+      - 'ci/issues-native/verify_upstream_sync.py'
+      - 'ci/startup-upgrade/acquire.py'
+      - 'ci/startup-upgrade/test_acquire.py'
+      - '.github/workflows/custom-integration-contract.yml'
+  push:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'docs/CUSTOM_INTEGRATION*'
+      - 'docs/PACKAGING_PATCH_SURFACE.json'
+      - 'ci/issue52-integration/**'
+      - 'ci/issues-native/candidate-graph.json'
+      - '.github/workflows/cold-vpn-zopfli.yml'
+      - 'ci/cold-vpn-zopfli/README.md'
+      - 'ci/cold-vpn-zopfli/acquire.py'
+      - 'ci/cold-vpn-zopfli/cms-native-graph.json'
+      - 'ci/cold-vpn-zopfli/cms-native-helper.snapshot'
+      - 'ci/cold-vpn-zopfli/cms-source-contract.json'
+      - 'ci/cold-vpn-zopfli/cms_package_admission.py'
+      - 'ci/cold-vpn-zopfli/contract.py'
+      - 'ci/cold-vpn-zopfli/database-recovery-source-contract.json'
+      - 'ci/cold-vpn-zopfli/database_recovery_package_admission.py'
+      - 'ci/cold-vpn-zopfli/fallback-source-contract.json'
+      - 'ci/cold-vpn-zopfli/fixtures/actual-macos-boundary-25fc5b5d.json'
+      - 'ci/cold-vpn-zopfli/independent_verify.py'
+      - 'ci/cold-vpn-zopfli/initial_rejection_package_admission.py'
+      - 'ci/cold-vpn-zopfli/input-manifest.json'
+      - 'ci/cold-vpn-zopfli/owned-oda-source-contract.json'
+      - 'ci/cold-vpn-zopfli/owned_oda_package_admission.py'
+      - 'ci/cold-vpn-zopfli/owned_oda_package_binding.py'
+      - 'ci/cold-vpn-zopfli/preservation_cms_portable.py'
+      - 'ci/cold-vpn-zopfli/project_native_evidence.py'
+      - 'ci/cold-vpn-zopfli/provider_ownership_package_admission.py'
+      - 'ci/cold-vpn-zopfli/reviewed-native/candidate-graph.json'
+      - 'ci/cold-vpn-zopfli/reviewed-native/refresh_truth_receipt.py'
+      - 'ci/cold-vpn-zopfli/reviewed-native/run_database_recovery.py'
+      - 'ci/cold-vpn-zopfli/reviewed-native/run_issue_tests.py'
+      - 'ci/cold-vpn-zopfli/reviewed-native/run_owned_oda.py'
+      - 'ci/cold-vpn-zopfli/reviewed-native/verify_candidate_graph.py'
+      - 'ci/cold-vpn-zopfli/test_acquire.py'
+      - 'ci/cold-vpn-zopfli/test_cms_package_admission.py'
+      - 'ci/cold-vpn-zopfli/test_database_recovery_package_admission.py'
+      - 'ci/cold-vpn-zopfli/test_independent_verify.py'
+      - 'ci/cold-vpn-zopfli/test_initial_rejection_package_admission.py'
+      - 'ci/cold-vpn-zopfli/test_owned_oda_package_admission.py'
+      - 'ci/cold-vpn-zopfli/test_owned_oda_package_binding.py'
+      - 'ci/cold-vpn-zopfli/test_preservation_cms_portable.py'
+      - 'ci/cold-vpn-zopfli/test_project_native_evidence.py'
+      - 'ci/cold-vpn-zopfli/test_provider_ownership_package_admission.py'
+      - 'ci/issue56-startup/test_startup_runner.py'
+      - 'ci/issues-native/capture_release_settings.py'
+      - 'ci/issues-native/test_release_settings_cache.py'
+      - '.github/workflows/cold-vpn-native.yml'
+      - '.github/workflows/issue56-native.yml'
+      - '.github/workflows/issues-native.yml'
+      - '.github/workflows/language-switch-native.yml'
+      - '.github/workflows/refresh-truth-preflight.yml'
+      - 'ci/issues-native/database-recovery-upstream-tests-extension.json'
+      - 'ci/issues-native/database_recovery_upstream_projection.py'
+      - 'ci/issues-native/package_candidate.py'
+      - 'ci/issues-native/record.py'
+      - 'ci/issues-native/run_database_recovery.py'
+      - 'ci/issues-native/run_issue_tests.py'
+      - 'ci/issues-native/test_database_recovery_receipt.py'
+      - 'ci/issues-native/test_setup_state_recovery_contract.py'
+      - 'ci/issues-native/verify_setup_state_recovery.py'
+      - 'ci/issues-native/test_database_recovery_upstream_projection.py'
+      - 'ci/issues-native/test_issue_receipt.py'
+      - 'ci/issues-native/test_preservation_upstream_tests_projection.py'
+      - 'ci/issues-native/upstream_candidate_projection.py'
+      - 'ci/issues-native/verify_upstream_sync.py'
+      - 'ci/startup-upgrade/acquire.py'
+      - 'ci/startup-upgrade/test_acquire.py'
+      - '.github/workflows/custom-integration-contract.yml'
+permissions:
+  contents: read
+concurrency:
+  group: custom-integration-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_NO_REPLACE_OBJECTS: '1'
+      GIT_NO_LAZY_FETCH: '1'
+      GIT_ALLOW_PROTOCOL: https
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Run generic positive and negative contracts without skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          for suite in test_integration_contracts.py test_packaging_adapters.py test_custom_integration_boundaries.py test_combined_packaging.py; do
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" \
+              --allowlist scripts/required_test_skip_allowlist.json 2>&1 | tee "evidence/$suite.log"
+          done
+      - name: Acquire only the exact registered source owners as read-only inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue52-integration/verify_inventory.py --emit-plan > evidence/owner-plan.tsv
+          mkdir -p sources
+          while IFS=$'\t' read -r owner repository commit; do
+            git init -q "sources/$owner"
+            git -C "sources/$owner" remote add origin "https://github.com/$repository.git"
+            git -C "sources/$owner" -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$commit"
+            git -C "sources/$owner" -c core.hooksPath=/dev/null checkout --detach "$commit"
+          done < evidence/owner-plan.tsv
+      - name: Validate every documented module, caller, build input and regression path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue52-integration/verify_inventory.py --sources sources > evidence/pinned-inventory.json
+      - name: Retain exact inventory and regression evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: custom-integration-contract-${{ github.sha }}
+          path: evidence
+          if-no-files-found: error

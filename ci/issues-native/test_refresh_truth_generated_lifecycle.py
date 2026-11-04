@@ -14,6 +14,9 @@ class GeneratedLifecycleTests(unittest.TestCase):
   self.commit=self.git('rev-parse','HEAD');self.tree=self.git('rev-parse','HEAD^{tree}')
   self.graph={'owners':{OWNER:['NRG-Wardog/minimuxer',self.commit]},'reviewed_deltas':{OWNER:{'tree':self.tree}}}
   self.patch=mock.patch.object(C,'INPUTS',{OWNER:('source.swift',)});self.patch.start();self.before=C.collect(self.sources,self.graph)
+  # This unit isolates generated filesystem sealing in a minimuxer-only repo.
+  # Full SS/LC source-hash sealing has independent negative controls.
+  self.native_seal_patch=mock.patch.object(C,'validate_native_input_seals');self.native_seal_patch.start();self.addCleanup(self.native_seal_patch.stop)
   self.base=self.root/'GeneratedDependencies/RemotePairingKit';self.base.mkdir(parents=True)
   (self.base/'.gitignore').write_text('ignored.bin\n');(self.base/'Package.swift').write_text('// inert fixture\n');(self.base/'ignored.bin').write_bytes(b'nonsecret synthetic generated library')
   (self.base/'empty').mkdir()

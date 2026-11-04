@@ -7,13 +7,14 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from local_wifi_fixture_projection import inputs as local_wifi_fixture_inputs
+from preservation_selection_projection import inputs as local_wifi_fixture_inputs
 from refresh_truth_flow_projection import vpn_count as grace_recovery_count, connection_count
-from early_readiness_projection import inputs as early_readiness_inputs, verify_static as verify_early_static
+from early_progress_fixture_projection import inputs as early_readiness_inputs, verify_static as verify_early_static
 from current_vpn_guard_projection import verify as verify_current_vpn_guard
-from cold_vpn_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
-from refresh_truth_setup_projection import variant as russian_setup_variant
-from refresh_truth_host_bundle_projection import assertions as truth_host_assertions
+from progress_owner_cache_projection import inputs as cold_cache_inputs, binding as cold_cache_binding, verify_proof as verify_cold_cache_proof
+from observed_constraints_localization_projection import variant as russian_setup_variant
+from preservation_host_projection import inputs as legacy_host_inputs, expected_cases as preservation_host_cases
+from preservation_host_projection import assertions as truth_host_assertions
 
 from verify_comprehensive_diagnostics import regular, require, digest, write_json, artifact_inventory, require_marker
 
@@ -275,11 +276,13 @@ HOST_CANDIDATE_INPUT = 'SideStore/SideStore/Core/Operations/OperationContexts.sw
 
 def host_bundle_variant(contract):
     names = contract.get('case_names', {}).get('host-refresh-bundle')
-    require(names in (HOST_BASELINE_CASES, HOST_CANDIDATE_CASES), 'Unreviewed host bundle exact case closure')
-    candidate = names == HOST_CANDIDATE_CASES
+    candidate_names = preservation_host_cases(contract, HOST_CANDIDATE_CASES)
+    require(names in (HOST_BASELINE_CASES, candidate_names), 'Unreviewed host bundle exact case closure')
+    candidate = names == candidate_names
     expected = {key: list(paths) for key, paths in ADDITIVE_SUITE_INPUTS['host-refresh-bundle'].items()}
     if candidate:
         expected['production'].append(HOST_CANDIDATE_INPUT)
+    expected = legacy_host_inputs(contract, expected)
     require(contract.get('additive_suite_inputs', {}).get('host-refresh-bundle') == expected,
             'Host bundle exact source path closure differs')
     require(not candidate or HOST_CANDIDATE_INPUT in contract.get('input_sha256', {}),
@@ -307,7 +310,9 @@ def load_contract(path):
     required.update(host_inputs['production'])
     expected_additive = dict(ADDITIVE_SUITE_INPUTS, **{'vpn-refresh-recovery': local_wifi_fixture_inputs(value, ADDITIVE_SUITE_INPUTS['vpn-refresh-recovery']), 'host-refresh-bundle': host_inputs, 'cache-compatibility': cold_cache_inputs(value, ADDITIVE_SUITE_INPUTS['cache-compatibility']), 'profile-preconditions': early_readiness_inputs(value, ADDITIVE_SUITE_INPUTS['profile-preconditions'], profile=True)})
     required.update(expected_additive['vpn-refresh-recovery']['transport_fixture'])
-    if cold_cache_binding(value): required.update(expected_additive['cache-compatibility']['fixture'])
+    if cold_cache_binding(value):
+        required.update(expected_additive['cache-compatibility']['fixture'])
+        required.update(expected_additive['cache-compatibility']['production'])
     require(value.get('additive_suite_inputs') == expected_additive, 'Additive exact source path closure differs')
     require(value.get('suite_inputs') == dict(SUITE_INPUTS, **{'early-refresh-boundaries': early_readiness_inputs(value, SUITE_INPUTS['early-refresh-boundaries'])}), 'Setup exact source path closure differs')
     for key in ('input_sha256',):
@@ -650,8 +655,8 @@ def additive_extraction(output, contract, suite):
                 value.get('host_activation_negative_static_mutations') == list(ACTIVATION_NEGATIVE_MUTATIONS),
                 'Connection finite activation negative controls differ')
     if suite == 'profile-preconditions':
-        require(value.get('check_count') == len(value.get('checks', [])) == 25 and
-                len(set(value['checks'])) == 25, 'Profile static controls differ')
+        from profile_static_closure_projection import validate as validate_profile_static_closure
+        validate_profile_static_closure(value, contract)
     return value
 
 

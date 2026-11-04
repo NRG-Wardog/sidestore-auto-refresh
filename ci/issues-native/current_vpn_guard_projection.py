@@ -5,7 +5,7 @@ GENERATOR='LiveContainer/.ci/vpn-refresh-recovery/generate_fixture.py'
 KEY='reviewed_current_vpn_guard'
 EXPECTED={
  'source_receipt_sha256':'eb5a2849d2d0d131e72b75d0395595d7c545f2dff2294da858ab8433a61f420e',
- 'generator_sha256':'16a34b89a4651f0bf43019d3792cd1c3a21d085fadabe4bc5c2d1e28f26785b2',
+ 'generator_sha256':'be7b3efc7e790764ddf8e1cd051088879847cf6086de72ba5491a954927f4433',
  'guard_sha256':'5760310dd524f8109519f692dae0dae8b0b1a68b5f13bc44c6b6ef052d2018f9',
  'forwarding_sha256':'295ff7a4c7651ca457fc033f2d8cd87c595b35c31c1030ef8e98c7809afd35b8',
  'baseline_classifier_sha256':'11317ac8513b261a85ab7b61f38d543f87aa2e4b9fab014e163e0e0303bc5f81'}

@@ -92,6 +92,43 @@ class PackagingAdapterTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 apply_rules('UPSTREAM', rules)
 
+    def test_rule_output_cannot_manufacture_a_missing_upstream_anchor(self):
+        rules = (IntegrationRule('first', 'owner', 'reason', 'A', 'B'),
+                 IntegrationRule('second', 'owner', 'reason', 'B', 'C'))
+        with self.assertRaisesRegex(ValueError, 'second'):
+            apply_rules('A', rules)
+
+    def test_rule_output_cannot_hide_a_duplicated_upstream_anchor(self):
+        rules = (IntegrationRule('first', 'owner', 'reason', 'AB', 'X'),
+                 IntegrationRule('second', 'owner', 'reason', 'B', 'Y'))
+        with self.assertRaisesRegex(ValueError, 'second'):
+            apply_rules('AB B', rules)
+
+    def test_overlapping_original_source_anchors_are_rejected(self):
+        rules = (IntegrationRule('first', 'owner', 'reason', 'AB', 'X'),
+                 IntegrationRule('second', 'owner', 'reason', 'BC', 'Y'))
+        for order in (rules, tuple(reversed(rules))):
+            with self.assertRaisesRegex(ValueError, 'Overlapping'):
+                apply_rules('ABC', order)
+
+    def test_overlapping_duplicate_occurrences_are_not_counted_as_one(self):
+        with self.assertRaisesRegex(ValueError, 'anchor changed'):
+            apply_rules('AAA', (IntegrationRule('overlap', 'owner', 'reason', 'AA', 'X'),))
+
+    def test_original_source_spans_make_inserted_text_and_rule_order_safe(self):
+        rules = (IntegrationRule('first', 'owner', 'reason', 'A', 'B'),
+                 IntegrationRule('second', 'owner', 'reason', 'B', 'C'))
+        for order in (rules, tuple(reversed(rules))):
+            self.assertEqual(apply_rules('A B', order), 'B C')
+
+    def test_generic_rule_contract_rejects_malformed_types(self):
+        rule = IntegrationRule('rule', 'owner', 'reason', 'A', 'B')
+        for rules in ((None,), (replace(rule, name=[]),), (replace(rule, name=' '),),
+                      (replace(rule, owner=None),), (replace(rule, anchor=3),),
+                      (replace(rule, replacement=None),)):
+            with self.assertRaises(ValueError):
+                apply_rules('A', rules)
+
     def test_pure_adapter_cannot_execute_shell(self):
         source = self.fixture() + '\n$(touch /tmp/never-run-issue52)\n'
         self.assertIn('$(touch /tmp/never-run-issue52)', adapt(source))

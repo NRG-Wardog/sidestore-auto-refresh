@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "purpose": "Exact reviewed issue #53 source delta used only to exercise maintenance impact classification, not native or device evidence.",
+  "owner": "idevice",
+  "base_commit": "e4cf9cb38aeee1908f5f9a1c33fd08c542f8f24a",
+  "candidate_commit": "72c0044c62b4b28e813fb6670dfd4651622bf20a",
+  "base_tree": "92a7c29644678f0140b42cd7f7c6916c73446466",
+  "candidate_tree": "ed53201e9d74861736af6fac74f4f1f5afc369fd",
+  "changes": [
+    {
+      "path": ".ci/issue53/README.md",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "d740175c86a5e68ce407ffee3ad03d2a16c2ba31",
+      "new_blob": "0012433df90ec85cc4f28159ae7734a656e8551a"
+    },
+    {
+      "path": ".ci/issue53/check_listener_abi.sh",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "1b44a313cce3733fa1b92ee7b3f5c48541805a23",
+      "new_blob": "1df3e8df3752c878ca927fe7284d5783ba3be9f8"
+    },
+    {
+      "path": ".ci/issue53/check_provider_ownership.py",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "171dd6f8cbd1fc38cb4693cae1d06550298f4776"
+    },
+    {
+      "path": ".ci/issue53/fixtures/borrowed_providers.cpp",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "dc335988d956b789960b20608b21663b242e22b5"
+    },
+    {
+      "path": ".ci/issue53/fixtures/borrowed_providers.json",
+      "status": "A",
+      "old_mode": "000000",
+      "new_mode": "100644",
+      "old_blob": "0000000000000000000000000000000000000000",
+      "new_blob": "812ceb50efcb86d1f8e41e712750868f21497c52"
+    },
+    {
+      "path": ".ci/issue53/fixtures/idevice.h",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "2d68c39216e2c2f36f8b87580782eca5333b9d35",
+      "new_blob": "753b06262879e7a484626c038a0152ee5521914f"
+    },
+    {
+      "path": ".ci/issue53/test_ownership.py",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "8544a8e1f13a13d420da1236b2b90220427f3719",
+      "new_blob": "9e5c5919136f347ce3f9cf452c0e9b110070ce9d"
+    },
+    {
+      "path": "cpp/include/idevice++/afc.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "d839e5f1996df0265bcd9702006b4ea7ca4a7529",
+      "new_blob": "79dc05483c595346c9e0df9dc06d8b6588cacc39"
+    },
+    {
+      "path": "cpp/include/idevice++/amfi.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "2a50213ebb3d25d8d00074bcd68eb81d833fbf13",
+      "new_blob": "21711059680e6ffd8d4dc779640deb4c046e9850"
+    },
+    {
+      "path": "cpp/include/idevice++/bt_packet_logger.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "829ff305de849a1619e8cb545304f6d28f719de5",
+      "new_blob": "d6f7955e5f74f21418a8ca060ebcc2bd27ee93f9"
+    },
+    {
+      "path": "cpp/include/idevice++/companion_proxy.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "147a605a3b77d81b10f5d1831364d0b9c9a8b838",
+      "new_blob": "0edf4f59948778909e08aeaa047e41abdfb5cf63"
+    },
+    {
+      "path": "cpp/include/idevice++/heartbeat.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "b4ed20e5e955b32fd65f32c7e1293721e7b27a55",
+      "new_blob": "6565bae40ae5af675fc218b3579a9fa4db37eeb6"
+    },
+    {
+      "path": "cpp/include/idevice++/location_simulation.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "f8c80c14c5d3deff03e76dba6c016ae0b2bbb25d",
+      "new_blob": "7732ff75248011fb2f642af2cf8726b9203e6da3"
+    },
+    {
+      "path": "cpp/include/idevice++/misagent.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "a0ad43982cc344e512730a7c10067d9359c2adc9",
+      "new_blob": "7140cd96d89ae66b619762323041d9c90ab5c81a"
+    },
+    {
+      "path": "cpp/include/idevice++/mobileactivationd.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "7f05418a2e93c402fef0006503cd35c3e0045dc1",
+      "new_blob": "753bb988ef233aeb6ed179ac76a77e992c039c76"
+    },
+    {
+      "path": "cpp/include/idevice++/notification_proxy.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "a8e7735f7ef2ed708302a5802f4e1742b3d2d523",
+      "new_blob": "ebd114f8b69da29acb6e001447f3b81c7a37441b"
+    },
+    {
+      "path": "cpp/include/idevice++/pcapd.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "e1bf7138a470e200143f5c09f05b07e27a8c0f4c",
+      "new_blob": "a3ea2f7a69ef857852fae39d613da920d6e5f410"
+    },
+    {
+      "path": "cpp/include/idevice++/preboard_service.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "1a0c29ab23831c98cf8535674f1786575bd66144",
+      "new_blob": "311ae19a7485c5d183eb86226153934eff2a5c24"
+    },
+    {
+      "path": "cpp/include/idevice++/screenshotr.hpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "f803bc2b003b767251b5b69cef9381f64c7f0bd8",
+      "new_blob": "48ce68aa45ffcaba8e26d2e444520ad1e041d227"
+    },
+    {
+      "path": "cpp/src/afc.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "f5f56fdedce527e20ef8b8a4c48a7e103a85b8c0",
+      "new_blob": "f48c7ae73cd5d757b542eeaef3e7e4a1c9b87a00"
+    },
+    {
+      "path": "cpp/src/amfi.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "db695c48e270f6d9554ad88bec9f62393457b769",
+      "new_blob": "9399d5da28a333b9f73c1a0286bf15e9713a8185"
+    },
+    {
+      "path": "cpp/src/bt_packet_logger.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "696042eb7fe5a7e94f2f0b10425ab95644a2730f",
+      "new_blob": "ad87c2e8a07462058271e26740db2f87c0311ced"
+    },
+    {
+      "path": "cpp/src/companion_proxy.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "61027dd17bb0df6b0f1c15818122999774394234",
+      "new_blob": "33e7259f3723ca9a2612953ec5604f9c42a037a3"
+    },
+    {
+      "path": "cpp/src/heartbeat.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "a400aeb22f97beb4846d8963784c8ce2297615b2",
+      "new_blob": "145fc3707027c50ec12a8b5ee5b55c499878897e"
+    },
+    {
+      "path": "cpp/src/location_simulation.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "0da2629920e28672827f3c2d97540aa2e4189903",
+      "new_blob": "dcb193e2262a1471f0d5e3367918284783d41684"
+    },
+    {
+      "path": "cpp/src/misagent.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "c546c2dbfcf960f70a0798020d2d3b2d389677c4",
+      "new_blob": "20524eeb2d805b39633e7955e852d8b8f33a8968"
+    },
+    {
+      "path": "cpp/src/mobileactivationd.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "479d1435988e6a18d2b9cbd2fb83e00c670651c6",
+      "new_blob": "159b6767c80572950c71700afb384be0f9bbc5f1"
+    },
+    {
+      "path": "cpp/src/notification_proxy.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "ce561a6dfcb47adbde0a9b461cc1b2c13f10632b",
+      "new_blob": "1cc487a8224c63826f3dd5427b6cf22e3d38a502"
+    },
+    {
+      "path": "cpp/src/pcapd.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "3d659bcbd5d0bec34f0a86745476f7694ab37ec8",
+      "new_blob": "19d7f0e4aa51508719169e8cb7f59a9f2bc283fb"
+    },
+    {
+      "path": "cpp/src/preboard_service.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "6f4833f1b3c03bf4a3fb3a3ea5d205fbdadbe68f",
+      "new_blob": "9d4ddf2835710fc156f622c155918b2f939df2f5"
+    },
+    {
+      "path": "cpp/src/screenshotr.cpp",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "e8a42d8777b96223c9824014a5282f45c92203f5",
+      "new_blob": "0ded7335c21854c00e8d541d3cdc2f2590a3d975"
+    },
+    {
+      "path": "ffi/src/afc.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "d9463349c12de4ed2b1010a54368c18518482426",
+      "new_blob": "43280a4dfe1b8ac7dd4a79b54caf92efd4c555ae"
+    },
+    {
+      "path": "ffi/src/amfi.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "0854f8b6110bfe34f268ce2ad38824fb217c8a6b",
+      "new_blob": "e97bd10f8393e7a70a5f2fef7449a361dd51b7d5"
+    },
+    {
+      "path": "ffi/src/bt_packet_logger.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "e3d7c80ee94e765e2e03a70b6b48e590f0a15c30",
+      "new_blob": "52394aa8b2dcaef39963bec42800584472afbfaf"
+    },
+    {
+      "path": "ffi/src/companion_proxy.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "bbaa62e71feeb7a999af99326aa2922802ae55e7",
+      "new_blob": "bb6ead97cacce9237c60e7e5ba691f38d16d5ff5"
+    },
+    {
+      "path": "ffi/src/heartbeat.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "5309a3e420ce3cc8ce2fbc0076b4abc3ab2308de",
+      "new_blob": "f5b76a71e2772e99b14f865afcbaa9cd61b5a87f"
+    },
+    {
+      "path": "ffi/src/location_simulation.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "cb283d86febcf6caef43e1f6cd4adaf8220022d1",
+      "new_blob": "18e2b39b3e4327c48b705041f7495cfa7a3bd1dd"
+    },
+    {
+      "path": "ffi/src/misagent.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "5b1640b40dcea237ecf82a2fece2314efbc61db3",
+      "new_blob": "7c6d8fc3239d6ee2aa64775b2b01d26c923fd6fe"
+    },
+    {
+      "path": "ffi/src/mobileactivationd.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "4db8b362d54bfa796b0e785100bc3361805ded5d",
+      "new_blob": "199529476630841fa8d571335cf1a9aea1fbcb10"
+    },
+    {
+      "path": "ffi/src/notification_proxy.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "c5d530d14b0e05f18776416b89ec4094e5e2c46f",
+      "new_blob": "145bd4bb21fe63b46ffd3c831c339493bf8a0d78"
+    },
+    {
+      "path": "ffi/src/pcapd.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "38672eb06c288ab5e580f9aa081174865b6f0bce",
+      "new_blob": "ade6670109b795a3388f0adb76837ee2c2844b99"
+    },
+    {
+      "path": "ffi/src/preboard_service.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "7e85742d601f00be868fa5e8e26bfcaac8b7e9d2",
+      "new_blob": "efb374f4777189f15548e8c95997b8cf3b9bfc5a"
+    },
+    {
+      "path": "ffi/src/provider.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "40a157a158b4145d12e9e344fc8cc722ab3ab4b5",
+      "new_blob": "c79a32a06aeace264d1881865a9f720a460d472b"
+    },
+    {
+      "path": "ffi/src/screenshotr.rs",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "4e8c2f18b5ceaa9a27e5f92a4166ab4093139622",
+      "new_blob": "44353d9a118994355e30b42181ac725463fe550d"
+    }
+  ]
+}
