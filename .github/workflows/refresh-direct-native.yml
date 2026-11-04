@@ -34,6 +34,10 @@ jobs:
           ./release-test
           swiftc -swift-version 5 -parse-as-library host_callback_fixture.swift -o host-callback-test
           ./host-callback-test | tee ../../evidence/host-callback.log
+          for case in refresh_failure early_baseline early_candidate; do
+            swiftc -swift-version 5 -parse-as-library "$case.swift" -o "$case-test"
+            "./$case-test" "../../evidence/$case-cases.json"
+          done
           shasum -a 256 *.swift > ../../evidence/source-hashes.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
