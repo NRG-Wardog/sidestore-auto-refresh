@@ -455,6 +455,18 @@
           "path": "ci/issues-native/direct-host-source-delta.json",
           "interface": "Exact direct-refresh inverse source proof",
           "rationale": "Restore the exact prior source for historical preservation validation without changing fixture cases or hiding actual candidate hashes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct_fixture_projection.py",
+          "interface": "Exact callback extraction successor inverse",
+          "rationale": "Bind delegated completion fixture extraction while preserving historical assertions, readiness dependencies and case counts."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct-fixture-source-delta.json",
+          "interface": "Exact callback extraction successor inverse",
+          "rationale": "Bind delegated completion fixture extraction while preserving historical assertions, readiness dependencies and case counts."
         }
       ],
       "regressions": [
@@ -535,6 +547,12 @@
           "path": "ci/refresh-direct-native/release_fixture.swift",
           "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/release_fixture.swift -o \"$TEST_OUTPUT/release-control-test\" && \"$TEST_OUTPUT/release-control-test\"",
           "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_direct_fixture_projection.py",
+          "command": "python3 -B ci/issues-native/test_direct_fixture_projection.py",
+          "level": "executable-fixture"
         }
       ]
     },

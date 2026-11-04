@@ -1,5 +1,6 @@
 """Exact fixture-only owned-progress API successor; old readiness proof stays frozen."""
 import copy
+import direct_fixture_projection as direct_fixture
 import early_readiness_projection as prior
 GENERATOR = prior.GENERATOR
 GENERATOR_SHA = 'a8301da81178f28689e24348a6ef90054a51c9c12903dc82af81f4602f3c473a'
@@ -18,6 +19,7 @@ def descriptor():
             'prior_test_sha256': prior.TEST_SOURCE_SHA, 'runtime_case_count': 24, 'static_check_count': 121}
 
 def current_binding(contract):
+    contract=direct_fixture.normalize(contract)
     hashes = contract['input_sha256']
     if KEY not in contract:
         require(not any(hashes.get(path) == digest for path, digest in PINS.items()),
@@ -30,7 +32,7 @@ def current_binding(contract):
     return True
 
 def normalized(contract):
-    result = copy.deepcopy(contract)
+    result = direct_fixture.normalize(contract)
     if current_binding(result):
         result.pop(KEY)
         result['input_sha256'][GENERATOR] = prior.GENERATOR_SHA
@@ -41,6 +43,8 @@ def normalized(contract):
     return result
 
 def add(contract):
+    actual_inputs=copy.deepcopy(contract['input_sha256'])
+    contract=direct_fixture.normalize(contract)
     hashes = contract['input_sha256']
     if hashes.get(GENERATOR) != GENERATOR_SHA:
         require(not any(hashes.get(path) == digest for path, digest in PINS.items()),
@@ -57,6 +61,7 @@ def add(contract):
     result['input_sha256'][prior.TEST_SOURCE] = PINS[prior.TEST_SOURCE]
     result[KEY] = descriptor()
     normalized(result)
+    result['input_sha256']=actual_inputs
     return result
 
 def inputs(contract, original, profile=False):

@@ -142,6 +142,8 @@ def contracts(sources, output, verify=False):
     validate_direct_service_source(Path(sources))
     from direct_host_projection import validate_source as validate_direct_host_source
     validate_direct_host_source(Path(sources))
+    from direct_fixture_projection import validate_source as validate_direct_fixture_source, normalize as normalize_direct_fixture
+    validate_direct_fixture_source(Path(sources))
     graph = load_candidate_graph()
     receipts = {}
     for name in CONTRACTS:
@@ -177,7 +179,7 @@ def contracts(sources, output, verify=False):
             additional_inputs = additional_inputs + (TRUTH_CACHE_INPUT,)
         projected, changes = project(json.loads(original.read_text()), graph, sources, additional_inputs)
         if name == 'setup-state-recovery-contract.json':
-            if projected['input_sha256'][EARLY_READINESS_GENERATOR] in (EARLY_READINESS_SHA, EARLY_PROGRESS_SHA): projected = add_early_readiness(projected)
+            if normalize_direct_fixture(projected)['input_sha256'][EARLY_READINESS_GENERATOR] in (EARLY_READINESS_SHA, EARLY_PROGRESS_SHA): projected = add_early_readiness(projected)
             if projected['input_sha256'][CURRENT_VPN_GUARD_INPUT] != json.loads(original.read_text())['input_sha256'][CURRENT_VPN_GUARD_INPUT]:
                 projected = add_current_vpn_guard(projected)
                 projected = add_grace_recovery(projected)
