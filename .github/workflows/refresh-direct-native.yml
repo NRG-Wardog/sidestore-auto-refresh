@@ -1,0 +1,36 @@
+name: Validate direct refresh native fixtures
+on:
+  push:
+    branches: ['validation/refresh-direct-native-nov4']
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Compile and run exact extracted backend and gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          swiftc --version | tee evidence/toolchain.txt
+          cd ci/refresh-direct-native
+          swiftc -swift-version 5 -parse-as-library gate_fixture.swift -o gate-test
+          ./gate-test | tee ../../evidence/gate.log
+          swiftc -swift-version 5 -parse-as-library backend_fixture.swift -o backend-test
+          ./backend-test --long | tee ../../evidence/backend.log
+          swiftc -swift-version 5 -parse-as-library service_fixture.swift -o service-test
+          ./service-test --long | tee ../../evidence/service.log
+          swiftc -swift-version 5 -parse-as-library reproduce_deadline.swift -o deadline-test
+          ./deadline-test | tee ../../evidence/deadline.log
+          shasum -a 256 *.swift > ../../evidence/source-hashes.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: direct-refresh-native-evidence
+          path: evidence
+          retention-days: 7
