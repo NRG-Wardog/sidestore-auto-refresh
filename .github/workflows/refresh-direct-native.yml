@@ -30,6 +30,8 @@ jobs:
           ./service-objc-test | tee ../../evidence/service-objc.log
           swiftc -swift-version 5 -parse-as-library reproduce_deadline.swift -o deadline-test
           ./deadline-test | tee ../../evidence/deadline.log
+          swiftc -swift-version 5 -parse-as-library release_fixture.swift -o release-test
+          ./release-test
           swiftc -swift-version 5 -parse-as-library host_callback_fixture.swift -o host-callback-test
           ./host-callback-test | tee ../../evidence/host-callback.log
           shasum -a 256 *.swift > ../../evidence/source-hashes.txt
