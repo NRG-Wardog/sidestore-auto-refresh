@@ -60,7 +60,7 @@
     "oversized_input_rejected"
   ],
   "host_recipe_sha256": "75a13eff9684760719f37b6a9598bb901e1eee2a91b81ca40fb08137a408f136",
-  "native_builder": "5a6ea2020a23386661b9ab5ba9a025c693ac0a66",
+  "native_builder": "849742a0718bdf5409926a6885e92cc013c7a6ef",
   "native_cms_helper_sha256": "7faa046c8fe1f5eb01029fa5afec2a50de5f86ea8d5090c2d8a2440da2ec1b5d",
   "openssl": {
     "checked_on": "2026-10-25",
@@ -75,8 +75,8 @@
   },
   "owners": {
     "SideStore": {
-      "commit": "244f2072a8b9a33a0c84bd8a6fde2270f61ebe82",
-      "tree": "705f383835d9026ead5a146b77d81c7175f33725"
+      "commit": "4f1021277ccc49572a17649bf062cd02c583071f",
+      "tree": "030ca9722b1f46ad660fb414c85b90d5ae0d72d7"
     },
     "SideStore/Dependencies/minimuxer": {
       "commit": "49c430dc46d87a330b45fa07d467b821983ccbfd",

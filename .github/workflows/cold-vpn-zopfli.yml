@@ -51,6 +51,11 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B ci/cold-vpn-zopfli/owned_oda_package_binding.py --root workspace --projector ci/cold-vpn-zopfli/project_native_evidence.py
+      - name: Admit exact initial provider rejection proof before compression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B ci/cold-vpn-zopfli/initial_rejection_package_admission.py --root workspace --projector ci/cold-vpn-zopfli/project_native_evidence.py
       - name: Retain exact native evidence projection separately
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -61,6 +66,7 @@ jobs:
             workspace/owned-oda-projection.zip
             workspace/owned-oda-projection.json
             workspace/owned-oda-package-admission.json
+            workspace/initial-rejection-package-admission.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -74,6 +80,7 @@ jobs:
           cp ci/cold-vpn-zopfli/{contract.py,zip32.py,sweep.py,limited_exec.py,verify_source.py,independent_verify.py,official-tree.json,official-commit.json} workspace/
           cp ci/cold-vpn-zopfli/{cms_package_admission.py,preservation_cms_portable.py,cms-source-contract.json,cms-native-graph.json,cms-native-helper.snapshot} workspace/
           cp ci/cold-vpn-zopfli/{owned_oda_package_admission.py,owned_oda_package_binding.py,owned-oda-source-contract.json} workspace/
+          cp ci/cold-vpn-zopfli/{initial_rejection_package_admission.py,fallback-source-contract.json} workspace/
           cp -R ci/cold-vpn-zopfli/reviewed-native workspace/reviewed-native
           cp ci/cold-vpn-zopfli/project_native_evidence.py workspace/owned-oda-projector.snapshot
           python3 -B workspace/verify_source.py 2>&1 | tee zopfli-evidence/input-verification.log
@@ -104,6 +111,7 @@ jobs:
             workspace/independent-audit.json
             workspace/preservation-cms-package-admission.json
             workspace/owned-oda-package-admission.json
+            workspace/initial-rejection-package-admission.json
             workspace/provenance.json
             workspace/acquisition.json
             workspace/issue56-startup-tests.json

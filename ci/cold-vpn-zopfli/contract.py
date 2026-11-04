@@ -60,19 +60,19 @@ def verify_round_schedule(result,original_bytes,final_bytes):
 # Delivery must pin the independently audited actual CI output SHA256.
 CLOSEST_NATIVE_INPUT={
     "schema": "cold-vpn-green-native-input-v1",
-    "run_id": 41699105117,
-    "run_attempt": 1,
-    "commit": "5a6ea2020a23386661b9ab5ba9a025c693ac0a66",
-    "artifact_id": 13267085125,
-    "artifact_bytes": 26768242,
-    "artifact_sha256": "a62b24a84f7872877f9e097963aebd6975bdf9e424508a433d42ebac824687ba",
-    "ipa_bytes": 25031534,
-    "ipa_sha256": "6a544be5c9cdf0360cc4b85304835a91293c362da6082067eb69b3cc77d8be27",
+    "run_id": 41816078385,
+    "run_attempt": 2,
+    "commit": "849742a0718bdf5409926a6885e92cc013c7a6ef",
+    "artifact_id": 13322905493,
+    "artifact_bytes": 26768567,
+    "artifact_sha256": "2f6980d6d85c1e9486fcef1dc1a8a11527cefe01d36143a66f51c1c91f9e8819",
+    "ipa_bytes": 25034407,
+    "ipa_sha256": "fd8491ad3e09c6e9ac3fdc0560ab8c939cdcdd00d329cf27a20e9a4e3f191727",
     "entries": 274
 }
-CLOSEST_OUTPUT_BYTES=24348956
+CLOSEST_OUTPUT_BYTES=24352921
 # Reference measurement, not an equality requirement for the same bounded CI schedule.
-CLOSEST_OUTPUT_SHA256='3b7a94b258a1fcde3b62602c5f0a142c3dd64cf0ad5e3eec4f95311d4703a522'
+CLOSEST_OUTPUT_SHA256='758a8bb0ccbd0163314c9b44ffe043dffa7844e208ea3f7135d0dcb06d4f54bc'
 def verify_size_acceptance(input_manifest,final_bytes,final_sha256,target_met):
     require(type(final_bytes) is int and final_bytes>0 and final_bytes<=input_manifest['ipa_bytes'],'invalid or growing final size')
     require(isinstance(final_sha256,str) and re.fullmatch('[0-9a-f]{64}',final_sha256) is not None,'invalid actual output digest')
