@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from run_issue_tests import (SUITES, HARNESS_SUITES, verify_issue_receipt, OWNED_INPUTS,
-    OWNED_SWIFT_SUITES, owned_expected_graph, verify_owned_receipt, run_owned_swift_suites)
+    OWNED_SWIFT_SUITES, INITIAL_REJECTION_INPUTS, INITIAL_REJECTION_MARKERS, owned_expected_graph, verify_owned_receipt, run_owned_swift_suites)
 
 
 def test_owned_graph():
@@ -186,14 +186,14 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
         import subprocess
         from unittest.mock import patch
         provenance = owned_receipt(); provenance.pop('swift_suites'); provenance.pop('target_device_execution')
-        results = [subprocess.CompletedProcess([], 0, stdout=(marker + ' synthetic test output\n') * count)
-                   for _, _, marker, count, _ in OWNED_SWIFT_SUITES]
+        results = [subprocess.CompletedProcess([], 0, stdout=('\n'.join(INITIAL_REJECTION_MARKERS) + '\n') if script == '.ci/initial-provider-rejection/run.sh' else (marker + ' synthetic test output\n') * count)
+                   for _, script, marker, count, _ in OWNED_SWIFT_SUITES]
         with tempfile.TemporaryDirectory() as temp:
             with patch('run_issue_tests.collect_owned_sources', return_value=provenance), \
                  patch('run_issue_tests.subprocess.run', side_effect=results) as run:
                 value = run_owned_swift_suites(temp, Path(temp) / 'evidence')
                 verify_owned_receipt(value)
-                self.assertEqual([c.kwargs['timeout'] for c in run.call_args_list], [300, 120])
+                self.assertEqual([c.kwargs['timeout'] for c in run.call_args_list], [300, 120, 300])
             for output in ['', OWNED_SWIFT_SUITES[0][2] + ' incomplete\n']:
                 with patch('run_issue_tests.collect_owned_sources', return_value=provenance), \
                      patch('run_issue_tests.subprocess.run', return_value=subprocess.CompletedProcess([], 0, stdout=output)):
@@ -201,6 +201,50 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
             with patch('run_issue_tests.collect_owned_sources', return_value=provenance), \
                  patch('run_issue_tests.subprocess.run', return_value=subprocess.CompletedProcess([], 1, stdout='compile failed')):
                 with self.assertRaises(subprocess.CalledProcessError): run_owned_swift_suites(temp, Path(temp) / 'evidence')
+
+    def test_initial_rejection_markers_and_separate_logs(self):
+        import subprocess
+        from unittest.mock import patch
+        provenance = owned_receipt(); provenance.pop('swift_suites'); provenance.pop('target_device_execution')
+        base = [(marker + ' synthetic test output\n') * count for _, _, marker, count, _ in OWNED_SWIFT_SUITES[:2]]
+        valid = '\n'.join(INITIAL_REJECTION_MARKERS) + '\n'
+        invalid = ['', valid.replace('cases=27', 'cases=26'), valid.replace('account_calls=false', 'account_calls=true'), valid + INITIAL_REJECTION_MARKERS[0].replace('cases=27', 'cases=999') + '\n']
+        for marker in INITIAL_REJECTION_MARKERS:
+            invalid += [valid.replace(marker + '\n', ''), valid + marker + '\n']
+        with tempfile.TemporaryDirectory() as temp:
+            for output in [valid] + invalid:
+                results = [subprocess.CompletedProcess([], 0, stdout=text) for text in base + [output]]
+                with patch('run_issue_tests.collect_owned_sources', return_value=provenance), patch('run_issue_tests.subprocess.run', side_effect=results):
+                    if output == valid:
+                        run_owned_swift_suites(temp, Path(temp) / 'evidence')
+                        self.assertEqual((Path(temp)/'evidence/owned-SideStore.log').read_text(), base[1])
+                        self.assertEqual((Path(temp)/'evidence/owned-initial-provider-rejection.log').read_text(), valid)
+                    else:
+                        with self.assertRaises(ValueError): run_owned_swift_suites(temp, Path(temp) / 'evidence')
+
+    def test_actual_generated_initial_rejection_inputs_are_all_sealed(self):
+        import subprocess, sys
+        root = Path(__file__).resolve().parents[3]
+        side = root / 'SS'
+        if not side.is_dir():
+            side = root / 'sources/SideStore'
+        script = side / '.ci/initial-provider-rejection/generate.py'
+        self.assertTrue(script.is_file())
+        with tempfile.TemporaryDirectory() as temp:
+            subprocess.run([sys.executable, '-B', str(script), '--output', temp, '--sidesign-root', str(side / 'Dependencies/SideSign')], check=True, timeout=60)
+            actual = json.loads((Path(temp)/'source-evidence.json').read_text())
+            for raw in actual['inputs']:
+                path = Path(raw).resolve()
+                prefix = side / 'Dependencies/SideSign'
+                owner = 'SideStore/Dependencies/SideSign' if path.is_relative_to(prefix) else 'SideStore'
+                base = prefix if owner.endswith('SideSign') else side
+                self.assertIn(str(path.relative_to(base)), INITIAL_REJECTION_INPUTS[owner])
+        self.assertIn(('SideStore', '.ci/initial-provider-rejection', 'test_source.py'), SUITES)
+        value = owned_receipt()
+        for owner, names in INITIAL_REJECTION_INPUTS.items():
+            for name in names:
+                broken = copy.deepcopy(value); del broken['source_sha256'][owner + '/' + name]
+                with self.assertRaises(ValueError): verify_owned_receipt(broken)
 
     def test_actual_input_bytes_and_symlink_or_wrong_source_rejected(self):
         import hashlib

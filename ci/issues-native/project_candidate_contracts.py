@@ -5,6 +5,7 @@ reviewed additive cases, and the exact transport-copy replacement projection
 may differ; that projection normalizes back through the prior validator. This projection is not proof that any test executed.
 """
 import copy
+import initial_provider_rejection_projection as initial_provider_rejection
 import hashlib
 import json
 from pathlib import Path
@@ -46,6 +47,7 @@ ADDITIONAL_INPUTS = {
         'SideStore/SideStore/Core/Operations/RefreshGroup.swift',
         'SideStore/SideStore/Core/Certificates/OCSPValidator.swift'),
     'setup-state-recovery-contract.json': (
+        'LiveContainer/LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift',
         'SideStore/SideStore/Core/Operations/OperationContexts.swift',
         'SideStore/SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift',
         'SideStore/tests/cache_compatibility/test_host_preservation.py',
@@ -97,6 +99,7 @@ def project(contract, graph, sources, additional_inputs=()):
     result = copy.deepcopy(contract)
     changes = {}
     allowed = set().union(*map(set, ADDITIONAL_INPUTS.values())) | {RUSSIAN_REVIEWED_INPUT, COLD_VPN_CACHE_INPUT, LOCAL_WIFI_FIXTURE_INPUT, TRUTH_KEY_MANIFEST, OBSERVATION_KEY_MANIFEST, TRUTH_CACHE_INPUT, OBSERVATION_CACHE_INPUT, CLASSIFIER_DEPENDENCY_TEST, LEGACY_RISK_KEY_MANIFEST, LEGACY_CACHE_INPUT, LEGACY_STAGE_INPUT, PRESERVATION_CACHE_INPUT, PRESERVATION_INSTALL_INPUT, TRANSACTION_CACHE_INPUT, PROGRESS_CACHE_INPUT, preservation_localization.INVENTORY_TEST}
+    allowed |= set(initial_provider_rejection.NEW_INPUTS)
     require(set(additional_inputs) <= allowed, 'unreviewed additive contract input')
     inputs = dict(contract['input_sha256'])
     for path in additional_inputs:
@@ -138,6 +141,8 @@ def contracts(sources, output, verify=False):
     for name in CONTRACTS:
         original = HERE / name
         additional_inputs = ADDITIONAL_INPUTS[name]
+        if name == 'comprehensive-diagnostics-contract.json' and '.ci/initial-provider-rejection/RuntimeCases.swift' in graph['reviewed_deltas'].get('SideStore/Dependencies/SideSign', {}).get('files', {}):
+            additional_inputs += initial_provider_rejection.NEW_INPUTS
         russian = RUSSIAN_REVIEWED_INPUT.removeprefix('LiveContainer/') in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {})
         if russian and name == 'setup-state-recovery-contract.json': additional_inputs = additional_inputs + (RUSSIAN_REVIEWED_INPUT,)
         if name == 'setup-state-recovery-contract.json' and '.ci/refresh-truth/test_refresh_truth.py' in graph['reviewed_deltas'].get('LiveContainer', {}).get('files', {}):
@@ -190,6 +195,8 @@ def contracts(sources, output, verify=False):
                         projected = preservation_localization.add(projected)
         elif russian:
             projected = add_russian_pairing(projected)
+        if name == 'comprehensive-diagnostics-contract.json' and any(p in projected['input_sha256'] for p in initial_provider_rejection.NEW_INPUTS):
+            projected = initial_provider_rejection.add(projected)
         data = (json.dumps(projected, indent=2, sort_keys=True) + '\n').encode()
         target = output / name
         if verify:
@@ -199,6 +206,7 @@ def contracts(sources, output, verify=False):
             target.write_bytes(data)
         receipts[name] = {'frozen_contract_sha256': sha(original.read_bytes()),
                           'candidate_contract_sha256': sha(data), 'rebound_inputs': changes,
+                          'initial_provider_rejection_successor': projected.get(initial_provider_rejection.TAG),
                           'russian_setup_extension': projected.get('russian_setup_extension'),
                           'refresh_observation_setup_extension': projected.get('refresh_observation_setup_extension'),
                           'refresh_truth_setup_extension': projected.get('refresh_truth_setup_extension'),

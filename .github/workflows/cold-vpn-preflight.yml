@@ -57,6 +57,7 @@ jobs:
           python3 -B harness/ci/issues-native/test_local_wifi_fixture_projection.py
           python3 -B harness/ci/issues-native/test_early_readiness_projection.py
           python3 -B harness/ci/issues-native/test_early_progress_fixture_projection.py
+          python3 -B harness/ci/issues-native/test_initial_provider_rejection_projection.py
           python3 -B harness/ci/issues-native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
           python3 -B harness/ci/issues-native/test_preservation_localization_projection.py
           python3 -B harness/ci/issues-native/test_observed_constraints_localization_projection.py
