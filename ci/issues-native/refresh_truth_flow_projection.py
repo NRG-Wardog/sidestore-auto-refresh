@@ -18,6 +18,8 @@ def names():
  require(len(frozen)==25,'Frozen connection case count differs')
  return {'setup-connection-evidence':frozen,'vpn-refresh-recovery':grace.expected_names()}
 def normalize(contract):
+ from direct_refresh_projection import normalize as normalize_direct
+ contract=normalize_direct(contract)
  if KEY not in contract:return contract
  v,digest=extension();require(contract[KEY]=={'manifest_sha256':digest},'Refresh flow extension identity differs')
  require(all(contract['input_sha256'].get(p)==h for p,h in v['candidate_inputs'].items()),'Refresh flow source hashes differ')

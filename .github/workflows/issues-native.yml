@@ -2,8 +2,8 @@ name: Validate issue integration candidate
 on:
   workflow_dispatch:
   push:
-    branches: ['integration/complete-issues-oct25']
-    paths: ['ci/issues-native/**', '.github/workflows/issues-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
+    branches: ['validation/refresh-direct-full-nov4']
+    paths: ['ci/refresh-direct-native/**', 'ci/issues-native/**', '.github/workflows/issues-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
 permissions:
   contents: read
 concurrency:
@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   compile:
-    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/integration/complete-issues-oct25'
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/refresh-direct-full-nov4'
     runs-on: macos-26
     timeout-minutes: 100
     env:
@@ -75,6 +75,23 @@ jobs:
           python3 harness/ci/issues-native/record.py snapshot acquired
           { xcodebuild -version; xcrun --sdk iphoneos --show-sdk-version; swift --version; uname -a; } > evidence/toolchain.txt
           xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Validate direct refresh native backend service and Objective-C ABI
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/refresh-direct-native/test_source_binding.py
+          python3 -B harness/ci/refresh-direct-native/verify_source_binding.py --sources sources --builder harness --output evidence/direct-refresh-source-binding.json
+          cd harness/ci/refresh-direct-native
+          swiftc -swift-version 5 -parse-as-library gate_fixture.swift -o gate-test
+          ./gate-test
+          swiftc -swift-version 5 -parse-as-library backend_fixture.swift -o backend-test
+          ./backend-test --long
+          swiftc -swift-version 5 -parse-as-library service_fixture.swift -o service-test
+          ./service-test --long
+          clang -fobjc-arc -fblocks -c bridge.m -o bridge.o
+          swiftc -swift-version 5 -parse-as-library -import-objc-header bridge.h service_objc_fixture.swift bridge.o -o service-objc-test
+          ./service-objc-test
+          swiftc -swift-version 5 -parse-as-library reproduce_deadline.swift -o deadline-test
+          ./deadline-test
       - name: Verify exact reviewed delta and separate historical source parity
         id: source_gate
         run: |
@@ -89,6 +106,7 @@ jobs:
           python3 -B harness/ci/issues-native/test_complete_workflow_packaging.py
           python3 -B harness/ci/issues-native/test_projected_contract_cli.py
           python3 -B harness/ci/issues-native/test_issue_receipt.py
+          python3 -B harness/ci/issues-native/test_direct_refresh_projection.py
           python3 -B harness/ci/issues-native/test_candidate_graph.py
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py
           python3 -B harness/ci/issues-native/test_russian_pairing_projection.py

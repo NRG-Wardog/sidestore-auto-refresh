@@ -105,12 +105,119 @@ CLIENT = r'''
 '''
 
 
+
+# Exact successor of the host XPC dispatch; never silently accept partial migration.
+DIRECT_HOST_METHOD = r'''- (void)refreshAllAppsWithIdentifier:(NSString*)identifier mangledTypeName:(NSString *)mangledTypeName refreshRunID:(NSString* _Nullable)refreshRunID {
+    if(!handler) {
+        return;
+    }
+    // V3_DIRECT_HOST_REFRESH_V1: only the service with the explicit admission
+    // may clear state or start the canonical backend. No private AppIntent run.
+    Class<V3CommandService> service = (Class<V3CommandService>)NSClassFromString(@"V3SideStoreService");
+    if (refreshRunID.length && service &&
+        [(id)service respondsToSelector:@selector(refreshForHost:progress:completion:)]) {
+        id<RefreshServer> server = handler.server;
+        NSString *runID = [refreshRunID copy];
+        [service refreshForHost:runID progress:^(double value) {
+            [server updateProgress:value];
+        } completion:^(NSString *error, NSData *verification) {
+            [server finishRefresh:error runID:runID verification:verification];
+        }];
+    } else {
+        [self reportHostRefreshUnavailable:refreshRunID ?: @"" server:handler.server];
+    }
+}'''
+DIRECT_HOST_PROTOCOL = r'''@protocol V3CommandService
++ (void)execute:(NSData *)request reply:(void (^)(NSData *))reply;
++ (void)refreshForHost:(NSString *)runID
+              progress:(void (^)(double))progress
+            completion:(void (^)(NSString * _Nullable, NSData * _Nullable))completion;
+@end'''
+DIRECT_HOST_FAILURE = r'''    @objc(reportHostRefreshUnavailable:server:)
+    func reportHostRefreshUnavailable(_ runID: String, server: any RefreshServer) {
+        let failure = CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+            code: .unavailable, id: runID, retryable: false)
+        server.finishRefresh(failure.encodedString, runID: runID, verification: nil)
+    }'''
+
+LEGACY_HOST_METHOD = r'''- (void)refreshAllAppsWithIdentifier:(NSString*)identifier mangledTypeName:(NSString *)mangledTypeName refreshRunID:(NSString* _Nullable)refreshRunID {
+    if(!handler) {
+        return;
+    }
+    // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the run ID, the previous verification
+    // manifest and the host-handoff record form the host/service contract, so
+    // they are cleared and stamped in the one runtime App Group the host
+    // published. A fixed suite name would clear a store the embedded service
+    // never writes, leaving the previous run's manifest to match a new run.
+    // +[NSUserDefaults initWithSuiteName:] accepts any name and silently writes
+    // the process's own domain when the suite is not a group this build is
+    // entitled to, so the container is proven openable first. Otherwise the
+    // stamps would land where the service can never read them.
+    const char *runtimeAppGroup = getenv("__RUNTIME_APP_GROUP_ENV_KEY__");
+    NSString *runtimeAppGroupID = (runtimeAppGroup != NULL && runtimeAppGroup[0] != '\0')
+        ? [NSString stringWithUTF8String:runtimeAppGroup] : nil;
+    BOOL runtimeAppGroupOpenable = runtimeAppGroupID.length > 0 &&
+        [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:runtimeAppGroupID] != nil;
+    NSUserDefaults *defaults = runtimeAppGroupOpenable
+        ? [[NSUserDefaults alloc] initWithSuiteName:runtimeAppGroupID] : nil;
+    if (defaults == nil) {
+        NSLog(@"[LIVE_CONTAINER_REFRESH] RESULT_STORE_UNAVAILABLE reason=runtime_app_group_unresolved");
+    } else {
+        [defaults removeObjectForKey:@"liveContainerAutoRefreshVerification"];
+        [defaults removeObjectForKey:@"liveContainerAutoRefreshHostHandoff"];
+        [defaults removeObjectForKey:@"liveContainerAutoRefreshHostHandoffRunID"];
+        if (refreshRunID.length) [defaults setObject:refreshRunID forKey:@"liveContainerAutoRefreshExpectedRunID"];
+        else [defaults removeObjectForKey:@"liveContainerAutoRefreshExpectedRunID"];
+    }
+    [self performRefreshForRealWithIdentifier:identifier mangledTypeName:mangledTypeName server:handler.server];
+}'''.replace("__RUNTIME_APP_GROUP_ENV_KEY__", RUNTIME_APP_GROUP_ENV_KEY)
+
+def install_direct_host_objc(text: str) -> str:
+    if "V3_DIRECT_HOST_REFRESH_V1" in text:
+        if text.count(DIRECT_HOST_METHOD) != 1 or text.count(DIRECT_HOST_PROTOCOL) != 1:
+            raise SystemExit("refresh result bridge: partial direct host dispatch")
+        return text
+    text = replace(text, LEGACY_HOST_METHOD, DIRECT_HOST_METHOD)
+    legacy_protocol = "@protocol V3CommandService\n+ (void)execute:(NSData *)request reply:(void (^)(NSData *))reply;\n@end"
+    text = replace(text, legacy_protocol, DIRECT_HOST_PROTOCOL)
+    category = "                                     server:(id <RefreshServer> _Nonnull)server;"
+    text = replace(text, category, category + "\n- (void)reportHostRefreshUnavailable:(NSString *)runID server:(id<RefreshServer>)server;")
+    return text
+
+
+def install_direct_host_client(text: str) -> str:
+    if "@objc(reportHostRefreshUnavailable:server:)" in text:
+        if text.count(DIRECT_HOST_FAILURE) != 1:
+            raise SystemExit("refresh result bridge: partial direct host failure bridge")
+        return text
+    anchor = "    @objc(performRefreshForRealWithIdentifier:mangledTypeName:server:)"
+    return replace(text, anchor, DIRECT_HOST_FAILURE + "\n\n" + anchor)
+
+
+def validate_direct_host_bridge(objc: str, host: str, client: str) -> None:
+    for fragment, value in ((DIRECT_HOST_METHOD, objc), (DIRECT_HOST_PROTOCOL, objc),
+                            (DIRECT_HOST_FAILURE, client)):
+        if value.count(fragment) != 1:
+            raise SystemExit("refresh result bridge: direct host dispatch differs from the exact reviewed successor")
+    # The receiving host still owns stale-run, payload-size and terminal checks.
+    for guard in ('fileprivate func completedRefresh(_ error: String?, runID: String, verification: Data?, id: UUID)',
+                  'guard launchID == id, refreshContinuation != nil, refreshRunID == runID else { return }',
+                  'verification.count <= 262144',
+                  'CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID)',
+                  'finishRefreshContinuation(.failure(failure))'):
+        if guard not in host:
+            raise SystemExit("refresh result bridge: direct host receiver boundary missing")
+
+
 def patch(root: Path):
     paths = [root / "SideStoreSupport" / name for name in
              ("XPCServer.h", "XPCClient.m", "SideStore.swift", "SideStoreClient.swift")]
     header, objc, host, client = [p.read_text(encoding="utf-8") for p in paths]
     if MARKER in header:
-        assert HOST in host and CLIENT in client and "refreshRunID" in objc
+        if "V3_DIRECT_HOST_REFRESH_V1" in objc:
+            validate_direct_host_bridge(objc, host, client)
+        else:
+            assert HOST in host and CLIENT in client and "refreshRunID" in objc
         return
     header = replace(header, "- (void)finish:(NSString*)error;", "- (void)finish:(NSString*)error;\n// LC_REFRESH_RESULT_XPC_V1\n- (void)finishRefresh:(NSString* _Nullable)error runID:(NSString* _Nonnull)runID verification:(NSData* _Nullable)verification NS_SWIFT_NAME(finishRefresh(_:runID:verification:));")
     signature = "mangledTypeName:(NSString *)mangledTypeName"

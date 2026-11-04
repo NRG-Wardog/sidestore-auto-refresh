@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 49
+PATCH_VERSION = 50
 
 
 def runtime_app_group_environment_key() -> str:
@@ -1911,6 +1911,276 @@ def headless_minimuxer_connection_binding(text):
         "getConnectionMode: { config.connectionMode }")
 
 
+DIRECT_REFRESH_PERFORM_OLD = r'''    func perform() async throws -> some IntentResult & ProvidesDialog
+    {
+        do
+        {
+            // Request foreground execution at ~27 seconds to gracefully handle timeout.
+            let deadline: ContinuousClock.Instant = .now + .seconds(27)
+            
+            try await withThrowingTaskGroup(of: Void.self) { taskGroup in
+                taskGroup.addTask {
+                    try await self.refreshAllApps()
+                }
+                
+                taskGroup.addTask {
+                    try await Task.sleep(until: deadline)
+                    throw OperationError.timedOut
+                }
+                
+                do
+                {
+                    for try await _ in taskGroup.prefix(1)
+                    {
+                        // We only care about the first child task to complete.
+                        taskGroup.cancelAll()
+                        break
+                    }
+                }
+                catch OperationError.timedOut
+                {
+                    // We took too long to finish and return the final result,
+                    // so we'll now present a normal notification when finished.
+                    let operation = await self.operationActor.operation
+                    operation?.presentsFinishedNotification = true
+                    
+                    try await self.requestToContinueInForeground()
+                }
+            }
+            
+            return .result(dialog: "All apps have been refreshed.")
+        }
+        catch
+        {
+            let intentError = IntentError(V3HeadlessPairingFailure.tagIfInvalidPairing(error))
+            throw intentError
+        }
+    }
+}
+
+'''
+DIRECT_REFRESH_PERFORM_NEW = r'''    func perform() async throws -> some IntentResult & ProvidesDialog
+    {
+        let trace = V3RefreshIntentBoundaryTrace()
+        trace.record(.started)
+        do
+        {
+            // Request foreground execution at ~27 seconds to gracefully handle timeout.
+            let deadline: ContinuousClock.Instant = .now + .seconds(27)
+            
+            try await withThrowingTaskGroup(of: Void.self) { taskGroup in
+                taskGroup.addTask {
+                    trace.record(.pipelineStarted)
+                    do {
+                        try await self.refreshAllApps()
+                        trace.record(.pipelineCompleted)
+                    } catch {
+                        trace.record(.pipelineThrew)
+                        throw error
+                    }
+                }
+                
+                taskGroup.addTask {
+                    try await Task.sleep(until: deadline)
+                    trace.record(.deadlineElapsed)
+                    throw OperationError.timedOut
+                }
+                
+                do
+                {
+                    for try await _ in taskGroup.prefix(1)
+                    {
+                        // We only care about the first child task to complete.
+                        taskGroup.cancelAll()
+                        break
+                    }
+                }
+                catch OperationError.timedOut
+                {
+                    // We took too long to finish and return the final result,
+                    // so we'll now present a normal notification when finished.
+                    let operation = await self.operationActor.operation
+                    operation?.presentsFinishedNotification = true
+                    
+                    trace.record(.foregroundRequested)
+                    do {
+                        try await self.requestToContinueInForeground()
+                        trace.record(.foregroundReturned)
+                    } catch {
+                        trace.record(.foregroundThrew)
+                        throw error
+                    }
+                }
+            }
+            
+            trace.record(.wrapperCompleted)
+            return .result(dialog: "All apps have been refreshed.")
+        }
+        catch
+        {
+            trace.record(.wrapperThrew)
+            let intentError = IntentError(V3HeadlessPairingFailure.tagIfInvalidPairing(error))
+            throw intentError
+        }
+    }
+}
+
+'''
+DIRECT_REFRESH_BACKEND_OLD = r'''@available(iOS 17.0, tvOS 17.0, *)
+private extension RefreshAllAppsIntent
+{
+    func refreshAllApps() async throws
+    {
+        try await DatabaseManager.shared.start()
+        
+        let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        let installedApps = await context.perform { InstalledApp.fetchAppsForRefreshingAll(in: context) }
+        
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let operation = V3RefreshIntentStartPolicy.create({
+                try AppManager.shared.backgroundRefresh(installedApps, presentsNotifications: self.presentsNotifications) { (result) in
+                do
+                {
+                    let results = try result.get()
+                    
+                    for (_, result) in results
+                    {
+                        guard case let .failure(error) = result else { continue }
+                        throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)
+                    }
+                    
+                    continuation.resume()
+                }
+                catch OperationError.noInstalledApps
+                {
+                    continuation.resume()
+                }
+                catch
+                {
+                    continuation.resume(throwing: error)
+                }
+            }
+            }, continuation: continuation,
+                classify: V3HeadlessPairingFailure.tagIfInvalidPairing)
+            guard let operation else { return }
+            
+            operation.ignoresServerNotFoundError = false
+            
+            self.progress.addChild(operation.progress, withPendingUnitCount: 1)
+            
+            Task {
+                await self.operationActor.set(operation)
+            }
+        }
+    }
+}'''
+DIRECT_REFRESH_BACKEND_NEW = r'''@available(iOS 17.0, tvOS 17.0, *)
+private extension RefreshAllAppsIntent
+{
+    func refreshAllApps() async throws {
+        let ticket = try await V3SideStoreService.shared.beginExternalRefreshExecution()
+        do {
+            try await V3RefreshIntentBackend.run(presentsNotifications: self.presentsNotifications,
+                progress: self.progress, ticket: ticket) { operation in
+                    await self.operationActor.set(operation)
+                }
+            await V3SideStoreService.shared.endRefreshExecution(ticket)
+        } catch {
+            await V3SideStoreService.shared.endRefreshExecution(ticket)
+            throw error
+        }
+    }
+}
+
+@available(iOS 17.0, tvOS 17.0, *)
+enum V3RefreshIntentBackend {
+    static func run(presentsNotifications: Bool, progress: Progress,
+                    ticket: V3RefreshExecutionTicket,
+                    onStarted: @escaping @Sendable (BackgroundRefreshAppsOperation) async -> Void = { _ in }) async throws {
+        try await V3SideStoreService.shared.validateRefreshExecution(ticket)
+
+        try await DatabaseManager.shared.start()
+        
+        let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        let installedApps = await context.perform { InstalledApp.fetchAppsForRefreshingAll(in: context) }
+        
+        try await V3SideStoreService.shared.validateRefreshExecution(ticket)
+        try Task.checkCancellation()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let operation = V3RefreshIntentStartPolicy.create({
+                try AppManager.shared.backgroundRefresh(installedApps, presentsNotifications: presentsNotifications) { (result) in
+                do
+                {
+                    let results = try result.get()
+                    
+                    for (_, result) in results
+                    {
+                        guard case let .failure(error) = result else { continue }
+                        throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)
+                    }
+                    
+                    continuation.resume()
+                }
+                catch OperationError.noInstalledApps
+                {
+                    continuation.resume()
+                }
+                catch
+                {
+                    continuation.resume(throwing: error)
+                }
+            }
+            }, continuation: continuation,
+                classify: V3HeadlessPairingFailure.tagIfInvalidPairing)
+            guard let operation else { return }
+            
+            operation.ignoresServerNotFoundError = false
+            
+            progress.addChild(operation.progress, withPendingUnitCount: 1)
+            
+            Task {
+                await onStarted(operation)
+            }
+        }
+    }
+}
+
+
+// V3_REFRESH_INTENT_BOUNDARY_TRACE_V1: fixed local phases only. Never record
+// native error text, domains, userInfo, credentials, account or device IDs.
+private struct V3RefreshIntentBoundaryTrace: Sendable {
+    enum Phase: String {
+        case started, pipelineStarted, pipelineCompleted, pipelineThrew
+        case deadlineElapsed, foregroundRequested, foregroundReturned, foregroundThrew
+        case wrapperCompleted, wrapperThrew
+    }
+    // This random local trace tag is not an account/device/session identifier.
+    private let tag = String(UUID().uuidString.prefix(8))
+    private let started = DispatchTime.now().uptimeNanoseconds
+
+    func record(_ phase: Phase) {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let elapsed = now >= started ? min((now - started) / 1_000_000, 86_400_000) : 0
+        print("[V3_REFRESH_INTENT] trace=\(tag) phase=\(phase.rawValue) elapsed_ms=\(elapsed)")
+    }
+}'''
+
+def headless_direct_refresh_backend(text):
+    if "enum V3RefreshIntentBackend {" in text:
+        if text.count(DIRECT_REFRESH_PERFORM_NEW) != 1 or text.count(DIRECT_REFRESH_BACKEND_NEW) != 1:
+            raise SystemExit("v3 service: partial direct refresh backend")
+        return text
+    text = replace(text, DIRECT_REFRESH_PERFORM_OLD, DIRECT_REFRESH_PERFORM_NEW)
+    return replace(text, DIRECT_REFRESH_BACKEND_OLD, DIRECT_REFRESH_BACKEND_NEW)
+
+
+def direct_refresh_bridge_transform(text, function):
+    path = Path(__file__).with_name("patch_refresh_result_bridge.py")
+    spec = importlib.util.spec_from_file_location("v3_direct_refresh_bridge", path)
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return getattr(module, function)(text)
+
+
 def headless_app_intents(text, relative):
     if relative.endswith("RefreshAllAppsIntent.swift"):
         text = headless_intent_error_privacy(text)
@@ -1930,7 +2200,7 @@ def headless_app_intents(text, relative):
                 "openAppWhenRun = true" not in text or
                 "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" in text):
             raise SystemExit("v3 service: SideStore's scheduled backend adapter is missing or bypassed")
-        return text
+        return headless_direct_refresh_backend(text) if relative.endswith("RefreshAllAppsIntent.swift") else text
     if relative.endswith("RefreshAllAppsIntent.swift"):
         start_marker = "@available(iOS 17.0, tvOS 17.0, *)\nstruct InstallIPAIntent: AppIntent, ProgressReportingIntent"
         end_marker = "@available(iOS 17.0, tvOS 17.0, *)\nextension RefreshAllAppsIntent"
@@ -1987,7 +2257,7 @@ def headless_app_intents(text, relative):
                 "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" in text or
                 "openAppWhenRun = true" not in text):
             raise SystemExit("v3 service: SideStore refresh backend adapter was removed or redirected")
-        return text
+        return headless_direct_refresh_backend(text)
     if relative.endswith("AppShortcuts.swift"):
         start_marker = "        AppShortcut(intent: InstallIPAIntent(),"
         end_marker = "                    systemImageName: \"square.and.arrow.down\")"
@@ -2926,6 +3196,10 @@ def patch(live, side):
     }
 }
 '''))
+    edit(live, "SideStoreSupport/XPCClient.m",
+         lambda text: direct_refresh_bridge_transform(text, "install_direct_host_objc"))
+    edit(live, "SideStoreSupport/SideStoreClient.swift",
+         lambda text: direct_refresh_bridge_transform(text, "install_direct_host_client"))
     def host(s):
         # Shared startup/refresh responsibilities are installed by the combined startup adapter.
         return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \

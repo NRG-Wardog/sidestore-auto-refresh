@@ -367,8 +367,8 @@
     },
     {
       "id": "refresh-results-and-xpc",
-      "contract": "Run-correlated refresh results and versioned primitive XPC messages remain authoritative; neither UI progress nor a completed request fabricates device success.",
-      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "contract": "Run-correlated refresh results and versioned primitive XPC messages remain authoritative; neither UI progress nor a completed request fabricates device success. Host-owned refresh uses its explicit admitted run through the direct service selector, with one shared external/host execution ticket and immutable completion evidence; standalone AppIntents keep their own lifecycle.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate. Native extracted backend/service/Objective-C fixtures use inert storage and operations. They do not prove real XPC transport, iOS process lifetime, device refresh or cancellation by service termination.",
       "modules": [
         {
           "owner": "LiveContainer",
@@ -381,6 +381,12 @@
           "path": "SideStoreSupport/XPCServer.h",
           "interface": "RefreshServer / RefreshClient",
           "rationale": "Expose narrow service selectors and primitive payloads."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+          "interface": "V3RefreshIntentBackend / external RefreshAllAppsIntent",
+          "rationale": "Share the canonical refresh backend while retaining standalone foreground-continuation behavior."
         }
       ],
       "integration_points": [
@@ -401,6 +407,30 @@
           "path": "SideStoreSupport/XPCClient.m",
           "interface": "Client dispatch adapter",
           "rationale": "Retain selector/signature and readiness contract."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/templates/v3_sidestore_service.swift",
+          "interface": "refreshForHost:progress:completion: / execution admission",
+          "rationale": "Require explicit live run ownership, shared host/external exclusion and post-backend validation."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/templates/v3_behavioral_primitives.swift",
+          "interface": "V3RefreshAdmissionLease",
+          "rationale": "Keep consumed request identity, lease expiry and recovery hold semantics aligned."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": ".ci/vpn-refresh-recovery/generate_fixture.py",
+          "interface": "Exact old/direct dispatch source binding",
+          "rationale": "Retain every historical VPN recovery case while binding the reviewed direct selector and captured run."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct_refresh_projection.py",
+          "interface": "Exact generator inverse / proof normalization",
+          "rationale": "Admit only the reviewed successor generator bytes while retaining immutable historical case lists and source proof fields."
         }
       ],
       "regressions": [
@@ -421,6 +451,42 @@
           "path": "tests/test_refresh_result_bridge.py",
           "command": "python3 -B -m unittest discover -s tests -p test_refresh_result_bridge.py -v",
           "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_direct_refresh_projection.py",
+          "command": "python3 -B ci/issues-native/test_direct_refresh_projection.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/backend_fixture.swift",
+          "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/backend_fixture.swift -o \"$TEST_OUTPUT/backend-test\" && \"$TEST_OUTPUT/backend-test\" --long",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/service_fixture.swift",
+          "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/service_fixture.swift -o \"$TEST_OUTPUT/service-test\" && \"$TEST_OUTPUT/service-test\" --long",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/gate_fixture.swift",
+          "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/gate_fixture.swift -o \"$TEST_OUTPUT/gate-test\" && \"$TEST_OUTPUT/gate-test\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/test_source_binding.py",
+          "command": "python3 -B ci/refresh-direct-native/test_source_binding.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/verify_source_binding.py",
+          "command": "python3 -B ci/refresh-direct-native/verify_source_binding.py --sources \"$SOURCES_ROOT\" --builder \"$BUILDER_ROOT\" --output \"$TEST_OUTPUT/direct-refresh-source-binding.json\"",
+          "level": "source-contract"
         }
       ]
     },
@@ -485,7 +551,7 @@
     },
     {
       "id": "transport-readiness",
-      "contract": "Preserve LocalDevVPN \u2192 Lockdown \u2192 CoreDeviceProxy \u2192 CDTunnel \u2192 RSD selection, leases, cancellation and bounded readiness.",
+      "contract": "Preserve LocalDevVPN → Lockdown → CoreDeviceProxy → CDTunnel → RSD selection, leases, cancellation and bounded readiness.",
       "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
       "modules": [
         {

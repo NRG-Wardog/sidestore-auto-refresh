@@ -15,6 +15,8 @@ CURRENT='actual_current_guard_and_forwarding_with_historical_baseline'
 def require(ok,why):
  if not ok:raise ValueError(why)
 def binding(contract):
+ from direct_refresh_projection import normalize as normalize_direct
+ contract=normalize_direct(contract)
  value=contract.get(KEY)
  if value is None:
   require(contract['input_sha256'].get(PATH)!=EXPECTED['source_receipt_sha256'],'Current VPN proof needs explicit reviewed binding')

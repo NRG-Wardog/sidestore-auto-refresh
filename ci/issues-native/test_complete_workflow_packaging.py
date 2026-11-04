@@ -24,8 +24,8 @@ def block(label):
 class CompletePackagingWorkflowTests(unittest.TestCase):
     def test_complete_branch_only_and_size_controls_required(self):
         text, rows = steps()
-        self.assertIn("branches: ['integration/complete-issues-oct25']", text)
-        self.assertIn("github.ref == 'refs/heads/integration/complete-issues-oct25'", text)
+        self.assertIn("branches: ['validation/refresh-direct-full-nov4']", text)
+        self.assertIn("github.ref == 'refs/heads/validation/refresh-direct-full-nov4'", text)
         self.assertNotIn("refs/heads/integration/issues-oct25'", text)
         size = next(row for row in rows if row['name'] == 'Verify same-run size optimizer controls without skips')
         self.assertEqual(size['condition'], 'success()')

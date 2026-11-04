@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "2a2d92d49d48553c8275dc1fd1737a95b1136c1a"
+      "d53d28954ec8f5a7919dc79b79454c5388ebced7"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "e1d2f47405f8becc102608ab066513a8754ce8da"
+      "7a279d4f6aa09b5ba66d2054376e6b22f57dbf1f"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -132,7 +132,7 @@
         ".ci/vpn-refresh-recovery/PlatformDoubles.swift": "1e773086bfdc8f4d7d50fe55b3bc0ac233fb4e28",
         ".ci/vpn-refresh-recovery/cases.swift": "efddf643ba7710b88b0848f419147e88ecd4826f",
         ".ci/vpn-refresh-recovery/cold-peer-source.json": "d5979feca26c824928a8b4c9375ed27de03dfa14",
-        ".ci/vpn-refresh-recovery/generate_fixture.py": "eb4784e4160bc50660cf331d663ce94b6983fa3a",
+        ".ci/vpn-refresh-recovery/generate_fixture.py": "6e7ef99ae1ff677d66693de73ea98d5f616fa4f1",
         ".ci/vpn-refresh-recovery/test_classifier_dependency.py": "e72b0c7631abb653cc339388aa870ceec6fc1554",
         ".github/workflows/build.yml": "7d17217482f45cb96cc8d9393be2799a071bd026",
         ".github/workflows/native-app-compile.yml": "704a7faf9d48b8b586a70f0c2d935aa35ba85d80",
@@ -172,6 +172,8 @@
         "Resources/Localizable.xcstrings": "37bf8c267e1c2ccc422e027ca3889e845d0d18b0",
         "Resources/ru.lproj/InfoPlist.strings": "2b181bbb36354e981df0f4746b95eee7b030ade4",
         "SideStoreSupport/SideStore.swift": "ef6e9eb926fdeeb37a24c135a4ea6b48e90bdbd1",
+        "SideStoreSupport/SideStoreClient.swift": "d098f62dda4c84aa8325db52443907afacccea90",
+        "SideStoreSupport/XPCClient.m": "64145fa63c5a03ca4c6a5061608bcd4fb96ca7b0",
         "docs/integration/DIAGNOSTIC_PROVIDER_SEQUENCE.md": "62baca05c613be24ad2037f3232e98d26a0bc085",
         "docs/integration/GENERATED_OPENSSL35.md": "113c76d38fd59f03050a3faf68285585ce1ca363",
         "docs/localization/RUSSIAN_UI.md": "fa5d4fdea01507775e5eb63a3c390657904ab3e9",
@@ -207,7 +209,7 @@
         "tests/test_startup_diagnosis_card.py": "64f5d544c21d538342c988797b94c3c4da856c71",
         "tests/test_startup_diagnostics.py": "ca6d8634f460aea00ceb274d777a8fdff2ff8b49"
       },
-      "tree": "9f27b5d843f26edbf358ef7b201c963f653f9de6"
+      "tree": "0371c5eb85e4f6f37e0576f238497d584be2002a"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -240,10 +242,11 @@
         "AGENTS.md": null,
         "AltStore.xcodeproj/project.pbxproj": "53a042b65192b1d6c2ed27926fdab69d4a09d51e",
         "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "4a24e9f29f0dac26f5c4c58d0984e0c533f6a2a9",
-        "AltStore/AppDelegate.swift": "f0982f2bc2e1d44d8459f83e93565b17530e2e54",
+        "AltStore/AppDelegate.swift": "ea2506d5d1c1f824253fb08777f60273890842b9",
         "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "78f72785e9a31383e83f00d983bd3fc21bc51db2",
         "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "5c0b21210a81bb2d47cb484797eec686a33d7817",
         "AltStore/Core/Model/InstalledApp.swift": "563d41026d95e73d797dda1fb0902a930dbe6504",
+        "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift": "06f691fd6788b30f9fec1e3126a0e24997837835",
         "Dependencies/SideSign": "3036cfb7803844842d604d17d9697ddbbbc4d50f",
         "Dependencies/minimuxer": "49c430dc46d87a330b45fa07d467b821983ccbfd",
         "SideStore/Core/Anisette/AnisetteProvider.swift": "9899b064e45a6d8f005c000f15453b3b11730452",
@@ -383,7 +386,7 @@
         "tests/vpn_transport_recovery/generate_fixture.py": "ac0087b25c74408501b324f5e7675cfb0f884858",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "8e1e1b1f1115a191633fa8cbfb3e52be9df28129"
+      "tree": "1d270665f24d4931ddda5e3c5f6e0003e706ebcd"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",

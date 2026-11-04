@@ -15,6 +15,8 @@ def expected_names():
     require(hashlib.sha256(json.dumps(names[:97], separators=(',', ':')).encode()).hexdigest() == 'cd2264979fc998974133bff3730081f97a97ac2c30c1923eff1ced4252a6bee1', 'Previous 97 VPN cases changed or reordered')
     return names
 def binding(contract):
+    from direct_refresh_projection import normalize as normalize_direct
+    contract=normalize_direct(contract)
     value = contract.get(KEY)
     if value is None: return False
     require(value == {'source_sha256': FILES, 'additional_cases': ADDED}, 'Unknown grace recovery extension')

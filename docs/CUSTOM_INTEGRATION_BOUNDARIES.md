@@ -297,3 +297,17 @@ Before closing #52, retain a passing run of the dedicated workflow for the exact
 published implementation commit. That maintenance acceptance does not close
 other device-dependent feature issues or establish that signing, authentication,
 refresh or transport works on a particular physical device.
+
+### Direct host refresh integration
+
+Host-owned refresh uses the existing XPC trust boundary and an explicit admitted
+run ID to call the service directly. It no longer requires the standalone
+AppIntent foreground-continuation timer. The external intent retains that timer
+and shares the same canonical backend and execution exclusion ticket. Capture
+the callback run and verification evidence before releasing the ticket, and
+reject stale admission or recovery holds rather than upgrading errors to success.
+
+The VPN fixture successor is admitted through one exact source inverse. Its
+historical case order, expected markers and previous source receipts stay
+unchanged. Native backend, service/KVO and Objective-C fixture execution remains
+distinct from a complete generated application build and real device/XPC tests.

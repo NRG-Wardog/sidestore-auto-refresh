@@ -169,6 +169,7 @@ struct ProvisioningLoginWireHarness {
         primitives = template('v3_behavioral_primitives.swift')
         production = '\n'.join(declaration(primitives, sig) for sig in (
             'enum V3AuthIdentityBindingPolicy {', 'struct V3ProvisioningCompletionState {',
+            'struct V3RefreshExecutionTicket:', 'struct V3RefreshExecutionGate {',
         ))
         snapshot = declaration(template('v3_sidestore_service.swift'), 'private func snapshot()')
         harness = (ROOT / 'tests/fixtures/v3_provisioning_snapshot_harness.swift').read_text()

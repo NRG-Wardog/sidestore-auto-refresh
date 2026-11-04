@@ -136,6 +136,8 @@ def project(contract, graph, sources, additional_inputs=()):
 
 
 def contracts(sources, output, verify=False):
+    from direct_refresh_projection import validate_source as validate_direct_refresh_source
+    validate_direct_refresh_source(Path(sources))
     graph = load_candidate_graph()
     receipts = {}
     for name in CONTRACTS:

@@ -105,6 +105,7 @@ final class RefreshAdmission {
 enum V3BackendCommands { static func pairingFileStatus() -> String { "present" } }
 final class SnapshotService {
     let refreshAdmission = RefreshAdmission()
+    var refreshExecutionGate = V3RefreshExecutionGate()
     let recoveryServiceInstanceID = "service"
     var mutationID: String?
     func safeDirectRecovery(_ record: V3DirectMutationRecoveryRecord) -> [String: Any] { ["requestID": record.requestID] }
@@ -160,6 +161,15 @@ struct SnapshotHarness {
         service.mutationID = "mutation"
         precondition(try! service.read()["provisioningReauthenticationAvailable"] as? Bool == false)
         service.mutationID = nil
+        let externalTicket = service.refreshExecutionGate.acquire(hostRunID: nil, hostLeaseActive: false)!
+        snapshot = try service.read()
+        precondition(snapshot["busy"] as? Bool == true,
+            "external refresh must be visible as busy")
+        precondition(snapshot["provisioningReauthenticationAvailable"] as? Bool == false,
+            "external refresh must prevent reauthentication")
+        service.refreshExecutionGate.release(externalTicket)
+        precondition(try! service.read()["busy"] as? Bool == false)
+        precondition(try! service.read()["provisioningReauthenticationAvailable"] as? Bool == true)
         V3OperationRecoveryJournal.state = .operation(V3OperationRecoveryRecord())
         precondition(try! service.read()["provisioningReauthenticationAvailable"] as? Bool == false)
         V3OperationRecoveryJournal.state = nil; V3OperationRecoveryJournal.unreadable = true

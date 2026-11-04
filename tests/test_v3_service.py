@@ -42,6 +42,19 @@ results = module("patch_refresh_result_bridge")
 embedded_keychain = module("patch_embedded_keychain")
 
 
+class DirectHostRefreshBackendPatchTests(unittest.TestCase):
+    def test_exact_backend_transform_idempotence_and_fail_closed(self):
+        source = service.DIRECT_REFRESH_PERFORM_OLD + service.DIRECT_REFRESH_BACKEND_OLD
+        expected = service.DIRECT_REFRESH_PERFORM_NEW + service.DIRECT_REFRESH_BACKEND_NEW
+        generated = service.headless_direct_refresh_backend(source)
+        self.assertEqual(generated, expected)
+        self.assertEqual(service.headless_direct_refresh_backend(generated), generated)
+        for token in ('validateRefreshExecution(ticket)', 'beginExternalRefreshExecution()',
+                      'endRefreshExecution(ticket)', 'AppManager.shared.backgroundRefresh'):
+            with self.subTest(token=token), self.assertRaises(SystemExit):
+                service.headless_direct_refresh_backend(generated.replace(token, 'invalid'))
+
+
 class ServicePatchTests(unittest.TestCase):
     @staticmethod
     def swift_declaration(source, signature):
