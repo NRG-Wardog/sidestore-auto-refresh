@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "ed3cf25dbdc5730d6774e2fd0d18868fa69cebc1"
+      "dc3f5d7ffc8a21e8ee0fbc1137572e782f0bd223"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -243,7 +243,7 @@
         "AGENTS.md": null,
         "AltStore.xcodeproj/project.pbxproj": "53a042b65192b1d6c2ed27926fdab69d4a09d51e",
         "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": "4a24e9f29f0dac26f5c4c58d0984e0c533f6a2a9",
-        "AltStore/AppDelegate.swift": "3ea1af7f5f2ff10870980ea100fde5cd2c13b582",
+        "AltStore/AppDelegate.swift": "94f3b54ac67fac7d22126673e475436c1aabd571",
         "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift": "78f72785e9a31383e83f00d983bd3fc21bc51db2",
         "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "5c0b21210a81bb2d47cb484797eec686a33d7817",
         "AltStore/Core/Model/InstalledApp.swift": "563d41026d95e73d797dda1fb0902a930dbe6504",
@@ -387,7 +387,7 @@
         "tests/vpn_transport_recovery/generate_fixture.py": "ac0087b25c74408501b324f5e7675cfb0f884858",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "c70fa3bd0348c77f943183718b2581f98fb3ae88"
+      "tree": "e0445ea98a6d4427e5d0d66d602e2d5252261eec"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",

@@ -639,6 +639,7 @@ switch operation {
                 return ["runID": target, "admissionID": admissionID, "released": true, "alreadyReleased": true]
             }
             guard refreshAdmission.requestID == admissionID,
+                  refreshAdmission.owns(target),
                   recovery.kind == "refreshAll", recovery.sessionID == target,
                   try V3OperationRecoveryJournal.settleRefreshAdmission(runID: target,
                     terminalState: terminalState, terminalConfirmed: true) else {
@@ -650,7 +651,7 @@ switch operation {
             guard !refreshExecutionGate.isActive else { throw ServiceError.busy }
             guard let parsed = UUID(uuidString: target), parsed.uuidString == target,
                   V3WireContract.strictBool(payload["userConfirmed"]) == true,
-                  refreshAdmission.ownerLost else {
+                  refreshAdmission.ownerLost, refreshAdmission.owns(target) else {
                 throw ServiceError.invalidRequest
             }
             do {
@@ -727,6 +728,31 @@ default: throw ServiceError.invalidRequest
         V3OperationRecoveryJournal.record = .init(kind: "restore", sessionID: run)
         reject(.notFound) { try service.dispatch("refreshAdmissionEnd", target: run, payload: end) }
         precondition(service.refreshAdmission.isActive && V3OperationRecoveryJournal.settleCalls == 0)
+        // Divergent persistent journal must not be settled under another in-memory lease.
+        service = make(run, admission)
+        let divergentRun = UUID().uuidString
+        V3OperationRecoveryJournal.record = .init(kind: "refreshAll", sessionID: divergentRun)
+        reject(.notFound) { try service.dispatch("refreshAdmissionEnd", target: divergentRun, payload: end) }
+        precondition(V3OperationRecoveryJournal.settleCalls == 0)
+        precondition(service.refreshAdmission.runID == run && V3OperationRecoveryJournal.record?.sessionID == divergentRun)
+        _ = service.refreshAdmission.expire(now: Date().addingTimeInterval(1000))
+        reject(.invalidRequest) { try service.dispatch("refreshAdmissionReconcile", target: divergentRun, payload: ["userConfirmed": true]) }
+        precondition(V3OperationRecoveryJournal.reconcileCalls == 0)
+        precondition(service.refreshAdmission.runID == run && V3OperationRecoveryJournal.record?.sessionID == divergentRun)
+        // Corrupt/inconsistent state must fail before mutating either record.
+        service = make(run, admission)
+        let differentRun = UUID().uuidString
+        V3OperationRecoveryJournal.record = .init(kind: "refreshAll", sessionID: differentRun)
+        reject(.notFound) { try service.dispatch("refreshAdmissionEnd", target: differentRun, payload: end) }
+        precondition(V3OperationRecoveryJournal.settleCalls == 0)
+        precondition(V3OperationRecoveryJournal.record?.sessionID == differentRun)
+        precondition(service.refreshAdmission.owns(run) && service.refreshAdmission.requestID == admission)
+        _ = service.refreshAdmission.expire(now: Date().addingTimeInterval(1000))
+        reject(.invalidRequest) { try service.dispatch("refreshAdmissionReconcile", target: differentRun,
+            payload: ["userConfirmed": true]) }
+        precondition(V3OperationRecoveryJournal.reconcileCalls == 0)
+        precondition(V3OperationRecoveryJournal.record?.sessionID == differentRun)
+        precondition(service.refreshAdmission.owns(run) && service.refreshAdmission.ownerLost)
         // Actual production wire serializer+decoder rejects malformed release payloads.
         func encoded(_ payload: [String: Any]) -> Data? {
             V3WireContract.encodeRequest(["version": 1, "id": UUID().uuidString,

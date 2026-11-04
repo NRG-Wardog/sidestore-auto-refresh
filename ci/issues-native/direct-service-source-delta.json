@@ -1,6 +1,6 @@
 {
   "before_sha256": "ed7149defcd90a81ecbe4542a82994c7781b1595d9c2a44b57f84c4105c5186c",
-  "after_sha256": "72ce09b2ac7ff4ad7651939fb58188ed0ba28d2997dd785259a794521b5a94be",
+  "after_sha256": "820f1008de6b1ee34e943beab1d3c62c988498a89b55ef3034d4680ac104ac68",
   "edits": [
     {
       "after_lines": [
@@ -93,47 +93,55 @@
     {
       "after_lines": [
         10331,
-        10333
+        10334
       ],
       "before": "            guard recovery.kind == \"refreshAll\", recovery.sessionID == target,\n",
-      "after": "            guard refreshAdmission.requestID == admissionID,\n                  recovery.kind == \"refreshAll\", recovery.sessionID == target,\n"
+      "after": "            guard refreshAdmission.requestID == admissionID,\n                  refreshAdmission.owns(target),\n                  recovery.kind == \"refreshAll\", recovery.sessionID == target,\n"
     },
     {
       "after_lines": [
-        10338,
-        10339
+        10339,
+        10340
       ],
       "before": "            return [\"runID\": target, \"released\": true]\n",
       "after": "            return [\"runID\": target, \"admissionID\": admissionID, \"released\": true]\n"
     },
     {
       "after_lines": [
-        10340,
-        10341
+        10341,
+        10342
       ],
       "before": "",
       "after": "            guard !refreshExecutionGate.isActive else { throw ServiceError.busy }\n"
     },
     {
       "after_lines": [
-        10546,
-        10547
+        10344,
+        10345
+      ],
+      "before": "                  refreshAdmission.ownerLost else {\n",
+      "after": "                  refreshAdmission.ownerLost, refreshAdmission.owns(target) else {\n"
+    },
+    {
+      "after_lines": [
+        10547,
+        10548
       ],
       "before": "",
       "after": "            guard !refreshExecutionGate.isActive else { throw ServiceError.busy }\n"
     },
     {
       "after_lines": [
-        11098,
-        11099
+        11099,
+        11100
       ],
       "before": "            V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.hasLiveOwner\n",
       "after": "            V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.hasLiveOwner || refreshExecutionGate.isActive\n"
     },
     {
       "after_lines": [
-        11112,
-        11113
+        11113,
+        11114
       ],
       "before": "                    V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive ||\n",
       "after": "                    V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive || refreshExecutionGate.isActive ||\n"

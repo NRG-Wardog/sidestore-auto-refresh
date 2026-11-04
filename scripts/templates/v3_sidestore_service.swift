@@ -1814,6 +1814,7 @@ final class V3SideStoreService: NSObject {
                 return ["runID": target, "admissionID": admissionID, "released": true, "alreadyReleased": true]
             }
             guard refreshAdmission.requestID == admissionID,
+                  refreshAdmission.owns(target),
                   recovery.kind == "refreshAll", recovery.sessionID == target,
                   try V3OperationRecoveryJournal.settleRefreshAdmission(runID: target,
                     terminalState: terminalState, terminalConfirmed: true) else {
@@ -1825,7 +1826,7 @@ final class V3SideStoreService: NSObject {
             guard !refreshExecutionGate.isActive else { throw ServiceError.busy }
             guard let parsed = UUID(uuidString: target), parsed.uuidString == target,
                   V3WireContract.strictBool(payload["userConfirmed"]) == true,
-                  refreshAdmission.ownerLost else {
+                  refreshAdmission.ownerLost, refreshAdmission.owns(target) else {
                 throw ServiceError.invalidRequest
             }
             do {
