@@ -10,6 +10,7 @@ struct V3RefreshExecutionTicket: Equatable, Sendable {
 struct V3RefreshExecutionGate {
     private(set) var current: V3RefreshExecutionTicket?
     private var consumedHostAdmissionID: String?
+    private var consumedHostRunID: String?
     var isActive: Bool { current != nil }
     var isExternalActive: Bool { current != nil && current?.hostRunID == nil }
 
@@ -24,8 +25,15 @@ struct V3RefreshExecutionGate {
         }
         let ticket = V3RefreshExecutionTicket(id: UUID(), hostRunID: hostRunID, hostAdmissionID: hostAdmissionID)
         current = ticket
-        if let hostAdmissionID { consumedHostAdmissionID = hostAdmissionID }
+        if let hostAdmissionID {
+            consumedHostAdmissionID = hostAdmissionID
+            consumedHostRunID = hostRunID
+        }
         return ticket
+    }
+
+    func hasDispatched(hostRunID: String, hostAdmissionID: String) -> Bool {
+        consumedHostAdmissionID == hostAdmissionID && consumedHostRunID == hostRunID
     }
 
     func owns(_ ticket: V3RefreshExecutionTicket) -> Bool { current == ticket }
@@ -55,6 +63,8 @@ import Foundation
         gate.release(external)
         let host = gate.acquire(hostRunID: run, hostAdmissionID: admission, hostLeaseActive: true)!
         precondition(gate.isActive && !gate.isExternalActive)
+        precondition(gate.hasDispatched(hostRunID: run, hostAdmissionID: admission))
+        precondition(!gate.hasDispatched(hostRunID: UUID().uuidString, hostAdmissionID: admission))
         precondition(gate.acquire(hostRunID: nil, hostLeaseActive: false) == nil)
         precondition(gate.acquire(hostRunID: run, hostAdmissionID: admission, hostLeaseActive: true) == nil)
         gate.release(external)

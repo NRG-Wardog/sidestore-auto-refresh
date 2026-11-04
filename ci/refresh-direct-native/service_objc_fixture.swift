@@ -126,6 +126,7 @@ struct V3RefreshExecutionTicket: Equatable, Sendable {
 struct V3RefreshExecutionGate {
     private(set) var current: V3RefreshExecutionTicket?
     private var consumedHostAdmissionID: String?
+    private var consumedHostRunID: String?
     var isActive: Bool { current != nil }
     var isExternalActive: Bool { current != nil && current?.hostRunID == nil }
 
@@ -140,8 +141,15 @@ struct V3RefreshExecutionGate {
         }
         let ticket = V3RefreshExecutionTicket(id: UUID(), hostRunID: hostRunID, hostAdmissionID: hostAdmissionID)
         current = ticket
-        if let hostAdmissionID { consumedHostAdmissionID = hostAdmissionID }
+        if let hostAdmissionID {
+            consumedHostAdmissionID = hostAdmissionID
+            consumedHostRunID = hostRunID
+        }
         return ticket
+    }
+
+    func hasDispatched(hostRunID: String, hostAdmissionID: String) -> Bool {
+        consumedHostAdmissionID == hostAdmissionID && consumedHostRunID == hostRunID
     }
 
     func owns(_ ticket: V3RefreshExecutionTicket) -> Bool { current == ticket }
@@ -367,12 +375,12 @@ final class V3SideStoreService: NSObject {
     // Invoked only through the existing host-to-service XPC refresh method.
     // The explicit run must already own the admission lease and journal.
     // This does not use LNAction, AppIntent execution or foreground continuation.
-    @objc(refreshForHost:progress:completion:)
-    nonisolated static func refreshForHost(_ runID: String,
+    @objc(refreshForHost:admissionID:progress:completion:)
+    nonisolated static func refreshForHost(_ runID: String, admissionID: String,
         progress: @escaping (Double) -> Void,
         completion: @escaping (String?, Data?) -> Void) {
         Task { @MainActor in
-            await shared.performHostRefresh(runID: runID, progress: progress, completion: completion)
+            await shared.performHostRefresh(runID: runID, admissionID: admissionID, progress: progress, completion: completion)
         }
     }
 
@@ -391,8 +399,11 @@ final class V3SideStoreService: NSObject {
         return data
     }
 
-    private func performHostRefresh(runID: String, progress: @escaping (Double) -> Void,
+    private func performHostRefresh(runID: String, admissionID: String, progress: @escaping (Double) -> Void,
                                     completion: @escaping (String?, Data?) -> Void) async {
+        // Duplicate dispatch is not a second logical operation. In particular,
+        // never send a busy callback that could terminate its still-live owner.
+        if refreshExecutionGate.hasDispatched(hostRunID: runID, hostAdmissionID: admissionID) { return }
         var acquired: V3RefreshExecutionTicket?
         var observation: NSKeyValueObservation?
         var failure: CombinedFailure?
@@ -401,9 +412,14 @@ final class V3SideStoreService: NSObject {
                 throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
                     code: .unavailable, id: runID, retryable: false)
             }
+            guard UUID(uuidString: admissionID)?.uuidString == admissionID,
+                  refreshAdmission.requestID == admissionID else {
+                throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                    code: .staleResult, id: runID, retryable: false, safeCause: .staleRefreshAttempt)
+            }
             let defaults = try hostRefreshDefaults(for: runID)
             guard let ticket = refreshExecutionGate.acquire(hostRunID: runID,
-                    hostAdmissionID: refreshAdmission.requestID, hostLeaseActive: (refreshAdmission.isActive && !refreshAdmission.ownerLost)) else {
+                    hostAdmissionID: admissionID, hostLeaseActive: (refreshAdmission.isActive && !refreshAdmission.ownerLost)) else {
                 throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
                     code: .busy, id: runID, retryable: false, safeCause: .operationInProgress)
             }
@@ -462,21 +478,23 @@ extension V3SideStoreService {
         } else { defaults.set(runID, forKey: "liveContainerAutoRefreshActiveRunID") }
     }
     func fixtureLoseOwner() { _ = refreshAdmission.expire(now: Date().addingTimeInterval(1_000)) }
+    var fixtureAdmissionID: String { refreshAdmission.requestID ?? UUID().uuidString }
+    func fixtureReleaseAdmission(_ run: String) { _ = refreshAdmission.release(runID: run) }
     var fixtureOwnerLost: Bool { refreshAdmission.ownerLost }
     var fixtureExecutionActive: Bool { refreshExecutionGate.isActive }
 }
 
 @main struct ServiceCases {
-    @MainActor static func execute(_ run: String) async -> (String?, Data?) {
+    @MainActor static func execute(_ run: String, admissionID: String? = nil) async -> (String?, Data?) {
         await withCheckedContinuation { c in
-            InvokeDirectHost(run, { value in
+            InvokeDirectHost(run, admissionID ?? V3SideStoreService.shared.fixtureAdmissionID, { value in
                 precondition(value.isFinite && value >= 0 && value <= 1)
             }, { error, payload in c.resume(returning: (error, payload)) })
         }
     }
     @MainActor static func main() async throws {
         let service = V3SideStoreService.shared
-        precondition(V3SideStoreService.responds(to: NSSelectorFromString("refreshForHost:progress:completion:")))
+        precondition(V3SideStoreService.responds(to: NSSelectorFromString("refreshForHost:admissionID:progress:completion:")))
         defer { V3SharedAppGroup.defaults.removePersistentDomain(forName: V3SharedAppGroup.suite) }
         service.fixtureReset()
         let invalid = await execute(UUID().uuidString)
@@ -486,12 +504,37 @@ extension V3SideStoreService {
         do { _ = try service.beginExternalRefreshExecution(); fatalError("external overlap admitted") }
         catch { }
         AppManager.shared.delay = CommandLine.arguments.contains("--long") ? 28.1 : 0.05
+        var overlapCallbacks = 0
+        let originalAdmission = service.fixtureAdmissionID
+        AppManager.shared.afterDispatch = {
+            V3SideStoreService.refreshForHost(run, admissionID: originalAdmission,
+                progress: { _ in }, completion: { _, _ in overlapCallbacks += 1 })
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
         let complete = await execute(run)
+        precondition(overlapCallbacks == 0, "duplicate callback must not terminate live host owner")
+        AppManager.shared.afterDispatch = nil
         precondition(complete.0 == nil && complete.1 != nil && AppManager.shared.calls == 1)
         precondition(!service.fixtureExecutionActive)
         // A completed admission cannot be consumed a second time.
-        let replay = await execute(run)
-        precondition(replay.0 != nil && replay.1 == nil && AppManager.shared.calls == 1)
+        var replayCallbacks = 0
+        let oldAdmissionID = service.fixtureAdmissionID
+        V3SideStoreService.refreshForHost(run, admissionID: oldAdmissionID, progress: { _ in },
+            completion: { _, _ in replayCallbacks += 1 })
+        try await Task.sleep(nanoseconds: 30_000_000)
+        precondition(replayCallbacks == 0 && AppManager.shared.calls == 1)
+        // A fresh same-run admission is legitimate; the previous request must
+        // not consume it, and its rejection remains tagged with its old ID.
+        service.fixtureReleaseAdmission(run)
+        service.fixtureAdmit(run)
+        V3SideStoreService.refreshForHost(run, admissionID: oldAdmissionID, progress: { _ in },
+            completion: { _, _ in replayCallbacks += 1 })
+        try await Task.sleep(nanoseconds: 30_000_000)
+        precondition(replayCallbacks == 0 && AppManager.shared.calls == 1)
+        let renewed = await execute(run)
+        precondition(renewed.0 == nil && AppManager.shared.calls == 2)
+        let delayedOld = await execute(run, admissionID: oldAdmissionID)
+        precondition(delayedOld.0 != nil && AppManager.shared.calls == 2)
         service.fixtureReset()
         let directRun = UUID().uuidString
         service.fixtureAdmit(directRun, direct: true)
