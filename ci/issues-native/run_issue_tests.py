@@ -187,7 +187,7 @@ RUST_FEATURES = {
     'idevice': 'ring,usbmuxd,cryptexd,tunnel_tcp_stack',
     # Custom USB tunnel startup imports HeartbeatClient unconditionally.
     # Production defaults include heartbeat; explicit no-default tests must too.
-    'idevice-ffi': 'ring,tcp,usbmuxd,house_arrest,mobile_image_mounter,syslog_relay,springboardservices,tss,tunnel_tcp_stack,heartbeat',
+    'idevice-ffi': 'ring,tcp,usbmuxd,house_arrest,mobile_image_mounter,syslog_relay,springboardservices,tss,tunnel_tcp_stack,heartbeat,afc,amfi,bt_packet_logger,companion_proxy,location_simulation,misagent,mobileactivationd,notification_proxy,pcapd,preboard_service,screenshotr',
 }
 REQUIRED_RUST_TESTS = {
     'idevice': ('ddi_defaults_keep_distinct_persistence_fields',
@@ -198,7 +198,28 @@ REQUIRED_RUST_TESTS = {
                     'caller_owned_wrapper_survives_repeated_independent_clones',
                     'caller_retains_single_heap_owner_after_clone_is_dropped',
                     'actual_ffi_writes_full_width_disconnect_and_clears_stale_outputs',
-                    'ffi_error_event_clears_outputs_and_null_input_is_rejected'),
+                    'ffi_error_event_clears_outputs_and_null_input_is_rejected',
+                    'lockdown_errors_preserve_provider',
+                    'image_mounter_errors_preserve_provider',
+                    'os_trace_errors_preserve_provider',
+                    'syslog_errors_preserve_provider',
+                    'springboard_errors_preserve_provider',
+                    'house_arrest_errors_preserve_provider',
+                    'consumed_connection_drops_socket_exactly_once_on_invalid_label',
+                    'preboard_service_connect_errors_preserve_provider',
+                    'notification_proxy_connect_errors_preserve_provider',
+                    'companion_proxy_connect_errors_preserve_provider',
+                    'screenshotr_connect_errors_preserve_provider',
+                    'amfi_connect_errors_preserve_provider',
+                    'bt_packet_logger_connect_errors_preserve_provider',
+                    'pcapd_connect_errors_preserve_provider',
+                    'lockdown_location_simulation_connect_errors_preserve_provider',
+                    'misagent_connect_errors_preserve_provider',
+                    'afc_client_connect_errors_preserve_provider',
+                    'afc2_client_connect_errors_preserve_provider',
+                    'heartbeat_connect_errors_preserve_provider',
+                    'mobileactivationd_client_borrows_provider_until_freed',
+                    ),
 }
 
 
@@ -209,6 +230,20 @@ def validate_rust_output(package, output):
     for name in REQUIRED_RUST_TESTS[package]:
         if len(re.findall(r'^test [^\n ]*::' + re.escape(name) + r' \.\.\. ok$', output, re.M)) != 1:
             raise ValueError('Required real Rust test not executed exactly once: ' + name)
+
+
+
+GENERATED_PROVIDER_MARKERS = (
+    'BORROWED_PROVIDERS_PASS paths=13 success_failure_retry_move=true',
+    'BORROWED_PROVIDER_GENERATED_HEADER_PASS complete_wrappers=12 paths=13',
+)
+
+
+def validate_generated_provider_output(output):
+    for required in GENERATED_PROVIDER_MARKERS:
+        observed = [line for line in output.splitlines() if line.startswith(required.split(' ', 1)[0])]
+        if observed != [required]:
+            raise ValueError('Generated-header ownership execution missing or duplicate: ' + required)
 
 
 def verify_native_receipt(path):
@@ -240,6 +275,7 @@ def run_idevice_native():
     (evidence / 'idevice-listener-generated-abi.log').write_text(result.stdout)
     print(result.stdout, flush=True)
     result.check_returncode()
+    validate_generated_provider_output(result.stdout)
     receipt.write_text(json.dumps({'features': RUST_FEATURES,
         'required_tests': REQUIRED_RUST_TESTS, 'rust_suites': 'PASS_NO_SKIPS',
         'generated_header_c_and_cpp': 'PASS', 'toolchain': '1.98.1',

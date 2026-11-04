@@ -1,0 +1,1175 @@
+{
+  "schema_version": 1,
+  "owners": {
+    "sidestore-auto-refresh": {
+      "repository": "NRG-Wardog/sidestore-auto-refresh",
+      "graph_key": null
+    },
+    "LiveContainer": {
+      "repository": "NRG-Wardog/LiveContainer",
+      "graph_key": "LiveContainer"
+    },
+    "SideStore": {
+      "repository": "NRG-Wardog/SideStore",
+      "graph_key": "SideStore"
+    },
+    "SideSign": {
+      "repository": "NRG-Wardog/SideSign",
+      "graph_key": "SideStore/Dependencies/SideSign"
+    },
+    "AnisetteKit": {
+      "repository": "NRG-Wardog/AnisetteKit",
+      "graph_key": "AnisetteKit"
+    },
+    "idevice": {
+      "repository": "NRG-Wardog/idevice",
+      "graph_key": "idevice"
+    },
+    "jktcp": {
+      "repository": "NRG-Wardog/jktcp",
+      "graph_key": "jktcp"
+    },
+    "minimuxer": {
+      "repository": "NRG-Wardog/minimuxer",
+      "graph_key": "SideStore/Dependencies/minimuxer"
+    }
+  },
+  "features": [
+    {
+      "id": "packaging",
+      "contract": "Eight named immutable adapters preserve compiled inputs, signing, App Intents and entitlement preparation; unknown, missing, duplicate or overlapping anchors fail closed.",
+      "limitations": "Real historical upstream scripts are transformed as data, never executed by the rehearsal. Native artifact and device validation are separate.",
+      "modules": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/packaging_adapters.py",
+          "interface": "IntegrationRule / apply_rules / COMBINED_PACKAGING_RULES",
+          "rationale": "Keep custom replacement logic separate from the upstream shell."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/package_livecontainer_combined.py",
+          "interface": "adapt / verify",
+          "rationale": "Only this adapter consumes upstream packaging shell text."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": ".github/build_github.sh",
+          "interface": "Exact named anchors in PACKAGING_PATCH_SURFACE.json",
+          "rationale": "Track the entire eight-rule upstream patch surface without changing unrelated upstream steps."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_packaging_adapters.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_packaging_adapters.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_combined_packaging.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_combined_packaging.py -v",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "source-catalog-and-appid",
+      "contract": "Pure presentation policy preserves canonical identity, unknown App ID expiry and explicit install confirmation.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Utilities/V3SourceAppPresentation.swift",
+          "interface": "V3SourceAppPresentation",
+          "rationale": "Version and expiry decisions remain independent of UI and installation."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+          "interface": "Source catalog selection and Developer Services rows",
+          "rationale": "Call pure presentation logic while keeping side effects in existing installer."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "V3BackendCommands.developerAppIDRow",
+          "rationale": "Bridge the portal App ID date, not profile expiry."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_source_app_presentation.py",
+          "command": "python3 -B tests/test_source_app_presentation.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/appid_expiry/test_appid_expiry_bridge.py",
+          "command": "python3 -B tests/appid_expiry/test_appid_expiry_bridge.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "authentication-provider-sequencing",
+      "contract": "Ordered bounded providers preserve one authentication session, cancellation, 2FA and non-retryable error boundaries.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift",
+          "interface": "V3DiagnosticProviderSequence",
+          "rationale": "Separate provider retry policy from account mutation."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift",
+          "interface": "Provider prompt model",
+          "rationale": "Keep host prompt policy independently testable."
+        },
+        {
+          "owner": "SideSign",
+          "path": "Sources/DeveloperPortal/ILoaderAuthenticationPolicy.swift",
+          "interface": "Authentication retry policy",
+          "rationale": "Keep provider admission and request construction explicit."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "V3AuthenticationSession",
+          "rationale": "Own account and prompt side effects."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+          "interface": "Authentication prompt adapter",
+          "rationale": "User response resumes only its matching session."
+        },
+        {
+          "owner": "SideSign",
+          "path": "Sources/DeveloperPortal/Authentication.swift",
+          "interface": "Authentication API",
+          "rationale": "Apply bounded policy at the actual request boundary."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "SideStore",
+          "path": "tests/test_diagnostic_provider_sequence.py",
+          "command": "python3 -B tests/test_diagnostic_provider_sequence.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_diagnostic_provider_sequence.py",
+          "command": "python3 -B tests/test_diagnostic_provider_sequence.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideSign",
+          "path": ".ci/iloader-auth-parity/test_source.py",
+          "command": "python3 -B .ci/iloader-auth-parity/test_source.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "anisette-owned-attempt",
+      "contract": "Each owned on-device attempt keeps checked input, cleanup and native lifetime within one isolated owner; no credentials enter diagnostics.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "AnisetteKit",
+          "path": "Sources/OwnedOnDeviceAnisetteAttempt.swift",
+          "interface": "OwnedOnDeviceAnisetteAttempt",
+          "rationale": "Expose one bounded attempt rather than native implementation details."
+        },
+        {
+          "owner": "AnisetteKit",
+          "path": "Native/Loader/owned_attempt_lifecycle.h",
+          "interface": "Owned lifecycle",
+          "rationale": "Keep cleanup and cancellation ownership testable."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "AnisetteKit",
+          "path": "Sources/AnisetteClient.swift",
+          "interface": "AnisetteClient provider API",
+          "rationale": "Bridge Swift lifecycle to native provider."
+        },
+        {
+          "owner": "AnisetteKit",
+          "path": "Native/anisette_core_uc.cpp",
+          "interface": "Owned native entry points",
+          "rationale": "Bind caller context to actual isolated native work."
+        },
+        {
+          "owner": "SideSign",
+          "path": "Sources/Anisette/RemoteAnisetteDataProvider.swift",
+          "interface": "Remote provider adapter",
+          "rationale": "Retain remote fallback contract without leaking account material."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "AnisetteKit",
+          "path": "Tests/AnisetteKitTests/OwnedOnDeviceAnisetteAttemptTests.swift",
+          "command": "swift test --filter OwnedOnDeviceAnisetteAttemptTests",
+          "level": "native"
+        },
+        {
+          "owner": "AnisetteKit",
+          "path": ".ci/owned-attempt/run.py",
+          "command": "python3 -B .ci/owned-attempt/run.py --unicorn-archive \"$VERIFIED_UNICORN_ARCHIVE\"",
+          "level": "native"
+        }
+      ]
+    },
+    {
+      "id": "extension-signing",
+      "contract": "ReuseMain remains explicit opt-in; team, certificate, entitlements and extension compatibility determine admission and fallback.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "SideSign",
+          "path": "Sources/CodeSigning/ExtensionSigningPolicy.swift",
+          "interface": "ExtensionSigningPolicy",
+          "rationale": "Keep entitlement/profile decisions pure and separate from signing."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "SideSign",
+          "path": "Sources/CodeSigning/CodeSignerAPI.swift",
+          "interface": "AppBundleSigner overload",
+          "rationale": "Apply explicit extension strategy while preserving ordinary signer API."
+        },
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift",
+          "interface": "Signing operation",
+          "rationale": "Retain confirmation, profile selection and registry activation boundaries."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "SideSign",
+          "path": ".ci/reuse-main/test_source.py",
+          "command": "python3 -B .ci/reuse-main/test_source.py",
+          "level": "source-contract"
+        },
+        {
+          "owner": "SideSign",
+          "path": ".ci/reuse-main/run.sh",
+          "command": "bash .ci/reuse-main/run.sh",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/reuse_main/test_contract.py",
+          "command": "python3 -B tests/reuse_main/test_contract.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "preserved-refresh",
+      "contract": "Refresh preserves validated installed-app identity and profiles; installation success remains authoritative and cache mismatches fail explicitly.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift",
+          "interface": "Preserved profile decoder",
+          "rationale": "Bound profile parsing separately from operations."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift",
+          "interface": "Refresh operation adapter",
+          "rationale": "Route preserved profile validation before side effects."
+        },
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Operations/PipelineOperations/InstallAppOperation.swift",
+          "interface": "Installation completion",
+          "rationale": "Activate state only after confirmed installation."
+        },
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Operations/PipelineOperations/CacheAppOperation.swift",
+          "interface": "Cached payload admission",
+          "rationale": "Prevent upstream cache rewrites from bypassing identity checks."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "SideStore",
+          "path": "tests/preservation_refresh/test_contract.py",
+          "command": "python3 -B tests/preservation_refresh/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/test_host_preservation.py",
+          "command": "python3 -B tests/cache_compatibility/test_host_preservation.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/host_refresh_bundle/test_contract.py",
+          "command": "python3 -B tests/host_refresh_bundle/test_contract.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "refresh-results-and-xpc",
+      "contract": "Run-correlated refresh results and versioned primitive XPC messages remain authoritative; neither UI progress nor a completed request fabricates device success.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "LiveContainer",
+          "path": "SideStoreSupport/SideStoreClient.swift",
+          "interface": "SideStoreClient",
+          "rationale": "Keep client transport separate from host UI."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "SideStoreSupport/XPCServer.h",
+          "interface": "RefreshServer / RefreshClient",
+          "rationale": "Expose narrow service selectors and primitive payloads."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "SideStoreSupport/SideStore.swift",
+          "interface": "Versioned service bridge / refresh result policies",
+          "rationale": "Preserve command-envelope and result correlation."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "Versioned backend commands",
+          "rationale": "Dispatch to actual backend work."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "SideStoreSupport/XPCClient.m",
+          "interface": "Client dispatch adapter",
+          "rationale": "Retain selector/signature and readiness contract."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "SideStore",
+          "path": "tests/refresh_truth/test_contract.py",
+          "command": "python3 -B tests/refresh_truth/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_combined_refresh_contract.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_combined_refresh_contract.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_refresh_result_bridge.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_refresh_result_bridge.py -v",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "diagnostics-and-recovery",
+      "contract": "Finite diagnostic codes and recovery actions preserve original causes, privacy, session identity and truthful native/device evidence.",
+      "limitations": "Set SIDESTORE_ROOT, ANISETTEKIT_ROOT and BUILDER_ROOT to matching reviewed checkouts and use the required Swift toolchain. Missing cross-owner inputs or Swift execution cannot count as passing coverage. No real-device outcome is claimed.",
+      "modules": [
+        {
+          "owner": "AnisetteKit",
+          "path": "Native/Loader/bounded_fault_diagnostics.h",
+          "interface": "Bounded native diagnostics",
+          "rationale": "Keep fault capture finite and non-secret."
+        },
+        {
+          "owner": "minimuxer",
+          "path": "Sources/MinimuxerError.swift",
+          "interface": "MinimuxerError",
+          "rationale": "Keep transport errors typed at the package boundary."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "SideStoreSupport/SideStore.swift",
+          "interface": "Diagnostic wire values and host recovery presentation",
+          "rationale": "Preserve cross-owner error fields."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "Diagnostic producers and recovery dispatch",
+          "rationale": "Do not silently replace the underlying cause."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+          "interface": "Diagnostic presentation adapters",
+          "rationale": "Map stable error values to user-visible actions."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "LiveContainer",
+          "path": "tests/login_trace/test_contract.py",
+          "command": "LOGIN_TRACE_PEER_ROOT=\"$SIDESTORE_ROOT\" LOGIN_TRACE_PRODUCER_ROOT=\"$ANISETTEKIT_ROOT\" python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/login_trace --pattern test_contract.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/refresh_failure/test_contract.py",
+          "command": "REQUIRE_SWIFT_REFRESH_FAILURE_TESTS=1 python3 -B tests/refresh_failure/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_native_error_presenters.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_native_error_presenters.py -v",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "transport-readiness",
+      "contract": "Preserve LocalDevVPN \u2192 Lockdown \u2192 CoreDeviceProxy \u2192 CDTunnel \u2192 RSD selection, leases, cancellation and bounded readiness.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "minimuxer",
+          "path": "Sources/RefreshTransportPolicy.swift",
+          "interface": "RefreshTransportPolicy",
+          "rationale": "Keep selection/admission independent of UI."
+        },
+        {
+          "owner": "minimuxer",
+          "path": "DeviceGateway/DeviceGatewayAPI.swift",
+          "interface": "DeviceGatewayAPI",
+          "rationale": "Hide transport implementation behind a stable gateway."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "minimuxer",
+          "path": "DeviceGateway/idevice/IdeviceGateway.swift",
+          "interface": "IdeviceGateway",
+          "rationale": "Keep actual FFI consumption in one adapter."
+        },
+        {
+          "owner": "minimuxer",
+          "path": "Sources/DeviceProvider.swift",
+          "interface": "DeviceProvider",
+          "rationale": "Select transport without bypassing readiness."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "Transport readiness commands",
+          "rationale": "Expose truthful capabilities to host."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "minimuxer",
+          "path": ".ci/test-owned-readiness.py",
+          "command": "python3 -B .ci/test-owned-readiness.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cold_vpn_readiness/test_contract.py",
+          "command": "python3 -B tests/cold_vpn_readiness/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/vpn_transport_recovery/test_contract.py",
+          "command": "python3 -B tests/vpn_transport_recovery/test_contract.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "ffi-ownership",
+      "contract": "Borrowed versus consumed handles, full-width listener IDs and generated headers remain paired with the exact Rust implementation.",
+      "limitations": "Source-owned fixtures compile real C++ method bodies with deterministic doubles; they do not execute Rust or prove the produced ABI. Native checks require matching freshly generated ffi/idevice.h and cpp/include/idevice.h, C11/C++17 compilers, the exact acquired owner graph and Rust 1.98.1. Run the builder --idevice-native entry point from its normal workflow root with sources/idevice; require all named Rust cases and both exact generated-header markers. No device outcome is claimed. Repeated fixture command references describe shared inputs; one complete invocation covers those inputs.",
+      "modules": [
+        {
+          "owner": "idevice",
+          "path": "ffi/src/lib.rs",
+          "interface": "C ABI module surface",
+          "rationale": "Keep C ABI names and types explicit."
+        },
+        {
+          "owner": "idevice",
+          "path": "idevice/src/tunnel.rs",
+          "interface": "Tunnel lifecycle",
+          "rationale": "Keep native transport ownership in its maintained owner."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/afc.rs",
+          "interface": "afc_client_connect, afc2_client_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/amfi.rs",
+          "interface": "amfi_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/bt_packet_logger.rs",
+          "interface": "bt_packet_logger_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/companion_proxy.rs",
+          "interface": "companion_proxy_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/heartbeat.rs",
+          "interface": "heartbeat_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/location_simulation.rs",
+          "interface": "lockdown_location_simulation_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/misagent.rs",
+          "interface": "misagent_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/mobileactivationd.rs",
+          "interface": "mobileactivationd_connect",
+          "rationale": "The returned lazy mobileactivationd client borrows the provider for the entire client lifetime; callers must keep the provider alive until that client is freed, including error and retry paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/notification_proxy.rs",
+          "interface": "notification_proxy_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/pcapd.rs",
+          "interface": "pcapd_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/preboard_service.rs",
+          "interface": "preboard_service_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/screenshotr.rs",
+          "interface": "screenshotr_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/provider.rs",
+          "interface": "Provider ownership regression module",
+          "rationale": "Exercise actual Rust borrowed-provider service paths and exactly-once consuming connection cleanup."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "idevice",
+          "path": "cpp/src/ffi.cpp",
+          "interface": "C++ FFI wrapper",
+          "rationale": "Pair consuming and borrowing callers with Rust ownership."
+        },
+        {
+          "owner": "minimuxer",
+          "path": "DeviceGateway/idevice/IdeviceGateway.swift",
+          "interface": "Swift FFI consumer",
+          "rationale": "Do not infer ABI correctness from compilation alone."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/afc.cpp",
+          "interface": "AfcClient.connect, AfcClient.connect_afc2",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/afc.hpp",
+          "interface": "AfcClient.connect, AfcClient.connect_afc2 ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/amfi.cpp",
+          "interface": "Amfi.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/amfi.hpp",
+          "interface": "Amfi.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/bt_packet_logger.cpp",
+          "interface": "BtPacketLogger.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/bt_packet_logger.hpp",
+          "interface": "BtPacketLogger.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/companion_proxy.cpp",
+          "interface": "CompanionProxy.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/companion_proxy.hpp",
+          "interface": "CompanionProxy.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/heartbeat.cpp",
+          "interface": "Heartbeat.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/heartbeat.hpp",
+          "interface": "Heartbeat.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/location_simulation.cpp",
+          "interface": "LockdownLocationSimulation.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/location_simulation.hpp",
+          "interface": "LockdownLocationSimulation.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/misagent.cpp",
+          "interface": "Misagent.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/misagent.hpp",
+          "interface": "Misagent.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/mobileactivationd.cpp",
+          "interface": "MobileActivationd.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/mobileactivationd.hpp",
+          "interface": "MobileActivationd.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/notification_proxy.cpp",
+          "interface": "NotificationProxy.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/notification_proxy.hpp",
+          "interface": "NotificationProxy.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/pcapd.cpp",
+          "interface": "Pcapd.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/pcapd.hpp",
+          "interface": "Pcapd.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/preboard_service.cpp",
+          "interface": "PreboardService.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/preboard_service.hpp",
+          "interface": "PreboardService.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/screenshotr.cpp",
+          "interface": "Screenshotr.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/screenshotr.hpp",
+          "interface": "Screenshotr.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/README.md",
+          "interface": "Reviewed borrowed/consumed ownership contract and native prerequisites",
+          "rationale": "Keep the exact contract documentation and qualification limits aligned with service adapters; this is not executable evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/run_issue_tests.py",
+          "interface": "RUST_FEATURES / REQUIRED_RUST_TESTS / validate_generated_provider_output",
+          "rationale": "Keep all actual Rust ownership cases and both generated-header execution markers mandatory in same-run native qualification."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/test_ownership.py",
+          "command": "python3 -B .ci/issue53/test_ownership.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/test_listener.py",
+          "command": "python3 -B .ci/issue53/test_listener.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/test_adapter_clone_scope.py",
+          "command": "python3 -B .ci/issue53/test_adapter_clone_scope.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/fixtures/borrowed_providers.cpp",
+          "command": "python3 -B .ci/issue53/test_ownership.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/fixtures/borrowed_providers.json",
+          "command": "python3 -B .ci/issue53/test_ownership.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/fixtures/idevice.h",
+          "command": "python3 -B .ci/issue53/test_ownership.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/check_provider_ownership.py",
+          "command": "python3 -B .ci/issue53/check_provider_ownership.py",
+          "level": "native"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/check_listener_abi.sh",
+          "command": "bash .ci/issue53/check_listener_abi.sh",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_issue_receipt.py",
+          "command": "python3 -B ci/issues-native/test_issue_receipt.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "tcp-reliability",
+      "contract": "Preserve bounded zero-window persist, cancellation-safe outbox, reader wakeups and fatal error propagation across upstream changes.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "jktcp",
+          "path": "src/adapter.rs",
+          "interface": "TCP adapter lifecycle",
+          "rationale": "Keep persistence and outgoing queue ownership in the transport module."
+        },
+        {
+          "owner": "jktcp",
+          "path": "src/handle.rs",
+          "interface": "TCP handle lifecycle",
+          "rationale": "Preserve cancellation and consumer wakeup contract."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "idevice",
+          "path": "idevice/Cargo.toml",
+          "interface": "jktcp dependency",
+          "rationale": "Use the maintained sibling source, never an accidental registry substitute."
+        },
+        {
+          "owner": "jktcp",
+          "path": "Cargo.toml",
+          "interface": "Package interface",
+          "rationale": "Keep package dependency and feature changes visible."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "jktcp",
+          "path": ".ci/test-source-parity.py",
+          "command": "python3 -B .ci/test-source-parity.py",
+          "level": "source-contract"
+        },
+        {
+          "owner": "jktcp",
+          "path": "src/adapter.rs",
+          "command": "cargo test --locked --lib",
+          "level": "native"
+        }
+      ]
+    },
+    {
+      "id": "guest-input-and-geometry",
+      "contract": "Only outgoing guest ownership is cleaned up; safe-area geometry follows measured state and orientation.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "LiveContainer",
+          "path": "MultitaskSupport/LCGuestSafeAreaGeometry.h",
+          "interface": "LCGuestSafeAreaGeometry",
+          "rationale": "Keep inset decisions independent of scene side effects."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "MultitaskSupport/AppSceneViewController.m",
+          "interface": "lcEndGuestEditing",
+          "rationale": "Keep ownership cleanup at scene lifecycle seam."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "MultitaskSupport/DecoratedAppSceneViewController.m",
+          "interface": "lcPrepareForGuestActivation",
+          "rationale": "Apply measured geometry at activation."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_guest_input_lifecycle.py",
+          "command": "python3 -B tests/test_guest_input_lifecycle.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_guest_safe_area_geometry.py",
+          "command": "python3 -B tests/test_guest_safe_area_geometry.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "shared-storage-and-startup",
+      "contract": "App Group choice remains fail-closed and shared storage preserves existing data; bootstrap visibility does not reset credentials or profiles.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainer/LCAppGroupIdentityRules.h",
+          "interface": "App Group identity rules",
+          "rationale": "Keep identity validation separate from storage mutation."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainer/LCAppGroupSelectionPolicy.h",
+          "interface": "App Group selection policy",
+          "rationale": "Keep group selection pure."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift",
+          "interface": "Shared storage access",
+          "rationale": "Expose bounded group storage API."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainer/LCSharedUtils.m",
+          "interface": "Storage bridge",
+          "rationale": "Retain file and keychain ownership across startup."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveProcess/main.m",
+          "interface": "Embedded service launch",
+          "rationale": "Keep startup attached to reviewed shared storage."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "Backend startup and shared group use",
+          "rationale": "Avoid replacing persisted state during service initialization."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_runtime_source.py",
+          "command": "python3 -B tests/test_runtime_source.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/startup_outcome/test_contract.py",
+          "command": "python3 -B tests/startup_outcome/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_embedded_keychain.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_embedded_keychain.py -v",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "localization",
+      "contract": "Live language changes preserve host state and cover user-visible owned strings without altering locale-sensitive authentication inputs.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift",
+          "interface": "V3LanguageSettings",
+          "rationale": "Keep live language selection separate from application state."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Utilities/V3Localization.swift",
+          "interface": "V3Localization",
+          "rationale": "Use a stable localization lookup interface."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+          "interface": "Language setting and localized presentation",
+          "rationale": "Observe live settings without rebuilding persistent state."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "Resources/Localizable.xcstrings",
+          "interface": "Localized resource catalog",
+          "rationale": "Keep compiled resources paired with call sites."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_live_language_state.py",
+          "command": "python3 -B tests/test_live_language_state.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_russian_localization.py",
+          "command": "python3 -B tests/test_russian_localization.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_live_language_root.py",
+          "command": "python3 -B tests/test_live_language_root.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "build-membership-and-dependencies",
+      "contract": "Owned modules and adapters must remain compiled into their intended targets, and exact multi-owner pins remain independently verified.",
+      "limitations": "Inventory classification flags changed build files; only actual native builds and source/ABI gates prove inclusion and correct dependency resolution.",
+      "modules": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/maintained_sources.py",
+          "interface": "Maintained-source validation",
+          "rationale": "Separate source acquisition and verification from historical patch generation."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/verify_candidate_graph.py",
+          "interface": "Candidate source graph gate",
+          "rationale": "Keep exact source identity separate from reusable boundary descriptions."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainer.xcodeproj/project.pbxproj",
+          "interface": "Xcode target membership",
+          "rationale": "Omitted custom source must trigger review."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore.xcodeproj/project.pbxproj",
+          "interface": "Xcode target membership",
+          "rationale": "Keep service-side custom sources in actual compiled target."
+        },
+        {
+          "owner": "SideSign",
+          "path": "Package.swift",
+          "interface": "Swift package targets",
+          "rationale": "Preserve signing and authentication target inclusion."
+        },
+        {
+          "owner": "AnisetteKit",
+          "path": "Package.swift",
+          "interface": "Swift/native package targets",
+          "rationale": "Preserve native and Swift ownership modules."
+        },
+        {
+          "owner": "minimuxer",
+          "path": "Package.swift",
+          "interface": "Transport package targets",
+          "rationale": "Preserve gateway compilation and dependencies."
+        },
+        {
+          "owner": "idevice",
+          "path": "Cargo.toml",
+          "interface": "Rust workspace",
+          "rationale": "Keep FFI and runtime crates in native graph."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/candidate-graph.json",
+          "interface": "Immutable owner tuple",
+          "rationale": "Any owner pin update requires source review and inventory validation."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_candidate_graph.py",
+          "command": "python3 -B ci/issues-native/test_candidate_graph.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_sync_contract.py",
+          "command": "python3 -B ci/issues-native/test_sync_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_pinned_source_identity.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_pinned_source_identity.py -v",
+          "level": "source-contract"
+        }
+      ]
+    },
+    {
+      "id": "integration-maintenance",
+      "contract": "Maintain reusable named boundaries and fail closed on missing paths, unknown changes, removals or gitlink changes; a plan never claims tests were run.",
+      "limitations": "This finite maintenance map is not a proof every changed upstream file is safe; unknown changes are explicitly held for manual review.",
+      "modules": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/integration_contracts.py",
+          "interface": "Registry validation / impact planning",
+          "rationale": "Keep generic review independent of one snapshot or language."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "docs/CUSTOM_INTEGRATION_CONTRACTS.json",
+          "interface": "Feature-to-module-and-test registry",
+          "rationale": "Require explicit rationale and practical evidence per boundary."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/custom-integration-contract.yml",
+          "interface": "Read-only integration gate",
+          "rationale": "Continuously validate current registry and representative integration fixtures."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_integration_contracts.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_integration_contracts.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_custom_integration_boundaries.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_custom_integration_boundaries.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/fixtures/issue53-ownership-delta.json",
+          "command": "python3 -B -m unittest discover -s tests -p test_integration_contracts.py -v",
+          "level": "source-contract"
+        }
+      ]
+    }
+  ]
+}

@@ -295,6 +295,17 @@ class NativeIssueReceiptTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         validate_rust_output(package, bad)
 
+    def test_generated_header_provider_executions_are_exact(self):
+        from run_issue_tests import GENERATED_PROVIDER_MARKERS, validate_generated_provider_output
+        valid = '\n'.join(GENERATED_PROVIDER_MARKERS) + '\n'
+        validate_generated_provider_output(valid)
+        for marker in GENERATED_PROVIDER_MARKERS:
+            for invalid in (valid.replace(marker + '\n', ''), valid + marker + '\n',
+                            valid.replace('paths=13', 'paths=12')):
+                with self.subTest(marker=marker, invalid=invalid):
+                    with self.assertRaises(ValueError):
+                        validate_generated_provider_output(invalid)
+
     def test_native_receipt_exact_closure(self):
         from run_issue_tests import RUST_FEATURES, REQUIRED_RUST_TESTS, verify_native_receipt
         value = {'features': RUST_FEATURES, 'required_tests': {k: list(v) for k, v in REQUIRED_RUST_TESTS.items()},
@@ -342,6 +353,39 @@ class NativeIssueReceiptTests(unittest.TestCase):
         self.assertNotIn('aws-lc', features)
         runner = (Path(__file__).parent / 'run_issue_tests.py').read_text()
         self.assertIn("'--no-default-features'", runner)
+
+    def test_all_borrowed_provider_tests_are_mandatory(self):
+        from run_issue_tests import RUST_FEATURES, REQUIRED_RUST_TESTS, validate_rust_output
+        features = set(RUST_FEATURES['idevice-ffi'].split(','))
+        self.assertTrue({'afc', 'amfi', 'bt_packet_logger', 'companion_proxy',
+            'heartbeat', 'location_simulation', 'misagent', 'mobileactivationd',
+            'notification_proxy', 'pcapd', 'preboard_service', 'screenshotr'} <= features)
+        expected = {
+            'afc_client_connect_errors_preserve_provider',
+            'afc2_client_connect_errors_preserve_provider',
+            'amfi_connect_errors_preserve_provider',
+            'bt_packet_logger_connect_errors_preserve_provider',
+            'companion_proxy_connect_errors_preserve_provider',
+            'heartbeat_connect_errors_preserve_provider',
+            'lockdown_location_simulation_connect_errors_preserve_provider',
+            'misagent_connect_errors_preserve_provider',
+            'notification_proxy_connect_errors_preserve_provider',
+            'pcapd_connect_errors_preserve_provider',
+            'preboard_service_connect_errors_preserve_provider',
+            'screenshotr_connect_errors_preserve_provider',
+            'mobileactivationd_client_borrows_provider_until_freed',
+        }
+        names = REQUIRED_RUST_TESTS['idevice-ffi']
+        self.assertTrue(expected <= set(names))
+        self.assertEqual(len(names), len(set(names)))
+        output = '\n'.join('test provider::ownership_tests::' + name + ' ... ok' for name in names)
+        output += '\ntest result: ok. ' + str(len(names)) + ' passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;'
+        validate_rust_output('idevice-ffi', output)
+        for missing in expected:
+            with self.subTest(missing=missing):
+                incomplete = output.replace('test provider::ownership_tests::' + missing + ' ... ok', '')
+                with self.assertRaises(ValueError):
+                    validate_rust_output('idevice-ffi', incomplete)
 
     def test_feature_and_workflow_closure(self):
         from run_issue_tests import RUST_FEATURES, SUITES
