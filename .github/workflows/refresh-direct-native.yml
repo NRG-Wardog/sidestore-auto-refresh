@@ -25,6 +25,9 @@ jobs:
           ./backend-test --long | tee ../../evidence/backend.log
           swiftc -swift-version 5 -parse-as-library service_fixture.swift -o service-test
           ./service-test --long | tee ../../evidence/service.log
+          clang -fobjc-arc -fblocks -c bridge.m -o bridge.o
+          swiftc -swift-version 5 -parse-as-library -import-objc-header bridge.h service_objc_fixture.swift bridge.o -o service-objc-test
+          ./service-objc-test | tee ../../evidence/service-objc.log
           swiftc -swift-version 5 -parse-as-library reproduce_deadline.swift -o deadline-test
           ./deadline-test | tee ../../evidence/deadline.log
           shasum -a 256 *.swift > ../../evidence/source-hashes.txt
