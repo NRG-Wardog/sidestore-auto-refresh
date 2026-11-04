@@ -92,6 +92,12 @@ enum V3OperationRecoveryJournal {
     static var record: JournalRecord?
     static func current() throws -> JournalRecord? { record }
     static func currentState() throws -> JournalRecord? { record }
+    static var clearSucceeds = true
+    static func clearPreparedRefreshAdmissionAfterRequestCancellation(runID: String) throws -> Bool {
+        guard clearSucceeds, record?.kind == "refreshAll", record?.sessionID == runID else { return false }
+        record = nil
+        return true
+    }
 }
 enum V3DirectRefreshRunClaimPolicy {
     static let defaultsKey = "fixtureDirectClaim"
@@ -312,6 +318,18 @@ final class V3SideStoreService: NSObject {
     var mutationID: String?
     private var refreshExecutionGate = V3RefreshExecutionGate()
 
+    // Cancellation of the short admission request is not proof that the
+    // independently dispatched device operation has stopped.
+    private func releaseUnstartedRefreshAdmission(requestID: String) -> Bool {
+        guard refreshAdmission.requestID == requestID,
+              let runID = refreshAdmission.runID,
+              !refreshExecutionGate.isActive,
+              !refreshExecutionGate.hasDispatched(hostRunID: runID, hostAdmissionID: requestID),
+              (try? V3OperationRecoveryJournal.clearPreparedRefreshAdmissionAfterRequestCancellation(
+                  runID: runID)) == true else { return false }
+        return refreshAdmission.release(requestID: requestID)
+    }
+
     private func hostRefreshDefaults(for runID: String) throws -> UserDefaults {
         _ = refreshAdmission.expire()
         let defaults = try V3SharedAppGroup.requireSharedUserDefaults()
@@ -459,6 +477,7 @@ extension V3SideStoreService {
         refreshAdmission = V3RefreshAdmissionLease()
         refreshExecutionGate = V3RefreshExecutionGate()
         V3OperationRecoveryJournal.record = nil
+        V3OperationRecoveryJournal.clearSucceeds = true
         V3SharedAppGroup.defaults.removePersistentDomain(forName: V3SharedAppGroup.suite)
         AppManager.shared.calls = 0
         AppManager.shared.plan = .success
@@ -478,6 +497,7 @@ extension V3SideStoreService {
         } else { defaults.set(runID, forKey: "liveContainerAutoRefreshActiveRunID") }
     }
     func fixtureLoseOwner() { _ = refreshAdmission.expire(now: Date().addingTimeInterval(1_000)) }
+    func fixtureCancelAdmission(_ id: String) -> Bool { releaseUnstartedRefreshAdmission(requestID: id) }
     var fixtureAdmissionID: String { refreshAdmission.requestID ?? UUID().uuidString }
     func fixtureReleaseAdmission(_ run: String) { _ = refreshAdmission.release(runID: run) }
     var fixtureOwnerLost: Bool { refreshAdmission.ownerLost }
@@ -497,6 +517,16 @@ extension V3SideStoreService {
         precondition(V3SideStoreService.responds(to: NSSelectorFromString("refreshForHost:admissionID:progress:completion:")))
         defer { V3SharedAppGroup.defaults.removePersistentDomain(forName: V3SharedAppGroup.suite) }
         service.fixtureReset()
+        let cancelledAdmissionRun = UUID().uuidString
+        service.fixtureAdmit(cancelledAdmissionRun)
+        let cancelledAdmissionID = service.fixtureAdmissionID
+        precondition(!service.fixtureCancelAdmission(UUID().uuidString))
+        V3OperationRecoveryJournal.clearSucceeds = false
+        precondition(!service.fixtureCancelAdmission(cancelledAdmissionID))
+        precondition(service.fixtureAdmissionID == cancelledAdmissionID)
+        V3OperationRecoveryJournal.clearSucceeds = true
+        precondition(service.fixtureCancelAdmission(cancelledAdmissionID))
+        service.fixtureReset()
         let invalid = await execute(UUID().uuidString)
         precondition(invalid.0 != nil && invalid.1 == nil && AppManager.shared.calls == 0)
         let run = UUID().uuidString
@@ -507,6 +537,10 @@ extension V3SideStoreService {
         var overlapCallbacks = 0
         let originalAdmission = service.fixtureAdmissionID
         AppManager.shared.afterDispatch = {
+            await MainActor.run {
+                precondition(!service.fixtureCancelAdmission(originalAdmission))
+                precondition(V3OperationRecoveryJournal.record?.sessionID == run)
+            }
             V3SideStoreService.refreshForHost(run, admissionID: originalAdmission,
                 progress: { _ in }, completion: { _, _ in overlapCallbacks += 1 })
             try? await Task.sleep(nanoseconds: 20_000_000)
@@ -516,6 +550,8 @@ extension V3SideStoreService {
         AppManager.shared.afterDispatch = nil
         precondition(complete.0 == nil && complete.1 != nil && AppManager.shared.calls == 1)
         precondition(!service.fixtureExecutionActive)
+        precondition(!service.fixtureCancelAdmission(originalAdmission))
+        precondition(V3OperationRecoveryJournal.record?.sessionID == run)
         // A completed admission cannot be consumed a second time.
         var replayCallbacks = 0
         let oldAdmissionID = service.fixtureAdmissionID
