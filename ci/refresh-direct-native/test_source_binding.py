@@ -16,9 +16,17 @@ class SourceBindingTests(unittest.TestCase):
         service=methods+'\n\n    private var pendingRefreshAdmissionRequests: Set<String> = []\n'
         bridge=(V.HERE/'bridge.m').read_text()
         protocol=V.span(bridge,'@protocol V3CommandService','void InvokeDirectHost')
+        host_fixture=(V.HERE/'host_callback_fixture.swift').read_text()
+        release_fixture=(V.HERE/'release_fixture.swift').read_text()
+        wire='\n'.join(V.block(release_fixture,a) for a in ('public struct V3AuthServiceSnapshot:','enum V3WireContract {'))
+        release=release_fixture[release_fixture.index('final class ReleaseService {'):]
+        release=V.span(release,'        case "refreshAdmissionEnd":','default: throw ServiceError.invalidRequest')
+        service+='\n'+release+'\n        case "appIcon":\n'
         self.inputs={
+          'sources/LiveContainer/SideStoreSupport/SideStore.swift':'\n'.join(V.block(host_fixture,a) for a in V.HOST_ANCHORS),
           'sources/SideStore/AltStore/Intents/App Intents/RefreshAllAppsIntent.swift':V.block(fixture,'enum V3RefreshIntentBackend {'),
-          'sources/SideStore/AltStore/AppDelegate.swift':primitives+'\n'+service,
+          'sources/SideStore/AltStore/AppDelegate.swift':wire+'\n'+primitives+'\n'+service,
+          'builder/scripts/templates/v3_wire_contract.swift':wire,
           'sources/LiveContainer/SideStoreSupport/XPCClient.m':protocol+'\n@implementation SideStoreClient\n',
           'builder/scripts/templates/v3_sidestore_service.swift':service,
           'builder/scripts/templates/v3_behavioral_primitives.swift':primitives}
@@ -27,7 +35,7 @@ class SourceBindingTests(unittest.TestCase):
 
     def test_exact_slices_bind_without_execution_claim(self):
         result=V.bind(self.sources,self.builder)
-        self.assertEqual(len(result['fixtures']),5)
+        self.assertEqual(len(result['fixtures']),7)
         self.assertFalse(result['real_xpc_transport_executed'])
         self.assertFalse(result['physical_device_validation'])
 
@@ -44,6 +52,21 @@ class SourceBindingTests(unittest.TestCase):
     def test_abi_signature_drift_rejected(self):
         p=self.sources/'LiveContainer/SideStoreSupport/XPCClient.m'
         p.write_text(p.read_text().replace('double','float'))
+        with self.assertRaises(ValueError):V.bind(self.sources,self.builder)
+
+    def test_release_control_drift_rejected(self):
+        p=self.sources/'SideStore/AltStore/AppDelegate.swift'
+        p.write_text(p.read_text().replace('case "refreshAdmissionEnd":','case "releaseChanged":'))
+        with self.assertRaises(ValueError):V.bind(self.sources,self.builder)
+
+    def test_wire_template_drift_rejected(self):
+        p=self.builder/'scripts/templates/v3_wire_contract.swift'
+        p.write_text(p.read_text().replace('["state", "admissionID"]','["state"]'))
+        with self.assertRaises(ValueError):V.bind(self.sources,self.builder)
+
+    def test_host_callback_drift_rejected(self):
+        p=self.sources/'LiveContainer/SideStoreSupport/SideStore.swift'
+        p.write_text(p.read_text().replace('refreshAdmissionID == nil','refreshAdmissionID != nil',1))
         with self.assertRaises(ValueError):V.bind(self.sources,self.builder)
 
     def test_missing_or_duplicate_anchor_rejected(self):

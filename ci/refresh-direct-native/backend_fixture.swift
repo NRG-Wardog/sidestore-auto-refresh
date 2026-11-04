@@ -72,6 +72,7 @@ struct V3RefreshExecutionTicket: Equatable, Sendable {
 struct V3RefreshExecutionGate {
     private(set) var current: V3RefreshExecutionTicket?
     private var consumedHostAdmissionID: String?
+    private var consumedHostRunID: String?
     var isActive: Bool { current != nil }
     var isExternalActive: Bool { current != nil && current?.hostRunID == nil }
 
@@ -86,8 +87,15 @@ struct V3RefreshExecutionGate {
         }
         let ticket = V3RefreshExecutionTicket(id: UUID(), hostRunID: hostRunID, hostAdmissionID: hostAdmissionID)
         current = ticket
-        if let hostAdmissionID { consumedHostAdmissionID = hostAdmissionID }
+        if let hostAdmissionID {
+            consumedHostAdmissionID = hostAdmissionID
+            consumedHostRunID = hostRunID
+        }
         return ticket
+    }
+
+    func hasDispatched(hostRunID: String, hostAdmissionID: String) -> Bool {
+        consumedHostAdmissionID == hostAdmissionID && consumedHostRunID == hostRunID
     }
 
     func owns(_ ticket: V3RefreshExecutionTicket) -> Bool { current == ticket }

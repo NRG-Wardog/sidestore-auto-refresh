@@ -1,5 +1,6 @@
 """Exact preservation copy successor; normalize cases through unchanged prior coverage."""
 import copy
+import direct_host_projection as direct_host
 from refresh_observation_setup_projection import variant as prior_variant
 TAG='preservation_localization_extension'
 INVENTORY_TEST='LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py'
@@ -19,6 +20,7 @@ def descriptor():
 def matches(contract):
  return contract['input_sha256'].get(GENERATOR)==PINS[GENERATOR]
 def bind(contract):
+ contract=direct_host.normalize(contract)
  require(all(contract['input_sha256'].get(p)==h for p,h in PINS.items()),'Unbound preservation localization source')
 def add(contract):
  require(TAG not in contract and prior_variant(contract)==PRIOR,'Preservation localization requires exact prior coverage')

@@ -1,5 +1,6 @@
 """Exact preservation successor; normalize only reviewed inputs through frozen host validators."""
 import copy
+import direct_service_projection as direct_service
 import legacy_replacement_host_projection as legacy
 import refresh_truth_host_bundle_projection as truth
 KEY='reviewed_preservation_host_fixture'
@@ -15,13 +16,14 @@ def require(ok,why):
 def matches(contract):
  return contract['input_sha256'].get(legacy.PATH)==PINS[legacy.PATH]
 def binding(contract):
+ contract=direct_service.normalize(contract)
  if KEY not in contract:return False
  require(contract[KEY]=={'inputs':PINS,'case_renames':CASE_RENAMES},'Unknown preservation host successor')
  require(all(contract['input_sha256'].get(p)==h for p,h in PINS.items()),'Unbound preservation host input')
  require(legacy.KEY in contract and truth.KEY in contract,'Missing historical host proof layers')
  return True
 def normalized(contract):
- result=copy.deepcopy(contract)
+ result=copy.deepcopy(direct_service.normalize(contract))
  if binding(result):
   result.pop(KEY)
   result['input_sha256'].update({legacy.PATH:legacy.SHA,legacy.SERVICE:legacy.SERVICE_SHA,truth.PATH:truth.SHA})
@@ -31,6 +33,8 @@ def normalized(contract):
   result['case_names']['host-refresh-bundle']=[reverse.get(n,n) for n in names]
  return result
 def add(contract):
+ actual_inputs=copy.deepcopy(contract['input_sha256'])
+ contract=direct_service.normalize(contract)
  require(KEY not in contract,'Preservation host already projected')
  require(all(contract['input_sha256'].get(p)==h for p,h in PINS.items()),'Unreviewed preservation host source')
  before=copy.deepcopy(contract)
@@ -42,6 +46,7 @@ def add(contract):
  result['case_names']['host-refresh-bundle']=[CASE_RENAMES.get(n,n) for n in names]
  result[KEY]={'inputs':dict(PINS),'case_renames':dict(CASE_RENAMES)}
  normalized(result)
+ result['input_sha256']=actual_inputs
  return result
 def inputs(contract,previous):
  return legacy.inputs(normalized(contract),previous)

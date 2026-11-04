@@ -2304,11 +2304,16 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn('strictBool(reply["released"]) == true', refresh)
         self.assertIn("self.v3_stopService()", refresh)
         self.assertIn("v3RefreshDispatchedRunID", refresh)
-        self.assertIn('payload: ["state": terminalState]', refresh)
+        self.assertIn('payload: ["state": terminalState, "admissionID": admissionID]', refresh)
         self.assertIn('kind: "refreshAll"', service)
         self.assertIn("V3OperationRecoveryJournal.settleRefreshAdmission", service)
         self.assertIn("refreshAdmission.restoreLost(runID:", service)
-        self.assertIn("refreshAdmission.release(requestID: target)", service)
+        self.assertIn("releaseUnstartedRefreshAdmission(requestID: target)", service)
+        self.assertIn("releaseUnstartedRefreshAdmission(requestID: id)", service)
+        self.assertIn("refreshAdmission.requestID == requestID", service)
+        self.assertIn("!refreshExecutionGate.hasDispatched(hostRunID: runID, hostAdmissionID: requestID)", service)
+        cleanup = service[service.index("private func releaseUnstartedRefreshAdmission("):service.index("private func hostRefreshDefaults(")]
+        self.assertLess(cleanup.index("clearPreparedRefreshAdmissionAfterRequestCancellation"), cleanup.index("refreshAdmission.release(requestID: requestID)"))
         self.assertIn('cancellationReply["refreshAdmissionReleased"] = true', service)
         self.assertIn("pendingRefreshAdmissionRequests", service)
         end_case = service[service.index('case "refreshAdmissionEnd":'):]

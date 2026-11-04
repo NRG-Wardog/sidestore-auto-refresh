@@ -53,8 +53,8 @@ class DirectRefreshProjectionTests(unittest.TestCase):
 
     def test_successor_is_one_finite_assertion_replacement(self):
         self.assertIn('ed031c9f09879ab81f5feeacb141c72ceb076a38',P.NEW)
-        self.assertIn('64145fa63c5a03ca4c6a5061608bcd4fb96ca7b0',P.NEW)
-        self.assertIn('finishRefresh:error runID:runID verification:verification',P.NEW)
+        self.assertIn('5bf22356b3413d4377b26ed96ae8b63522855bd9',P.NEW)
+        self.assertIn('finishHostRefresh:error runID:runID admissionID:dispatchAdmissionID verification:verification',P.NEW)
         self.assertNotIn('case_names',P.NEW)
 
 if __name__=='__main__':unittest.main(verbosity=2)

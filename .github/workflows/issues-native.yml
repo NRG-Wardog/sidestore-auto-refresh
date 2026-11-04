@@ -80,6 +80,16 @@ jobs:
           set -euo pipefail
           python3 -B harness/ci/refresh-direct-native/test_source_binding.py
           python3 -B harness/ci/refresh-direct-native/verify_source_binding.py --sources sources --builder harness --output evidence/direct-refresh-source-binding.json
+          export EMBEDDED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore"
+          export LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer"
+          python3 - <<'PYTEST'
+          import unittest
+          suite = unittest.TestSuite()
+          for name in ('test_v3_service.py', 'test_refresh_result_bridge.py', 'test_v3_auth_recovery_audit.py'):
+              suite.addTests(unittest.defaultTestLoader.discover('harness/tests', pattern=name))
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(0 if result.wasSuccessful() and not result.skipped else 1)
+          PYTEST
           cd harness/ci/refresh-direct-native
           swiftc -swift-version 5 -parse-as-library gate_fixture.swift -o gate-test
           ./gate-test
@@ -92,6 +102,10 @@ jobs:
           ./service-objc-test
           swiftc -swift-version 5 -parse-as-library reproduce_deadline.swift -o deadline-test
           ./deadline-test
+          swiftc -swift-version 5 -parse-as-library release_fixture.swift -o release-test
+          ./release-test
+          swiftc -swift-version 5 -parse-as-library host_callback_fixture.swift -o host-callback-test
+          ./host-callback-test
       - name: Verify exact reviewed delta and separate historical source parity
         id: source_gate
         run: |
@@ -107,6 +121,8 @@ jobs:
           python3 -B harness/ci/issues-native/test_projected_contract_cli.py
           python3 -B harness/ci/issues-native/test_issue_receipt.py
           python3 -B harness/ci/issues-native/test_direct_refresh_projection.py
+          python3 -B harness/ci/issues-native/test_direct_service_projection.py
+          python3 -B harness/ci/issues-native/test_direct_host_projection.py
           python3 -B harness/ci/issues-native/test_candidate_graph.py
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py
           python3 -B harness/ci/issues-native/test_russian_pairing_projection.py

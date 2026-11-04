@@ -279,7 +279,8 @@ enum V3WireContract {
         case "recoveryDiscardUnreadable":
             return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
         case "refreshAdmissionEnd":
-            return Set(payload.keys) == Set(["state"]) &&
+            return Set(payload.keys) == Set(["state", "admissionID"]) &&
+                canonicalSecretToken(payload["admissionID"]) &&
                 ["completed", "failed", "notDispatched"].contains(payload["state"] as? String ?? "")
         case "opCancel":
             return Set(payload.keys) == Set(["knownStarted"]) &&

@@ -148,11 +148,11 @@ print("RESULT_BRIDGE_TESTS_PASSED")
             'finishRefreshContinuation(.failure(failure))']
         objc = bridge.DIRECT_HOST_PROTOCOL + "\n" + bridge.DIRECT_HOST_METHOD
         client = bridge.DIRECT_HOST_FAILURE
-        receiver = "\n".join(required)
+        receiver = "\n".join(required + list(bridge.callback_admission_module().HOST_FRAGMENTS))
         bridge.validate_direct_host_bridge(objc, receiver, client)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); folder = root / "SideStoreSupport"; folder.mkdir()
-            sources = {'XPCServer.h': bridge.MARKER, 'XPCClient.m': objc,
+            sources = {'XPCServer.h': bridge.MARKER + '\n' + '\n'.join(bridge.callback_admission_module().HEADER_FRAGMENTS), 'XPCClient.m': objc,
                        'SideStore.swift': receiver, 'SideStoreClient.swift': client}
             for name, value in sources.items(): (folder / name).write_text(value)
             for _ in range(2): bridge.patch(root)

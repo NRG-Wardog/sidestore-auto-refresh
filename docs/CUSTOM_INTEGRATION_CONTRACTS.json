@@ -431,6 +431,30 @@
           "path": "ci/issues-native/direct_refresh_projection.py",
           "interface": "Exact generator inverse / proof normalization",
           "rationale": "Admit only the reviewed successor generator bytes while retaining immutable historical case lists and source proof fields."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct_service_projection.py",
+          "interface": "Exact direct-refresh inverse source proof",
+          "rationale": "Restore the exact prior source for historical preservation validation without changing fixture cases or hiding actual candidate hashes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct_host_projection.py",
+          "interface": "Exact direct-refresh inverse source proof",
+          "rationale": "Restore the exact prior source for historical preservation validation without changing fixture cases or hiding actual candidate hashes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct-service-source-delta.json",
+          "interface": "Exact direct-refresh inverse source proof",
+          "rationale": "Restore the exact prior source for historical preservation validation without changing fixture cases or hiding actual candidate hashes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct-host-source-delta.json",
+          "interface": "Exact direct-refresh inverse source proof",
+          "rationale": "Restore the exact prior source for historical preservation validation without changing fixture cases or hiding actual candidate hashes."
         }
       ],
       "regressions": [
@@ -487,6 +511,30 @@
           "path": "ci/refresh-direct-native/verify_source_binding.py",
           "command": "python3 -B ci/refresh-direct-native/verify_source_binding.py --sources \"$SOURCES_ROOT\" --builder \"$BUILDER_ROOT\" --output \"$TEST_OUTPUT/direct-refresh-source-binding.json\"",
           "level": "source-contract"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_direct_service_projection.py",
+          "command": "python3 -B ci/issues-native/test_direct_service_projection.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_direct_host_projection.py",
+          "command": "python3 -B ci/issues-native/test_direct_host_projection.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/host_callback_fixture.swift",
+          "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/host_callback_fixture.swift -o \"$TEST_OUTPUT/host-callback-test\" && \"$TEST_OUTPUT/host-callback-test\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/release_fixture.swift",
+          "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/release_fixture.swift -o \"$TEST_OUTPUT/release-control-test\" && \"$TEST_OUTPUT/release-control-test\"",
+          "level": "native"
         }
       ]
     },
@@ -551,7 +599,7 @@
     },
     {
       "id": "transport-readiness",
-      "contract": "Preserve LocalDevVPN → Lockdown → CoreDeviceProxy → CDTunnel → RSD selection, leases, cancellation and bounded readiness.",
+      "contract": "Preserve LocalDevVPN \u2192 Lockdown \u2192 CoreDeviceProxy \u2192 CDTunnel \u2192 RSD selection, leases, cancellation and bounded readiness.",
       "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
       "modules": [
         {

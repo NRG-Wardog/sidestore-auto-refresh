@@ -3196,6 +3196,8 @@ def patch(live, side):
     }
 }
 '''))
+    edit(live, "SideStoreSupport/XPCServer.h",
+         lambda text: direct_refresh_bridge_transform(text, "install_direct_host_header"))
     edit(live, "SideStoreSupport/XPCClient.m",
          lambda text: direct_refresh_bridge_transform(text, "install_direct_host_objc"))
     edit(live, "SideStoreSupport/SideStoreClient.swift",

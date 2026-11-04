@@ -168,6 +168,14 @@ struct SnapshotHarness {
         precondition(snapshot["provisioningReauthenticationAvailable"] as? Bool == false,
             "external refresh must prevent reauthentication")
         service.refreshExecutionGate.release(externalTicket)
+        // A retained host execution remains busy even if the separate admission
+        // expires or loses ownership while its device mutation is outstanding.
+        let hostTicket = service.refreshExecutionGate.acquire(hostRunID: UUID().uuidString,
+            hostAdmissionID: UUID().uuidString, hostLeaseActive: true)!
+        precondition(!service.refreshAdmission.isActive)
+        precondition(try! service.read()["busy"] as? Bool == true)
+        precondition(try! service.read()["provisioningReauthenticationAvailable"] as? Bool == false)
+        service.refreshExecutionGate.release(hostTicket)
         precondition(try! service.read()["busy"] as? Bool == false)
         precondition(try! service.read()["provisioningReauthenticationAvailable"] as? Bool == true)
         V3OperationRecoveryJournal.state = .operation(V3OperationRecoveryRecord())
