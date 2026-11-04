@@ -8,11 +8,16 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch as mock
 
 ROOT = Path(__file__).resolve().parents[1]
+# Dynamic patcher imports must resolve sibling helpers exactly as the CLI does.
+SCRIPTS = str(ROOT / "scripts")
+if SCRIPTS not in sys.path:
+    sys.path.insert(0, SCRIPTS)
 
 
 def module(name):

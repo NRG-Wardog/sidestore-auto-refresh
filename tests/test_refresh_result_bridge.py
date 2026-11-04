@@ -189,7 +189,8 @@ print("RESULT_BRIDGE_TESTS_PASSED")
                 body = client.split('- (void)refreshAllAppsWithIdentifier:', 1)[1]
                 self.assertNotIn('NSUserDefaults', body)
                 self.assertNotIn('performRefreshForRealWithIdentifier:', body)
-                self.assertIn('[server finishRefresh:error runID:runID verification:verification]', body)
+                self.assertIn('[server finishHostRefresh:error runID:runID admissionID:dispatchAdmissionID verification:verification]', body)
+                self.assertIn('[server updateHostProgress:value runID:runID admissionID:dispatchAdmissionID]', body)
             else:
                 self.assertLess(client.index('setObject:refreshRunID'), client.index('[self performRefreshForRealWithIdentifier:'))
                 self.assertIn('removeObjectForKey:@"liveContainerAutoRefreshVerification"', client)
