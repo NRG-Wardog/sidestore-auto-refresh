@@ -25,7 +25,7 @@
   "candidate_inputs": {
     "LiveContainer/Resources/Localizable.xcstrings": "fea8f9f9cb70b3a45f72d0f42c51877fbd1b9a51b09ce251fb5b3179dde8cde4",
     "LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "154c18a26e69a8be402ff61a563f57c28991f48d1fe690a02252406a70874e36",
-    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "a4b3586cbdd60bbc8f2c3a2ce6e2672dda4a03f295f7bc62b9d0419e6a648cd1",
+    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "1222f013816035a0ec590c6557cb7b07e6a37983d0cb77dd5ecf5ca1f0e1b655",
     "LiveContainer/.ci/refresh-truth/localization_keys.json": "7f6c105a831d0f9bded2ef4c87de972d2337ba4a0e185a554e52097e707624b9"
   },
   "key_count": 186,
