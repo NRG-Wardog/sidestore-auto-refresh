@@ -76,6 +76,23 @@ class RunnerTests(unittest.TestCase):
         path=self.sources/'SideStore'/runner.SUITES['SideStore'][0]
         path.unlink();path.symlink_to(self.compiler)
         with self.assertRaisesRegex(ValueError,'source file'):runner.hashes(self.sources)
+    def test_actual_startup_source_controls_are_early_and_native_gate_remains(self):
+        root=Path(__file__).resolve().parents[2]
+        command='python3 -B sources/SideStore/tests/startup_outcome/test_contract.py --source-only 2>&1 | tee evidence/startup-source-controls.log'
+        for name in ('refresh-truth-preflight','cold-vpn-native'):
+            text=(root/'.github/workflows'/f'{name}.yml').read_text()
+            source=text.split('        id: source_gate\n',1)[1].split('      - name:',1)[0]
+            with self.subTest(workflow=name):
+                self.assertEqual(text.count(command),1)
+                self.assertIn(command,source)
+                self.assertIn('set -euo pipefail',source)
+                self.assertIn('python3 -B harness/ci/issue56-startup/test_startup_runner.py',source)
+                self.assertNotIn('continue-on-error',source)
+                self.assertNotIn('|| true',source)
+        full=(root/'.github/workflows/cold-vpn-native.yml').read_text()
+        self.assertIn('python3 -B harness/ci/issue56-startup/run_startup_tests.py --sources sources --output evidence',full)
+        self.assertNotIn('--source-only',Path(runner.__file__).read_text())
+
     def test_compiler_absence_never_skips(self):
         with patch.object(runner.shutil,'which',return_value=None),self.assertRaisesRegex(ValueError,'Swift compiler required'):
             runner.run(self.sources,self.output)

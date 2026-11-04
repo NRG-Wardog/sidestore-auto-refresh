@@ -108,8 +108,8 @@ case and input inventory, followed by the strict no-skips runner. That source
 inspection is not native execution. Unsupported hosts must fail, never turn a
 missing native run into a pass.
 
-`tests/fixtures/issue56-recovery-delta.json` retains the exact reviewed 20-file
-`4f102127` to `dd7c095d` delta, modes and blob IDs only as a maintenance
+`tests/fixtures/issue56-recovery-delta.json` retains the exact reviewed 22-file
+`4f102127` to `e1d2f474` delta, modes and blob IDs only as a maintenance
 regression input. It does not select the production candidate or claim native
 success. Tests require every named change to be classified, make each removed
 mapping unclassified, and keep unknown neighboring engine, fixture and model
@@ -150,6 +150,31 @@ candidate graph and mandatory same-run recovery receipt admission. Rerun the
 dedicated inventory workflow and full native/package qualification on that same
 combined commit; prior #52/#53 or isolated #56 evidence cannot qualify a different
 source composition.
+
+### Startup guard and effective-settings boundaries
+
+The exact startup contract and model-resource test files belong to both shared
+startup and preserving recovery. Run the direct source entrypoint with
+`--source-only` for its 14 portable cases; its success marker explicitly says
+`NATIVE_NOT_RUN`. The separate full command sets `REQUIRE_SWIFT_STARTUP_TESTS=1`
+and runs 16 cases including two extracted-production Swift fixtures. Broad
+`test_*.py` discovery is not the source command: the entrypoint already includes
+the model-resource controls. These fixtures do not execute real application
+startup, Core Data or a physical device, and portable preflight cannot replace
+the mandatory same-run native startup receipt.
+
+Both focused and full source gates call the actual acquired owner entrypoint
+under `pipefail`. The exact builder startup-runner control verifies that early
+placement and retention of the full native gate. Unknown nearby tests remain
+unclassified, and removing or changing a mapped path to a symlink still requires
+manual review.
+
+The effective Release settings verifier admits repeated SideStore rows only when
+the entire canonical rows are identical. Divergent fields or types, malformed or
+nonfinite data, and missing or wrong Swift mode remain failures; the proof schema
+is unchanged. The capture helper retains only whitelisted settings, including
+`SWIFT_VERSION`, and whole-row hashes for diagnosis. Its `policy_admission` stays
+false. Finite diagnostic logs and successful upload never admit a build.
 
 ## Reusable upstream change review
 

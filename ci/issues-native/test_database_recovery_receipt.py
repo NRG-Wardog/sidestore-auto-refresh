@@ -166,18 +166,68 @@ class RecoveryTests(unittest.TestCase):
             wrong = copy.deepcopy(value); edit(wrong)
             with self.assertRaises((ValueError, KeyError)): m.verify_portable(wrong, self.graph, self.identity)
 
-    def test_effective_query_wrong_mode_target_and_duplicates_fail(self):
+    def test_effective_query_wrong_mode_target_and_divergent_duplicates_fail(self):
         value=self.produce(); proof=self.evidence/'database-recovery-settings.json'; proof.unlink()
         path=self.root/'settings-negative.json'
         cases=[[],[{'target':'Wrong','buildSettings':{'CONFIGURATION':'Release','SWIFT_VERSION':'5.0'}}],
                [{'target':'SideStore','buildSettings':{'CONFIGURATION':'Release','SWIFT_VERSION':'6.0'}}],
                [{'target':'SideStore','buildSettings':{'CONFIGURATION':'Debug','SWIFT_VERSION':'5.0'}}]]
         row={'target':'SideStore','buildSettings':{'CONFIGURATION':'Release','SWIFT_VERSION':'5.0'}}
-        cases.append([row,row])
+        cases.append([row,dict(row,action='different')])
         for rows in cases:
             path.write_text(json.dumps(rows))
             with self.assertRaises(ValueError):m.seal_effective(path,self.evidence,self.graph,self.identity)
             self.assertFalse(proof.exists())
+
+    def test_identical_whole_row_duplicates_retain_exact_swift_proof(self):
+        self.produce();proof_path=self.evidence/'database-recovery-settings.json'
+        expected=m.read(proof_path);proof_path.unlink()
+        row={'action':'build','target':'SideStore','buildSettings':{'CONFIGURATION':'Release','SWIFT_VERSION':'5.0','OTHER_SETTING':['value',1,False]}}
+        # Same complete values with different object-key ordering are identical
+        # under the canonical whole-row hash used by retained diagnostics.
+        reordered={'buildSettings':dict(reversed(list(row['buildSettings'].items()))),'target':'SideStore','action':'build'}
+        other={'target':'SideBackup','buildSettings':{'CONFIGURATION':'Release','SWIFT_VERSION':'6.0'}}
+        path=self.root/'duplicates.json'
+        for rows in ([row,row],[row,other,reordered,row]):
+            path.write_text(json.dumps(rows))
+            self.assertEqual(m.seal_effective(path,self.evidence,self.graph,self.identity),expected)
+            self.assertEqual(m.read(proof_path),expected);proof_path.unlink()
+
+    def test_duplicate_disagreement_on_any_field_or_json_type_fails(self):
+        self.produce();proof_path=self.evidence/'database-recovery-settings.json';proof_path.unlink()
+        row={'action':'build','target':'SideStore','buildSettings':{'CONFIGURATION':'Release','SWIFT_VERSION':'5.0','UNSELECTED':1}}
+        path=self.root/'duplicates-negative.json'
+        changes=[lambda r:r.update(action='archive'),lambda r:r.update(extra='unexpected'),
+                 lambda r:r['buildSettings'].update(UNSELECTED=True),
+                 lambda r:r['buildSettings'].update(UNSELECTED=1.0),
+                 lambda r:r['buildSettings'].update(UNSELECTED='1'),
+                 lambda r:r['buildSettings'].update(SWIFT_VERSION='6.0'),
+                 lambda r:r['buildSettings'].update(CONFIGURATION='Debug'),
+                 lambda r:r['buildSettings'].pop('UNSELECTED')]
+        for change in changes:
+            different=copy.deepcopy(row);change(different);path.write_text(json.dumps([row,different]))
+            with self.assertRaisesRegex(ValueError,'divergent'):m.seal_effective(path,self.evidence,self.graph,self.identity)
+            self.assertFalse(proof_path.exists())
+
+    def test_malformed_settings_rows_and_nonfinite_values_fail_closed(self):
+        self.produce();proof_path=self.evidence/'database-recovery-settings.json';proof_path.unlink()
+        good={'target':'SideStore','buildSettings':{'CONFIGURATION':'Release','SWIFT_VERSION':'5.0'}}
+        path=self.root/'malformed-settings.json'
+        bad=[None,False,[],{}, {'target':'SideStore','buildSettings':[]},
+             {'target':False,'buildSettings':{}}, {'target':'','buildSettings':{}},
+             {'target':'SideStore','buildSettings':None}]
+        for invalid in bad:
+            path.write_text(json.dumps([good,invalid]))
+            with self.assertRaises(ValueError):m.seal_effective(path,self.evidence,self.graph,self.identity)
+            self.assertFalse(proof_path.exists())
+        for invalid in (float('nan'),float('inf'),float('-inf')):
+            row=copy.deepcopy(good);row['extra']=invalid;path.write_text(json.dumps([row,row]))
+            with self.assertRaises(ValueError):m.seal_effective(path,self.evidence,self.graph,self.identity)
+            self.assertFalse(proof_path.exists())
+        for invalid in (5,5.0,True,None,['5.0']):
+            row=copy.deepcopy(good);row['buildSettings']['SWIFT_VERSION']=invalid;path.write_text(json.dumps([row,row]))
+            with self.assertRaises(ValueError):m.seal_effective(path,self.evidence,self.graph,self.identity)
+            self.assertFalse(proof_path.exists())
 
     def test_projected_native_mode_mismatch_blocks_producer(self):
         def wrong(source):

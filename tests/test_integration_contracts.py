@@ -236,6 +236,8 @@ class ReviewedRecoveryBoundaryTests(unittest.TestCase):
         ('tests/database_recovery_coredata/Cases.swift', 'A'),
         ('tests/database_recovery_coredata/run.py', 'A'),
         ('tests/database_recovery_coredata/test_contract.py', 'A'),
+        ('tests/startup_outcome/test_contract.py', 'M'),
+        ('tests/startup_outcome/test_model_resource_owner.py', 'M'),
         ('tests/upstream_sync/test_maintenance_preservation.py', 'M'),
     )
 
@@ -251,11 +253,11 @@ class ReviewedRecoveryBoundaryTests(unittest.TestCase):
     def test_frozen_delta_retains_exact_published_identity_modes_and_blob_ids(self):
         self.assertEqual(self.fixture['owner'], 'SideStore')
         self.assertEqual(self.fixture['base_commit'], '4f1021277ccc49572a17649bf062cd02c583071f')
-        self.assertEqual(self.fixture['candidate_commit'], 'dd7c095d8c6c4f7fd0475bb6782a5d6d844ecb19')
+        self.assertEqual(self.fixture['candidate_commit'], 'e1d2f47405f8becc102608ab066513a8754ce8da')
         self.assertEqual(self.fixture['base_tree'], '030ca9722b1f46ad660fb414c85b90d5ae0d72d7')
-        self.assertEqual(self.fixture['candidate_tree'], '55fcc68146c53dd6d5f647f507f2dc5a5196b37a')
-        self.assertEqual(len(self.changes), 20)
-        self.assertEqual(len({row['path'] for row in self.changes}), 20)
+        self.assertEqual(self.fixture['candidate_tree'], '8e1e1b1f1115a191633fa8cbfb3e52be9df28129')
+        self.assertEqual(len(self.changes), 22)
+        self.assertEqual(len({row['path'] for row in self.changes}), 22)
         self.assertEqual({(row['path'], row['status']) for row in self.changes}, set(self.SOURCE_PATHS))
         for row in self.fixture['changes']:
             self.assertEqual(set(row), {'path', 'status', 'old_mode', 'new_mode', 'old_blob', 'new_blob'})
@@ -270,8 +272,9 @@ class ReviewedRecoveryBoundaryTests(unittest.TestCase):
         result = c.plan_changes(self.registry, 'SideStore', self.changes)
         self.assertEqual(result['result'], 'IMPACT_CLASSIFIED_NOT_TESTED')
         self.assertEqual(result['unclassified'], [])
-        self.assertEqual(len(result['classified']), 20)
-        self.assertEqual(result['affected_features'], ['database-preserving-recovery', 'preserved-refresh'])
+        self.assertEqual(len(result['classified']), 22)
+        self.assertEqual(result['affected_features'], ['database-preserving-recovery', 'preserved-refresh',
+                                                       'shared-storage-and-startup'])
         self.assertFalse(result['regressions_executed'])
         self.assertFalse(result['native_compilation'])
         self.assertFalse(result['physical_device_validation'])
@@ -421,6 +424,95 @@ class ReviewedRecoveryBoundaryTests(unittest.TestCase):
         self.assertIn('physical-device upgrade', self.feature['limitations'])
         self.assertIn('full recovered-store lifetime', next(row for row in self.feature['integration_points']
                           if row['path'] == 'SideStore/MaintenanceManager.swift')['rationale'])
+
+
+    def test_startup_source_boundaries_select_native_and_recovery_controls(self):
+        for path in ('tests/startup_outcome/test_contract.py',
+                     'tests/startup_outcome/test_model_resource_owner.py'):
+            with self.subTest(path=path):
+                result = c.plan_changes(self.registry, 'SideStore', [change(path)])
+                self.assertEqual(result['affected_features'],
+                                 ['database-preserving-recovery', 'shared-storage-and-startup'])
+                required = {row['path'] for row in result['required_regressions']}
+                self.assertTrue({'tests/startup_outcome/test_contract.py',
+                                 'tests/startup_outcome/test_model_resource_owner.py',
+                                 'ci/issue56-startup/test_startup_runner.py',
+                                 'tests/database_recovery_coredata/run.py'} <= required)
+
+    def test_portable_startup_command_never_replaces_mandatory_native_coverage(self):
+        for name in ('database-preserving-recovery', 'shared-storage-and-startup'):
+            feature = next(row for row in self.registry['features'] if row['id'] == name)
+            rows = {row['path']: row for row in feature['regressions']}
+            full = rows['tests/startup_outcome/test_contract.py']
+            portable = rows['tests/startup_outcome/test_model_resource_owner.py']
+            self.assertEqual(full['command'], 'REQUIRE_SWIFT_STARTUP_TESTS=1 python3 -B tests/startup_outcome/test_contract.py')
+            self.assertEqual(full['level'], 'native')
+            self.assertEqual(portable['command'], 'python3 -B tests/startup_outcome/test_contract.py --source-only')
+            self.assertEqual(portable['level'], 'source-contract')
+            self.assertIn('14 portable cases', feature['limitations'])
+            self.assertIn('16 cases including two extracted-production Swift fixtures', feature['limitations'])
+            self.assertIn('cannot replace the mandatory same-run native startup receipt', feature['limitations'])
+
+    def test_builder_startup_preflight_selects_both_boundaries(self):
+        for path in ('ci/issue56-startup/test_startup_runner.py',
+                     '.github/workflows/cold-vpn-native.yml',
+                     '.github/workflows/refresh-truth-preflight.yml'):
+            with self.subTest(path=path):
+                result = c.plan_changes(self.registry, 'sidestore-auto-refresh', [change(path)])
+                self.assertTrue({'database-preserving-recovery', 'shared-storage-and-startup'} <= set(result['affected_features']))
+                rows = [row for row in result['required_regressions']
+                        if row['path'] == 'ci/issue56-startup/test_startup_runner.py']
+                self.assertTrue(rows)
+                for row in rows:
+                    self.assertIn('run_required_tests.py', row['command'])
+                    self.assertIn('--pattern test_startup_runner.py', row['command'])
+                    self.assertEqual(row['level'], 'executable-fixture')
+
+    def test_effective_settings_diagnostics_do_not_admit_native_builds(self):
+        paths = ('ci/issues-native/capture_release_settings.py',
+                 'ci/issues-native/test_release_settings_cache.py')
+        for path in paths:
+            result = c.plan_changes(self.registry, 'sidestore-auto-refresh', [change(path)])
+            self.assertEqual(result['affected_features'], ['database-preserving-recovery'])
+            rows = {row['path']: row for row in result['required_regressions']}
+            self.assertIn('ci/issues-native/test_database_recovery_receipt.py', rows)
+            command = rows['ci/issues-native/test_release_settings_cache.py']['command']
+            self.assertIn('run_required_tests.py', command)
+            self.assertIn('--pattern test_release_settings_cache.py', command)
+        diagnostic = next(row for row in self.feature['modules']
+                          if row['path'] == paths[0])
+        self.assertIn('policy_admission remains false', diagnostic['rationale'])
+        self.assertIn('diagnostic output never admits a build', diagnostic['rationale'])
+        seal = next(row for row in self.feature['modules']
+                    if row['path'] == 'ci/issues-native/run_database_recovery.py')
+        self.assertIn('entire canonical target rows are identical', seal['rationale'])
+        self.assertIn('divergent fields or types', seal['rationale'])
+
+    def test_new_builder_mappings_are_individually_required(self):
+        for path in ('ci/issue56-startup/test_startup_runner.py',
+                     'ci/issues-native/capture_release_settings.py',
+                     'ci/issues-native/test_release_settings_cache.py'):
+            registry = copy.deepcopy(self.registry)
+            for feature in registry['features']:
+                for kind in ('modules', 'integration_points', 'regressions'):
+                    feature[kind] = [row for row in feature[kind]
+                                     if (row['owner'], row['path']) != ('sidestore-auto-refresh', path)]
+            with self.subTest(path=path):
+                result = c.plan_changes(registry, 'sidestore-auto-refresh', [change(path)])
+                self.assertEqual(result['result'], 'MANUAL_REVIEW_REQUIRED')
+                self.assertEqual(result['unclassified'], [path])
+
+    def test_startup_and_settings_unknown_removed_and_linked_paths_require_review(self):
+        for owner, path in (('SideStore', 'tests/startup_outcome/unreviewed.py'),
+                            ('sidestore-auto-refresh', 'ci/issue56-startup/unreviewed.py'),
+                            ('sidestore-auto-refresh', 'ci/issues-native/unreviewed_settings.py')):
+            result = c.plan_changes(self.registry, owner, [change(path, 'A', old='000000')])
+            self.assertEqual(result['result'], 'MANUAL_REVIEW_REQUIRED')
+            self.assertEqual(result['unclassified'], [path])
+        for owner, path in (('SideStore', 'tests/startup_outcome/test_model_resource_owner.py'),
+                            ('sidestore-auto-refresh', 'ci/issues-native/capture_release_settings.py')):
+            for row in (change(path, 'D', new='000000'), change(path, 'T', new='120000')):
+                self.assertEqual(c.plan_changes(self.registry, owner, [row])['result'], 'MANUAL_REVIEW_REQUIRED')
 
 
 class GitImpactTests(unittest.TestCase):

@@ -54,6 +54,8 @@ jobs:
           python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
           python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py
           python3 -B harness/ci/issues-native/test_database_recovery_receipt.py
+          python3 -B harness/ci/issue56-startup/test_startup_runner.py
+          python3 -B sources/SideStore/tests/startup_outcome/test_contract.py --source-only 2>&1 | tee evidence/startup-source-controls.log
           python3 -B harness/ci/issues-native/test_current_bindings.py
           python3 -B harness/ci/issues-native/test_anisette_dependency_pins.py
           python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py

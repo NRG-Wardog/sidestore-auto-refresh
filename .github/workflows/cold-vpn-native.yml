@@ -101,6 +101,8 @@ jobs:
           python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py
           python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py
           python3 -B harness/ci/issues-native/test_database_recovery_receipt.py
+          python3 -B harness/ci/issue56-startup/test_startup_runner.py
+          python3 -B sources/SideStore/tests/startup_outcome/test_contract.py --source-only 2>&1 | tee evidence/startup-source-controls.log
           python3 -B harness/ci/issues-native/test_current_bindings.py
           python3 -B harness/ci/issues-native/test_anisette_dependency_pins.py
           python3 -B harness/ci/issues-native/test_preservation_cms_receipt.py
@@ -621,7 +623,7 @@ jobs:
               --output "evidence/release-settings/$owner.json"
             if [ "$query_status" -ne 0 ]; then exit "$query_status"; fi
           done
-          python3 -B harness/ci/issues-native/run_database_recovery.py settings --input "$RUNNER_TEMP/SideStore-release-settings.json" --evidence evidence
+          python3 -B harness/ci/issues-native/run_database_recovery.py settings --input "$RUNNER_TEMP/SideStore-release-settings.json" --evidence evidence 2>&1 | tee evidence/release-settings/recovery-policy.log
           python3 harness/ci/issues-native/release_coverage.py settings --require-support-size \
             --inputs "$RUNNER_TEMP/LiveContainer-release-settings.json" "$RUNNER_TEMP/SideStore-release-settings.json" \
             --output evidence/release-coverage-settings.json 2>&1 | tee evidence/release-settings/policy.log

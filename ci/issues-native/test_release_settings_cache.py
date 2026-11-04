@@ -157,4 +157,36 @@ sys.exit(status)
             source.write_text('{}')
             self.assertEqual(capture(source,0)['parse_status'],'NOT_ARRAY')
 
+    def test_swift_mode_retained_without_raw_settings_or_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'settings.json'
+            row={'target':'SideStore','buildSettings':{'CONFIGURATION':'Release','SWIFT_VERSION':'5.0',
+                'OTHER_SETTING':'private-unrequested-value','PROJECT_DIR':'/private/source-path',
+                'TOKEN':'private-token'}}
+            path.write_text(json.dumps([row,row]))
+            report=capture(path,0)
+            self.assertEqual([r['settings']['SWIFT_VERSION'] for r in report['rows']],['5.0','5.0'])
+            self.assertEqual(report['rows'][0]['full_row_sha256'],report['rows'][1]['full_row_sha256'])
+            for private in ('private-unrequested-value','/private/source-path','private-token','PROJECT_DIR','TOKEN'):
+                self.assertNotIn(private,json.dumps(report))
+            self.assertIs(report['policy_admission'],False)
+
+    def test_recovery_policy_tee_preserves_failure_and_finite_log(self):
+        workflow=(ROOT/'.github/workflows/cold-vpn-native.yml').read_text()
+        block=workflow.split('      - name: Verify effective Release instrumentation settings for both projects\n',1)[1].split('      - name:',1)[0]
+        self.assertIn('set -euo pipefail',block)
+        line=next(line.strip() for line in block.splitlines() if 'run_database_recovery.py settings' in line)
+        self.assertIn('2>&1 | tee evidence/release-settings/recovery-policy.log',line)
+        self.assertNotIn('|| true',line)
+        self.assertIn('path: evidence/release-settings/',workflow)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);helper=root/'harness/ci/issues-native/run_database_recovery.py';helper.parent.mkdir(parents=True)
+            helper.write_text("import sys\nprint('synthetic recovery policy failure',file=sys.stderr)\nsys.exit(7)\n")
+            (root/'evidence/release-settings').mkdir(parents=True)
+            result=subprocess.run(['bash','-c','set -euo pipefail\n'+line+"\nprintf unexpected > continued"],cwd=root,
+                env=dict(os.environ,RUNNER_TEMP=str(root/'tmp')),capture_output=True,text=True)
+            self.assertEqual(result.returncode,7)
+            self.assertFalse((root/'continued').exists())
+            self.assertEqual((root/'evidence/release-settings/recovery-policy.log').read_text(),'synthetic recovery policy failure\n')
+
 if __name__ == '__main__': unittest.main()

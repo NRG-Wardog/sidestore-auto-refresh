@@ -956,7 +956,7 @@
     {
       "id": "shared-storage-and-startup",
       "contract": "App Group choice remains fail-closed and shared storage preserves existing data; bootstrap visibility does not reset credentials or profiles.",
-      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate. Startup guard and model-resource controls have two distinct commands: --source-only runs 14 portable cases and explicitly reports NATIVE_NOT_RUN; the mandatory-Swift command runs 16 cases including two extracted-production Swift fixtures. These fixtures do not execute real application startup, Core Data or a physical device. The portable preflight cannot replace the mandatory same-run native startup receipt.",
       "modules": [
         {
           "owner": "LiveContainer",
@@ -995,6 +995,18 @@
           "path": "AltStore/AppDelegate.swift",
           "interface": "Backend startup and shared group use",
           "rationale": "Avoid replacing persisted state during service initialization."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/cold-vpn-native.yml",
+          "interface": "Early actual-owner startup source preflight",
+          "rationale": "Run the direct 14-case source-only command under pipefail before expensive build work; keep the separate full native startup receipt mandatory."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/refresh-truth-preflight.yml",
+          "interface": "Early actual-owner startup source preflight",
+          "rationale": "Run the direct 14-case source-only command under pipefail before expensive build work; keep the separate full native startup receipt mandatory."
         }
       ],
       "regressions": [
@@ -1005,15 +1017,27 @@
           "level": "executable-fixture"
         },
         {
-          "owner": "SideStore",
-          "path": "tests/startup_outcome/test_contract.py",
-          "command": "python3 -B tests/startup_outcome/test_contract.py",
-          "level": "executable-fixture"
-        },
-        {
           "owner": "sidestore-auto-refresh",
           "path": "tests/test_embedded_keychain.py",
           "command": "python3 -B -m unittest discover -s tests -p test_embedded_keychain.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/startup_outcome/test_contract.py",
+          "command": "REQUIRE_SWIFT_STARTUP_TESTS=1 python3 -B tests/startup_outcome/test_contract.py",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/startup_outcome/test_model_resource_owner.py",
+          "command": "python3 -B tests/startup_outcome/test_contract.py --source-only",
+          "level": "source-contract"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issue56-startup/test_startup_runner.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issue56-startup --pattern test_startup_runner.py --allowlist scripts/required_test_skip_allowlist.json",
           "level": "executable-fixture"
         }
       ]
@@ -1021,7 +1045,7 @@
     {
       "id": "database-preserving-recovery",
       "contract": "Preserve original databases and Apps while selecting a verified recovery generation. Hold source SQLite write reservations for the selected store lifetime, migrate only an owned staged copy, publish the complete generation exclusively, and reject divergent data, unsafe layouts or resets of recovered generations.",
-      "limitations": "The exact-engine native SQLite fixture uses a synthetic validation callback, not Core Data. The separate native Core Data fixture compiles the complete production PersistentContainer and original models; it exercises v17.6-to-v17.7 DELETE and committed-WAL migration with generic managed-object classes, not account/keychain code. Both require macOS and matching Xcode/Swift/C toolchains and derive the Swift language mode from the actual SideStore Release target; use distinct fresh output directories outside the source tree via RECOVERY_ENGINE_OUTPUT and RECOVERY_COREDATA_OUTPUT. Set SIDESTORE_ROOT to the matching acquired owner checkout for the real-source case/input inventory gate in the builder receipt tests. That gate and portable runner/source tests never substitute for native execution. Source reservations do not exclude independent legacy filesystem-only Apps writers; pre/post inventories reject observed edits. No arbitrary divergent-store merge, power-loss durability, physical-device upgrade or app-group entitlement success is claimed. Repeated native command references describe shared inputs; one complete invocation covers them. Cache qualification uses the exact production Apps getter with an inert optional-URL MaintenanceManager boundary, not the recovery engine. Native setup verification requires matching BUILDER_ROOT, SOURCES_ROOT, SWIFTC, a fresh SETUP_RECOVERY_OUTPUT outside source checkouts and the reviewed same-graph SETUP_RECOVERY_CONTRACT; source generation and portable controls do not prove compilation or execution.",
+      "limitations": "The exact-engine native SQLite fixture uses a synthetic validation callback, not Core Data. The separate native Core Data fixture compiles the complete production PersistentContainer and original models; it exercises v17.6-to-v17.7 DELETE and committed-WAL migration with generic managed-object classes, not account/keychain code. Both require macOS and matching Xcode/Swift/C toolchains and derive the Swift language mode from the actual SideStore Release target; use distinct fresh output directories outside the source tree via RECOVERY_ENGINE_OUTPUT and RECOVERY_COREDATA_OUTPUT. Set SIDESTORE_ROOT to the matching acquired owner checkout for the real-source case/input inventory gate in the builder receipt tests. That gate and portable runner/source tests never substitute for native execution. Source reservations do not exclude independent legacy filesystem-only Apps writers; pre/post inventories reject observed edits. No arbitrary divergent-store merge, power-loss durability, physical-device upgrade or app-group entitlement success is claimed. Repeated native command references describe shared inputs; one complete invocation covers them. Cache qualification uses the exact production Apps getter with an inert optional-URL MaintenanceManager boundary, not the recovery engine. Native setup verification requires matching BUILDER_ROOT, SOURCES_ROOT, SWIFTC, a fresh SETUP_RECOVERY_OUTPUT outside source checkouts and the reviewed same-graph SETUP_RECOVERY_CONTRACT; source generation and portable controls do not prove compilation or execution. Startup guard and model-resource controls have two distinct commands: --source-only runs 14 portable cases and explicitly reports NATIVE_NOT_RUN; the mandatory-Swift command runs 16 cases including two extracted-production Swift fixtures. These fixtures do not execute real application startup, Core Data or a physical device. The portable preflight cannot replace the mandatory same-run native startup receipt.",
       "modules": [
         {
           "owner": "SideStore",
@@ -1039,7 +1063,7 @@
           "owner": "sidestore-auto-refresh",
           "path": "ci/issues-native/run_database_recovery.py",
           "interface": "produce / verify_local / verify_portable / seal_effective / verify_effective",
-          "rationale": "Bind both actual source-owned native suites, pristine acquired and compiled source closures, required cases, retained evidence and actual Release Swift build-setting proof to the exact workflow commit, run and attempt. Portable receipt checks do not execute native code."
+          "rationale": "Bind both actual source-owned native suites, pristine acquired and compiled source closures, required cases, retained evidence and actual Release Swift build-setting proof to the exact workflow commit, run and attempt. Portable receipt checks do not execute native code. Effective SideStore Release settings may repeat only when entire canonical target rows are identical; reject divergent fields or types, malformed/nonfinite settings and missing or wrong Swift mode without weakening the receipt schema."
         },
         {
           "owner": "sidestore-auto-refresh",
@@ -1052,6 +1076,12 @@
           "path": "tests/cache_compatibility/generate_fixture.py",
           "interface": "verify_installed_recovery_selection / verify_production_apps_getter / main",
           "rationale": "Generate the exact production Apps getter with an inert optional-URL selection boundary; retain the historical whole-file pin through one exact getter-expression inverse, never a broad repin. Generation alone is not native execution."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/capture_release_settings.py",
+          "interface": "capture / finite Release settings diagnostics",
+          "rationale": "Retain whitelisted settings including SWIFT_VERSION and a whole-row canonical hash for diagnosis; policy_admission remains false and diagnostic output never admits a build."
         }
       ],
       "integration_points": [
@@ -1245,7 +1275,7 @@
           "owner": "sidestore-auto-refresh",
           "path": ".github/workflows/cold-vpn-native.yml",
           "interface": "Mandatory exact recovery execution and finite failure collection",
-          "rationale": "Run both SQLite and Core Data suites before native/package success; collect bounded logs on failure without treating upload success as qualification."
+          "rationale": "Run both SQLite and Core Data suites before native/package success; collect bounded logs on failure without treating upload success as qualification. Run the direct 14-case startup source-only command early under pipefail; it never substitutes for the separate mandatory same-run native startup receipt."
         },
         {
           "owner": "sidestore-auto-refresh",
@@ -1269,7 +1299,7 @@
           "owner": "sidestore-auto-refresh",
           "path": ".github/workflows/refresh-truth-preflight.yml",
           "interface": "Recovery upstream successor controls and source-report verification",
-          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."
+          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence. Run the direct 14-case startup source-only command early under pipefail; it never substitutes for the separate mandatory same-run native startup receipt."
         },
         {
           "owner": "sidestore-auto-refresh",
@@ -1379,6 +1409,30 @@
           "owner": "sidestore-auto-refresh",
           "path": "ci/issues-native/test_setup_state_recovery_contract.py",
           "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_setup_state_recovery_contract.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/startup_outcome/test_contract.py",
+          "command": "REQUIRE_SWIFT_STARTUP_TESTS=1 python3 -B tests/startup_outcome/test_contract.py",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/startup_outcome/test_model_resource_owner.py",
+          "command": "python3 -B tests/startup_outcome/test_contract.py --source-only",
+          "level": "source-contract"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issue56-startup/test_startup_runner.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issue56-startup --pattern test_startup_runner.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_release_settings_cache.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_release_settings_cache.py --allowlist scripts/required_test_skip_allowlist.json",
           "level": "executable-fixture"
         }
       ]

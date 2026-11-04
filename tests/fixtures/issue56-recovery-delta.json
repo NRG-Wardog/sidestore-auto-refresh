@@ -3,9 +3,9 @@
   "purpose": "Exact reviewed issue #56 source delta used only to exercise maintenance impact classification, not native or device evidence.",
   "owner": "SideStore",
   "base_commit": "4f1021277ccc49572a17649bf062cd02c583071f",
-  "candidate_commit": "dd7c095d8c6c4f7fd0475bb6782a5d6d844ecb19",
+  "candidate_commit": "e1d2f47405f8becc102608ab066513a8754ce8da",
   "base_tree": "030ca9722b1f46ad660fb414c85b90d5ae0d72d7",
-  "candidate_tree": "55fcc68146c53dd6d5f647f507f2dc5a5196b37a",
+  "candidate_tree": "8e1e1b1f1115a191633fa8cbfb3e52be9df28129",
   "changes": [
     {
       "path": ".github/workflows/database-recovery.yml",
@@ -158,6 +158,22 @@
       "new_mode": "100644",
       "old_blob": "0000000000000000000000000000000000000000",
       "new_blob": "e8acd1392ee5db683c70530da020ac5bee885307"
+    },
+    {
+      "path": "tests/startup_outcome/test_contract.py",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "9bb8a0e17bde24ba4aab52acc3ba017f4b7ebe10",
+      "new_blob": "f1854cfa2e1a1d5e13ac2fcb35cb8678aa795ea9"
+    },
+    {
+      "path": "tests/startup_outcome/test_model_resource_owner.py",
+      "status": "M",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "old_blob": "8e26222f493def9eb1921c6de05a7b6a5f1d54cd",
+      "new_blob": "f8a09ee6142a96baa25f98fdb017921b334f71ef"
     },
     {
       "path": "tests/upstream_sync/test_maintenance_preservation.py",

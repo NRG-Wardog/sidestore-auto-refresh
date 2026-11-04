@@ -171,8 +171,16 @@ def seal_effective(input_path, evidence, graph, expected_identity):
     value = verify_portable(read(receipt), graph, expected_identity)
     rows = read(input_path)
     require(type(rows) is list, 'effective Xcode settings must be a list')
-    targets = [r for r in rows if type(r) is dict and r.get('target') == 'SideStore']
-    require(len(targets) == 1, 'exactly one effective SideStore target required')
+    require(all(type(row) is dict and type(row.get('target')) is str and row['target']
+                and type(row.get('buildSettings')) is dict for row in rows), 'invalid effective Xcode settings row')
+    targets = [row for row in rows if row['target'] == 'SideStore']
+    require(targets, 'effective SideStore target required')
+    # -alltargets can repeat an identical target row. Compare canonical JSON of
+    # the ENTIRE row, not selected settings or Python equality (True == 1).
+    # Never collapse rows that disagree on any field, value, or JSON type.
+    serialized = [json.dumps(row, sort_keys=True, separators=(',', ':'),
+                             ensure_ascii=True, allow_nan=False) for row in targets]
+    require(all(row == serialized[0] for row in serialized), 'divergent effective SideStore target rows')
     effective = targets[0]['buildSettings']
     require(effective.get('CONFIGURATION') == 'Release', 'effective configuration differs')
     proof = {'schema':'database-recovery-effective-swift-v1', 'identity':expected_identity,
