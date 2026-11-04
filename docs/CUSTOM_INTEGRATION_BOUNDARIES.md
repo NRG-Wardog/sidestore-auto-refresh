@@ -1,97 +1,174 @@
 # Custom integration boundaries
 
-This is the maintenance map for issue #52. It describes small owned seams, their contracts, and regression evidence. It does not promise conflict-free merges, replace an upstream merge review, or mark the broader modularization effort complete. The October 25 candidate isolates new source/App ID presentation decisions in a pure policy module rather than adding more decision logic to the unified shell. Other areas still have large integration files and should be extracted incrementally, not rewritten during unrelated fixes.
+This is the maintenance architecture for [issue #52](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/52).
+Custom runtime source is maintained in its owning repository, not regenerated
+from historical patch templates. Pure policy modules, narrow call-site adapters,
+versioned wire/FFI contracts and fail-closed packaging rules form the integration
+boundaries. This change adds the maintained inventory, reusable change review,
+continuous checks and representative integration evidence needed to use those
+boundaries consistently.
 
-## Source ownership and seams
+It does not require splitting every large application file. Large host/service
+files still contain side-effect adapters; their documented call sites and native
+regressions remain important. The objective is smaller, reviewable integration
+work, not conflict-free updates or a claim that every custom feature is proven
+on a device.
 
-| Concern | Maintained owner and boundary | Contract to retain | Regression evidence |
-| --- | --- | --- | --- |
-| Guest input/safe area (#47) | `NRG-Wardog/LiveContainer`: `AppSceneViewController.lcEndGuestEditing`, `DecoratedAppSceneViewController.lcPrepareForGuestActivation`, `MultitaskSupport/LCGuestSafeAreaGeometry.h` | Cleanup affects only outgoing guest ownership; measured insets remain valid across orientation changes. Existing scene-host integration remains the adapter. | `tests/test_guest_input_lifecycle.py`, `tests/test_guest_safe_area_geometry.py`; device keyboard and geometry matrix is separate. |
-| Source updates (#30) | `NRG-Wardog/LiveContainer`: `LiveContainerSwiftUI/Utilities/V3SourceAppPresentation.swift`, catalog helpers in `LiveContainerSwiftUI/Views/V3UnifiedShell.swift` | Pure version comparison cannot install anything. Catalog selection passes its source download URL through the existing installer and replacement confirmation. Hidden guests stay hidden. SideStore updates use its canonical installed-app identity. | `tests/test_source_app_presentation.py`; original Nuvio case and data preservation require device verification. |
-| App ID expiry (#54) | `NRG-Wardog/SideStore`: `V3BackendCommands.developerAppIDRow`; `NRG-Wardog/LiveContainer`: `V3DeveloperAppID` and Developer Services rows | Bridge only the portal App ID date, not a profile/app signing date. Missing remains unknown. Account-stamped read admission stays authoritative. UI countdown does not poll the portal. | SideStore `tests/appid_expiry/test_appid_expiry_bridge.py`; LiveContainer `tests/test_source_app_presentation.py`. |
-| Provider sequencing (#51) | `NRG-Wardog/SideStore`: diagnostic provider plan and authentication-session adapter; LiveContainer unified authentication prompt | Keep ordered bounded policy separate from account mutations. Stop on non-retryable errors, retain cancellation/2FA boundaries, and never log authentication material. This candidate boundary must not be treated as runtime-qualified until native/device tests pass. | Inspect the candidate's provider-sequence tests and run controlled success, timeout, cancellation, cache isolation and 2FA scenarios. |
-| ReuseMain (#50) | `NRG-Wardog/SideSign`: opt-in compatibility policy; `NRG-Wardog/SideStore`: installation/signing adapter | Never make main-profile reuse the implicit default. Entitlement/profile compatibility decides admission; incompatible extensions retain per-extension signing or an explicit failure. | Candidate policy and signing tests; installation and actual extension behavior on device remain required. |
-| Dependency qualification (#53) | `NRG-Wardog/idevice` and independently owned OpenSSL copies | Keep matching ownership/ABI contracts together. A gitlink or successful compile does not prove provider activation, loaded-image choice, signing or transport behavior. | Exact dependency hashes, regenerated headers, focused ownership tests, native build, then separate runtime qualification. |
-| Packaging/size (#55) | `NRG-Wardog/sidestore-auto-refresh`: `package_livecontainer_combined.adapt/verify`, `ipa_size_report.optimize` | Upstream packaging adaptation is fail-closed on changed or duplicated anchors. Compression never removes resources, architectures, entitlements or signatures. Archive verification runs after the transformation. | `tests/test_combined_packaging.py`, `tests/test_ipa_size_report.py`, `tests/test_custom_integration_boundaries.py`. |
-| Source provenance | Builder maintained-entry/source contracts and the seven maintained repositories | Runtime code belongs in its maintained repository, not regenerated from historical patch templates. Pin exact reviewed owner commits. Preserve immutable historical manifests as evidence. | Existing maintained-entry and candidate provenance checks. Do not rewrite frozen migration hashes to make intentional runtime edits look unchanged. |
+## Authoritative maintenance inventory
 
-Paths in the first six rows are relative to the named source repository, not this builder repository. Candidate tests are additions on the integration branches until merged. No table row claims the feature is already released or accepted on a device.
+[`CUSTOM_INTEGRATION_CONTRACTS.json`](CUSTOM_INTEGRATION_CONTRACTS.json) records
+16 feature boundaries across the builder and all seven maintained runtime owners.
+Each entry names actual modules, integration call sites or build inputs, the
+interface and rationale, regression commands, and the evidence limitations.
+Paths are relative to their declared owner, not necessarily this repository.
 
-## Representative upstream integration exercise
+| Boundary | Owned policy/module | Required integration review |
+| --- | --- | --- |
+| Packaging | Builder `packaging_adapters.py` | Eight exact upstream shell anchors and `package_livecontainer_combined.adapt` |
+| Source catalog and App ID expiry | LiveContainer `V3SourceAppPresentation` | Catalog installer, Developer Services UI and SideStore portal-date bridge |
+| Authentication/provider sequence | SideStore/LiveContainer provider policy; SideSign authentication policy | Authentication session, prompt adapter and actual request boundary |
+| Owned on-device anisette | AnisetteKit attempt/lifecycle modules | Swift client and native entry points; remote fallback adapter |
+| Extension signing | SideSign `ExtensionSigningPolicy` | Explicit signer overload and SideStore signing operation |
+| Preserved refresh | SideStore profile decoder | Refresh, cache and install-success adapters |
+| Refresh results/XPC | SideStoreClient and service selectors | Versioned backend commands and run-correlated results |
+| Diagnostics/recovery | Bounded native diagnostics and typed errors | Host/service producers, presentation and recovery dispatch |
+| Transport readiness | minimuxer policy and gateway API | Device provider, idevice gateway and backend readiness |
+| FFI ownership | idevice Rust/C ABI | C++ and Swift consumers; paired generated headers |
+| TCP reliability | jktcp adapter and handle | idevice dependency and TCP package interface |
+| Guest input/geometry | LiveContainer safe-area policy | Scene editing cleanup and activation |
+| Shared storage/startup | App Group identity/selection and shared storage | Host storage bridge, embedded launch and service initialization |
+| Localization | Language settings and lookup modules | Live presentation and compiled catalog |
+| Build membership/dependencies | Maintained-source and candidate-graph validators | Xcode/SwiftPM/Cargo inclusion and exact owner pins |
+| Maintenance tooling | Generic inventory/change planner | Registry, CI and regression/rehearsal evidence |
 
-Run:
+The JSON registry is revision-independent: no frozen commit hashes or source
+slices are embedded in its interfaces. Current candidate revisions remain in the
+existing candidate graph. Historical migration witnesses are neither rewritten
+nor used to pretend that current source is unchanged.
 
-    python3 -B -m unittest discover -s tests -p test_custom_integration_boundaries.py -v
+The inventory is a finite review map, not a wildcard allowance for every path in
+these repositories. A new or unrelated changed file is **unclassified** until it
+is reviewed. Module changes, caller changes, target-membership changes, test
+changes and unknown files all remain visible.
 
-The exercise uses the existing synthetic upstream packaging fixture, not a copied production implementation. It makes a benign upstream change outside the integration anchors and runs the actual `adapt` function. The new upstream content must survive, the custom provenance/signing/intent boundaries must remain, and adaptation must be deterministic. Changing or duplicating a required upstream anchor must reject the candidate. Packaging custom behavior must not need to be copied or rewritten to accommodate the benign change.
+## Reusable upstream change review
 
-This is a representative adapter contract test, not an actual merge of an upstream release, a shell execution, or an IPA/device test. A genuine upstream update still requires source review, native compilation, final-artifact checks and device validation.
+`python3 -B scripts/integration_contracts.py check-registry` validates the closed
+registry schema. To verify the actual documented files, use `validate` and pass
+one `--owner-root OWNER=/checkout` for **every** registered owner. Missing owners,
+files, linked paths, duplicate definitions, unsafe paths or empty contracts fail.
+Inventory success means source paths were checked and hashed, not that the
+listed commands ran.
 
-## Integration procedure
-
-1. Identify which maintained owner changes. Compare exact old/new source revisions and list affected seams from this map.
-2. Keep independent policy decisions testable with synthetic, non-secret inputs. Place UIKit, portal, signing and transport side effects behind the smallest practical adapters.
-3. When upstream changes an adapter input, update that adapter and its contract tests together. Do not broaden matching to silently accept unknown upstream shapes.
-4. Preserve custom behavior not touched by the update. Run focused tests for changed contracts, then one coherent native build rather than a separate build per issue.
-5. Record the exact multi-repository candidate tuple and artifact hashes. Inspect the actual packaged code/resources and distinguish source tests, native compilation and device observations.
-6. Keep device-dependent issues open until their acceptance matrix is satisfied. Publish no claim of complete modularization or guaranteed merge compatibility from this first increment.
-
-## Named packaging adapter and patch surface
-
-`package_livecontainer_combined.adapt` delegates to `scripts/packaging_adapters.py`.
-Its eight immutable `IntegrationRule` records are the complete upstream-facing
-packaging patch surface. Each has a stable name, owner, rationale, exact anchor
-and replacement. `docs/PACKAGING_PATCH_SURFACE.json` is the machine-readable
-inventory, checked against those records by regression tests. Changing a rule
-requires an explicit inventory update and review; it cannot silently become a
-fuzzy match. The generic `apply_rules` engine has no networking, subprocesses or
-packaging knowledge and is independently testable with unrelated adapters.
-
-This extraction preserves the previous adapter's output byte-for-byte for the
-retained real upstream script. The output SHA witness comes from the pre-refactor
-adapter at builder commit `eb1b05b94dee5170b5720c665c806be84e442f96`.
-Fixtures retain source attribution and upstream AGPL license. Missing or duplicate
-anchors report their named seam and reject the input, including every one of the
-eight rules independently. Unrelated upstream changes survive without changing
-custom rule logic.
-
-A local immutable source revision can be rehearsed without running its shell:
+Before integrating an upstream update, inspect immutable local revisions:
 
 ```sh
-python3 scripts/rehearse_packaging_integration.py \
-  --repository /path/to/LiveContainer \
-  --commit 433dd73edd78401bc5d38eef87d51414bb30f6f4 \
-  --output /path/to/new-rehearsal.json
+python3 -B scripts/integration_contracts.py plan \
+  --owner LiveContainer --repository /path/to/LiveContainer \
+  --base FULL_OLD_COMMIT_SHA --candidate FULL_NEW_COMMIT_SHA
 ```
 
-The command reads a Git commit's `.github/build_github.sh` as bounded UTF-8 data,
-records original/adapted hashes and the exact rule inventory, and writes no source
-files. It rejects branch names and replacement objects. It does not fetch, execute
-the upstream script, run a native build, sign an IPA, or claim device validation.
-The rehearsal demonstrates adapter integration, not an upstream application merge.
+The planner reads local Git objects without fetching, executing source, changing
+files or invoking external diff/textconv helpers. It disables replacement refs
+and inherited Git-routing overrides. A dirty working tree cannot change its
+immutable-commit comparison.
 
-### Actual historical revision compatibility rehearsal
+The report lists:
 
-The checked-in real upstream revision
-`LiveContainer/LiveContainer@2d092098cae6ef6d98eefe3943927f81d925e527`
-changes the service download URL and includes an additional widget-framework copy.
-The production adapter rejects this input at `compiled-sidestore`. A separate,
-explicit rehearsal profile binds the exact revision and source SHA256 and changes
-only that upstream anchor. It cannot replace any custom behavior. All eight custom
-replacements are reused; the unrelated upstream copy step survives and is recorded
-as a behavioral difference requiring review before any actual packaging execution.
-The rehearsal is not approval to ship that historical script.
+- Every changed exact path, its affected features and its module/caller/test role.
+- Applicable regression commands as **instructions**, never executed commands.
+- Unclassified paths, removed paths, structural type changes and gitlink changes.
+- Both sides of renames, deliberately represented as delete/add.
+- Exact old/new commit and tree identities, with no native/device success claim.
 
-The two source fixtures, acquisition URLs, source/output hashes, AGPL license and
-explicit compatibility profile are retained under
-`tests/fixtures/upstream-packaging/`. Regression tests reject wrong revisions,
-modified source, unknown rules, empty anchors, replacement injection and duplicate
-anchors. This is a concrete example of adapting a small interface description
-rather than rewriting custom logic, not a promise of future merge compatibility.
+Exit 0 means `IMPACT_CLASSIFIED_NOT_TESTED`, not behavioral compatibility. Exit 3
+means `MANUAL_REVIEW_REQUIRED`; unknown files, deleted hooks and gitlink
+changes require manual review. Exit 2 means invalid input or a failed check.
+Reviewing an unclassified upstream documentation change does not require moving
+it into a runtime module. Review it explicitly; do not add broad path exclusions
+just to turn the report green.
 
-For a locally available historical commit, add
-`--anchor-profile tests/fixtures/upstream-packaging/2d092098-anchor-profile.json`
-to the rehearsal command. No profile is selected automatically, and production
-`adapt()` continues using the original strict default. New package verification
-reports record the adapter module SHA256 and exact named rule inventory separately
-from the original upstream script SHA256; historical witnesses remain unchanged.
+For mapped changes, run the listed commands from their owner checkouts and the
+existing full source/native/ABI/artifact gates appropriate to the change. Some
+native commands require their documented SDK/toolchain or verified input archive.
+Commands marked `source-contract` are not executable behavior evidence.
+
+## Named packaging adapter and minimal patch surface
+
+`package_livecontainer_combined.adapt` delegates to
+`scripts/packaging_adapters.py`. Its eight immutable `IntegrationRule` records are
+the complete upstream-facing packaging patch surface.
+[`PACKAGING_PATCH_SURFACE.json`](PACKAGING_PATCH_SURFACE.json) records each rule's
+stable name, owner, rationale, exact anchor/replacement hashes and line counts.
+Tests require exact equality between the inventory and production rules.
+
+`apply_rules` is a generic, pure text engine with no network or process execution.
+It validates all anchors against the **original input**, including overlapping
+duplicate occurrences, and rejects overlapping rule spans. It then replaces
+only those original spans. One rule can neither manufacture a missing anchor
+for another nor hide an original duplicate; inserted custom text is never
+reinterpreted as upstream source. Reordering disjoint rules has no effect.
+
+Existing production outputs remain byte-identical to the retained pre-refactor
+adapter witness at builder commit `eb1b05b94dee5170b5720c665c806be84e442f96`.
+The current rule inventory and replacement bytes have not changed.
+
+## Representative real-upstream integration
+
+The retained real scripts and provenance are in
+`tests/fixtures/upstream-packaging/`:
+
+1. `NRG-Wardog/LiveContainer@433dd73edd78401bc5d38eef87d51414bb30f6f4`
+   exercises the production profile and its pre-refactor output hash.
+2. `LiveContainer/LiveContainer@2d092098cae6ef6d98eefe3943927f81d925e527`
+   changes a service download URL and adds a widget-framework copy. The strict
+   production adapter rejects its changed anchor. An explicit, source-hash-bound
+   compatibility profile adjusts **only that anchor**, reuses every custom
+   replacement unchanged, and preserves the unrelated upstream copy step.
+
+The fixture manifest retains source URLs, exact source/output hashes, license and
+profile. Tests reject wrong revisions, modified source, unknown rule names,
+replacement injection, missing/duplicated/overlapping anchors and ambiguous
+profiles. Synthetic unrelated adapters exercise reuse without packaging-specific
+knowledge. The benign upstream drift tests preserve unrelated upstream steps.
+
+A locally available historical revision can be rehearsed without shell execution:
+
+```sh
+python3 -B scripts/rehearse_packaging_integration.py \
+  --repository /path/to/LiveContainer \
+  --commit 2d092098cae6ef6d98eefe3943927f81d925e527 \
+  --anchor-profile tests/fixtures/upstream-packaging/2d092098-anchor-profile.json \
+  --output /path/to/fresh-rehearsal.json
+```
+
+This is a real-revision **packaging adapter integration**, not a full application
+merge, native build, IPA signature check, device test or approval to ship a
+historical upstream script. In particular, the added widget copy needs review
+before any actual packaging execution. Profiles are never chosen automatically.
+
+## Continuous checks and acceptance evidence
+
+`.github/workflows/custom-integration-contract.yml` runs on relevant push/PR
+changes and manual dispatch. It runs the generic planner controls, adapter tests
+and integration rehearsals through the strict no-unexpected-skips runner. It then
+acquires the exact seven owner revisions from the current reviewed candidate
+graph as data, checks all inventory paths against their committed blobs, and
+retains an identity/hash receipt. It does **not** execute fetched owner code or
+claim their behavioral suites ran. It has read-only repository permissions.
+
+The frozen `maintained-packaging-contract.yml` release witness is unchanged. The
+new candidate-aware gate complements, rather than replaces, existing required
+owner, native, compatibility, regression and artifact checks.
+
+| Issue #52 acceptance | Concrete evidence |
+| --- | --- |
+| Document and independently test custom seams where practical | Sixteen owned feature contracts, concrete hook/build/test paths and practical regression commands; inventory checks against all current owner inputs |
+| Complete a representative upstream integration without rewriting custom logic | Two retained real script revisions, one explicit anchor-only compatibility profile, identical custom replacements and preserved unrelated upstream change |
+| Make conflicts and behavior changes visible | Exact-path impact reports; unknown/deleted/structural/gitlink review gates; missing/duplicate/overlap adapter negatives; existing owner behavioral/native tests remain required |
+| Keep the approach generic and reusable | Revision-independent registry, language-independent exact-path planner, unrelated-owner fixture, generic original-span rule engine and immutable revision CLI |
+
+Before closing #52, retain a passing run of the dedicated workflow for the exact
+published implementation commit. That maintenance acceptance does not close
+other device-dependent feature issues or establish that signing, authentication,
+refresh or transport works on a particular physical device.

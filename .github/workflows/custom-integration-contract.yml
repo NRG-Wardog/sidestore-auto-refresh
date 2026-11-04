@@ -1,0 +1,73 @@
+name: Verify reusable custom integration contracts
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'docs/CUSTOM_INTEGRATION*'
+      - 'docs/PACKAGING_PATCH_SURFACE.json'
+      - 'ci/issue52-integration/**'
+      - 'ci/issues-native/candidate-graph.json'
+      - '.github/workflows/custom-integration-contract.yml'
+  push:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'docs/CUSTOM_INTEGRATION*'
+      - 'docs/PACKAGING_PATCH_SURFACE.json'
+      - 'ci/issue52-integration/**'
+      - 'ci/issues-native/candidate-graph.json'
+      - '.github/workflows/custom-integration-contract.yml'
+permissions:
+  contents: read
+concurrency:
+  group: custom-integration-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_NO_REPLACE_OBJECTS: '1'
+      GIT_NO_LAZY_FETCH: '1'
+      GIT_ALLOW_PROTOCOL: https
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Run generic positive and negative contracts without skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          for suite in test_integration_contracts.py test_packaging_adapters.py test_custom_integration_boundaries.py test_combined_packaging.py; do
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" \
+              --allowlist scripts/required_test_skip_allowlist.json 2>&1 | tee "evidence/$suite.log"
+          done
+      - name: Acquire only the exact registered source owners as read-only inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue52-integration/verify_inventory.py --emit-plan > evidence/owner-plan.tsv
+          mkdir -p sources
+          while IFS=$'\t' read -r owner repository commit; do
+            git init -q "sources/$owner"
+            git -C "sources/$owner" remote add origin "https://github.com/$repository.git"
+            git -C "sources/$owner" -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$commit"
+            git -C "sources/$owner" -c core.hooksPath=/dev/null checkout --detach "$commit"
+          done < evidence/owner-plan.tsv
+      - name: Validate every documented module, caller, build input and regression path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue52-integration/verify_inventory.py --sources sources > evidence/pinned-inventory.json
+      - name: Retain exact inventory and regression evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: custom-integration-contract-${{ github.sha }}
+          path: evidence
+          if-no-files-found: error
