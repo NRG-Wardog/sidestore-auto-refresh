@@ -45,6 +45,16 @@ class Controls(unittest.TestCase):
     self.assertEqual(len(R.expected_vpn_names(root)),106)
     p.write_text('changed')
     with self.assertRaises(ValueError):R.expected_vpn_names(root)
+ def test_reviewed_direct_generator_requires_exact_inverse(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp).resolve();p=root/R.direct_refresh.PATH;p.parent.mkdir(parents=True);p.write_text('reviewed successor')
+   extension={'candidate_inputs':{R.direct_refresh.PATH:R.direct_refresh.BEFORE}}
+   with mock.patch.object(R.truth_flow,'extension',return_value=(extension,'digest')),mock.patch.object(R.direct_refresh,'AFTER',R.sha(p)),mock.patch.object(R.direct_refresh,'validate_source',return_value=True) as inverse:
+    self.assertEqual(len(R.expected_vpn_names(root)),106);inverse.assert_called_once_with(root)
+    inverse.side_effect=ValueError('inverse failed')
+    with self.assertRaisesRegex(ValueError,'inverse failed'):R.expected_vpn_names(root)
+    p.write_text('unreviewed')
+    with self.assertRaisesRegex(ValueError,'source differs'):R.expected_vpn_names(root)
  def test_exact_reviewed_lock_transition_only(self):
   with tempfile.TemporaryDirectory() as tmp:
    root=Path(tmp).resolve();repo=root/'repo';repo.mkdir();evidence=root/'evidence';evidence.mkdir()

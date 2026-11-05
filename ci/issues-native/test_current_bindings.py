@@ -87,7 +87,7 @@ class CurrentBindingsTests(unittest.TestCase):
         # All temporary paths are canonical: macOS /var aliases are not
         # interpreted as evidence of a linked source-owner directory.
         module_root = Path(M.__file__).resolve().parent
-        for name in ('verify_current_bindings.py', 'verify_candidate_graph.py', 'candidate-graph.json'):
+        for name in ('verify_current_bindings.py', 'verify_candidate_graph.py', 'candidate-graph.json', 'direct_host_projection.py', 'direct-host-source-delta.json', 'direct_refresh_projection.py'):
             shutil.copy2(module_root / name, self.harness / 'ci/issues-native' / name)
         actual_graph = json.loads((module_root / 'candidate-graph.json').read_text())
         self.multitask['repository'], self.multitask['commit'] = actual_graph['owners']['LiveContainer']
@@ -99,6 +99,71 @@ class CurrentBindingsTests(unittest.TestCase):
                         '--sources', str(self.sources), '--output', str(output)],
                        cwd=unrelated, check=True, capture_output=True, text=True, timeout=30)
         self.assertEqual(json.loads(output.read_text())['status'], 'PASS')
+
+    def test_only_exact_reviewed_host_delta_can_normalize(self):
+        from unittest.mock import patch
+        path = 'LiveContainer/SideStoreSupport/SideStore.swift'
+        target = self.sources / path
+        target.parent.mkdir(parents=True)
+        target.write_text('reviewed new host bytes')
+        actual = hashlib.sha256(target.read_bytes()).hexdigest()
+        historical = 'd' * 64
+        self.write('ci/issues-native/' + M.HASH_MANIFESTS[-1],
+                   {'candidate_inputs': {path: historical}})
+        with patch.object(M.direct_host, 'specification', return_value={
+                'before_sha256': historical, 'after_sha256': actual}), \
+             patch.object(M.direct_host, 'validate_bytes', return_value=True) as inverse:
+            result = self.verify()
+            inverse.assert_called_once_with(target.read_bytes())
+            self.assertEqual(result['current_source_sha256'][path], actual)
+            self.assertEqual(result['reviewed_successor_bindings'][path]['historical_sha256'], historical)
+            self.assertFalse(result['historical_contracts_rewritten'])
+
+    def test_unknown_host_bytes_cannot_normalize(self):
+        path = 'LiveContainer/SideStoreSupport/SideStore.swift'
+        target = self.sources / path
+        target.parent.mkdir(parents=True)
+        target.write_text('unreviewed host bytes')
+        self.write('ci/issues-native/' + M.HASH_MANIFESTS[-1],
+                   {'candidate_inputs': {path: 'd' * 64}})
+        with self.assertRaisesRegex(ValueError, 'stale current-source'):
+            self.verify()
+
+    def test_inverse_failure_is_not_converted_to_binding_success(self):
+        from unittest.mock import patch
+        path = 'LiveContainer/SideStoreSupport/SideStore.swift'
+        target = self.sources / path
+        target.parent.mkdir(parents=True)
+        target.write_text('reviewed new host bytes')
+        actual = hashlib.sha256(target.read_bytes()).hexdigest()
+        historical = 'd' * 64
+        self.write('ci/issues-native/' + M.HASH_MANIFESTS[-1],
+                   {'candidate_inputs': {path: historical}})
+        with patch.object(M.direct_host, 'specification', return_value={
+                'before_sha256': historical, 'after_sha256': actual}), \
+             patch.object(M.direct_host, 'validate_bytes', side_effect=ValueError('inverse failed')):
+            with self.assertRaisesRegex(ValueError, 'inverse failed'):
+                self.verify()
+
+    def test_exact_vpn_successor_requires_inverse_and_rejects_unknown_bytes(self):
+        from unittest.mock import patch
+        path = M.direct_refresh.PATH
+        target = self.sources / path
+        target.parent.mkdir(parents=True)
+        target.write_text('reviewed new generator')
+        actual = hashlib.sha256(target.read_bytes()).hexdigest()
+        self.write('ci/issues-native/' + M.HASH_MANIFESTS[-1],
+                   {'candidate_inputs': {path: M.direct_refresh.BEFORE}})
+        with patch.object(M.direct_refresh, 'AFTER', actual), \
+             patch.object(M.direct_refresh, 'validate_source', return_value=True) as inverse:
+            result = self.verify()
+            inverse.assert_called_once_with(self.sources)
+            self.assertEqual(result['current_source_sha256'][path], actual)
+            inverse.side_effect = ValueError('VPN inverse failed')
+            with self.assertRaisesRegex(ValueError, 'VPN inverse failed'):
+                self.verify()
+        with self.assertRaisesRegex(ValueError, 'stale current-source'):
+            self.verify()
 
     def test_duplicate_manifest_keys_rejected(self):
         (self.harness / 'ci/multitask-launch/source.json').write_text('{"commit":"a","commit":"b"}')

@@ -6,6 +6,7 @@ sys.path.insert(0,str(HERE.parent/'issues-native'))
 from verify_candidate_graph import load_candidate_graph
 from grace_recovery_projection import expected_names as grace_case_names
 import refresh_truth_flow_projection as truth_flow
+import direct_refresh_projection as direct_refresh
 MM='SideStore/Dependencies/minimuxer'
 SUITES={
  'host':('LiveContainer','.ci/cold-vpn-observation/test_contract.py','REQUIRE_SWIFT_COLD_VPN_TESTS'),
@@ -78,7 +79,10 @@ def expected_vpn_names(sources):
  for name,digest in extension['candidate_inputs'].items():
   path=sources/name
   require(path.is_file() and not path.is_symlink() and path.resolve(strict=True).is_relative_to(sources.resolve(strict=True)), 'Refresh flow input missing/linked')
-  require(sha(path)==digest,'Refresh flow source differs')
+  actual=sha(path)
+  if actual!=digest:
+   require(name==direct_refresh.PATH and digest==direct_refresh.BEFORE and actual==direct_refresh.AFTER,'Refresh flow source differs')
+   require(direct_refresh.validate_source(sources),'Direct refresh inverse did not admit successor')
  return grace_case_names()+[truth_flow.ADDED['vpn-refresh-recovery']]
 def validate_historical_vpn(sources,cases,definition,text):
  expected=expected_vpn_names(sources);count=len(expected)
