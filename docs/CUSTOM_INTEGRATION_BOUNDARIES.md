@@ -17,13 +17,14 @@ on a device.
 ## Authoritative maintenance inventory
 
 [`CUSTOM_INTEGRATION_CONTRACTS.json`](CUSTOM_INTEGRATION_CONTRACTS.json) records
-17 feature boundaries across the builder and all seven maintained runtime owners.
+18 feature boundaries across the builder and all seven maintained runtime owners.
 Each entry names actual modules, integration call sites or build inputs, the
 interface and rationale, regression commands, and the evidence limitations.
 Paths are relative to their declared owner, not necessarily this repository.
 
 | Boundary | Owned policy/module | Required integration review |
 | --- | --- | --- |
+| Native evidence package admission | Reviewed native source snapshots and bounded portable validators | Exact run/archive/IPA, ownership and recovery admissions before compression and at final audit |
 | Packaging | Builder `packaging_adapters.py` | Eight exact upstream shell anchors and `package_livecontainer_combined.adapt` |
 | Source catalog and App ID expiry | LiveContainer `V3SourceAppPresentation` | Catalog installer, Developer Services UI and SideStore portal-date bridge |
 | Authentication/provider sequence | SideStore/LiveContainer provider policy; SideSign authentication policy | Authentication session, prompt adapter and actual request boundary |
@@ -176,6 +177,37 @@ is unchanged. The capture helper retains only whitelisted settings, including
 `SWIFT_VERSION`, and whole-row hashes for diagnosis. Its `policy_admission` stays
 false. Finite diagnostic logs and successful upload never admit a build.
 
+### Qualified native evidence in the package pipeline
+
+The package admission boundary inventories the exact 37 reviewed paths carried
+into the package composition, including existing CMS, owned-attempt and fallback
+validators, acquisition, safe archive projection, shared source contracts,
+reviewed native helper snapshots, the package workflow and independent final
+audit. Ownership and recovery package modules also extend their corresponding
+native boundaries; no previous native reference or contract is replaced.
+
+Compose this layer with the complete reviewed native maintenance tree and its
+current owner graph. Do not copy an older package checkout over current native
+entrypoints. Source snapshots must match the final native commit. Populate actual
+run, artifact, archive, IPA and size bindings only after matching qualification;
+source-only composition and old/placeholder metadata remain unqualified.
+
+Both ownership and recovery admissions run before compression and replay during
+final audit, alongside all existing package gates. Ownership requires the named
+Rust tests and generated-header markers. Recovery requires both SQLite and Core
+Data evidence, exact source and acquisition closures, effective Release Swift
+settings, raw evidence seals and package provenance from the same native run.
+These adapters may load only hash-verified repository helper snapshots, never
+artifact-supplied executable code. Portable replay is not new native, device,
+authentication or signing execution.
+
+The registry names each path and the inventory workflow triggers it explicitly.
+Tests classify every reviewed path, require each mapping, retain native and package
+boundaries on specialized admission inputs, and reject unknown neighboring package files. Run
+the complete strict package-control suite once, then the dedicated inventory
+workflow on the actual final package commit. The finite path list is not approval
+for later unreviewed package files or for new behavior under an old source pin.
+
 ## Reusable upstream change review
 
 `python3 -B scripts/integration_contracts.py check-registry` validates the closed
@@ -288,7 +320,7 @@ owner, native, compatibility, regression and artifact checks.
 
 | Issue #52 acceptance | Concrete evidence |
 | --- | --- |
-| Document and independently test custom seams where practical | Seventeen owned feature contracts, concrete hook/build/test paths and practical regression commands; inventory checks against all current owner inputs |
+| Document and independently test custom seams where practical | Eighteen owned feature contracts, concrete hook/build/test paths and practical regression commands; inventory checks against all current owner inputs |
 | Complete a representative upstream integration without rewriting custom logic | Two retained real script revisions, one explicit anchor-only compatibility profile, identical custom replacements and preserved unrelated upstream change |
 | Make conflicts and behavior changes visible | Exact-path impact reports; unknown/deleted/structural/gitlink review gates; missing/duplicate/overlap adapter negatives; existing owner behavioral/native tests remain required |
 | Keep the approach generic and reusable | Revision-independent registry, language-independent exact-path planner, unrelated-owner fixture, generic original-span rule engine and immutable revision CLI |

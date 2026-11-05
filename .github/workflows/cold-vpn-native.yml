@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['validation/cold-vpn']
-    paths: ['ci/refresh-truth/**', 'ci/startup-upgrade/**', 'ci/cold-vpn/**', 'ci/multitask-launch/**', 'ci/language-switch/**', 'ci/issue56-startup/**', 'ci/issues-native/**', '.github/workflows/cold-vpn-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
+    paths: ['ci/refresh-direct-native/**', 'ci/refresh-truth/**', 'ci/startup-upgrade/**', 'ci/cold-vpn/**', 'ci/multitask-launch/**', 'ci/language-switch/**', 'ci/issue56-startup/**', 'ci/issues-native/**', '.github/workflows/cold-vpn-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
 permissions:
   contents: read
 concurrency:
@@ -76,6 +76,57 @@ jobs:
           python3 harness/ci/issues-native/record.py snapshot acquired
           { xcodebuild -version; xcrun --sdk iphoneos --show-sdk-version; swift --version; uname -a; } > evidence/toolchain.txt
           xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Validate direct refresh native backend service and Objective-C ABI
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/refresh-direct-native/test_source_binding.py
+          python3 -B harness/ci/refresh-direct-native/verify_source_binding.py --sources sources --builder harness --output evidence/direct-refresh-source-binding.json
+          # Generator tests require their original immutable inputs, not the
+          # composed candidate already bound above. Keep both graphs separate.
+          mkdir -p generation-inputs
+          for spec in 'LiveContainer 12377cf3b91d51739a33f14a302e5f522b238593' 'SideStore ff25922e5c13ccfafd83bda5092910d848ebd409' 'SideSign a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d'; do
+            read -r repo pin <<< "$spec"
+            git init -q "generation-inputs/$repo"
+            git -C "generation-inputs/$repo" remote add origin "https://github.com/NRG-Wardog/$repo.git"
+            git -C "generation-inputs/$repo" fetch --no-tags --depth=1 origin "$pin"
+            git -C "generation-inputs/$repo" checkout --detach FETCH_HEAD
+            test "$(git -C "generation-inputs/$repo" rev-parse HEAD)" = "$pin"
+          done
+          export EMBEDDED_SIDESTORE_TEST_SOURCE="$PWD/generation-inputs/SideStore"
+          export LIVE_CONTAINER_TEST_SOURCE="$PWD/generation-inputs/LiveContainer"
+          export SIDESIGN_TEST_SOURCE="$PWD/generation-inputs/SideSign"
+          export PYTHONPATH="$PWD/harness/scripts"
+          python3 - <<'PYTEST'
+          import unittest
+          suite = unittest.TestSuite()
+          for name in ('test_v3_service.py', 'test_v3_auth_recovery_audit.py'):
+              suite.addTests(unittest.defaultTestLoader.discover('harness/tests', pattern=name))
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(0 if result.wasSuccessful() and not result.skipped else 1)
+          PYTEST
+          export LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer"
+          python3 - <<'PYBRIDGE'
+          import unittest
+          suite = unittest.defaultTestLoader.discover('harness/tests', pattern='test_refresh_result_bridge.py')
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(0 if result.wasSuccessful() and not result.skipped else 1)
+          PYBRIDGE
+          cd harness/ci/refresh-direct-native
+          swiftc -swift-version 5 -parse-as-library gate_fixture.swift -o gate-test
+          ./gate-test
+          swiftc -swift-version 5 -parse-as-library backend_fixture.swift -o backend-test
+          ./backend-test --long
+          swiftc -swift-version 5 -parse-as-library service_fixture.swift -o service-test
+          ./service-test --long
+          clang -fobjc-arc -fblocks -c bridge.m -o bridge.o
+          swiftc -swift-version 5 -parse-as-library -import-objc-header bridge.h service_objc_fixture.swift bridge.o -o service-objc-test
+          ./service-objc-test
+          swiftc -swift-version 5 -parse-as-library reproduce_deadline.swift -o deadline-test
+          ./deadline-test
+          swiftc -swift-version 5 -parse-as-library release_fixture.swift -o release-test
+          ./release-test
+          swiftc -swift-version 5 -parse-as-library host_callback_fixture.swift -o host-callback-test
+          ./host-callback-test
       - name: Verify exact reviewed delta and separate historical source parity
         id: source_gate
         run: |
@@ -91,6 +142,10 @@ jobs:
           python3 -B harness/ci/issues-native/test_packaging_workspace.py
           python3 -B harness/ci/issues-native/test_projected_contract_cli.py
           python3 -B harness/ci/issues-native/test_issue_receipt.py
+          python3 -B harness/ci/issues-native/test_direct_refresh_projection.py
+          python3 -B harness/ci/issues-native/test_direct_service_projection.py
+          python3 -B harness/ci/issues-native/test_direct_fixture_projection.py
+          python3 -B harness/ci/issues-native/test_direct_host_projection.py
           python3 -B harness/ci/issues-native/test_candidate_graph.py
           python3 -B harness/ci/issues-native/test_candidate_contract_projection.py
           python3 -B harness/ci/issues-native/test_russian_pairing_projection.py

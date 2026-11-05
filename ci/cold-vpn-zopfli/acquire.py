@@ -7,7 +7,7 @@ sys.path.insert(0,str(ROOT/'ci/issues-native'))
 from recover_native_artifacts import API
 sys.path.insert(0,str(ROOT/'ci/language-switch'))
 from boot_evidence import verify_language_boot
-RECEIPTS={'provenance.json','native-receipt.json','size-optimization.json','russian-localization.json','unsigned-widget-receipt.json','openssl-local-stage.json','issue56-startup-tests.json','language-switch-tests.json','cold-vpn-tests.json','multitask-launch-tests.json','startup-upgrade-tests.json','refresh-truth-tests.json'}
+RECEIPTS={'provenance.json','native-receipt.json','size-optimization.json','russian-localization.json','unsigned-widget-receipt.json','openssl-local-stage.json','issue56-startup-tests.json','language-switch-tests.json','cold-vpn-tests.json','multitask-launch-tests.json','startup-upgrade-tests.json','refresh-truth-tests.json','database-recovery-tests.json','database-recovery-settings.json'}
 def validate_metadata(m,run,artifact):
     require(run.get('id')==m['run_id'] and run.get('run_attempt')==m['run_attempt'] and run.get('head_sha')==m['commit'] and run.get('status')=='completed' and run.get('conclusion')=='success','native run must be exact completed green')
     require(run.get('path')==WORKFLOW and run.get('repository',{}).get('full_name')==REPO and run.get('head_repository',{}).get('full_name')==REPO,'native workflow or ownership mismatch')
@@ -50,6 +50,16 @@ def unpack(m,archive,out):
     schema_sha=SHA((out/'startup-upgrade-tests.json').read_bytes())
     require(p.get('startup_upgrade_regression_sha256')==schema_sha and native['evidence_sha256'].get('startup-upgrade-tests.json')==schema_sha,'Core Data qualification receipt mismatch')
     verify_schema(read_json(out/'startup-upgrade-tests.json'),native['requested_graph'],{'workflow_commit':m['commit'],'run_id':str(m['run_id']),'run_attempt':str(m['run_attempt'])})
+    from database_recovery_package_admission import trusted as recovery_trusted
+    _, recovery = recovery_trusted()
+    recovery_value = read_json(out/'database-recovery-tests.json')
+    recovery_sha = SHA((out/'database-recovery-tests.json').read_bytes())
+    recovery_settings_sha = SHA((out/'database-recovery-settings.json').read_bytes())
+    recovery_identity = {'workflow_commit':m['commit'],'run_id':str(m['run_id']),'run_attempt':str(m['run_attempt'])}
+    require(p.get('database_recovery_regression_sha256') == recovery_sha and native['evidence_sha256'].get('database-recovery-tests.json') == recovery_sha, 'Recovery receipt mismatch')
+    require(p.get('database_recovery_settings_sha256') == recovery_settings_sha and native['evidence_sha256'].get('database-recovery-settings.json') == recovery_settings_sha, 'Recovery effective settings mismatch')
+    recovery.verify_portable(recovery_value, native['requested_graph'], recovery_identity)
+    recovery.verify_effective(recovery_value, recovery_sha, recovery_identity, read_json(out/'database-recovery-settings.json'))
     from refresh_truth_receipt import verify_portable as verify_refresh_truth
     refresh_sha=SHA((out/'refresh-truth-tests.json').read_bytes())
     require(p.get('refresh_truth_regression_sha256')==refresh_sha and native['evidence_sha256'].get('refresh-truth-tests.json')==refresh_sha,'refresh truth qualification receipt mismatch')

@@ -515,6 +515,144 @@ class ReviewedRecoveryBoundaryTests(unittest.TestCase):
                 self.assertEqual(c.plan_changes(self.registry, owner, [row])['result'], 'MANUAL_REVIEW_REQUIRED')
 
 
+class ReviewedPackageAdmissionTests(unittest.TestCase):
+    # Finite reviewed composition paths, not a wildcard allowance or artifact pin.
+    PATHS = (
+        '.github/workflows/cold-vpn-zopfli.yml',
+        'ci/cold-vpn-zopfli/README.md',
+        'ci/cold-vpn-zopfli/acquire.py',
+        'ci/cold-vpn-zopfli/cms-native-graph.json',
+        'ci/cold-vpn-zopfli/cms-native-helper.snapshot',
+        'ci/cold-vpn-zopfli/cms-source-contract.json',
+        'ci/cold-vpn-zopfli/cms_package_admission.py',
+        'ci/cold-vpn-zopfli/contract.py',
+        'ci/cold-vpn-zopfli/database-recovery-source-contract.json',
+        'ci/cold-vpn-zopfli/database_recovery_package_admission.py',
+        'ci/cold-vpn-zopfli/fallback-source-contract.json',
+        'ci/cold-vpn-zopfli/fixtures/actual-macos-boundary-25fc5b5d.json',
+        'ci/cold-vpn-zopfli/independent_verify.py',
+        'ci/cold-vpn-zopfli/initial_rejection_package_admission.py',
+        'ci/cold-vpn-zopfli/input-manifest.json',
+        'ci/cold-vpn-zopfli/owned-oda-source-contract.json',
+        'ci/cold-vpn-zopfli/owned_oda_package_admission.py',
+        'ci/cold-vpn-zopfli/owned_oda_package_binding.py',
+        'ci/cold-vpn-zopfli/preservation_cms_portable.py',
+        'ci/cold-vpn-zopfli/project_native_evidence.py',
+        'ci/cold-vpn-zopfli/provider_ownership_package_admission.py',
+        'ci/cold-vpn-zopfli/reviewed-native/candidate-graph.json',
+        'ci/cold-vpn-zopfli/reviewed-native/refresh_truth_receipt.py',
+        'ci/cold-vpn-zopfli/reviewed-native/run_database_recovery.py',
+        'ci/cold-vpn-zopfli/reviewed-native/run_issue_tests.py',
+        'ci/cold-vpn-zopfli/reviewed-native/run_owned_oda.py',
+        'ci/cold-vpn-zopfli/reviewed-native/verify_candidate_graph.py',
+        'ci/cold-vpn-zopfli/test_acquire.py',
+        'ci/cold-vpn-zopfli/test_cms_package_admission.py',
+        'ci/cold-vpn-zopfli/test_database_recovery_package_admission.py',
+        'ci/cold-vpn-zopfli/test_independent_verify.py',
+        'ci/cold-vpn-zopfli/test_initial_rejection_package_admission.py',
+        'ci/cold-vpn-zopfli/test_owned_oda_package_admission.py',
+        'ci/cold-vpn-zopfli/test_owned_oda_package_binding.py',
+        'ci/cold-vpn-zopfli/test_preservation_cms_portable.py',
+        'ci/cold-vpn-zopfli/test_project_native_evidence.py',
+        'ci/cold-vpn-zopfli/test_provider_ownership_package_admission.py',
+    )
+
+    def setUp(self):
+        self.registry = c.load_registry()
+        self.changes = [change(path) for path in self.PATHS]
+
+    def test_all_37_composed_paths_select_complete_package_admission_controls(self):
+        self.assertEqual(len(self.PATHS), 37)
+        self.assertEqual(len(set(self.PATHS)), 37)
+        result = c.plan_changes(self.registry, 'sidestore-auto-refresh', self.changes)
+        self.assertEqual(result['result'], 'IMPACT_CLASSIFIED_NOT_TESTED')
+        self.assertEqual(result['unclassified'], [])
+        self.assertEqual(len(result['classified']), 37)
+        self.assertEqual(result['affected_features'],
+                         ['database-preserving-recovery', 'ffi-ownership', 'package-native-evidence'])
+        required = {row['path'] for row in result['required_regressions']}
+        self.assertTrue({'ci/cold-vpn-zopfli/test_provider_ownership_package_admission.py',
+                         'ci/cold-vpn-zopfli/test_database_recovery_package_admission.py',
+                         'ci/cold-vpn-zopfli/test_cms_package_admission.py',
+                         'ci/cold-vpn-zopfli/test_owned_oda_package_admission.py',
+                         'ci/cold-vpn-zopfli/test_initial_rejection_package_admission.py',
+                         'ci/cold-vpn-zopfli/test_independent_verify.py'} <= required)
+        self.assertFalse(result['regressions_executed'])
+        self.assertFalse(result['native_compilation'])
+        self.assertFalse(result['physical_device_validation'])
+
+    def test_each_package_mapping_is_required_even_when_shared_with_native_boundary(self):
+        for path in self.PATHS:
+            registry = copy.deepcopy(self.registry)
+            for feature in registry['features']:
+                for kind in ('modules', 'integration_points', 'regressions'):
+                    feature[kind] = [row for row in feature[kind]
+                                     if (row['owner'], row['path']) != ('sidestore-auto-refresh', path)]
+            with self.subTest(path=path):
+                result = c.plan_changes(registry, 'sidestore-auto-refresh', self.changes)
+                self.assertEqual(result['result'], 'MANUAL_REVIEW_REQUIRED')
+                self.assertEqual(result['unclassified'], [path])
+
+    def test_unknown_neighbor_removal_and_linked_helper_remain_manual_review(self):
+        unknown = change('ci/cold-vpn-zopfli/unreviewed_admission.py', 'A', old='000000')
+        result = c.plan_changes(self.registry, 'sidestore-auto-refresh', self.changes + [unknown])
+        self.assertEqual(result['result'], 'MANUAL_REVIEW_REQUIRED')
+        self.assertEqual(result['unclassified'], [unknown['path']])
+        for row in (change('ci/cold-vpn-zopfli/provider_ownership_package_admission.py', 'D', new='000000'),
+                    change('ci/cold-vpn-zopfli/reviewed-native/run_database_recovery.py', 'T', new='120000')):
+            self.assertEqual(c.plan_changes(self.registry, 'sidestore-auto-refresh', [row])['result'],
+                             'MANUAL_REVIEW_REQUIRED')
+
+    def test_specialized_package_admission_keeps_its_native_boundary(self):
+        for feature, paths in (
+            ('ffi-ownership', ('provider_ownership_package_admission.py',
+                              'reviewed-native/run_issue_tests.py',
+                              'test_provider_ownership_package_admission.py')),
+            ('database-preserving-recovery', ('database_recovery_package_admission.py',
+                                             'database-recovery-source-contract.json',
+                                             'reviewed-native/run_database_recovery.py',
+                                             'test_database_recovery_package_admission.py'))):
+            for path in paths:
+                result = c.plan_changes(self.registry, 'sidestore-auto-refresh',
+                                        [change('ci/cold-vpn-zopfli/' + path)])
+                with self.subTest(path=path):
+                    self.assertEqual(result['affected_features'], sorted((feature, 'package-native-evidence')))
+
+    def test_native_verifier_changes_also_require_corresponding_package_controls(self):
+        for path, test in (
+            ('ci/issues-native/run_issue_tests.py', 'test_provider_ownership_package_admission.py'),
+            ('ci/issues-native/run_database_recovery.py', 'test_database_recovery_package_admission.py')):
+            result = c.plan_changes(self.registry, 'sidestore-auto-refresh', [change(path)])
+            self.assertTrue(any(row['path'] == 'ci/cold-vpn-zopfli/' + test
+                                for row in result['required_regressions']))
+
+    def test_every_package_path_has_exact_push_and_pull_request_inventory_triggers(self):
+        workflow = (ROOT / '.github/workflows/custom-integration-contract.yml').read_text()
+        pull = workflow.split('  pull_request:\n', 1)[1].split('  push:\n', 1)[0]
+        push = workflow.split('  push:\n', 1)[1].split('\npermissions:', 1)[0]
+        permissions = workflow.split('\npermissions:', 1)[1].split('\nconcurrency:', 1)[0]
+        self.assertEqual(permissions.strip(), 'contents: read')
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                marker = "      - '" + path + "'"
+                self.assertEqual(workflow.count(marker), 2)
+                self.assertEqual(pull.count(marker), 1)
+                self.assertEqual(push.count(marker), 1)
+
+    def test_package_scope_requires_strict_portable_controls_without_native_claim(self):
+        feature = next(row for row in self.registry['features'] if row['id'] == 'package-native-evidence')
+        self.assertEqual({row['path'] for kind in ('modules', 'integration_points', 'regressions')
+                          for row in feature[kind]}, set(self.PATHS))
+        for row in feature['regressions']:
+            self.assertIn('run_required_tests.py', row['command'])
+            self.assertIn("--pattern 'test_*.py'", row['command'])
+            self.assertIn(row['level'], ('executable-fixture', 'source-contract'))
+        self.assertIn('before compression', feature['contract'])
+        self.assertIn('independent final audit', feature['contract'])
+        self.assertIn('never execute artifact-supplied code', feature['limitations'])
+        self.assertIn('placeholder/old artifact metadata is unqualified', feature['limitations'])
+
+
 class GitImpactTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)

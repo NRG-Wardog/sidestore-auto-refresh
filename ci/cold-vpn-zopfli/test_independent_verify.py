@@ -5,6 +5,17 @@ from test_sweep import sample
 from zip32 import parse
 ROOT=pathlib.Path(__file__).resolve().parent
 class AuditControls(unittest.TestCase):
+    def test_measured_exception_binds_complete_current_manifest(self):
+        from contract import manifest
+        self.assertEqual(CLOSEST_NATIVE_INPUT,manifest(ROOT/'input-manifest.json'))
+    def test_previous_delivered_candidate_cannot_use_current_bound(self):
+        previous={'schema': 'cold-vpn-green-native-input-v1', 'run_id': 41441341176, 'run_attempt': 1, 'commit': '0ce0b994e8be93e004a8777dad12846a6b6c97a9', 'artifact_id': 13143497473, 'artifact_bytes': 26753225, 'artifact_sha256': '5f018b617ea8fde6407b31f7307fefed9a08401f41ea327d595603193dbce65d', 'ipa_bytes': 25028009, 'ipa_sha256': 'a8eab0e4f8610b50e26cc9ecc0b6b28be40e931e38b7164a7dba718775ad48a4', 'entries': 274}
+        recent={'schema': 'cold-vpn-green-native-input-v1', 'run_id': 41656076254, 'run_attempt': 2, 'commit': 'bfe6432d9eeb23dffa60ff9e550e0f15fe14171e', 'artifact_id': 13250861043, 'artifact_bytes': 26766239, 'artifact_sha256': '2d86992b02659633398688478c9cdf90d39797c96db3d6541cd5a965e27bded2', 'ipa_bytes': 25028780, 'ipa_sha256': '130a72735272fc484b7bd872edd62228a264b2e529dceb3e15cca2183ff8cf28', 'entries': 274}
+        latest={'schema': 'cold-vpn-green-native-input-v1', 'run_id': 41699105117, 'run_attempt': 1, 'commit': '5a6ea2020a23386661b9ab5ba9a025c693ac0a66', 'artifact_id': 13267085125, 'artifact_bytes': 26768242, 'artifact_sha256': 'a62b24a84f7872877f9e097963aebd6975bdf9e424508a433d42ebac824687ba', 'ipa_bytes': 25031534, 'ipa_sha256': '6a544be5c9cdf0360cc4b85304835a91293c362da6082067eb69b3cc77d8be27', 'entries': 274}
+        fallback={'schema': 'cold-vpn-green-native-input-v1', 'run_id': 41816078385, 'run_attempt': 2, 'commit': '849742a0718bdf5409926a6885e92cc013c7a6ef', 'artifact_id': 13322905493, 'artifact_bytes': 26768567, 'artifact_sha256': '2f6980d6d85c1e9486fcef1dc1a8a11527cefe01d36143a66f51c1c91f9e8819', 'ipa_bytes': 25034407, 'ipa_sha256': 'fd8491ad3e09c6e9ac3fdc0560ab8c939cdcdd00d329cf27a20e9a4e3f191727', 'entries': 274}
+        for candidate in (previous,recent,latest,fallback):
+            with self.subTest(run=candidate['run_id']),self.assertRaisesRegex(ValueError,'closest-result native input differs'):
+                verify_size_acceptance(candidate,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
     def test_standard_size_target_remains_strict_for_other_candidates(self):
         unknown=dict(CLOSEST_NATIVE_INPUT,commit='a'*40)
         self.assertTrue(verify_size_acceptance(unknown,24000000,'a'*64,True)['target_met'])
@@ -12,17 +23,64 @@ class AuditControls(unittest.TestCase):
         with self.assertRaises(ValueError):verify_size_acceptance(unknown,24000001,'a'*64,True)
     def test_exact_closest_candidate_reports_target_not_met(self):
         accepted=verify_size_acceptance(CLOSEST_NATIVE_INPUT,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
-        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],3056)
-        self.assertEqual(accepted['policy'],'exact_reviewed_closest_candidate_only')
+        self.assertFalse(accepted['target_met']);self.assertEqual(accepted['excess_bytes'],384145)
+        self.assertEqual(accepted['policy'],'exact_reviewed_candidate_measured_upper_bound')
     def test_closest_candidate_rejects_any_input_or_output_drift(self):
         for key,value in CLOSEST_NATIVE_INPUT.items():
             changed=copy.deepcopy(CLOSEST_NATIVE_INPUT)
             changed[key]=value+1 if type(value) is int else value+'x'
             with self.subTest(key=key),self.assertRaises(ValueError):verify_size_acceptance(changed,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
-        for size,digest,target in [(CLOSEST_OUTPUT_BYTES-1,CLOSEST_OUTPUT_SHA256,False),(CLOSEST_OUTPUT_BYTES+1,CLOSEST_OUTPUT_SHA256,False),(CLOSEST_OUTPUT_BYTES,'a'*64,False),(CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,True),(CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,0)]:
+        for size,digest,target in [(CLOSEST_OUTPUT_BYTES+1,CLOSEST_OUTPUT_SHA256,False),(CLOSEST_OUTPUT_BYTES,'invalid',False),(CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,True),(CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,0)]:
             with self.subTest(size=size,digest=digest,target=target),self.assertRaises(ValueError):verify_size_acceptance(CLOSEST_NATIVE_INPUT,size,digest,target)
         extra=dict(CLOSEST_NATIVE_INPUT,unexpected=True)
         with self.assertRaises(ValueError):verify_size_acceptance(extra,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
+    def test_smaller_same_candidate_binds_actual_not_reference_digest(self):
+        actual='a'*64
+        accepted=verify_size_acceptance(CLOSEST_NATIVE_INPUT,CLOSEST_OUTPUT_BYTES-1,actual,False)
+        self.assertEqual(accepted['accepted_output_sha256'],actual)
+        self.assertEqual(accepted['maximum_output_bytes'],CLOSEST_OUTPUT_BYTES)
+        self.assertEqual(accepted['reference_measurement_sha256'],CLOSEST_OUTPUT_SHA256)
+    def test_below_bound_payload_and_metadata_tamper_rejected_by_real_auditor(self):
+        import io,runpy,zipfile,traceback
+        from unittest.mock import patch
+        import contract
+        def archive(payload):
+            out=io.BytesIO()
+            with zipfile.ZipFile(out,'w',compression=zipfile.ZIP_STORED) as z:
+                z.writestr(zipfile.ZipInfo('one',(2026,1,1,0,0,0)),payload);z.writestr(zipfile.ZipInfo('two',(2026,1,1,0,0,0)),b'fixed')
+            return out.getvalue()
+        data=archive(b'original')
+        metadata=bytearray(data)
+        with zipfile.ZipFile(io.BytesIO(data)) as archive_reader:central=archive_reader.start_dir
+        oldtime=struct.unpack_from('<H',metadata,10)[0]
+        struct.pack_into('<H',metadata,10,oldtime^1);struct.pack_into('<H',metadata,central+12,oldtime^1)
+        for changed,payload_changed in ((archive(b'tampered'),True),(bytes(metadata),False)):
+            with self.subTest(payload_changed=payload_changed),tempfile.TemporaryDirectory() as directory:
+                root=pathlib.Path(directory).resolve();self.fixture(root,data,changed)
+                m=json.loads((root/'input-manifest.json').read_text())
+                result=json.loads((root/'result.json').read_text());result['target_met']=False
+                (root/'result.json').write_text(json.dumps(result))
+                # Test-only miniature bound: exercise the actual candidate branch,
+                # then the unchanged full auditor, without a 24 MB synthetic file.
+                with patch.object(contract,'TARGET_BYTES',1),patch.object(contract,'CLOSEST_NATIVE_INPUT',m),patch.object(contract,'CLOSEST_OUTPUT_BYTES',len(data)+1),patch.object(sys,'argv',['independent_verify.py','--root',str(root)]):
+                    self.assertFalse(contract.verify_size_acceptance(m,len(changed),SHA(changed),False)['target_met'])
+                    try:
+                        runpy.run_path(str(ROOT/'independent_verify.py'),run_name='__main__')
+                    except AssertionError as error:
+                        frames=traceback.extract_tb(error.__traceback__)
+                        frame=frames[-1]
+                        self.assertEqual(pathlib.Path(frame.filename).resolve(),(ROOT/'independent_verify.py').resolve())
+                        expected='raw==b.read(y)' if payload_changed else 'getattr(x,attr)==getattr(y,attr)'
+                        self.assertIn(expected,frame.line)
+                    else:self.fail('actual payload/metadata tamper was admitted')
+    def test_current_exception_rejects_equal_numeric_type_drift(self):
+        for key,value in CLOSEST_NATIVE_INPUT.items():
+            if type(value) is int:
+                changed=dict(CLOSEST_NATIVE_INPUT);changed[key]=float(value)
+                with self.subTest(key=key),self.assertRaises(ValueError):
+                    verify_size_acceptance(changed,CLOSEST_OUTPUT_BYTES,CLOSEST_OUTPUT_SHA256,False)
+        with self.assertRaises(ValueError):
+            verify_size_acceptance(CLOSEST_NATIVE_INPUT,float(CLOSEST_OUTPUT_BYTES),CLOSEST_OUTPUT_SHA256,False)
     def test_round_stop_audit_rejects_false_target_extra_round_or_incomplete_schedule(self):
         def report(savings,stop):
             return {'rounds':[{'iterations':iteration,'attempts':1,'elapsed_seconds':1} for iteration in ITERATIONS[:len(savings)]],

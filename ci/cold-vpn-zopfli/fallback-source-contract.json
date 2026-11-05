@@ -1,0 +1,88 @@
+{
+  "native_builder": "a78ea0efece1afde269a893522b79dca797de578",
+  "required_markers": [
+    "INITIAL_PROVIDER_REJECTION_AUTH_PASS cases=27 actual_authenticate=true native_provider=false",
+    "INITIAL_PROVIDER_REJECTION_CONSUMER_PASS actual_mapper=true actual_sequence=true account_calls=false",
+    "AUTH_REQUEST_DIAGNOSTICS_FIXTURE_PASS",
+    "INITIAL_PROVIDER_REJECTION_CONSTRUCTOR_PRIVATE_PASS"
+  ],
+  "retained_files": [
+    "issue-tests.json",
+    "owned-initial-provider-rejection.log"
+  ],
+  "schema": "reviewed-initial-provider-rejection-package-contract-v1",
+  "source_provenance": {
+    "source_graph": {
+      "LiveContainer": {
+        "commit": "2a2d92d49d48553c8275dc1fd1737a95b1136c1a",
+        "tree": "9f27b5d843f26edbf358ef7b201c963f653f9de6"
+      },
+      "SideStore": {
+        "commit": "e1d2f47405f8becc102608ab066513a8754ce8da",
+        "tree": "8e1e1b1f1115a191633fa8cbfb3e52be9df28129"
+      },
+      "SideStore/Dependencies/SideSign": {
+        "commit": "3036cfb7803844842d604d17d9697ddbbbc4d50f",
+        "tree": "2f894eb0c2213bf3fa23a68a782c768e6a6c5da2"
+      }
+    },
+    "source_sha256": {
+      "LiveContainer/.ci/owned-oda-note/test_source.py": "d3122cf120cd65ca32695e4a723f2da50b4e6b1124f65db403808e44f96688f0",
+      "LiveContainer/LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift": "7f898512efb3e4261ced7ba91cb729c1d500d8e8a48e6dbae5e8d5068ddd7e48",
+      "LiveContainer/LiveContainerSwiftUI/Utilities/V3Localization.swift": "76af17a76bcc59a1dc7f4cc5f6d3d79f29dd876a84ce8758e78055d0d46857fb",
+      "LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "6e789b614bd4c72eaef8db6cef22d82276d223dbd9e35f8d1277d9ceaec9391a",
+      "LiveContainer/Resources/Localizable.xcstrings": "fea8f9f9cb70b3a45f72d0f42c51877fbd1b9a51b09ce251fb5b3179dde8cde4",
+      "LiveContainer/tests/provider_sequence/main.swift": "1361f0dfb5567239e23a122c118b4f03d6ddfd6bfd9f51baed34301209d60808",
+      "LiveContainer/tests/provider_sequence/prompt_main.swift": "734b3a7c0f679dba95c468bb81c27815e54212fa87366d52697eb572a368d07c",
+      "LiveContainer/tests/test_diagnostic_provider_sequence.py": "d76cda2567f2d774bd0fbdcdd80bbecef9a278d01113d821a4d97a147e0cbda1",
+      "SideStore/.ci/iloader-onboarding-scope/generate.py": "27fcab8437d46f710559ff584a2c38921b871c9df27229efed1ec196b422fcbf",
+      "SideStore/.ci/initial-provider-rejection/BoundaryDoubles.swift": "e6cbcc8d2dabd8fdc512382a119bb7c0253aadf7d1e18e1bda8c467dcf3b8094",
+      "SideStore/.ci/initial-provider-rejection/README.md": "753a6db089082189f7dd478dcafa1d125ef6360321c5f68e8bb32ce7a9172cc7",
+      "SideStore/.ci/initial-provider-rejection/RuntimeCases.swift": "b9e8ac048e7c3fdf11161c24b617a3fc8e468389ef3c16dbf98455f16dc76408",
+      "SideStore/.ci/initial-provider-rejection/generate.py": "564861e0efd1471cf4322d10f602256504a42bc3bc72d65a942d832d7b846fe1",
+      "SideStore/.ci/initial-provider-rejection/run.sh": "ea191721a50a28d3b15fd831e4ab51dcd04103e3198b41d211b487b3160ff75e",
+      "SideStore/.ci/initial-provider-rejection/test_source.py": "9d9a31cb8243b240fb703717cb8769360369a0a091d2933c60e2d3546bd4de15",
+      "SideStore/.ci/owned-oda/IdentityCases.swift": "b3ed8d3d7814c5e2158dc4635c6a69afdaaf5dd6fa18feb08c0aea1cd9bd977a",
+      "SideStore/.ci/owned-oda/generate_identity.py": "f54027d0442fbd37113abc2b648d6f68adfcfd432037b6bd9b33756b9af7f237",
+      "SideStore/.ci/owned-oda/run.sh": "f3887d9f12729762e7f9f45caac873161056b0b9b00d1a254b46a356ad4b621f",
+      "SideStore/.ci/owned-oda/test_sources.py": "51df29984eeea068f72599801553b1530ac72ef12c328902eea5384a73044d50",
+      "SideStore/AltStore/AppDelegate.swift": "ed7149defcd90a81ecbe4542a82994c7781b1595d9c2a44b57f84c4105c5186c",
+      "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/BoundaryDoubles.swift": "05f88718a3175f0af5866e512743a47a8db3c8b1b14bf407f92f18a9e275c8de",
+      "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/PrivateProbes.swift": "62cdbd4d0cab3eeff2f84ca94d6ae76ce1e31b084eb6662f73f8e3bd7008a7ee",
+      "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/README.md": "bfbb2bfc80b4443b4acc6f3bfffd87e543e210386bedff2734ae446d1bb0a287",
+      "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/RuntimeTests.swift": "f79019caad283cc1fddd1d24e339ceeeec56cd486588fe8c8b01357532e26f9f",
+      "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/baseline/Authentication.swift": "ce5bc5c16552a3f5fda370a7f301ec973be3f3f81b0221c6c3257befe60a2849",
+      "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/baseline/manifest.json": "eb08cde953daa00dc72791a971ce46a9f25976151ed3c164b752bfbf8a0c32cc",
+      "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/generate.py": "06b85c553571d094779d867c8eb3a40a8d9350aae8c576cb74afb9833936d10e",
+      "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/instrumentation-projection.json": "1e4e59c5a0c260a40be1dff9b363d6c52bec1905c355197bd9905b3c6510c11f",
+      "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/test_source.py": "b5369b700bf058a272135d19a6d55f984990935fee0059a3038952f347c0adc5",
+      "SideStore/Dependencies/SideSign/.ci/initial-provider-rejection/RuntimeCases.swift": "b7474cf969d0bfbc206a3c35550fafcbc02db64fee069568440f6801c80fd723",
+      "SideStore/Dependencies/SideSign/.ci/initial-provider-rejection/authentication-projection.json": "19fd308730f3d004ce21813edf36b939acae33901a8108f02e5261b43ff444cd",
+      "SideStore/Dependencies/SideSign/.ci/owned-oda/Fixture.swift": "5ddf26ed5ef069ef71a1f0ed3e065dae52373a1ae3b494cdc73353c9ec9c3383",
+      "SideStore/Dependencies/SideSign/.ci/owned-oda/run.sh": "036ec7207ed508750b94cc14e2525fa79f87a6c466f7e331b683e6935624f010",
+      "SideStore/Dependencies/SideSign/.ci/owned-oda/test_sources.py": "7d9f4abc165130517b6611dca574745ac4757d1466a90538088d5654b7ca0476",
+      "SideStore/Dependencies/SideSign/Sources/Anisette/OwnedODAAuthenticationContext.swift": "ccbf69da9447cf527c9eb1af6b5b0a726f262841e7dada9619625ca0a684e268",
+      "SideStore/Dependencies/SideSign/Sources/Anisette/OwnedODALibraryPreparation.swift": "afeff435b712bf25e2c11ba8ccc74fbd3c3f0158199ba948a9848f239628e2b4",
+      "SideStore/Dependencies/SideSign/Sources/Anisette/OwnedODANativeSource.swift": "66b34292048bd7422634294936e87875f0f897533718673817a9efd3c9f6af83",
+      "SideStore/Dependencies/SideSign/Sources/Constants.swift": "53e0874fb75eae957ec690db0efb97657e2c9c8e97b3efd1f8fee4947be4e979",
+      "SideStore/Dependencies/SideSign/Sources/DeveloperPortal/Authentication.swift": "2bcb4f8dd7cf82fd8e5d84af9795527755c8d56de017d4fd02c0eb0e8b4135c8",
+      "SideStore/Dependencies/SideSign/Sources/DeveloperPortal/DeveloperPortalAPI.swift": "dc531357c8b8a6c00e02011131a640cc942ff79434eca9655066def59341c54d",
+      "SideStore/Dependencies/SideSign/Sources/DeveloperPortal/ILoaderAuthenticationPolicy.swift": "6430c6da8f0ddfb6bdab9c9ba6acaf5931a33e1f0e1dd491c9df46b160e16d5a",
+      "SideStore/Dependencies/SideSign/Sources/Models/AnisetteData.swift": "91d9d49d846786d591fc1c18b0108ce5ce96792718195ddb26989ad2df17f962",
+      "SideStore/Dependencies/SideSign/Sources/Models/AuthenticationDiagnosticTrace.swift": "cdb286034a2061e0af8c4c132bffc4f5620ff29ce223376440c0092a1b344b4c",
+      "SideStore/Dependencies/SideSign/Sources/Models/AuthenticationHeaderProvenance.swift": "544bae8c20934d93cc6ac0d923b9a024efa7f5326d773aaaa0193ab1741b0f9d",
+      "SideStore/Dependencies/SideSign/Sources/Models/Errors.swift": "2f07da739407a4579754c12513183a4f96c1e7bbd1308a6a49288e396047a500",
+      "SideStore/Dependencies/SideSign/Sources/Models/Session.swift": "1fe45df5ef85420a34b554ba6c59801ccfaf0ff6836bb14b2d1389b7333b4cc4",
+      "SideStore/Dependencies/SideSign/Sources/SideSignHeaders.swift": "1c8466f413dc8d061e98decb1a333d87c279c2ee6af2bd86db71d0881e03f938",
+      "SideStore/SideStore/Core/Anisette/AnisetteProvider.swift": "b63592f24e744f56483c486bc70dc88a00e292331163fa71ab12e2d5086cc4d4",
+      "SideStore/SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift": "830d79343771bb497a60dab9f308ac9e6404e112895baa477be8d2fb4d475c31",
+      "SideStore/SideStore/Core/Auth/AuthManager.swift": "09fe467a2b4f5167daab6d7f06c0d4db90e43c866bf677b69f35813328042c3c",
+      "SideStore/SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": "bb78fe71d80718821b0ef87b90ecf487bc3077847b23870c26737cd143349bea"
+    }
+  },
+  "trusted_files_sha256": {
+    "candidate-graph.json": "9312c5d78303a32d52561396f82ec61ab0960f5bacaa845eda7acbdc58f6ab92",
+    "run_issue_tests.py": "4978954116ee9c9de6ec2bbe9c5389730a2a09d63b3b7042527908bc7f9c327f",
+    "verify_candidate_graph.py": "a7684ae0f85f4ba3298418bbff906755b0b43c2b30d34303e38ec3cf51660b36"
+  }
+}

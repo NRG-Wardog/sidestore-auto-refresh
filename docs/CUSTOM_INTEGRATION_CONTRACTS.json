@@ -768,6 +768,18 @@
           "path": "ffi/src/provider.rs",
           "interface": "Provider ownership regression module",
           "rationale": "Exercise actual Rust borrowed-provider service paths and exactly-once consuming connection cleanup."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/provider_ownership_package_admission.py",
+          "interface": "rust_counts / verify",
+          "rationale": "Require every reviewed Rust test, zero ignored/failed cases, both generated-header markers, the exact idevice graph and original IPA bytes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/run_issue_tests.py",
+          "interface": "Reviewed ownership verifier snapshot",
+          "rationale": "Keep named Rust tests, generated-header markers and receipt semantics paired with the exact native builder."
         }
       ],
       "integration_points": [
@@ -994,6 +1006,12 @@
           "path": "ci/issues-native/test_issue_receipt.py",
           "command": "python3 -B ci/issues-native/test_issue_receipt.py",
           "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_provider_ownership_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
         }
       ]
     },
@@ -1214,6 +1232,18 @@
           "path": "ci/issues-native/capture_release_settings.py",
           "interface": "capture / finite Release settings diagnostics",
           "rationale": "Retain whitelisted settings including SWIFT_VERSION and a whole-row canonical hash for diagnosis; policy_admission remains false and diagnostic output never admits a build."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/database_recovery_package_admission.py",
+          "interface": "trusted / verify",
+          "rationale": "Require exact SQLite/Core Data reports, source closure, acquired bytes, effective Swift settings, raw evidence and IPA provenance from the same native run."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/run_database_recovery.py",
+          "interface": "Reviewed recovery verify_portable / verify_effective snapshot",
+          "rationale": "Keep package verification byte-paired with the native producer and effective Release Swift settings proof."
         }
       ],
       "integration_points": [
@@ -1450,6 +1480,12 @@
           "path": ".github/workflows/issue56-native.yml",
           "interface": "Recovery upstream successor controls and source-report verification",
           "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/database-recovery-source-contract.json",
+          "interface": "Reviewed recovery source/helper contract",
+          "rationale": "Bind the current native builder, helper bytes and exact33-source recovery closure independently of transient artifact pins."
         }
       ],
       "regressions": [
@@ -1565,6 +1601,12 @@
           "owner": "sidestore-auto-refresh",
           "path": "ci/issues-native/test_release_settings_cache.py",
           "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_release_settings_cache.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_database_recovery_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
           "level": "executable-fixture"
         }
       ]
@@ -1755,6 +1797,239 @@
           "path": "tests/fixtures/issue56-recovery-delta.json",
           "command": "python3 -B -m unittest discover -s tests -p test_integration_contracts.py -v",
           "level": "source-contract"
+        }
+      ]
+    },
+    {
+      "id": "package-native-evidence",
+      "contract": "Package only artifacts bound to the successful reviewed native source and run. Preserve existing compression, size, signature and preservation gates; require ownership and recovery admission before compression and repeat those checks during the independent final audit.",
+      "limitations": "Portable package tests, source snapshots and archive projection do not run Rust, SQLite, Core Data, signing, authentication or a physical device. Native evidence must already match the explicit workflow commit, run and attempt, complete owner graph, source/helper hashes, raw receipts/logs and original IPA. Preserve all existing CMS, owned-attempt and fallback checks. Source-only composition or placeholder/old artifact metadata is unqualified. Only hash-verified repository helper snapshots may be loaded; never execute artifact-supplied code. All regression entries use the complete package test directory once; repeated command references do not imply repeated native runs.",
+      "modules": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/acquire.py",
+          "interface": "validate_metadata / unpack / main",
+          "rationale": "Acquire only the explicitly bound successful native artifact and approved source, validating archive and IPA identity before extraction."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/cms-native-helper.snapshot",
+          "interface": "Reviewed native CMS verifier snapshot",
+          "rationale": "Load only source-contract-hash-verified repository bytes for portable receipt verification, never executable content taken from an artifact."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/cms_package_admission.py",
+          "interface": "verify",
+          "rationale": "Admit the exact projected CMS evidence and its current native identity without rerunning native tests."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/contract.py",
+          "interface": "manifest / verify_round_schedule / verify_size_acceptance",
+          "rationale": "Keep immutable input and compression/size acceptance policy distinct from evidence acquisition or native execution."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/database_recovery_package_admission.py",
+          "interface": "trusted / verify",
+          "rationale": "Require exact SQLite/Core Data reports, source closure, acquired bytes, effective Swift settings, raw evidence and IPA provenance from the same native run."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/initial_rejection_package_admission.py",
+          "interface": "trusted / projected_evidence / verify",
+          "rationale": "Keep shared reviewed-source loading and archive projection bound to exact fallback, authentication and source identities."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/owned_oda_package_admission.py",
+          "interface": "trusted / project / verify",
+          "rationale": "Validate the exact owned-attempt evidence capsule, bounded members and native provenance without executing artifact code."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/owned_oda_package_binding.py",
+          "interface": "artifact_from_source / project / verify",
+          "rationale": "Bind the ODA admission to reviewed projector source constants and retained capsule identity."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/preservation_cms_portable.py",
+          "interface": "verify",
+          "rationale": "Verify reviewed CMS source, fixture, report and raw evidence bindings portably; do not convert archive replay into native execution."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/project_native_evidence.py",
+          "interface": "validate_read_only_archive / project",
+          "rationale": "Project only the exact source-pinned successful native archive with safe finite members and hash-bound receipt bytes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/provider_ownership_package_admission.py",
+          "interface": "rust_counts / verify",
+          "rationale": "Require every reviewed Rust test, zero ignored/failed cases, both generated-header markers, the exact idevice graph and original IPA bytes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/refresh_truth_receipt.py",
+          "interface": "Reviewed refresh-truth verifier snapshot",
+          "rationale": "Retain exact native verifier source for portable semantic checking; copying this helper does not execute native tests."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/run_database_recovery.py",
+          "interface": "Reviewed recovery verify_portable / verify_effective snapshot",
+          "rationale": "Keep package verification byte-paired with the native producer and effective Release Swift settings proof."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/run_issue_tests.py",
+          "interface": "Reviewed ownership verifier snapshot",
+          "rationale": "Keep named Rust tests, generated-header markers and receipt semantics paired with the exact native builder."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/run_owned_oda.py",
+          "interface": "Reviewed owned-attempt verifier snapshot",
+          "rationale": "Keep the owned-attempt receipt semantics paired with the same native source graph."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/verify_candidate_graph.py",
+          "interface": "Reviewed candidate graph verifier snapshot",
+          "rationale": "Preserve exact owner graph verification when portable validators load their reviewed native dependencies."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/cold-vpn-zopfli.yml",
+          "interface": "Acquisition, precompression admissions, packaging and independent final audit",
+          "rationale": "Retain all existing adapters and gates while making ownership and recovery checks mandatory before compression and at final verification."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/README.md",
+          "interface": "Package qualification and evidence limits",
+          "rationale": "Document the required native provenance and package procedure without treating documentation as passing evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/cms-native-graph.json",
+          "interface": "Reviewed CMS owner graph",
+          "rationale": "Bind CMS evidence and source snapshots to the intended native owner tuple."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/cms-source-contract.json",
+          "interface": "Reviewed CMS source/helper contract",
+          "rationale": "Keep trusted helper bytes and exact CMS evidence inputs explicit; regenerate only from reviewed source."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/database-recovery-source-contract.json",
+          "interface": "Reviewed recovery source/helper contract",
+          "rationale": "Bind the current native builder, helper bytes and exact33-source recovery closure independently of transient artifact pins."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/fallback-source-contract.json",
+          "interface": "Shared trusted native helper and fallback graph contract",
+          "rationale": "Require the complete reviewed helper closure and native builder identity before either shared or specialized admission."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/independent_verify.py",
+          "interface": "Read-only final archive audit",
+          "rationale": "Replay ownership, recovery, CMS, fallback and ODA admission against retained evidence and final payload without invoking compressor or artifact executables."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/input-manifest.json",
+          "interface": "Explicit successful run, artifact and IPA binding",
+          "rationale": "Populate actual qualification metadata only after matching native success; an old or incomplete manifest must not admit a new candidate."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/owned-oda-source-contract.json",
+          "interface": "Owned-attempt trusted source contract",
+          "rationale": "Keep native builder and reviewed owned-attempt verifier/source identities explicit."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/candidate-graph.json",
+          "interface": "Reviewed complete native owner graph snapshot",
+          "rationale": "Require graph byte identity with the final native source; never overwrite current native graph with the earlier package baseline."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/fixtures/actual-macos-boundary-25fc5b5d.json",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "source-contract"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_acquire.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_cms_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_database_recovery_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_independent_verify.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_initial_rejection_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_owned_oda_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_owned_oda_package_binding.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_preservation_cms_portable.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_project_native_evidence.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_provider_ownership_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
         }
       ]
     }
