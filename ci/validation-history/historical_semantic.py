@@ -42,11 +42,12 @@ def prepare_fixture(root, destination, object_read=git_read):
 
 def run_tests(root=ROOT):
     with tempfile.TemporaryDirectory(prefix='semantic-history-') as folder:
-        fixture = Path(folder)
+        # Canonicalize only the allocated root, before adding retained paths.
+        fixture = Path(folder).resolve()
         prepare_fixture(root, fixture)
         env = {
             'PATH': os.environ['PATH'],
-            'HOME': folder,
+            'HOME': str(fixture),
             'GIT_CONFIG_NOSYSTEM': '1',
             'GIT_CONFIG_GLOBAL': os.devnull,
             'PYTHONDONTWRITEBYTECODE': '1',

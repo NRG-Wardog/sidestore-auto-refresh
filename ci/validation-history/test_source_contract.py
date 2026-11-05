@@ -11,7 +11,7 @@ class SourceContractTests(unittest.TestCase):
     def setUp(self):
         self.enterContext(patch.object(relocation, 'BASELINE_SHA256', {}))
         self.enterContext(patch.object(s, 'verify_auxiliary'))
-        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name).resolve()
         self.history={p:('old '+p).encode() for p in s.OVERRIDES}
         self.current={p:('new '+p).encode() for p in s.OVERRIDES|s.DEPENDENCIES|s.ADDED_WORKFLOWS}
         self.history['security.py']=self.current['security.py']=b'keep strict privacy checks'
@@ -96,7 +96,7 @@ class RelocationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         for name, raw in self.objects.items():
             for prefix, replacement in relocation.PATH_REWRITES.get(name, ()):
                 raw = raw.replace(prefix.encode(), replacement.encode())
@@ -220,7 +220,7 @@ class HistoricalSemanticFixtureTests(unittest.TestCase):
     def test_missing_or_tampered_inputs_rejected_before_copy(self):
         import historical_semantic as h
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)/'source'
+            root = Path(folder).resolve()/'source'
             for original in h.INPUTS:
                 path = root/relocation.RELOCATED[original]
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,7 +231,7 @@ class HistoricalSemanticFixtureTests(unittest.TestCase):
                     path = root/relocation.RELOCATED[original]
                     raw = path.read_bytes()
                     path.write_bytes(raw + b'tampered')
-                    destination = Path(folder)/'fixture'
+                    destination = Path(folder).resolve()/'fixture'
                     with self.assertRaisesRegex(ValueError, 'fixture input differs'):
                         h.prepare_fixture(root, destination, objects)
                     self.assertFalse(destination.exists())
@@ -244,7 +244,7 @@ class HistoricalSemanticFixtureTests(unittest.TestCase):
     def test_baseline_mismatch_rejected_before_copy(self):
         import historical_semantic as h
         with tempfile.TemporaryDirectory() as folder:
-            destination = Path(folder)/'fixture'
+            destination = Path(folder).resolve()/'fixture'
             with self.assertRaisesRegex(ValueError, 'fixture baseline differs'):
                 h.prepare_fixture(s.ROOT, destination, lambda *args: b'unreviewed')
             self.assertFalse(destination.exists())
@@ -258,5 +258,40 @@ class HistoricalSemanticFixtureTests(unittest.TestCase):
             self.assertEqual(run.call_count, 1)
             self.assertTrue(run.call_args.kwargs['check'])
             self.assertEqual(run.call_args.kwargs['timeout'], 120)
+
+class TemporaryRootAliasTests(unittest.TestCase):
+    def test_platform_temp_alias_is_resolved_without_accepting_in_tree_links(self):
+        # macOS commonly exposes temporary storage through /var -> /private/var.
+        # Resolve the newly allocated fixture root, never its untrusted children.
+        with tempfile.TemporaryDirectory() as folder:
+            parent = Path(folder).resolve()
+            physical = parent/'physical'
+            physical.mkdir()
+            alias = parent/'alias'
+            alias.symlink_to(physical, target_is_directory=True)
+            suite = unittest.TestSuite([
+                SourceContractTests('test_exact_successor_and_historical_source_pass'),
+                RelocationTests('test_all_enumerated_relocations_and_path_edits_pass'),
+                RelocationTests('test_symlinked_destination_rejected'),
+                RelocationTests('test_symlinked_directory_rejected'),
+                HistoricalSemanticFixtureTests('test_missing_or_tampered_inputs_rejected_before_copy'),
+            ])
+            result = unittest.TestResult()
+            with patch.object(tempfile, 'tempdir', str(alias)):
+                suite.run(result)
+                with tempfile.TemporaryDirectory() as allocated:
+                    root = Path(allocated).resolve()
+                    payload = root/'payload'
+                    payload.write_bytes(b'exact fixture')
+                    self.assertEqual(relocation.read(payload), b'exact fixture')
+                    # The validator still rejects an unresolved parent alias.
+                    with self.assertRaisesRegex(ValueError, 'Linked relocation'):
+                        relocation.read(Path(allocated)/'payload')
+                    (root/'linked').symlink_to(payload)
+                    with self.assertRaisesRegex(ValueError, 'Missing or linked'):
+                        relocation.read(root/'linked')
+            self.assertEqual(result.testsRun, 5)
+            self.assertEqual(result.errors, [])
+            self.assertEqual(result.failures, [])
 
 if __name__=='__main__':unittest.main()
