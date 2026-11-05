@@ -8,6 +8,14 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - 'migration/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.ci/validation-history/**'
+      - '.github/workflows/validation-history-contract.yml'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'migration/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,6 +38,8 @@ jobs:
           path: maintained-implementation
           persist-credentials: false
           sparse-checkout: .github/workflows
+      - name: Reject malformed successor mappings and source drift
+        run: python3 -B -m unittest discover -s .ci/validation-history -p test_source_contract.py -v
       - name: Verify history and current production boundaries
         run: python3 -B .ci/validation-history/verify.py
       - name: Verify immutable maintained entry and packaging boundaries

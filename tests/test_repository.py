@@ -119,7 +119,12 @@ def _is_sensitive_reachable_path(path: str) -> bool:
 # Exact reviewed CI source objects, not a directory or extension exemption.
 # New bytes at these paths require a fresh content review before adding a digest.
 _REVIEWED_PAIRING_SOURCE_SHA256 = {
-    "ci/issues-native/preflight_comprehensive_pairing.py": "6a77204a2516f0592f078ab6ff03e805fd15720569589ef38f357e9c10e03e27",
+    "ci/issues-native/preflight_comprehensive_pairing.py": {
+        # Original source and reviewed a1b61bdd source-inventory guard successor.
+        # Both remain reachable; neither admits arbitrary bytes at this path.
+        "6a77204a2516f0592f078ab6ff03e805fd15720569589ef38f357e9c10e03e27",
+        "1e8c254fb86417ed67b3a452a348b82cac239fa5285a78e13d945d59135560a3",
+    },
     "ci/issues-native/russian_pairing_projection.py": "3b4995b3f99742536c2f4a780f4d08a63f95cc4880b4e1119dee331520ade7e2",
     "ci/issues-native/test_russian_pairing_projection.py": "632bae9b89584615a14e2b61a6c3ddd33a9834f185153f96f5b961e2863f3d80",
 }
@@ -153,7 +158,9 @@ def _is_reviewed_public_pairing_blob(path: str, object_type: str, content: bytes
     if object_type != "blob" or not content or len(content) > _PUBLIC_PAIRING_OBJECT_LIMIT:
         return False
     if path in _REVIEWED_PAIRING_SOURCE_SHA256:
-        if hashlib.sha256(content).hexdigest() != _REVIEWED_PAIRING_SOURCE_SHA256[path]:
+        expected = _REVIEWED_PAIRING_SOURCE_SHA256[path]
+        allowed = {expected} if isinstance(expected, str) else expected
+        if hashlib.sha256(content).hexdigest() not in allowed:
             return False
         try:
             ast.parse(content.decode("utf-8"))
@@ -210,6 +217,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(
             {path.name for path in SCRIPTS.glob("*.py")},
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
+                    'experiment_local_symbols.py', 'experiment_sidebackup_stabs.py', 'local_symbol_packaging.py', 'macho_local_symbol_guard.py', 'openssl_local_symbol_policy.py', 'optimize_openssl_local_candidate.py', 'optimize_sidebackup_candidate.py', 'optimize_unsigned_widget.py', 'patch_refresh_callback_admission.py', 'widget_local_symbols.py', 'widget_signature_policy.py',
                     "integration_contracts.py", "experiment_strip_stabs.py", "macho_stab_guard.py", "optimize_native_candidate.py",
                     "check_compiled_localization.py", "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "p0_maintained_sources.py", "p1_maintained_sources.py", "p0_constructor_diagnostics.py", "p0_elf_metadata_bounds.py", "p0_cxx_allocation.py", "p2_composed_host.py", "p0_full_login_diagnostics.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py", "patch_transport_lockfiles.py"},
 
@@ -351,6 +359,24 @@ class RepositoryTests(unittest.TestCase):
                             b"-----BEGIN PRIVATE KEY-----\nSYNTHETIC\n-----END PRIVATE KEY-----"):
                 self.assertFalse(_is_reviewed_public_pairing_blob(path, "blob", content))
         self.assertFalse(_is_reviewed_public_pairing_blob("ci/new_pairing.py", "blob", b"pass\n"))
+
+    def test_pairing_preflight_admits_only_two_reviewed_git_source_objects(self):
+        path = "ci/issues-native/preflight_comprehensive_pairing.py"
+        refs = {
+            "51aad480087357289b86fa07dbc19eb207bf04c0":
+                "6a77204a2516f0592f078ab6ff03e805fd15720569589ef38f357e9c10e03e27",
+            "fefb69346a4d3bb79ebbb4294b3b99bf81fcd045":
+                "1e8c254fb86417ed67b3a452a348b82cac239fa5285a78e13d945d59135560a3",
+        }
+        self.assertEqual(_REVIEWED_PAIRING_SOURCE_SHA256[path], set(refs.values()))
+        for ref, expected in refs.items():
+            # Read immutable objects as data, never execute historical code.
+            source = subprocess.check_output(["git", "show", ref + ":" + path], cwd=ROOT)
+            self.assertEqual(hashlib.sha256(source).hexdigest(), expected)
+            self.assertTrue(_is_reviewed_public_pairing_blob(path, "blob", source))
+            self.assertFalse(_is_reviewed_public_pairing_blob(path, "blob", source + b"\n# unreviewed"))
+            self.assertFalse(_is_reviewed_public_pairing_blob(path, "tree", source))
+            self.assertFalse(_is_reviewed_public_pairing_blob("ci/other_pairing.py", "blob", source))
 
     def test_public_docs_do_not_expose_known_private_network_details(self):
         """Generic RFC1918 examples are allowed; known diagnostic addresses are not."""
