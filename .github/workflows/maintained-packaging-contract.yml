@@ -38,7 +38,21 @@ on:
 permissions:
   contents: read
 jobs:
+  historical-semantic:
+    name: Frozen semantic contracts (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run all provenance and immutable historical semantic tests
+        run: python3 -B -m unittest discover -s ci/validation-history -p 'test_*.py' -v
+      - name: Verify historical ancestry and production source boundaries
+        run: python3 -B ci/validation-history/verify.py
   packaging-contract:
+    needs: historical-semantic
     runs-on: macos-26
     timeout-minutes: 10
     steps:

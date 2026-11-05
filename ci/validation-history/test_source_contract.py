@@ -100,6 +100,8 @@ class RelocationTests(unittest.TestCase):
         for name, raw in self.objects.items():
             for prefix, replacement in relocation.PATH_REWRITES.get(name, ()):
                 raw = raw.replace(prefix.encode(), replacement.encode())
+            for original, replacement in relocation.WORKFLOW_LAYOUT_EDITS.get(name, ()):
+                raw = raw.replace(original.encode(), replacement.encode())
             path = self.root / relocation.RELOCATED.get(name, name)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(raw)
@@ -205,6 +207,39 @@ class RelocationTests(unittest.TestCase):
             self.assertEqual((s.ROOT/'ci/validation-history'/name).read_bytes(),
                              s.git_read(s.ROOT, relocation.BASELINE, '.ci/validation-history/'+name))
 
+    def test_linux_semantic_suite_is_required_before_native_jobs(self):
+        for basename, native_job in (
+                ('validation-history-contract.yml', 'bounded-contracts'),
+                ('maintained-packaging-contract.yml', 'packaging-contract')):
+            text = (s.ROOT/'.github/workflows'/basename).read_text()
+            linux, native = text.split('  '+native_job+':\n', 1)
+            self.assertIn('  historical-semantic:\n', linux)
+            self.assertIn('    runs-on: ubuntu-24.04\n', linux)
+            self.assertIn("-p 'test_*.py' -v", linux)
+            self.assertTrue(native.startswith('    needs: historical-semantic\n'))
+            self.assertIn('    runs-on: macos-26\n', native)
+            self.assertNotIn('continue-on-error', text)
+            self.assertNotIn('if:', linux)
+
+    def test_required_linux_job_cannot_be_disabled_or_narrowed(self):
+        for name in relocation.WORKFLOW_LAYOUT_EDITS:
+            path = self.root/name
+            original = path.read_bytes()
+            mutations = (
+                (b'    needs: historical-semantic\n', b''),
+                (b"-p 'test_*.py'", b"-p 'test_source_contract.py'"),
+                (b'    runs-on: ubuntu-24.04', b'    runs-on: macos-26'),
+                (b'  historical-semantic:\n', b'  historical-semantic:\n    continue-on-error: true\n'),
+                (relocation.LINUX_SEMANTIC_JOB.encode(), b''),
+            )
+            for before, after in mutations:
+                with self.subTest(workflow=name, mutation=before):
+                    self.assertIn(before, original)
+                    path.write_bytes(original.replace(before, after))
+                    with self.assertRaisesRegex(ValueError, 'Relocated source bytes'):
+                        self.verify(name)
+                    path.write_bytes(original)
+
     def test_frozen_successor_cannot_be_coordinately_rebound(self):
         def objects(root, ref, name):
             raw = s.git_read(root, ref, name)
@@ -213,10 +248,6 @@ class RelocationTests(unittest.TestCase):
             s.verify_sources(object_read=objects)
 
 class HistoricalSemanticFixtureTests(unittest.TestCase):
-    def test_exact_frozen_semantic_suite(self):
-        import historical_semantic
-        historical_semantic.run_tests()
-
     def test_missing_or_tampered_inputs_rejected_before_copy(self):
         import historical_semantic as h
         with tempfile.TemporaryDirectory() as folder:

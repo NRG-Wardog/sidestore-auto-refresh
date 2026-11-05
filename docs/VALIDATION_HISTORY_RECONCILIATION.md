@@ -102,8 +102,25 @@ Run `python3 -B ci/validation-history/historical_semantic.py` to exercise all 21
 retained tests. This runner checks each current local input against the exact
 baseline blob before reconstructing only the six required files in an isolated
 temporary historical layout. It runs the known unittest suite, not the collector
-or an archived workflow, and propagates test failures. The same suite runs through
-`test_source_contract.py`; negative tests reject missing or altered fixture inputs.
+or an archived workflow, and propagates test failures. Both active provenance workflows run the complete suite through
+`test_historical_semantic.py` in a mandatory Ubuntu 24.04 job. Their macOS jobs
+depend on that job and retain the source-contract, fixture-failure and native
+converter tests. Negative tests reject missing or altered fixture inputs.
 Running the frozen semantic suite directly from its relocated directory is not
 supported because its workflow-location assertions intentionally describe the
 original layout.
+
+
+### Historical semantic suite platform
+
+The archived semantic-inventory workflow ran on Ubuntu. Its immutable truncation
+and aggregate-budget tests terminate process groups with `os.killpg`; on the
+macOS 26/Python 3.15 runner, the Git-fixture truncation paths raise `PermissionError`
+in that operation. This is not suppressed or worked around by changing process
+permissions or frozen code. All 21 historical tests execute unchanged in a required
+Ubuntu 24.04 job in each active provenance workflow. Run the complete local gate
+on Linux with `python3 -B -m unittest discover -s ci/validation-history -p 'test_*.py' -v`.
+The macOS jobs still execute `test_source_contract.py` and native packaging tests.
+`WORKFLOW_LAYOUT_EDITS` enumerates the exact job additions and dependency edges
+separately from the path-only rewrites; original workflow baseline hashes remain
+required, and arbitrary workflow edits are rejected.

@@ -80,6 +80,36 @@ BASELINE_SHA256 = {'.ci/branch-cleanup/allowlist.json': '3a14284da05826e1f3f6472
  '.github/workflows/reviewed-branch-semantic-inventory.yml': 'a36160b16f19e3c1591b1b4994e030db1418c2857ddd65650bb846e9b1c58efa',
  '.github/workflows/validation-history-contract.yml': 'c22774f05b7408f27e8c8fbbcac7de99be12e7330f66e38356e5e9838b918b5a'}
 
+# Exact CI job organization, separate from the path-only relocation edits.
+# The immutable process-group tests retain their original Linux execution platform.
+LINUX_SEMANTIC_JOB = """  historical-semantic:
+    name: Frozen semantic contracts (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run all provenance and immutable historical semantic tests
+        run: python3 -B -m unittest discover -s ci/validation-history -p 'test_*.py' -v
+      - name: Verify historical ancestry and production source boundaries
+        run: python3 -B ci/validation-history/verify.py
+"""
+
+WORKFLOW_LAYOUT_EDITS = {
+    '.github/workflows/maintained-packaging-contract.yml': ((
+        'jobs:\n  packaging-contract:\n',
+        'jobs:\n' + LINUX_SEMANTIC_JOB +
+        '  packaging-contract:\n    needs: historical-semantic\n',
+    ),),
+    '.github/workflows/validation-history-contract.yml': ((
+        'jobs:\n  bounded-contracts:\n',
+        'jobs:\n' + LINUX_SEMANTIC_JOB +
+        '  bounded-contracts:\n    needs: historical-semantic\n',
+    ),),
+}
+
 ARCHIVED_WORKFLOWS = {'amend-v6.0.0-notes.yml',
  'publish-v6.0.0.yml',
  'reviewed-branch-classify.yml',
@@ -97,7 +127,7 @@ def read(path):
     return path.read_bytes()
 
 def verify_current(root, name, expected, object_read):
-    """Compare exact baseline objects, then apply only enumerated path edits."""
+    """Compare exact baseline objects, then apply only enumerated reviewed edits."""
     destination = RELOCATED.get(name, name)
     if name not in BASELINE_SHA256:
         require(hashlib.sha256(read(root/destination)).hexdigest() == expected,
@@ -110,6 +140,9 @@ def verify_current(root, name, expected, object_read):
     for prefix, replacement in PATH_REWRITES.get(name, ()):
         require(prefix.encode() in current, 'Relocation prefix missing')
         current = current.replace(prefix.encode(), replacement.encode())
+    for original, replacement in WORKFLOW_LAYOUT_EDITS.get(name, ()):
+        require(current.count(original.encode()) == 1, 'Workflow layout anchor differs')
+        current = current.replace(original.encode(), replacement.encode())
     require(read(root/destination) == current, 'Relocated source bytes differ: '+name)
     if destination != name:
         require(not (root/name).exists() and not (root/name).is_symlink(), 'Obsolete relocation source exists: '+name)
