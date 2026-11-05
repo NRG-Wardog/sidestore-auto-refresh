@@ -29,7 +29,7 @@ jobs:
           swiftc -swift-version 5 -parse-as-library -import-objc-header bridge.h service_objc_fixture.swift bridge.o -o service-objc-test
           ./service-objc-test | tee ../../evidence/service-objc.log
           swiftc -swift-version 5 -parse-as-library reproduce_deadline.swift -o deadline-test
-          ./deadline-test | tee ../../evidence/deadline.log
+          for repeat in $(seq 1 100); do ./deadline-test; done | tee ../../evidence/deadline.log
           swiftc -swift-version 5 -parse-as-library release_fixture.swift -o release-test
           ./release-test
           swiftc -swift-version 5 -parse-as-library host_callback_fixture.swift -o host-callback-test
