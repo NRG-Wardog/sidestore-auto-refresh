@@ -9,6 +9,31 @@ on:
       - 'tests/test_combined_packaging.py'
       - 'tests/test_dylibify_source_build.py'
       - '.github/workflows/maintained-packaging-contract.yml'
+      - '.ci/validation-history/**'
+      - 'scripts/packaging_adapters.py'
+      - 'scripts/ipa_size_report.py'
+      - 'tests/test_packaging_adapters.py'
+      - 'tests/test_ipa_size_report.py'
+      - 'scripts/rehearse_packaging_integration.py'
+      - 'tests/fixtures/upstream-packaging/**'
+      - 'docs/PACKAGING_PATCH_SURFACE.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/package_livecontainer_combined.py'
+      - 'scripts/audit_ipa_signing.py'
+      - 'scripts/vendor/dylibify/**'
+      - 'tests/test_combined_packaging.py'
+      - 'tests/test_dylibify_source_build.py'
+      - '.github/workflows/maintained-packaging-contract.yml'
+      - '.ci/validation-history/**'
+      - 'scripts/packaging_adapters.py'
+      - 'scripts/ipa_size_report.py'
+      - 'tests/test_packaging_adapters.py'
+      - 'tests/test_ipa_size_report.py'
+      - 'scripts/rehearse_packaging_integration.py'
+      - 'tests/fixtures/upstream-packaging/**'
+      - 'docs/PACKAGING_PATCH_SURFACE.json'
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,19 +44,12 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - name: Verify exact source used by the released 6.0 package
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json, subprocess
-          expected = json.loads("{\"scripts/audit_ipa_signing.py\":\"39002b111a44588ea12d69221beb52ac0cd6a2e8\",\"scripts/package_livecontainer_combined.py\":\"eb4f2a187bc439c362efd962f4aff3bc4eda1cbf\",\"scripts/vendor/dylibify/LICENSE.md\":\"3bb5a123547db7873b91b3ad225a4decc958f6f6\",\"scripts/vendor/dylibify/README.md\":\"a8916a0e4bd59f647f4b568807d13caad4354d34\",\"scripts/vendor/dylibify/main.m\":\"f0dc640ec3d48f0766d88a2a326cd14ba5ccde60\",\"tests/test_combined_packaging.py\":\"4a5dcf50a2690a92bcfd043348c3e283758aa365\",\"tests/test_dylibify_source_build.py\":\"7040a871432beacb277d363e86a01703cb2e900f\"}")
-          for path, sha in expected.items():
-              actual = subprocess.check_output(['git','hash-object',path],text=True).strip()
-              if actual != sha:
-                  raise SystemExit('Reviewed packaging source differs: '+path)
-          PY
+      - name: Verify frozen release history and exact reviewed current packaging source
+        run: python3 -B .ci/validation-history/source_contract.py --packaging
+      - name: Reject malformed successor mappings and source drift
+        run: python3 -B -m unittest discover -s .ci/validation-history -p 'test_source_contract.py' -v
       - name: Exercise synthetic packaging and source-built converter contracts
         shell: bash
         run: |
@@ -40,3 +58,5 @@ jobs:
           xcrun --find clang
           PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p test_combined_packaging.py -v
           PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p test_dylibify_source_build.py -v
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p test_packaging_adapters.py -v
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s tests -p test_ipa_size_report.py -v
