@@ -2,7 +2,7 @@
 """Run only reviewed source-owned forwardport fixtures, never Apple/device operations."""
 import hashlib,json,pathlib,subprocess,sys,shutil
 root=pathlib.Path.cwd();ss=root/'SideSign';lc=root/'LiveContainer';sd=root/'SideStore';out=root/'forwardport-results';out.mkdir(exist_ok=True)
-manifest=json.load(open(root/'.ci/branch-forwardports/inputs.json'))
+manifest=json.load(open(root/'ci/branch-forwardports/inputs.json'))
 for repo,entry in manifest.items():
  actual=subprocess.check_output(['git','-C',str(root/repo),'rev-parse','HEAD'],text=True).strip();assert actual==entry['commit'],(repo,actual)
  for path,digest in entry.get('files',{}).items():assert hashlib.sha256((root/repo/path).read_bytes()).hexdigest()==digest,(repo,path)

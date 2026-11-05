@@ -1,7 +1,7 @@
 from pathlib import Path
 import hashlib,json,os,unittest
 ROOT=Path(__file__).resolve().parents[2]
-CONTRACT=json.loads((ROOT/'.ci/maintained-build/contract.json').read_text())
+CONTRACT=json.loads((ROOT/'ci/maintained-build/contract.json').read_text())
 class EntryContract(unittest.TestCase):
  def test_both_entries_use_one_pinned_readonly_pipeline(self):
   for name in ('livecontainer-build.yml','build-current.yml'):

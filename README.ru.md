@@ -428,10 +428,10 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 <table>
 <tr>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46.jpeg" width="220" alt="Статус обновления в комбинированной v2.1.0"><br><strong>Статус обновления (Refresh Status)</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45%20(1).jpeg" width="220" alt="Расписание обновления в комбинированной v2.1.0"><br><strong>Расписание обновления (Refresh Schedule)</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45.jpeg" width="220" alt="История обновлений в комбинированной v2.1.0"><br><strong>История обновлений (Refresh History)</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46%20(1).jpeg" width="220" alt="Управление гостевыми приложениями в комбинированной v2.1.0"><br><strong>Управление гостевыми приложениями (Guest Controls)</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-status.jpeg" width="220" alt="Статус обновления в комбинированной v2.1.0"><br><strong>Статус обновления (Refresh Status)</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-schedule.jpeg" width="220" alt="Расписание обновления в комбинированной v2.1.0"><br><strong>Расписание обновления (Refresh Schedule)</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-history.jpeg" width="220" alt="История обновлений в комбинированной v2.1.0"><br><strong>История обновлений (Refresh History)</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-guest-controls.jpeg" width="220" alt="Управление гостевыми приложениями в комбинированной v2.1.0"><br><strong>Управление гостевыми приложениями (Guest Controls)</strong></td>
 </tr>
 </table>
 
@@ -565,7 +565,7 @@ Issue 17 добавляет сохраняемые варианты отобра
 - Адаптирует инструменты наблюдения за подписью и фоновый запуск базы данных к API SideStore 0.7.
 - Записывает успешное согласование самообновления только после успешного обновления базы данных.
 
-Сборка IPA, автоматические проверки и проверка опубликованной загрузки прошли успешно. Тестирование именно этой сборки v1.0.3 на устройстве всё ещё ожидается; более ранние результаты отдельных сборок на устройствах перечислены ниже отдельно. Точные ревизии исходников и проверки см. в [примечаниях к релизу](docs/RELEASE_NOTES_v1.0.3.md).
+Сборка IPA, автоматические проверки и проверка опубликованной загрузки прошли успешно. Тестирование именно этой сборки v1.0.3 на устройстве всё ещё ожидается; более ранние результаты отдельных сборок на устройствах перечислены ниже отдельно. Точные ревизии исходников и проверки см. в [примечаниях к релизу](docs/releases/RELEASE_NOTES_v1.0.3.md).
 
 <a id="whats-new-in-v210"></a>
 
@@ -931,7 +931,7 @@ v3.0.1 сохранена ниже для воспроизводимости и 
 - IPA: `SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa`
 - SHA-256: `ab35772fe3209618c7bec302e315faea0a35b7ae280edfb9b5390d2aa62c8940`
 - Релиз: [SideStore CoreDevice Auto-Refresh v1.0.3](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.3)
-- Закреплённые исходники и проверка: [примечания к релизу v1.0.3](docs/RELEASE_NOTES_v1.0.3.md)
+- Закреплённые исходники и проверка: [примечания к релизу v1.0.3](docs/releases/RELEASE_NOTES_v1.0.3.md)
 
 <a id="build-it-yourself"></a>
 

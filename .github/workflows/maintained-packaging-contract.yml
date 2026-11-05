@@ -9,7 +9,7 @@ on:
       - 'tests/test_combined_packaging.py'
       - 'tests/test_dylibify_source_build.py'
       - '.github/workflows/maintained-packaging-contract.yml'
-      - '.ci/validation-history/**'
+      - 'ci/validation-history/**'
       - 'scripts/packaging_adapters.py'
       - 'scripts/ipa_size_report.py'
       - 'tests/test_packaging_adapters.py'
@@ -26,7 +26,7 @@ on:
       - 'tests/test_combined_packaging.py'
       - 'tests/test_dylibify_source_build.py'
       - '.github/workflows/maintained-packaging-contract.yml'
-      - '.ci/validation-history/**'
+      - 'ci/validation-history/**'
       - 'scripts/packaging_adapters.py'
       - 'scripts/ipa_size_report.py'
       - 'tests/test_packaging_adapters.py'
@@ -38,7 +38,21 @@ on:
 permissions:
   contents: read
 jobs:
+  historical-semantic:
+    name: Frozen semantic contracts (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run all provenance and immutable historical semantic tests
+        run: python3 -B -m unittest discover -s ci/validation-history -p 'test_*.py' -v
+      - name: Verify historical ancestry and production source boundaries
+        run: python3 -B ci/validation-history/verify.py
   packaging-contract:
+    needs: historical-semantic
     runs-on: macos-26
     timeout-minutes: 10
     steps:
@@ -47,9 +61,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Verify frozen release history and exact reviewed current packaging source
-        run: python3 -B .ci/validation-history/source_contract.py --packaging
+        run: python3 -B ci/validation-history/source_contract.py --packaging
       - name: Reject malformed successor mappings and source drift
-        run: python3 -B -m unittest discover -s .ci/validation-history -p 'test_source_contract.py' -v
+        run: python3 -B -m unittest discover -s ci/validation-history -p 'test_source_contract.py' -v
       - name: Exercise synthetic packaging and source-built converter contracts
         shell: bash
         run: |

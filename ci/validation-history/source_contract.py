@@ -8,6 +8,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from relocation import verify_current, verify_auxiliary, BASELINE, ARCHIVED_WORKFLOWS
 
 ROOT = Path(__file__).resolve().parents[2]
 OVERRIDES = {'scripts/package_livecontainer_combined.py', 'tests/test_dylibify_source_build.py', '.github/workflows/maintained-packaging-contract.yml'}
@@ -40,10 +41,12 @@ def git_read(root, ref, path):
 
 def verify_sources(root=ROOT, *, object_read=git_read, tree_read=None):
     root = Path(root)
-    raw = read(root/'.ci/validation-history/manifest.json')
+    raw = read(root/'ci/validation-history/manifest.json')
     require(raw == object_read(root,HISTORICAL,'.ci/validation-history/manifest.json'), 'Frozen historical manifest object differs')
     m = json.loads(raw, object_pairs_hook=pairs)
-    c = json.loads(read(root/'.ci/validation-history/reviewed-successor.json'), object_pairs_hook=pairs)
+    successor_raw = read(root/'ci/validation-history/reviewed-successor.json')
+    require(successor_raw == object_read(root,BASELINE,'.ci/validation-history/reviewed-successor.json'), 'Frozen reviewed successor object differs')
+    c = json.loads(successor_raw, object_pairs_hook=pairs)
     require(set(c) == {'schema','historical_manifest_sha256','historical_commit','qualified_commit','qualified_tree','protected_successors','added_workflows_sha256','dependency_sha256'}, 'Successor closure differs')
     require(c['schema'] == 'reviewed-main-source-successor-v1', 'Successor schema differs')
     require(c['historical_manifest_sha256'] == sha(raw), 'Frozen historical manifest differs')
@@ -66,17 +69,18 @@ def verify_sources(root=ROOT, *, object_read=git_read, tree_read=None):
         for name, expected in m[category].items():
             if name in c['protected_successors']:
                 expected = c['protected_successors'][name]['reviewed_sha256']
-            require(sha(read(root/name)) == expected, 'Reviewed source differs: '+name)
+            verify_current(root, name, expected, object_read)
     for category in ('added_workflows_sha256','dependency_sha256'):
         for name, expected in c[category].items():
             require(name not in m['protected_sha256'], 'Existing protected path reclassified')
             if category == 'added_workflows_sha256':
                 require(name.startswith('.github/workflows/') and name.endswith('.yml') and len(Path(name).parts) == 3, 'Invalid added workflow path')
             require(sha(object_read(root,QUALIFIED,name)) == expected, 'Qualified successor object differs: '+name)
-            require(sha(read(root/name)) == expected, 'Reviewed successor bytes differ: '+name)
+            verify_current(root, name, expected, object_read)
     original = {Path(p).name for p in m['protected_sha256'] if p.startswith('.github/workflows/')}
     expected = original | {'validation-history-contract.yml'} | {Path(p).name for p in c['added_workflows_sha256']}
-    require({p.name for p in (root/'.github/workflows').glob('*.yml')} == expected, 'Unreviewed workflow inventory')
+    require({p.name for p in (root/'.github/workflows').glob('*.yml')} == expected - ARCHIVED_WORKFLOWS, 'Unreviewed workflow inventory')
+    verify_auxiliary(root, object_read)
     return m,c
 
 if __name__ == '__main__':

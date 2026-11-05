@@ -29,7 +29,7 @@ capture. It is not part of the intended refresh runtime.
 - The final automatic windowed/fullscreen control visibility change has passed
   source/build checks but awaits device confirmation.
 
-See [release notes](RELEASE_NOTES_v2.0.0.md) for the complete changes and limitations.
+See [release notes](releases/RELEASE_NOTES_v2.0.0.md) for the complete changes and limitations.
 The original release tag was retained; use the explicit builder SHA for this IPA.
 
 ## Standalone SideStore: proven

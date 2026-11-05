@@ -21,7 +21,7 @@ An independent, open-source build based on **SideStore** and **LiveContainer**, 
 
 ## Main features
 
-[Download the latest release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest) · [Installation guide](#installation)
+[Download the latest release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest) · [Installation guide](#installation) · [Documentation and repository map](docs/README.md)
 
 - **PC-free auto-refresh:** refresh on your iPhone after initial setup, with manual refresh, six-hour/daily/weekly schedules, notifications, and history.
 - **LiveContainer + SideStore in one app:** Home, Apps, Sources, Refresh, and Settings in a unified interface.
@@ -386,10 +386,10 @@ These are actual screenshots from **LiveContainer + embedded SideStore v2.1.0**.
 
 <table>
 <tr>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46.jpeg" width="220" alt="Combined v2.1.0 refresh status"><br><strong>Refresh Status</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45%20(1).jpeg" width="220" alt="Combined v2.1.0 refresh schedule"><br><strong>Refresh Schedule</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45.jpeg" width="220" alt="Combined v2.1.0 refresh history"><br><strong>Refresh History</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46%20(1).jpeg" width="220" alt="Combined v2.1.0 guest controls"><br><strong>Guest Controls</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-status.jpeg" width="220" alt="Combined v2.1.0 refresh status"><br><strong>Refresh Status</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-schedule.jpeg" width="220" alt="Combined v2.1.0 refresh schedule"><br><strong>Refresh Schedule</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-history.jpeg" width="220" alt="Combined v2.1.0 refresh history"><br><strong>Refresh History</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-guest-controls.jpeg" width="220" alt="Combined v2.1.0 guest controls"><br><strong>Guest Controls</strong></td>
 </tr>
 </table>
 
@@ -507,7 +507,7 @@ Standalone v1.0.3 updates the app to **SideStore 0.7.0 nightly**, including the 
 - Adapts signing instrumentation and background database startup to the SideStore 0.7 APIs.
 - Records self-refresh reconciliation success only after the database update succeeds.
 
-The IPA build, automated checks, and published-download verification passed. Device testing of this exact v1.0.3 build is still pending; earlier standalone device evidence is listed separately below. See the [release notes](docs/RELEASE_NOTES_v1.0.3.md) for exact source revisions and validation.
+The IPA build, automated checks, and published-download verification passed. Device testing of this exact v1.0.3 build is still pending; earlier standalone device evidence is listed separately below. See the [release notes](docs/releases/RELEASE_NOTES_v1.0.3.md) for exact source revisions and validation.
 
 ## What's new in v2.1.0?
 
@@ -821,7 +821,7 @@ The release promotes the verified preview.2 IPA without rebuilding or re-signing
 - IPA: `SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa`
 - SHA-256: `ab35772fe3209618c7bec302e315faea0a35b7ae280edfb9b5390d2aa62c8940`
 - Release: [SideStore CoreDevice Auto-Refresh v1.0.3](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.3)
-- Pinned sources and validation: [v1.0.3 release notes](docs/RELEASE_NOTES_v1.0.3.md)
+- Pinned sources and validation: [v1.0.3 release notes](docs/releases/RELEASE_NOTES_v1.0.3.md)
 
 ## Build it yourself
 

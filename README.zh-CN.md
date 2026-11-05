@@ -428,10 +428,10 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 <table>
 <tr>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46.jpeg" width="220" alt="组合版 v2.1.0 续签状态"><br><strong>续签状态</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45%20(1).jpeg" width="220" alt="组合版 v2.1.0 续签计划"><br><strong>续签计划</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45.jpeg" width="220" alt="组合版 v2.1.0 续签历史"><br><strong>续签历史</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46%20(1).jpeg" width="220" alt="组合版 v2.1.0 客体应用控件"><br><strong>客体应用控件</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-status.jpeg" width="220" alt="组合版 v2.1.0 续签状态"><br><strong>续签状态</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-schedule.jpeg" width="220" alt="组合版 v2.1.0 续签计划"><br><strong>续签计划</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-history.jpeg" width="220" alt="组合版 v2.1.0 续签历史"><br><strong>续签历史</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-guest-controls.jpeg" width="220" alt="组合版 v2.1.0 客体应用控件"><br><strong>客体应用控件</strong></td>
 </tr>
 </table>
 
@@ -565,7 +565,7 @@ Issue 17 在 **Interface** 下增加了可保存的应用布局选项：
 - 将签名监测和后台数据库启动适配到 SideStore 0.7 API。
 - 只有在数据库更新成功后，才记录自续签状态协调成功。
 
-IPA 构建、自动化检查和已发布下载文件的验证均已通过。该确切 v1.0.3 构建的设备测试仍待完成；较早的独立版设备证据在下方单独列出。确切的源码修订版本和验证详情请参阅[发布说明](docs/RELEASE_NOTES_v1.0.3.md)。
+IPA 构建、自动化检查和已发布下载文件的验证均已通过。该确切 v1.0.3 构建的设备测试仍待完成；较早的独立版设备证据在下方单独列出。确切的源码修订版本和验证详情请参阅[发布说明](docs/releases/RELEASE_NOTES_v1.0.3.md)。
 
 <a id="whats-new-in-v210"></a>
 
@@ -931,7 +931,7 @@ v3.0.1 记录在此保留，用于复现和历史验证。之后是此前发布�
 - IPA：`SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa`
 - SHA-256：`ab35772fe3209618c7bec302e315faea0a35b7ae280edfb9b5390d2aa62c8940`
 - 发布版：[SideStore CoreDevice 自动续签 v1.0.3](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.3)
-- 固定源码和验证：[v1.0.3 发布说明](docs/RELEASE_NOTES_v1.0.3.md)
+- 固定源码和验证：[v1.0.3 发布说明](docs/releases/RELEASE_NOTES_v1.0.3.md)
 
 <a id="build-it-yourself"></a>
 
