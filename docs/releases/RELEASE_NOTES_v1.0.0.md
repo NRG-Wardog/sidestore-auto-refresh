@@ -100,7 +100,7 @@ Proof device:
 
 A verified manual `Refresh All` refreshed Spotify and SideStore over the CoreDevice transport in **18.571 seconds**.
 
-The final PC-free scheduled proof uses the non-sensitive markers documented in [`docs/VERIFICATION.md`](VERIFICATION.md), including:
+The final PC-free scheduled proof uses the non-sensitive markers documented in [`docs/VERIFICATION.md`](../VERIFICATION.md), including:
 
 ```text
 [AUTO_REFRESH] TRIGGER source=bgprocessing
@@ -115,7 +115,7 @@ iOS still controls when `BGProcessingTask` actually executes. A selected refresh
 
 The current proof device is iPhone 12 / iOS 26.6.1. Additional successful and failed reports are welcome for other devices, iOS versions, and private Wi-Fi network ranges.
 
-See [`docs/COMPATIBILITY.md`](COMPATIBILITY.md) and repository Issue #1.
+See [`docs/COMPATIBILITY.md`](../COMPATIBILITY.md) and repository Issue #1.
 
 ## Build it yourself
 

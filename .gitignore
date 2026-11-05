@@ -13,3 +13,7 @@ test_extract/
 *_artifact_*/
 __pycache__/
 *.pyc
+
+# Local editor and image-transfer leftovers
+.DS_Store
+*.b64tmp

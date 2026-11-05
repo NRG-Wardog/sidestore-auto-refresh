@@ -428,10 +428,10 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 <table>
 <tr>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46.jpeg" width="220" alt="組合版 v2.1.0 續簽狀態"><br><strong>續簽狀態</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45%20(1).jpeg" width="220" alt="組合版 v2.1.0 續簽排程"><br><strong>續簽排程</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45.jpeg" width="220" alt="組合版 v2.1.0 續簽歷史"><br><strong>續簽歷史</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46%20(1).jpeg" width="220" alt="組合版 v2.1.0 客體應用程式控制項"><br><strong>客體應用程式控制項</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-status.jpeg" width="220" alt="組合版 v2.1.0 續簽狀態"><br><strong>續簽狀態</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-schedule.jpeg" width="220" alt="組合版 v2.1.0 續簽排程"><br><strong>續簽排程</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-history.jpeg" width="220" alt="組合版 v2.1.0 續簽歷史"><br><strong>續簽歷史</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-guest-controls.jpeg" width="220" alt="組合版 v2.1.0 客體應用程式控制項"><br><strong>客體應用程式控制項</strong></td>
 </tr>
 </table>
 
@@ -565,7 +565,7 @@ Issue 17 在 **Interface** 下增加了可儲存的應用程式版面配置選�
 - 將簽署監測和背景資料庫啟動調適到 SideStore 0.7 API。
 - 只有在資料庫更新成功後，才記錄自續簽狀態協調成功。
 
-IPA 建置、自動化檢查和已發佈下載檔案的驗證均已通過。該確切 v1.0.3 建置的裝置測試仍待完成；較早的獨立版裝置證據在下方單獨列出。確切的原始碼修訂版本和驗證詳情請參閱[發佈說明](docs/RELEASE_NOTES_v1.0.3.md)。
+IPA 建置、自動化檢查和已發佈下載檔案的驗證均已通過。該確切 v1.0.3 建置的裝置測試仍待完成；較早的獨立版裝置證據在下方單獨列出。確切的原始碼修訂版本和驗證詳情請參閱[發佈說明](docs/releases/RELEASE_NOTES_v1.0.3.md)。
 
 <a id="whats-new-in-v210"></a>
 
@@ -931,7 +931,7 @@ v3.0.1 記錄在此保留，用於復現和歷史驗證。之後是此前發佈�
 - IPA：`SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa`
 - SHA-256：`ab35772fe3209618c7bec302e315faea0a35b7ae280edfb9b5390d2aa62c8940`
 - 發佈版：[SideStore CoreDevice 自動續簽 v1.0.3](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.3)
-- 固定原始碼和驗證：[v1.0.3 發佈說明](docs/RELEASE_NOTES_v1.0.3.md)
+- 固定原始碼和驗證：[v1.0.3 發佈說明](docs/releases/RELEASE_NOTES_v1.0.3.md)
 
 <a id="build-it-yourself"></a>
 

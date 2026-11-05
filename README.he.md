@@ -445,10 +445,10 @@ iPhone/iPad + Wi-Fi + official LocalDevVPN
 
 <table>
 <tr>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46.jpeg" width="220" alt="מצב רענון בגרסה המשולבת v2.1.0"><br><strong>מצב הרענון</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45%20(1).jpeg" width="220" alt="תזמון רענון בגרסה המשולבת v2.1.0"><br><strong>תזמון הרענון</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45.jpeg" width="220" alt="היסטוריית רענון בגרסה המשולבת v2.1.0"><br><strong>היסטוריית הרענון</strong></td>
-<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46%20(1).jpeg" width="220" alt="פקדי יישומים אורחים בגרסה המשולבת v2.1.0"><br><strong>פקדי יישומים אורחים</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-status.jpeg" width="220" alt="מצב רענון בגרסה המשולבת v2.1.0"><br><strong>מצב הרענון</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-schedule.jpeg" width="220" alt="תזמון רענון בגרסה המשולבת v2.1.0"><br><strong>תזמון הרענון</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-refresh-history.jpeg" width="220" alt="היסטוריית רענון בגרסה המשולבת v2.1.0"><br><strong>היסטוריית הרענון</strong></td>
+<td align="center"><img src="docs/screenshots/combined-v2.1.0-guest-controls.jpeg" width="220" alt="פקדי יישומים אורחים בגרסה המשולבת v2.1.0"><br><strong>פקדי יישומים אורחים</strong></td>
 </tr>
 </table>
 
@@ -583,7 +583,7 @@ Issue 17 מוסיף אפשרויות פריסת יישומים הנשמרות ת
 - מתאימה את מכשור החתימה והפעלת מסד הנתונים ברקע ל־API של SideStore 0.7.
 - רושמת הצלחה בהתאמת מצב הרענון העצמי רק לאחר שעדכון מסד הנתונים מצליח.
 
-בניית ה־IPA, הבדיקות האוטומטיות ואימות ההורדה הציבורית עברו. בדיקת מכשיר של בניית v1.0.3 המדויקת הזאת עדיין ממתינה; ראיות ממכשירים לגרסאות עצמאיות קודמות מוצגות בנפרד בהמשך. ראו [הערות גרסה](docs/RELEASE_NOTES_v1.0.3.md) לגרסאות המקור המדויקות ולאימות.
+בניית ה־IPA, הבדיקות האוטומטיות ואימות ההורדה הציבורית עברו. בדיקת מכשיר של בניית v1.0.3 המדויקת הזאת עדיין ממתינה; ראיות ממכשירים לגרסאות עצמאיות קודמות מוצגות בנפרד בהמשך. ראו [הערות גרסה](docs/releases/RELEASE_NOTES_v1.0.3.md) לגרסאות המקור המדויקות ולאימות.
 
 <a id="whats-new-in-v210"></a>
 
@@ -957,7 +957,7 @@ v3.0.1 נשמרת להלן לצורך שחזור ואימות היסטורי. א
 - IPA: `SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa`
 - SHA-256: `ab35772fe3209618c7bec302e315faea0a35b7ae280edfb9b5390d2aa62c8940`
 - גרסה: [SideStore CoreDevice Auto-Refresh v1.0.3](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.3)
-- מקורות מוצמדים ואימות: [הערות גרסה v1.0.3](docs/RELEASE_NOTES_v1.0.3.md)
+- מקורות מוצמדים ואימות: [הערות גרסה v1.0.3](docs/releases/RELEASE_NOTES_v1.0.3.md)
 
 <a id="build-it-yourself"></a>
 

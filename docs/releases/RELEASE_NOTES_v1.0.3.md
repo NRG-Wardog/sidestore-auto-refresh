@@ -43,10 +43,10 @@ IPA: `SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa`
 
 SHA-256: `ab35772fe3209618c7bec302e315faea0a35b7ae280edfb9b5390d2aa62c8940`
 
-Device testing of this exact build is pending. Earlier standalone device evidence in [VERIFICATION.md](VERIFICATION.md) predates v1.0.3.
+Device testing of this exact build is pending. Earlier standalone device evidence in [VERIFICATION.md](../VERIFICATION.md) predates v1.0.3.
 
 ## Updating
 
 Install the standalone IPA over the existing matching SideStore installation using the same Apple Account / Personal Team and identifiers. Keep the existing installation to preserve its data and configuration.
 
-Follow the [standalone setup instructions](../README.md#standalone-setup-v1). The supported setup uses Wi-Fi and the official LocalDevVPN. Cellular-only refresh remains experimental, and iOS controls when scheduled background tasks run.
+Follow the [standalone setup instructions](../../README.md#standalone-setup-v1). The supported setup uses Wi-Fi and the official LocalDevVPN. Cellular-only refresh remains experimental, and iOS controls when scheduled background tasks run.
