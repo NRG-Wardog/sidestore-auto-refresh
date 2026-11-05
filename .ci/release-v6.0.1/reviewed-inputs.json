@@ -1,0 +1,85 @@
+{
+  "approved_public_files": [
+    "SHA256SUMS",
+    "RELEASE_NOTES_v6.0.1.md",
+    "release-provenance.json"
+  ],
+  "artifact": {
+    "digest": "sha256:3c3f71ffc7f1be318a1f7e51bedcfc099626c84775aaf9d63ae86a2b98c612f6",
+    "id": 13384974361,
+    "name": "cold-vpn-zopfli-qualified-fefb69346a4d3bb79ebbb4294b3b99bf81fcd045-41960917910-1",
+    "size_in_bytes": 25360780
+  },
+  "ipa_sha256": "eaca3f28b32b4a14acc0b1bf16237348f528de18a6eed37552b80d65fb9f84d3",
+  "ipa_size": 24409600,
+  "main_qualification": [
+    {
+      "head_branch": "main",
+      "head_sha": "6f20f702daad7aa8f870a9a3fe0d0b321dc41741",
+      "id": 42011021356,
+      "path": ".github/workflows/custom-integration-contract.yml",
+      "run_attempt": 1,
+      "tree_id": "1e7246881ab686ca9d0937aeb3135cc8da33f65f",
+      "url": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/42011021356",
+      "workflow_id": 406912298
+    },
+    {
+      "head_branch": "main",
+      "head_sha": "6f20f702daad7aa8f870a9a3fe0d0b321dc41741",
+      "id": 42011021420,
+      "path": ".github/workflows/maintained-packaging-contract.yml",
+      "run_attempt": 1,
+      "tree_id": "1e7246881ab686ca9d0937aeb3135cc8da33f65f",
+      "url": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/42011021420",
+      "workflow_id": 395778776
+    },
+    {
+      "head_branch": "main",
+      "head_sha": "6f20f702daad7aa8f870a9a3fe0d0b321dc41741",
+      "id": 42011021439,
+      "path": ".github/workflows/validation-history-contract.yml",
+      "run_attempt": 1,
+      "tree_id": "1e7246881ab686ca9d0937aeb3135cc8da33f65f",
+      "url": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/42011021439",
+      "workflow_id": 395997141
+    }
+  ],
+  "maintenance": {
+    "head_branch": "validation/cold-vpn-zopfli",
+    "head_sha": "fefb69346a4d3bb79ebbb4294b3b99bf81fcd045",
+    "id": 41960917902,
+    "path": ".github/workflows/custom-integration-contract.yml",
+    "run_attempt": 1,
+    "tree_id": "2883e33a3d0328b905c90f543df08a0ac3d024cb",
+    "workflow_id": 406912298
+  },
+  "native": {
+    "head_branch": "validation/cold-vpn",
+    "head_sha": "02eef20523795f6ef912063a8fac712a7f28b401",
+    "id": 41950003202,
+    "path": ".github/workflows/cold-vpn-native.yml",
+    "run_attempt": 1,
+    "tree_id": "be1492c0a80a88e57cc94f7357ed71bd6fe8898e",
+    "workflow_id": 397513189
+  },
+  "native_ipa_sha256": "5026c147064742c148ef424f24f90eee4ffae3fc6035b4e04d18f838dc21e056",
+  "native_ipa_size": 25094336,
+  "package": {
+    "head_branch": "validation/cold-vpn-zopfli",
+    "head_sha": "fefb69346a4d3bb79ebbb4294b3b99bf81fcd045",
+    "id": 41960917910,
+    "path": ".github/workflows/cold-vpn-zopfli.yml",
+    "run_attempt": 1,
+    "tree_id": "2883e33a3d0328b905c90f543df08a0ac3d024cb",
+    "workflow_id": 397604877
+  },
+  "public_file_sha256": {
+    "RELEASE_NOTES_v6.0.1.md": "37a6482167c80731c9894320a14889daebadee43b82592643edf00fe6d854eb9",
+    "SHA256SUMS": "bc9f5d566cf4804da32200c273050f0a8fc0b6fc503aec6a9410c8fa9ece0f59",
+    "release-provenance.json": "15553cc83896e74c5f638a493215b3a58d074239203c184fa70678138f678e57"
+  },
+  "publication_target": "6f20f702daad7aa8f870a9a3fe0d0b321dc41741",
+  "publication_tree": "1e7246881ab686ca9d0937aeb3135cc8da33f65f",
+  "repository": "NRG-Wardog/sidestore-auto-refresh",
+  "tag": "v6.0.1"
+}

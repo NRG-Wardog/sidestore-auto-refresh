@@ -1,0 +1,142 @@
+{
+  "artifact": {
+    "digest": "sha256:3c3f71ffc7f1be318a1f7e51bedcfc099626c84775aaf9d63ae86a2b98c612f6",
+    "id": 13384974361,
+    "name": "cold-vpn-zopfli-qualified-fefb69346a4d3bb79ebbb4294b3b99bf81fcd045-41960917910-1",
+    "size_in_bytes": 25360780
+  },
+  "artifact_bytes_unchanged": true,
+  "binary_identity": {
+    "CFBundleShortVersionString": "3.8.11",
+    "CFBundleVersion": "3.8.11",
+    "LCBuilderCommit": "02eef20523795f6ef912063a8fac712a7f28b401",
+    "LCVersionInfo": "Release (HEAD/5d2498d)",
+    "MinimumOSVersion": "15.0"
+  },
+  "excess_bytes": 409600,
+  "ipa_sha256": "eaca3f28b32b4a14acc0b1bf16237348f528de18a6eed37552b80d65fb9f84d3",
+  "ipa_size": 24409600,
+  "main_qualification": [
+    {
+      "head_branch": "main",
+      "head_sha": "6f20f702daad7aa8f870a9a3fe0d0b321dc41741",
+      "id": 42011021356,
+      "path": ".github/workflows/custom-integration-contract.yml",
+      "run_attempt": 1,
+      "tree_id": "1e7246881ab686ca9d0937aeb3135cc8da33f65f",
+      "url": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/42011021356",
+      "workflow_id": 406912298
+    },
+    {
+      "head_branch": "main",
+      "head_sha": "6f20f702daad7aa8f870a9a3fe0d0b321dc41741",
+      "id": 42011021420,
+      "path": ".github/workflows/maintained-packaging-contract.yml",
+      "run_attempt": 1,
+      "tree_id": "1e7246881ab686ca9d0937aeb3135cc8da33f65f",
+      "url": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/42011021420",
+      "workflow_id": 395778776
+    },
+    {
+      "head_branch": "main",
+      "head_sha": "6f20f702daad7aa8f870a9a3fe0d0b321dc41741",
+      "id": 42011021439,
+      "path": ".github/workflows/validation-history-contract.yml",
+      "run_attempt": 1,
+      "tree_id": "1e7246881ab686ca9d0937aeb3135cc8da33f65f",
+      "url": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/42011021439",
+      "workflow_id": 395997141
+    }
+  ],
+  "maintenance": {
+    "head_branch": "validation/cold-vpn-zopfli",
+    "head_sha": "fefb69346a4d3bb79ebbb4294b3b99bf81fcd045",
+    "id": 41960917902,
+    "path": ".github/workflows/custom-integration-contract.yml",
+    "run_attempt": 1,
+    "tree_id": "2883e33a3d0328b905c90f543df08a0ac3d024cb",
+    "workflow_id": 406912298
+  },
+  "native": {
+    "head_branch": "validation/cold-vpn",
+    "head_sha": "02eef20523795f6ef912063a8fac712a7f28b401",
+    "id": 41950003202,
+    "path": ".github/workflows/cold-vpn-native.yml",
+    "run_attempt": 1,
+    "tree_id": "be1492c0a80a88e57cc94f7357ed71bd6fe8898e",
+    "workflow_id": 397513189
+  },
+  "native_ipa_sha256": "5026c147064742c148ef424f24f90eee4ffae3fc6035b4e04d18f838dc21e056",
+  "native_ipa_size": 25094336,
+  "owner_report": "Owner reported the delivered candidate works; scope unspecified.",
+  "package": {
+    "head_branch": "validation/cold-vpn-zopfli",
+    "head_sha": "fefb69346a4d3bb79ebbb4294b3b99bf81fcd045",
+    "id": 41960917910,
+    "path": ".github/workflows/cold-vpn-zopfli.yml",
+    "run_attempt": 1,
+    "tree_id": "2883e33a3d0328b905c90f543df08a0ac3d024cb",
+    "workflow_id": 397604877
+  },
+  "release_target": "6f20f702daad7aa8f870a9a3fe0d0b321dc41741",
+  "release_tree": "1e7246881ab686ca9d0937aeb3135cc8da33f65f",
+  "repository": "NRG-Wardog/sidestore-auto-refresh",
+  "retained_prior_release": "v6.0.0",
+  "reviewed_ci_successor": {
+    "baseline_commit": "fefb69346a4d3bb79ebbb4294b3b99bf81fcd045",
+    "baseline_tree": "2883e33a3d0328b905c90f543df08a0ac3d024cb",
+    "production_payload_unchanged": true,
+    "reviewed_replacements": [
+      {
+        "mode": "100644",
+        "path": ".ci/validation-history/reviewed-successor.json",
+        "sha": "20b80f8211da4e2c46317ec1e8b439fe57bd7974",
+        "type": "blob"
+      },
+      {
+        "mode": "100644",
+        "path": ".ci/validation-history/source_contract.py",
+        "sha": "bdb88bf08a1afb57cf5b5b0b330d9fa6c3e234e3",
+        "type": "blob"
+      },
+      {
+        "mode": "100644",
+        "path": ".ci/validation-history/test_source_contract.py",
+        "sha": "d2841662af9990d06bea42435b21ce18c2d75c7b",
+        "type": "blob"
+      },
+      {
+        "mode": "100644",
+        "path": ".ci/validation-history/verify.py",
+        "sha": "520a3027a3cf197cba4ef125320587a7b404595d",
+        "type": "blob"
+      },
+      {
+        "mode": "100644",
+        "path": ".github/workflows/maintained-packaging-contract.yml",
+        "sha": "b34612db6d798450e49395da4cb7835e0522aa4f",
+        "type": "blob"
+      },
+      {
+        "mode": "100644",
+        "path": ".github/workflows/validation-history-contract.yml",
+        "sha": "47e682836b8994b27a174ca0728ef1a1da0170d7",
+        "type": "blob"
+      },
+      {
+        "mode": "100644",
+        "path": "tests/test_repository.py",
+        "sha": "a6038a42f9d5605bad466222c11f2b533a5f34f9",
+        "type": "blob"
+      }
+    ]
+  },
+  "schema": "exact-reviewed-release-v1",
+  "size_target_bytes": 24000000,
+  "size_target_met": false,
+  "tag": "v6.0.1",
+  "validation_limits": [
+    "Not broad all-device/account or scheduled-refresh acceptance.",
+    "Signature-byte equality does not prove validity after signing/installation."
+  ]
+}

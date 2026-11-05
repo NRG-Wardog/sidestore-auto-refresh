@@ -1,0 +1,52 @@
+{
+  "base_commit": "fefb69346a4d3bb79ebbb4294b3b99bf81fcd045",
+  "base_tree": "2883e33a3d0328b905c90f543df08a0ac3d024cb",
+  "replacements": [
+    {
+      "mode": "100644",
+      "path": ".ci/validation-history/reviewed-successor.json",
+      "sha": "20b80f8211da4e2c46317ec1e8b439fe57bd7974",
+      "type": "blob"
+    },
+    {
+      "mode": "100644",
+      "path": ".ci/validation-history/source_contract.py",
+      "sha": "bdb88bf08a1afb57cf5b5b0b330d9fa6c3e234e3",
+      "type": "blob"
+    },
+    {
+      "mode": "100644",
+      "path": ".ci/validation-history/test_source_contract.py",
+      "sha": "d2841662af9990d06bea42435b21ce18c2d75c7b",
+      "type": "blob"
+    },
+    {
+      "mode": "100644",
+      "path": ".ci/validation-history/verify.py",
+      "sha": "520a3027a3cf197cba4ef125320587a7b404595d",
+      "type": "blob"
+    },
+    {
+      "mode": "100644",
+      "path": ".github/workflows/maintained-packaging-contract.yml",
+      "sha": "b34612db6d798450e49395da4cb7835e0522aa4f",
+      "type": "blob"
+    },
+    {
+      "mode": "100644",
+      "path": ".github/workflows/validation-history-contract.yml",
+      "sha": "47e682836b8994b27a174ca0728ef1a1da0170d7",
+      "type": "blob"
+    },
+    {
+      "mode": "100644",
+      "path": "tests/test_repository.py",
+      "sha": "a6038a42f9d5605bad466222c11f2b533a5f34f9",
+      "type": "blob"
+    }
+  ],
+  "replaces_target": "bc06ca11d2ee7f881ed7f277073c603f43f76ee1",
+  "schema": "exact-seven-file-ci-successor-v1",
+  "target_commit": "6f20f702daad7aa8f870a9a3fe0d0b321dc41741",
+  "target_tree": "1e7246881ab686ca9d0937aeb3135cc8da33f65f"
+}
