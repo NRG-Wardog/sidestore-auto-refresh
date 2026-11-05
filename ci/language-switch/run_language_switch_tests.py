@@ -7,6 +7,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE.parent/'issues-native'))
 from verify_candidate_graph import load_candidate_graph
+from cleanup_evidence import cleanup as cleanup_owned_simulator, verify as verify_cleanup
 from boot_evidence import validate_boot, verify_language_boot, runtime_number, available_device, selection_evidence, verify_selection
 
 def require(ok,message):
@@ -227,14 +228,12 @@ def run(sources,output):
   require(source_hashes(root)==before and recovery_hashes(sources)==recovery_before,'Source changed during runtime test')
  finally:
   if udid:
-   # Only this invocation's created simulator may be shut down/deleted.
-   for action in ('shutdown','delete'):
-    try:command(['xcrun','simctl',action,udid],timeout=45)
-    except subprocess.SubprocessError as e:
-     detail=getattr(e,'output','') or type(e).__name__
-     if isinstance(detail,bytes):detail=detail.decode('utf-8','replace')
-     (work/(action+'-cleanup.log')).write_text(detail)
-     report['status']='FAILED_SIMULATOR_CLEANUP'
+   # Cleanup command errors remain evidence; only observed absence of this
+   # invocation's exact created UUID can establish a completed lifecycle.
+   cleanup=cleanup_owned_simulator(udid,work)
+   report['cleanup_evidence_json']=(work/'cleanup-evidence.json').read_text()
+   report['cleanup_evidence_sha256']=sha(work/'cleanup-evidence.json')
+   if cleanup['status']!='VERIFIED_ABSENT':report['status']='FAILED_SIMULATOR_CLEANUP'
   receipt.write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
  verify_receipt(receipt,sources,report['run_identity'])
 
@@ -248,6 +247,10 @@ def verify_receipt(path,sources,native_identity):
  result=path.parent/'language-switch/simulator-result.json'
  require(result.is_file() and not result.is_symlink() and sha(result)==d['fixture_result_sha256'],'Simulator evidence differs')
  require(d['simulator_execution'] is True and d['physical_device_execution'] is False,'Incorrect runtime scope')
+ cleanup=path.parent/'language-switch/cleanup-evidence.json'
+ require(cleanup.is_file() and not cleanup.is_symlink() and sha(cleanup)==d['cleanup_evidence_sha256'],'Cleanup evidence differs')
+ require(cleanup.read_text()==d['cleanup_evidence_json'],'Embedded cleanup evidence differs')
+ verify_cleanup(cleanup.read_text(),d['simulator']['udid'])
  require(d['fixture_source_sha256']==sha(HERE/'SimulatorFixture.swift'),'Fixture source differs')
  boot=path.parent/'language-switch/boot-readiness.json'
  require(boot.is_file() and not boot.is_symlink() and sha(boot)==d['boot_readiness_sha256'],'Boot readiness evidence differs')
