@@ -1,5 +1,5 @@
 {
-  "native_builder": "a78ea0efece1afde269a893522b79dca797de578",
+  "native_builder": "02eef20523795f6ef912063a8fac712a7f28b401",
   "required_markers": [
     "INITIAL_PROVIDER_REJECTION_AUTH_PASS cases=27 actual_authenticate=true native_provider=false",
     "INITIAL_PROVIDER_REJECTION_CONSUMER_PASS actual_mapper=true actual_sequence=true account_calls=false",
@@ -14,12 +14,12 @@
   "source_provenance": {
     "source_graph": {
       "LiveContainer": {
-        "commit": "2a2d92d49d48553c8275dc1fd1737a95b1136c1a",
-        "tree": "9f27b5d843f26edbf358ef7b201c963f653f9de6"
+        "commit": "5d2498d4dfffa14c031ca1481ab9f3417bfccc3f",
+        "tree": "379f5bdf4cc068bf296e6d42171bf79a2df0feb2"
       },
       "SideStore": {
-        "commit": "e1d2f47405f8becc102608ab066513a8754ce8da",
-        "tree": "8e1e1b1f1115a191633fa8cbfb3e52be9df28129"
+        "commit": "dc3f5d7ffc8a21e8ee0fbc1137572e782f0bd223",
+        "tree": "e0445ea98a6d4427e5d0d66d602e2d5252261eec"
       },
       "SideStore/Dependencies/SideSign": {
         "commit": "3036cfb7803844842d604d17d9697ddbbbc4d50f",
@@ -46,7 +46,7 @@
       "SideStore/.ci/owned-oda/generate_identity.py": "f54027d0442fbd37113abc2b648d6f68adfcfd432037b6bd9b33756b9af7f237",
       "SideStore/.ci/owned-oda/run.sh": "f3887d9f12729762e7f9f45caac873161056b0b9b00d1a254b46a356ad4b621f",
       "SideStore/.ci/owned-oda/test_sources.py": "51df29984eeea068f72599801553b1530ac72ef12c328902eea5384a73044d50",
-      "SideStore/AltStore/AppDelegate.swift": "ed7149defcd90a81ecbe4542a82994c7781b1595d9c2a44b57f84c4105c5186c",
+      "SideStore/AltStore/AppDelegate.swift": "820f1008de6b1ee34e943beab1d3c62c988498a89b55ef3034d4680ac104ac68",
       "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/BoundaryDoubles.swift": "05f88718a3175f0af5866e512743a47a8db3c8b1b14bf407f92f18a9e275c8de",
       "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/PrivateProbes.swift": "62cdbd4d0cab3eeff2f84ca94d6ae76ce1e31b084eb6662f73f8e3bd7008a7ee",
       "SideStore/Dependencies/SideSign/.ci/auth-request-diagnostics/README.md": "bfbb2bfc80b4443b4acc6f3bfffd87e543e210386bedff2734ae446d1bb0a287",
@@ -81,7 +81,7 @@
     }
   },
   "trusted_files_sha256": {
-    "candidate-graph.json": "9312c5d78303a32d52561396f82ec61ab0960f5bacaa845eda7acbdc58f6ab92",
+    "candidate-graph.json": "1c8a70e06b727326807167764084f0cd55d5dd4b5e70e76e581008a621803115",
     "run_issue_tests.py": "4978954116ee9c9de6ec2bbe9c5389730a2a09d63b3b7042527908bc7f9c327f",
     "verify_candidate_graph.py": "a7684ae0f85f4ba3298418bbff906755b0b43c2b30d34303e38ec3cf51660b36"
   }

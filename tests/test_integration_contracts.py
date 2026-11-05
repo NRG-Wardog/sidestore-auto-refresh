@@ -521,6 +521,9 @@ class ReviewedPackageAdmissionTests(unittest.TestCase):
         '.github/workflows/cold-vpn-zopfli.yml',
         'ci/cold-vpn-zopfli/README.md',
         'ci/cold-vpn-zopfli/acquire.py',
+        'ci/cold-vpn-zopfli/cleanup-evidence.snapshot',
+        'ci/cold-vpn-zopfli/language_cleanup_package_admission.py',
+        'ci/cold-vpn-zopfli/test_language_cleanup_package_admission.py',
         'ci/cold-vpn-zopfli/cms-native-graph.json',
         'ci/cold-vpn-zopfli/cms-native-helper.snapshot',
         'ci/cold-vpn-zopfli/cms-source-contract.json',
@@ -561,13 +564,13 @@ class ReviewedPackageAdmissionTests(unittest.TestCase):
         self.registry = c.load_registry()
         self.changes = [change(path) for path in self.PATHS]
 
-    def test_all_37_composed_paths_select_complete_package_admission_controls(self):
-        self.assertEqual(len(self.PATHS), 37)
-        self.assertEqual(len(set(self.PATHS)), 37)
+    def test_all_40_composed_paths_select_complete_package_admission_controls(self):
+        self.assertEqual(len(self.PATHS), 40)
+        self.assertEqual(len(set(self.PATHS)), 40)
         result = c.plan_changes(self.registry, 'sidestore-auto-refresh', self.changes)
         self.assertEqual(result['result'], 'IMPACT_CLASSIFIED_NOT_TESTED')
         self.assertEqual(result['unclassified'], [])
-        self.assertEqual(len(result['classified']), 37)
+        self.assertEqual(len(result['classified']), 40)
         self.assertEqual(result['affected_features'],
                          ['database-preserving-recovery', 'ffi-ownership', 'package-native-evidence'])
         required = {row['path'] for row in result['required_regressions']}

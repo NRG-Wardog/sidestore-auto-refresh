@@ -1900,6 +1900,18 @@
           "path": "ci/cold-vpn-zopfli/reviewed-native/verify_candidate_graph.py",
           "interface": "Reviewed candidate graph verifier snapshot",
           "rationale": "Preserve exact owner graph verification when portable validators load their reviewed native dependencies."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/language_cleanup_package_admission.py",
+          "interface": "verify_language_cleanup",
+          "rationale": "Verify embedded cleanup JSON hash and exact owned simulator absence using reviewed source only at both package boundaries."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/cleanup-evidence.snapshot",
+          "interface": "Reviewed native simulator cleanup verifier",
+          "rationale": "Hash-pinned source snapshot parses exact native cleanup evidence; packaging never invokes cleanup or simulator commands."
         }
       ],
       "integration_points": [
@@ -2028,6 +2040,12 @@
         {
           "owner": "sidestore-auto-refresh",
           "path": "ci/cold-vpn-zopfli/test_provider_ownership_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_language_cleanup_package_admission.py",
           "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
           "level": "executable-fixture"
         }

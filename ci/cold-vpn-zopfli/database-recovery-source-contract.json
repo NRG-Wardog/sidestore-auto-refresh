@@ -34,7 +34,7 @@
     "tests/database_recovery_coredata/run.py": "181b3f9f1a636acfa7c94719fc09b7cbc8623cf086a7336da67de497cad5ccf9",
     "tests/database_recovery_coredata/test_contract.py": "75201bf510c4a32a3c488df5eaa5016caf6f8042084f40d5004724567246eca2"
   },
-  "native_builder": "a78ea0efece1afde269a893522b79dca797de578",
+  "native_builder": "02eef20523795f6ef912063a8fac712a7f28b401",
   "schema": "reviewed-database-recovery-package-contract-v1",
   "trusted_helper_sha256": "34144ed3f7cedd4438e36355c7b4b47d3cfaaf3fdbce578485b46971e01e6227"
 }
