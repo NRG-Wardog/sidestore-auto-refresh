@@ -1,0 +1,195 @@
+{
+  "minimuxer_fake_tests": {
+    "source_inputs": {
+      ".ci/upstream-sync-smoke.swift": "812f3db768ff15c1708ab83971c654c4809cfd7a1e366974fcf45140ffe298c1",
+      ".ci/verify-upstream-sync.py": "652fbf9dfbf2443f402e49fd119ebfc96a96d3843c9750452314a7ade98203bb",
+      "Common/ConcurrencyUtils.swift": "a51cdcf1f50f5cf9c45a57ce97ab272d5d0cc5ef08b12775cac6518d7fae21a2",
+      "Common/PairingFile.swift": "16ae51de40d34d97db2600caf4aba3a9c7aff81096398089e747b2811fc6e511",
+      "Common/PairingProtocol.swift": "643c5492e5baeded4b0ea673966b77a92cd1f422fbd9a95146fbeee194b09478",
+      "Sources/DeviceProvider.swift": "265a8d55a2f936eaa2bc0d85abac80b4b95dece39e0795d871b39f3652aa7450",
+      "Sources/MinimuxerApi.swift": "c71230e058f6d80539796a8a6984148ac6b19dcd20ba543a6c04def83a0049d3",
+      "Sources/RefreshTransportPolicy.swift": "35d4d922b653ed394da69ba2f5725171e3824f6cb8aef24888bb23e3f3cc35ab"
+    },
+    "success_line": "SOURCE_ONLY_SWIFT_SMOKE_PASS pairing=7 transport_cases=144 gateway_batch_switch=pass atomic_configuration=pass"
+  },
+  "native_sources": {
+    "SideStore/Dependencies/minimuxer": {
+      "commit": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
+      "files_sha256": {
+        ".ci/source-parity.json": "a4cfda96e90fef6280b2d3d153dc355949a944a9ef2bd30792e059146a3df9d3",
+        ".ci/source-parity.py": "6da771ad7ae62ec056a8b919159f6a208c1afc2a3cb7632866c5bbd00d49c152"
+      },
+      "followup_parent": {
+        "commit": "1d033920660c6f50b8f30c4c333f025867cd9e96",
+        "required_commit_parents": [
+          "48419a2d24bd74efcee6dc80552ea89e85dafdee"
+        ],
+        "tree": "cb4b239ebf9f3720f8998dc1debd71b3e6debd27"
+      },
+      "merge_anchor": {
+        "commit": "48419a2d24bd74efcee6dc80552ea89e85dafdee",
+        "merge_base": "98c3c79982f813878e922ab42f9545314a700f0c",
+        "required_commit_parents": [
+          "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+          "12be70dc2627307a16bfd2dc7a009080d5bec909"
+        ],
+        "tree": "7b920eec7784a282b018637375e877e0ebfcb557"
+      },
+      "merge_base": "98c3c79982f813878e922ab42f9545314a700f0c",
+      "required_commit_parents": [
+        "1d033920660c6f50b8f30c4c333f025867cd9e96"
+      ],
+      "tree": "31cc39b5b6de3896e96ae977f1ea7c835effb76b"
+    },
+    "idevice": {
+      "commit": "774f02a6d29777c85400f4ba7fa69c12b4227fb3",
+      "files_sha256": {
+        ".ci/source-parity.json": "638574273b039490013706aeeecd58a6bfe3fcbd6519b45e4e64791a3fd89d35",
+        ".ci/source-parity.py": "6aa1ba176b52552589e648aca7a95c027269ec69d6a0dbe3d0fadac5c229ad98"
+      },
+      "merge_anchor": {
+        "commit": "f9eebbbeb83d92565204b53f2a317b0a29999b79",
+        "merge_base": "ebd7dadfc55d1c4facee3d11ecf5b28e20548b57",
+        "required_commit_parents": [
+          "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+          "3e55c8486b2057e40c1f74aaaa1155c82341cf76"
+        ],
+        "tree": "8e05455f44fc3a9311e741e3ffa7d97d7df945fe"
+      },
+      "merge_base": "ebd7dadfc55d1c4facee3d11ecf5b28e20548b57",
+      "required_commit_parents": [
+        "f9eebbbeb83d92565204b53f2a317b0a29999b79"
+      ],
+      "tree": "b6ae60aae960a0ed4bef3fb8ffccce3a4215ad45"
+    },
+    "jktcp": {
+      "commit": "a46594f6af56b66b6d9342ed9f5ee6d1b7fb9cc9",
+      "files_sha256": {
+        ".ci/source-parity.json": "0d0cc3754b7045ecc7df05ed551be923a053cc9eb8ad5cb4e69b3557fd483bd4",
+        ".ci/source-parity.py": "1cf14eede2bed18d750481e5d62c84a15a46f8031d6e533a9882b047ea9f71ef",
+        ".ci/test-source-parity.py": "3cc4a116a4939eaddbc45844938d8cb313dea05e8f10c2b5f235490457cf1d86"
+      },
+      "merge_base": "74fb9936f97abfa79f41e4d6b0e9472c8446230a",
+      "required_commit_parents": [
+        "32c0210f286b4fd16efe05be4f57167a9d94459b",
+        "7df57dc59b47ec72fb5dc251fbe9344b0647246b"
+      ],
+      "tree": "5c7f972334bd4dccc10e03a63cbd19cccd2a354a",
+      "verifier_report": {
+        "behavior_changes": [
+          "Integrate the exact jkcoxson 0.1.8 upstream packet-write queue, overlapping/out-of-order ACK handling, FIN sequencing, and shared reader-close delivery.",
+          "Preserve NRG zero-window persist/backoff, lost-window-update recovery, timeout diagnostics, fatal timer-flush propagation, and event-driven idle behavior.",
+          "Route custom zero-window probes through the single cancellation-safe outbox; atomically dequeue application bytes with sequence and unacked bookkeeping before the first await.",
+          "Retain a pending transport-flush flag across cancellation and include it in pending work until flush completes.",
+          "Deliver inbound data/errors before potentially blocked outgoing flushing; do not retransmit or dequeue new data on errored connections or keep their idle timer active.",
+          "Normalize the source-owned jktcp package/lock root identity to 0.1.8 without changing dependency declarations or resolved dependency entries; Cargo --locked verification is pending."
+        ],
+        "metadata_files_verified": 4,
+        "native_execution": false,
+        "owner": "jktcp",
+        "product_files_verified": 10,
+        "status": "exact_reviewed_source_pass"
+      }
+    }
+  },
+  "schema_version": 1,
+  "sidestore_test_count": 158,
+  "vpn_transport_regression": {
+    "generated_sha256": "b3730cc60c23afd44a59654514456434e506929fa8b8813b8cb2b1c769eec59d",
+    "input_rows": {
+      "OriginalReadinessUnavailable.swift": {
+        "path": "SideStore/tests/vpn_transport_recovery/OriginalReadinessUnavailable.swift",
+        "sha256": "a3bf89d405f004ea09d43f65911285ab7c0ed7cef01d56d3426ebc8e94341bb6"
+      },
+      "OriginalRefreshTransportPolicy.swift": {
+        "path": "SideStore/tests/vpn_transport_recovery/OriginalRefreshTransportPolicy.swift",
+        "sha256": "1ddc3d112d8a218db2c8017947595782fbe625dcdf7fef1fc6d4495f8b8b15d0"
+      },
+      "OriginalTransportSnapshot.swift": {
+        "path": "SideStore/tests/vpn_transport_recovery/OriginalTransportSnapshot.swift",
+        "sha256": "99b3af43544a4163b0e7bdfe19afe2da29163c175bc39cce02da4be76e6e5663"
+      },
+      "api": {
+        "path": "SideStore/Dependencies/minimuxer/Sources/MinimuxerApi.swift",
+        "sha256": "c71230e058f6d80539796a8a6984148ac6b19dcd20ba543a6c04def83a0049d3"
+      },
+      "baseline-receipt.json": {
+        "path": "SideStore/tests/vpn_transport_recovery/baseline-receipt.json",
+        "sha256": "d7b007c5c644352420600401ac6160f08daa4d1f2c5834d797eaf42999bc80d5"
+      },
+      "classifier": {
+        "path": "SideStore/SideStore/Core/Operations/PipelineExecutor.swift",
+        "sha256": "cd5871141e6f3f1e32f17c161d3bfac3e0101f616bdeb4ab4db029ebdc81849d"
+      },
+      "gateway_error": {
+        "path": "SideStore/Dependencies/minimuxer/DeviceGateway/DeviceGatewayError.swift",
+        "sha256": "e5513537a1ad7592390e6c6bf1e7690cef00d2c0139f13ce4e7efeef3914b042"
+      },
+      "generate_fixture.py": {
+        "path": "SideStore/tests/vpn_transport_recovery/generate_fixture.py",
+        "sha256": "799a828dc211ccc009c8556c15f13ddde88c18555b39fd131a6b6968be2be3c9"
+      },
+      "interface_doubles.swift": {
+        "path": "SideStore/tests/vpn_transport_recovery/interface_doubles.swift",
+        "sha256": "d8af978f8378d06a6e8276b2148e5683ab5233587698738ca763c20d3e6da4cc"
+      },
+      "mapper": {
+        "path": "SideStore/SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
+        "sha256": "11f42833985426a6a93dea806c8f4d2f693345143795e121a1c8a65847a06344"
+      },
+      "minimuxer_error": {
+        "path": "SideStore/Dependencies/minimuxer/Sources/MinimuxerError.swift",
+        "sha256": "569773f48a1a2a449d4a8f30812e73cf9f45550fa72a40f25f866c02c1034474"
+      },
+      "observer": {
+        "path": "SideStore/Dependencies/minimuxer/Sources/Services/NetworkObserverService.swift",
+        "sha256": "0a2af148e244000577fb2a252cf4ae311a631e19f77ef9d4fbe83b34dce21f9e"
+      },
+      "operation_error": {
+        "path": "SideStore/SideStore/Core/Operations/Errors/OperationError.swift",
+        "sha256": "0df82c2b27c8f7da6147bf4b2856609decd7e3be59370f45851018d2a2fe70e2"
+      },
+      "pairing": {
+        "path": "SideStore/Dependencies/minimuxer/Common/PairingProtocol.swift",
+        "sha256": "643c5492e5baeded4b0ea673966b77a92cd1f422fbd9a95146fbeee194b09478"
+      },
+      "policy": {
+        "path": "SideStore/Dependencies/minimuxer/Sources/RefreshTransportPolicy.swift",
+        "sha256": "35d4d922b653ed394da69ba2f5725171e3824f6cb8aef24888bb23e3f3cc35ab"
+      },
+      "producer": {
+        "path": "SideStore/Dependencies/minimuxer/Sources/MinimuxerImpl.swift",
+        "sha256": "92f350fbbfa4a6a870458b428d11c92a9ace7c7fa5c9ef7c31c7d926ef5acc61"
+      },
+      "scanner": {
+        "path": "SideStore/Dependencies/minimuxer/Sources/Services/NetworkIfaceScanner.swift",
+        "sha256": "9547343e103403941daeb7aabdb993ed4af0cdb1382be1b28639ec6faea7be2f"
+      }
+    },
+    "runtime_marker": "VPN_TRANSPORT_RECOVERY_PASS transport_cases=144 actual_scanner=pass baseline_failure_reproduced=pass finite_exclusions=pass",
+    "source_inputs": {
+      "SideStore/Dependencies/minimuxer/Common/PairingProtocol.swift": "643c5492e5baeded4b0ea673966b77a92cd1f422fbd9a95146fbeee194b09478",
+      "SideStore/Dependencies/minimuxer/DeviceGateway/DeviceGatewayError.swift": "e5513537a1ad7592390e6c6bf1e7690cef00d2c0139f13ce4e7efeef3914b042",
+      "SideStore/Dependencies/minimuxer/Sources/MinimuxerApi.swift": "c71230e058f6d80539796a8a6984148ac6b19dcd20ba543a6c04def83a0049d3",
+      "SideStore/Dependencies/minimuxer/Sources/MinimuxerError.swift": "569773f48a1a2a449d4a8f30812e73cf9f45550fa72a40f25f866c02c1034474",
+      "SideStore/Dependencies/minimuxer/Sources/MinimuxerImpl.swift": "92f350fbbfa4a6a870458b428d11c92a9ace7c7fa5c9ef7c31c7d926ef5acc61",
+      "SideStore/Dependencies/minimuxer/Sources/RefreshTransportPolicy.swift": "35d4d922b653ed394da69ba2f5725171e3824f6cb8aef24888bb23e3f3cc35ab",
+      "SideStore/Dependencies/minimuxer/Sources/Services/NetworkIfaceScanner.swift": "9547343e103403941daeb7aabdb993ed4af0cdb1382be1b28639ec6faea7be2f",
+      "SideStore/Dependencies/minimuxer/Sources/Services/NetworkObserverService.swift": "0a2af148e244000577fb2a252cf4ae311a631e19f77ef9d4fbe83b34dce21f9e",
+      "SideStore/SideStore/Core/DeviceApi/MinimuxerWrapper.swift": "11f42833985426a6a93dea806c8f4d2f693345143795e121a1c8a65847a06344",
+      "SideStore/SideStore/Core/Operations/Errors/OperationError.swift": "0df82c2b27c8f7da6147bf4b2856609decd7e3be59370f45851018d2a2fe70e2",
+      "SideStore/SideStore/Core/Operations/PipelineExecutor.swift": "cd5871141e6f3f1e32f17c161d3bfac3e0101f616bdeb4ab4db029ebdc81849d",
+      "SideStore/tests/vpn_transport_recovery/OriginalReadinessUnavailable.swift": "a3bf89d405f004ea09d43f65911285ab7c0ed7cef01d56d3426ebc8e94341bb6",
+      "SideStore/tests/vpn_transport_recovery/OriginalRefreshTransportPolicy.swift": "1ddc3d112d8a218db2c8017947595782fbe625dcdf7fef1fc6d4495f8b8b15d0",
+      "SideStore/tests/vpn_transport_recovery/OriginalTransportSnapshot.swift": "99b3af43544a4163b0e7bdfe19afe2da29163c175bc39cce02da4be76e6e5663",
+      "SideStore/tests/vpn_transport_recovery/README.md": "52870a0039b388ce00d80b5e387155bfd12d7281ee6e0e7188cb59518c917edb",
+      "SideStore/tests/vpn_transport_recovery/baseline-receipt.json": "d7b007c5c644352420600401ac6160f08daa4d1f2c5834d797eaf42999bc80d5",
+      "SideStore/tests/vpn_transport_recovery/generate_fixture.py": "799a828dc211ccc009c8556c15f13ddde88c18555b39fd131a6b6968be2be3c9",
+      "SideStore/tests/vpn_transport_recovery/interface_doubles.swift": "d8af978f8378d06a6e8276b2148e5683ab5233587698738ca763c20d3e6da4cc",
+      "SideStore/tests/vpn_transport_recovery/policy_cases.swift": "5e105e746dcb46af47ad5d362c6b9083739cb29f82f35dab109d565c4220338d",
+      "SideStore/tests/vpn_transport_recovery/test_contract.py": "217070945d78c369f214324467c94248f104f0aa3e7a76a5048da4e2d96d631c"
+    },
+    "test_count": 4,
+    "transport_case_count": 144
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "language-fixture-counterfactual-attribution-v1",
+  "run_id": 40368942350,
+  "run_attempt": 1,
+  "workflow_commit": "0168cef1893206d72a62de2994569af2b6de15ac",
+  "run_url": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/40368942350",
+  "source_receipt_sha256": "de5e84b1258e05892396f090ca8e6e6c2c88eb64a4a5db06c0b00892f6e9fe21",
+  "without_bridge_sha256": "eba86a88786bcf72a37fb03c15807bc335daa08035f382fef4abd9011fa5bbb8",
+  "with_bridge_sha256": "6b9a04e4ada9b98ad746c2fc157367e9dddd97797c0be0e37220dfea9ac3171a",
+  "observed_languages": ["he", "en", "he"],
+  "same_observations_in_both_modes": true,
+  "creation_only_table_semantic_values": [4, 3, 4],
+  "explicit_swiftui_ltr_table_semantic_values": [3, 3, 3],
+  "scope": "Observed synthetic UIKit/SwiftUI fixture behavior on the recorded iOS Simulator runtime, not a universal platform claim or production device proof.",
+  "change": "Default technical table now declares the same explicit SwiftUI LTR environment as production technical details. The original implicit counterfactual remains unchanged and the strict LTR assertion is retained. A separate UIKit-only explicit-LTR view remains guarded against bridge mutation.",
+  "production_source_changed": false
+}

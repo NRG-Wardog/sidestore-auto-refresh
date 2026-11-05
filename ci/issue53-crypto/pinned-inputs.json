@@ -1,0 +1,19 @@
+{
+  "host": {
+    "commit": "623c84da314e85363236507ca38a4bde65df21c3",
+    "tree": "21bc09387e7f91a46eb8bd26587ce1d052277801",
+    "binary_sha256": "6c35a25d7af774b6530cf8b38040f541f14d212c38513cbf1d588e95ab20c647",
+    "binary_git_blob": "c4476cd7a1a6481fe9073070b3e489809f0d91e8",
+    "info_sha256": "ec0806c20f945e7c4bdb3dbc0e7bfff5a5b3a8bbb368142765a6eaf310ad15e6",
+    "header_inventory_sha256": "84567c610bc4e9e25baf0e7a84399978319adec81d93e0333b7101b0ee2bf617",
+    "version": "OpenSSL 3.3.3 11 Feb 2025"
+  },
+  "embedded": {
+    "archive_url": "https://github.com/krzyzanowskim/OpenSSL/releases/download/3.6.2000/OpenSSL.xcframework.zip",
+    "archive_sha256": "37846a8bd302cb2443eff47f1045ab844d0cd40bf82cc6159cfad9aa5c3eff9e",
+    "binary_sha256": "e705420af1b8bd3376dd50ce4f993dc958a29543778cd90800f4433056228787",
+    "info_sha256": "bc94bed7914aaf4be25db27dc8556e43231f0f47ad97d934c9b1a2cd294eecb3",
+    "header_inventory_sha256": "c40ac9316c7a9a7e1c1b1788f695ce4960987084cd569e4d13c5f0144b00e40a",
+    "version": "OpenSSL 3.6.2 7 Apr 2026"
+  }
+}

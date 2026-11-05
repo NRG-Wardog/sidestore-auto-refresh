@@ -1,0 +1,6 @@
+{
+  "schema": "issue53-generated-consumer-policy-v1",
+  "optimization": "Os",
+  "historical_builder_default": "O2",
+  "qualification": "same-run-native-macos-and-three-ios-slices"
+}

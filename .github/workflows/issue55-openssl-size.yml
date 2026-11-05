@@ -1,0 +1,110 @@
+name: Measure qualified OpenSSL size optimization without promotion
+on:
+  workflow_dispatch:
+  push:
+    branches: ['test/issue55-openssl-size']
+    paths: ['ci/issue55-openssl-size/**', 'ci/issue53-lts/**', 'ci/issue53-crypto/**', '.github/workflows/issue55-openssl-size.yml']
+permissions:
+  contents: read
+concurrency:
+  group: issue55-openssl-size-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/test/issue55-openssl-size'
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Validate recipe and preserve attempt evidence
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          printf 'workflow_commit=%s\nrun_id=%s\nexperimental_generated_dependency=true\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > evidence/identity.txt
+          cp ci/issue53-lts/source.json evidence/lts-source.json
+          python3 -B ci/issue55-openssl-size/test_experiment.py 2>&1 | tee evidence/size-policy-controls.log
+          python3 -B ci/issue53-lts/test_ios_recipe.py 2>&1 | tee evidence/ios-controls.log
+          python3 -B ci/issue53-lts/test_recipe.py 2>&1 | tee evidence/recipe-controls.log
+          python3 -B ci/issue53-crypto/test_controls.py 2>&1 | tee evidence/crypto-controls.log
+          python3 -B ci/issue53-crypto/test_consumer_contract.py 2>&1 | tee evidence/consumer-controls.log
+      - name: Build explicit official LTS source as isolated native macOS framework
+        id: lts
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue53-lts/build.py --output lts-build --optimization Os 2>&1 | tee evidence/lts-build-driver.log
+          cp lts-build/build-receipt.json lts-build/configdata.txt lts-build/headers.json evidence/
+      - name: Acquire unchanged comparison libraries and maintained signer source
+        id: comparisons
+        if: ${{ !cancelled() && steps.lts.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue53-crypto/acquire.py --output inputs 2>&1 | tee evidence/comparison-acquisition.log
+          python3 -B ci/issue53-crypto/consumer.py acquire --inputs inputs 2>&1 | tee evidence/signer-acquisition.log
+          cp inputs/acquisition.json ci/issue53-crypto/zsign-source.json evidence/
+      - name: Qualify only generated LTS host candidate with unchanged embedded comparison
+        id: host_qualification
+        if: ${{ !cancelled() && steps.comparisons.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue53-lts/qualify.py --built lts-build --inputs inputs --evidence evidence 2>&1 | tee evidence/lts-qualification-driver.log
+      - name: Build all unchanged iOS architectures with explicit size optimization
+        id: ios
+        if: ${{ !cancelled() && steps.host_qualification.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue53-lts/build_ios.py --output ios-size-build \
+            --archive lts-build/openssl-3.5.9.tar.gz --optimization Os 2>&1 | tee evidence/ios-driver.log
+          cp ios-size-build/ios-build-receipt.json evidence/
+      - name: Measure equally STAB-stripped device bytes and exact exported APIs
+        id: measurement
+        if: ${{ !cancelled() && steps.ios.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B ci/issue55-openssl-size/measure.py --mac lts-build --ios ios-size-build \
+            --evidence evidence 2>&1 | tee evidence/size-measurement-driver.log
+      - name: Retain generated inputs and complete matching symbols, not an app artifact
+        if: ${{ !cancelled() && steps.measurement.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue55-openssl-Os-generated-${{ github.run_id }}
+          path: |
+            lts-build/generated/
+            lts-build/build-receipt.json
+            ios-size-build/GeneratedDependencies/
+            ios-size-build/ios-build-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve build log even on failure
+        if: always()
+        run: |
+          mkdir -p evidence
+          if test -f lts-build/build.log; then cp lts-build/build.log evidence/lts-build.log; fi
+          if test -f lts-build/configdata.txt; then cp lts-build/configdata.txt evidence/configdata.txt; fi
+          if test -f ios-size-build/build-ios.log; then cp ios-size-build/build-ios.log evidence/ios-build.log; fi
+          for slice in ios-arm64 sim-arm64 sim-x86_64; do
+            if test -f "ios-size-build/$slice/configdata.txt"; then cp "ios-size-build/$slice/configdata.txt" "evidence/$slice-configdata.txt"; fi
+          done
+      - name: Upload non-secret qualification evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue55-openssl-size-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,64 @@
+{
+  "files": {
+    "LiveContainer/.ci/comprehensive-diagnostics/generate_refresh_failure_fixture.py": {
+      "before_sha256": "b80fbfc2d7fe7188a28adfd1b128e3708931f4898d6744becc5fcbc7c7f341c8",
+      "after_sha256": "33d4e1a1527649e874449ae29e9d47c156d8d735198ee415af91d477704a9cd4",
+      "edits": [
+        {
+          "after_lines": [
+            56,
+            102
+          ],
+          "before": "",
+          "after": "def completion_chain(host, block, doubles):\n    \"\"\"Extract the actual admission gate and complete common callback consumer.\n\n    Historical variants retain their exact monolithic callback. Only inert\n    delivery scaffolding changes for the admission-correlated current source.\n    \"\"\"\n    legacy = block(host, 'fileprivate func completedRefresh(')\n    if 'private func acceptRefreshCompletion(' not in host:\n        assert 'V3RefreshTerminalFailurePolicy.preservedFailure(' in legacy\n        assert 'defaults.set(preserved.manifest' in legacy\n        assert 'launchID == id, refreshContinuation != nil, refreshRunID == runID' in legacy\n        return '', legacy, doubles\n    accepted = block(host, 'private func acceptRefreshCompletion(')\n    correlated = block(host, 'fileprivate func completedHostRefresh(')\n    identity = block(host, 'enum V3RefreshCallbackIdentityPolicy {')\n    assert 'guard refreshAdmissionID == nil else { return }' in legacy\n    assert 'V3RefreshCallbackIdentityPolicy.matches(' in correlated\n    assert 'callbackRunID: runID, callbackAdmissionID: admissionID' in correlated\n    assert 'activeRunID: refreshRunID, activeAdmissionID: refreshAdmissionID' in correlated\n    assert 'acceptRefreshCompletion(error, runID: runID, verification: verification, id: id)' in correlated\n    assert 'UUID(uuidString: callbackRunID)?.uuidString == callbackRunID' in identity\n    assert 'UUID(uuidString: callbackAdmissionID)?.uuidString == callbackAdmissionID' in identity\n    assert 'callbackRunID == activeRunID && callbackAdmissionID == activeAdmissionID' in identity\n    assert 'V3RefreshTerminalFailurePolicy.preservedFailure(' in accepted\n    assert 'defaults.set(preserved.manifest' in accepted\n    assert 'launchID == id, refreshContinuation != nil, refreshRunID == runID' in accepted\n    anchor = '    var refreshRunID: String?'\n    assert doubles.count(anchor) == 1\n    doubles = doubles.replace(anchor, anchor + '\\n    var refreshAdmissionID: String?')\n    anchor = '        refreshRunID = runID'\n    assert doubles.count(anchor) == 1\n    doubles = doubles.replace(anchor, anchor + '\\n        let admissionID = UUID().uuidString\\n        refreshAdmissionID = admissionID')\n    first = '                completedRefresh(error, runID: wrongRun ?? runID, verification: verification, id: wrongLaunch ?? launch)'\n    assert doubles.count(first) == 1\n    doubles = doubles.replace(first, '''                // Stale same-run and uncorrelated callbacks cannot settle this admission.\n                completedHostRefresh(error, runID: runID, admissionID: UUID().uuidString, verification: verification, id: launch)\n                precondition(refreshContinuation != nil && v3RefreshTerminalCallbackRunID == nil)\n                completedRefresh(error, runID: runID, verification: verification, id: launch)\n                precondition(refreshContinuation != nil && v3RefreshTerminalCallbackRunID == nil)\n                completedHostRefresh(error, runID: wrongRun ?? runID, admissionID: admissionID, verification: verification, id: wrongLaunch ?? launch)''')\n    second = '                    completedRefresh(error, runID: runID, verification: nil, id: launch)'\n    assert doubles.count(second) == 1\n    doubles = doubles.replace(second, '                    completedHostRefresh(error, runID: runID, admissionID: admissionID, verification: nil, id: launch)')\n    return identity + '\\n', legacy + '\\n' + correlated + '\\n' + accepted, doubles\n\n\n"
+        },
+        {
+          "after_lines": [
+            117,
+            119
+          ],
+          "before": "    current = block(host, 'fileprivate func completedRefresh(')\n    assert 'V3RefreshTerminalFailurePolicy.preservedFailure(' in current\n    assert 'defaults.set(preserved.manifest' in current\n    assert 'launchID == id, refreshContinuation != nil, refreshRunID == runID' in current\n",
+          "after": "    identity, current, current_doubles = completion_chain(\n        host, block, (HERE/'refresh_handler_doubles.swift').read_text())\n"
+        },
+        {
+          "after_lines": [
+            163,
+            164
+          ],
+          "before": "",
+          "after": "    swift += identity\n"
+        },
+        {
+          "after_lines": [
+            165,
+            167
+          ],
+          "before": "        swift += 'final class '+name+' {\\n' + (HERE/'refresh_handler_doubles.swift').read_text() + '\\n'\n",
+          "after": "        handler_doubles = current_doubles if name == 'CurrentHandler' else (HERE/'refresh_handler_doubles.swift').read_text()\n        swift += 'final class '+name+' {\\n' + handler_doubles + '\\n'\n"
+        }
+      ]
+    },
+    "LiveContainer/.ci/early-refresh-boundaries/generate_regression.py": {
+      "before_sha256": "a8301da81178f28689e24348a6ef90054a51c9c12903dc82af81f4602f3c473a",
+      "after_sha256": "fa11915e32449213a25839f063888aa577c47d23f6b4cfa30af8d7b8a3f534bb",
+      "edits": [
+        {
+          "after_lines": [
+            47,
+            93
+          ],
+          "before": "",
+          "after": "\ndef completion_chain(host, block, doubles):\n    \"\"\"Extract the actual admission gate and complete common callback consumer.\n\n    Historical variants retain their exact monolithic callback. Only inert\n    delivery scaffolding changes for the admission-correlated current source.\n    \"\"\"\n    legacy = block(host, 'fileprivate func completedRefresh(')\n    if 'private func acceptRefreshCompletion(' not in host:\n        assert 'V3RefreshTerminalFailurePolicy.preservedFailure(' in legacy\n        assert 'defaults.set(preserved.manifest' in legacy\n        assert 'launchID == id, refreshContinuation != nil, refreshRunID == runID' in legacy\n        return '', legacy, doubles\n    accepted = block(host, 'private func acceptRefreshCompletion(')\n    correlated = block(host, 'fileprivate func completedHostRefresh(')\n    identity = block(host, 'enum V3RefreshCallbackIdentityPolicy {')\n    assert 'guard refreshAdmissionID == nil else { return }' in legacy\n    assert 'V3RefreshCallbackIdentityPolicy.matches(' in correlated\n    assert 'callbackRunID: runID, callbackAdmissionID: admissionID' in correlated\n    assert 'activeRunID: refreshRunID, activeAdmissionID: refreshAdmissionID' in correlated\n    assert 'acceptRefreshCompletion(error, runID: runID, verification: verification, id: id)' in correlated\n    assert 'UUID(uuidString: callbackRunID)?.uuidString == callbackRunID' in identity\n    assert 'UUID(uuidString: callbackAdmissionID)?.uuidString == callbackAdmissionID' in identity\n    assert 'callbackRunID == activeRunID && callbackAdmissionID == activeAdmissionID' in identity\n    assert 'V3RefreshTerminalFailurePolicy.preservedFailure(' in accepted\n    assert 'defaults.set(preserved.manifest' in accepted\n    assert 'launchID == id, refreshContinuation != nil, refreshRunID == runID' in accepted\n    anchor = '    var refreshRunID: String?'\n    assert doubles.count(anchor) == 1\n    doubles = doubles.replace(anchor, anchor + '\\n    var refreshAdmissionID: String?')\n    anchor = '        refreshRunID = runID'\n    assert doubles.count(anchor) == 1\n    doubles = doubles.replace(anchor, anchor + '\\n        let admissionID = UUID().uuidString\\n        refreshAdmissionID = admissionID')\n    first = '                completedRefresh(error, runID: wrongRun ?? runID, verification: verification, id: wrongLaunch ?? launch)'\n    assert doubles.count(first) == 1\n    doubles = doubles.replace(first, '''                // Stale same-run and uncorrelated callbacks cannot settle this admission.\n                completedHostRefresh(error, runID: runID, admissionID: UUID().uuidString, verification: verification, id: launch)\n                precondition(refreshContinuation != nil && v3RefreshTerminalCallbackRunID == nil)\n                completedRefresh(error, runID: runID, verification: verification, id: launch)\n                precondition(refreshContinuation != nil && v3RefreshTerminalCallbackRunID == nil)\n                completedHostRefresh(error, runID: wrongRun ?? runID, admissionID: admissionID, verification: verification, id: wrongLaunch ?? launch)''')\n    second = '                    completedRefresh(error, runID: runID, verification: nil, id: launch)'\n    assert doubles.count(second) == 1\n    doubles = doubles.replace(second, '                    completedHostRefresh(error, runID: runID, admissionID: admissionID, verification: nil, id: launch)')\n    return identity + '\\n', legacy + '\\n' + correlated + '\\n' + accepted, doubles\n\n"
+        },
+        {
+          "after_lines": [
+            144,
+            147
+          ],
+          "before": "    current = block(host, 'fileprivate func completedRefresh(')\n    assert 'V3RefreshTerminalFailurePolicy.preservedFailure(' in current\n    swift += 'final class CurrentHandler {\\n' + support(SUPPORT_PATHS[2]) + '\\n'\n",
+          "after": "    identity, current, handler_doubles = completion_chain(host, block, support(SUPPORT_PATHS[2]))\n    swift += identity\n    swift += 'final class CurrentHandler {\\n' + handler_doubles + '\\n'\n"
+        }
+      ]
+    }
+  }
+}

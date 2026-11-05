@@ -22,6 +22,7 @@ REQUIRED_SCRIPTS = {
     "adapt_sidestore_070_signing.py",
 }
 LIVE_CONTAINER_SCRIPTS = {
+    "ipa_size_report.py",
     "patch_native_error_presenters.py",
     "patch_cf_bundle_scan.py",
     "patch_lc_certificate_observation.py",
@@ -65,7 +66,7 @@ LIVE_CONTAINER_SCRIPTS = {
     "combined_build_evidence.py",
     "run_issue25_rendering.py",
     "patch_app_layout.py",
-    "package_livecontainer_combined.py",
+    "package_livecontainer_combined.py", "packaging_adapters.py", "rehearse_packaging_integration.py",
     "audit_ipa_signing.py",
     "patch_guest_return.py",
     "patch_combined_transport.py",
@@ -209,6 +210,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(
             {path.name for path in SCRIPTS.glob("*.py")},
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
+                    "integration_contracts.py", "experiment_strip_stabs.py", "macho_stab_guard.py", "optimize_native_candidate.py",
                     "check_compiled_localization.py", "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "p0_maintained_sources.py", "p1_maintained_sources.py", "p0_constructor_diagnostics.py", "p0_elf_metadata_bounds.py", "p0_cxx_allocation.py", "p2_composed_host.py", "p0_full_login_diagnostics.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py", "patch_transport_lockfiles.py"},
 
         )

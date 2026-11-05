@@ -1,0 +1,28 @@
+{
+  "repository": "NRG-Wardog/LiveContainer",
+  "commit": "6f11f8843ea6ae11f0d82b902e5d9170a197862f",
+  "tree": "743c91c0550bcd35dd09140fa504388adff5c7d4",
+  "files": {
+    "ZSign/openssl.cpp": "5ba8f44170a0f9ca254c17317dbc2ad02b353451e3a38067591f19770c9a3558",
+    "ZSign/openssl.h": "ee6ef6a8d47efcfcfd2d1076666dced782eb0b7287c05a691b04a38fb38cdc26",
+    "ZSign/signing.cpp": "6e4fc7e9bd0edf4826d5d97fc9558ef3f62d06f1893d618f8d35b09750e93ef5",
+    "ZSign/signing.h": "bb0844ab81ded10519afa2f6899503f06d0964fdc3134f2aec0311e35ccdc707",
+    "ZSign/Utils.hpp": "3d1b55c0bdda0cc7c312b1e4c21cd853a113b0bd1860e5649094a08505ce6e2f",
+    "ZSign/common/base64.cpp": "61e2f90c8f532d852dc76bb9836aabf9e173f4634970c67df96953e31e7654ed",
+    "ZSign/common/base64.h": "d869557450d29f07e386e7f5047d3c73d70d22422b94c74e2e6fc4346f43a00a",
+    "ZSign/common/common.h": "2a4bf09de8603638fdb74beb9abb32cf233e89cfb043de27d5d02bd34204a266",
+    "ZSign/common/fs.cpp": "e5069fab7e0c66a854f4313fee9403aeb8204f4fdb9265b5a83842d5e41f3c23",
+    "ZSign/common/fs.h": "b5fea7e789b87fe91b4cffec54ac5ad2c0edd685d364856a2ee0bf00373671dc",
+    "ZSign/common/json.cpp": "154fc5e647e7406742e681430719805c96b8f44894d234f198798598bbeacf52",
+    "ZSign/common/json.h": "16b698e2372e4439c828480faaebdc87c6837d2485486f8abb1eeed30952bf03",
+    "ZSign/common/log.cpp": "cb2fe949c74b93895d450cc8c360228029ba749f4e74b16719ca11626b987ff0",
+    "ZSign/common/log.h": "5821115fb2cd509edd1b54e2687a077903c74e0d1280d793f9179b3de5f7c1ea",
+    "ZSign/common/mach-o.h": "371f4e460b891346014e67de02dfd52ed6ecbef53c128b4aeef46f08b2270819",
+    "ZSign/common/sha.cpp": "440852f2ff4b966f9d2db0fceeef156822a396641ee5cc97e6309eb1347fe097",
+    "ZSign/common/sha.h": "f01bcabfe7bd210abfe7f5cda609a6bc4aadfd46445f8ba3629a72921b062b42",
+    "ZSign/common/timer.cpp": "c41d4cb63a8320567c9e9acb9e243c0efad42941d6719ec7b9701e4df23b2d94",
+    "ZSign/common/timer.h": "5c52ec079a2f6d76faef346583cd3efac9515efd30a74c40d2c42f2130aefb7d",
+    "ZSign/common/util.cpp": "b25b6a9d54a009b7962904e4b0a7c1f9dba8be0e4f2b0b7b0713f0d0304f8dcf",
+    "ZSign/common/util.h": "00a9e99aaac14645ad7aa2cbffa5abc913de13207f694d8baba16374bc2ceff1"
+  }
+}

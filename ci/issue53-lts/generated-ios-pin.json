@@ -1,0 +1,16 @@
+{
+  "schema": "issue53-generated-artifact-pin-v1",
+  "repository": "NRG-Wardog/sidestore-auto-refresh",
+  "run_id": 40222501045,
+  "artifact_id": 12609807450,
+  "workflow_commit": "fba7c6eb107b233760b1c9359243a1464c7d913b",
+  "artifact_sha256": "860c10f36ac9ee7333a84d1091635cdb33c0b0b3ef03dae43d40b1ab3f6893b6",
+  "members": {
+    "generated-ios-inputs.tar.gz": "7b03d21b37e3232c4dd82f7bc981486a98418de60550e8ed4ae5cdf319f344ea",
+    "ios-build-receipt.json": "9171f09cf2317d8095786c81de400e71f77668fe6b951babe9c14b72664fbb1f",
+    "workflow-identity.txt": "cbc9440a8e1bdd13b16e36058363198d23224e13ec0cfa160aed8d2bd90269bf"
+  },
+  "recipe_sha256": "5376ab0d26dfd0f084e547ac85ffcbdae06e86c3cac45dc797caad3da20afd97",
+  "shared_recipe_sha256": "42bb7ffbc283bf1a1d7bb191a1e430dcc5d2ef2b183a611c18e793c73b57cbac",
+  "source_sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
+}

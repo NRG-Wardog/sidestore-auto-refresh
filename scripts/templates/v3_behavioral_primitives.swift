@@ -5516,7 +5516,12 @@ struct V3RefreshAdmissionLease {
     private(set) var expiresAt: Date?
     private(set) var ownerLost = false
 
+    // A retained run still fences new mutations after its owner is lost.
     var isActive: Bool { runID != nil }
+    // Snapshot activity must describe a live owner, not a durable recovery hold.
+    // Otherwise a restarted host cannot accept the very snapshot needed to
+    // present and explicitly reconcile an interrupted refresh.
+    var hasLiveOwner: Bool { isActive && !ownerLost }
 
     mutating func expire(now: Date = Date()) -> Bool {
         guard let expiresAt, expiresAt <= now, !ownerLost else { return false }
@@ -5685,5 +5690,51 @@ enum V3SharedKeychainAccessGroupPolicy {
             return nil
         }
         return "\(prefix).com.kdt.livecontainer.shared"
+    }
+}
+
+
+// V3_REFRESH_EXECUTION_GATE_V1: one in-process execution owner across the
+// external AppIntent and the admitted host XPC path. MainActor owns this value.
+struct V3RefreshExecutionTicket: Equatable, Sendable {
+    let id: UUID
+    let hostRunID: String?
+    let hostAdmissionID: String?
+}
+
+struct V3RefreshExecutionGate {
+    private(set) var current: V3RefreshExecutionTicket?
+    private var consumedHostAdmissionID: String?
+    private var consumedHostRunID: String?
+    var isActive: Bool { current != nil }
+    var isExternalActive: Bool { current != nil && current?.hostRunID == nil }
+
+    mutating func acquire(hostRunID: String?, hostAdmissionID: String? = nil, hostLeaseActive: Bool) -> V3RefreshExecutionTicket? {
+        guard current == nil else { return nil }
+        if let hostRunID {
+            guard hostLeaseActive, UUID(uuidString: hostRunID)?.uuidString == hostRunID,
+                  let hostAdmissionID, UUID(uuidString: hostAdmissionID)?.uuidString == hostAdmissionID,
+                  consumedHostAdmissionID != hostAdmissionID else { return nil }
+        } else {
+            guard !hostLeaseActive, hostAdmissionID == nil else { return nil }
+        }
+        let ticket = V3RefreshExecutionTicket(id: UUID(), hostRunID: hostRunID, hostAdmissionID: hostAdmissionID)
+        current = ticket
+        if let hostAdmissionID {
+            consumedHostAdmissionID = hostAdmissionID
+            consumedHostRunID = hostRunID
+        }
+        return ticket
+    }
+
+    func hasDispatched(hostRunID: String, hostAdmissionID: String) -> Bool {
+        consumedHostAdmissionID == hostAdmissionID && consumedHostRunID == hostRunID
+    }
+
+    func owns(_ ticket: V3RefreshExecutionTicket) -> Bool { current == ticket }
+
+    mutating func release(_ ticket: V3RefreshExecutionTicket) {
+        guard current == ticket else { return }
+        current = nil
     }
 }

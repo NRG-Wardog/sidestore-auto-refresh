@@ -84,10 +84,13 @@ class DynamicDisplayPolicyTests(unittest.TestCase):
    for lang,values in translations.items():
     folder=bundle/(lang+'.lproj');folder.mkdir();(folder/'Localizable.strings').write_bytes(plistlib.dumps(values))
    helper=(HOST/'LiveContainerSwiftUI/Utilities/V3Localization.swift').read_text()
+   expected_languages = ['en', 'zh-Hans', 'zh-Hant', 'he']
+   if 'russian = "ru"' in helper:
+    expected_languages.append('ru')
    harness='''
 let bundle = Bundle(path: CommandLine.arguments[1])!
 precondition(V3AppLanguage.resolve("unknown") == .english)
-precondition(V3AppLanguage.allCases.map(\\.rawValue) == ["en", "zh-Hans", "zh-Hant", "he"])
+precondition(V3AppLanguage.allCases.map(\\.rawValue) == __EXPECTED_LANGUAGES__)
 for value in ["zh-Hant", "zh_Hant_TW", "zh-TW", "zh_HK", "zh-MO", "zh-Hant-CN", "zh-TW-x-hans", "zh-Hant-u-nu-latn"] { precondition(V3AppLanguage.resolve(value) == .traditionalChinese) }
 for value in ["zh-Hans", "zh_Hans_CN", "zh-CN", "zh-SG", "zh-Hans-TW", "zh-Hans-CN-x-hant", "zh-CN-x-tw"] { precondition(V3AppLanguage.resolve(value) == .simplifiedChinese) }
 precondition(V3AppLanguage.resolve("he_IL").isRightToLeft)
@@ -127,7 +130,7 @@ precondition(V3Localization.weekdayName(8, language: .hebrew).isEmpty)
 precondition(V3Localization.date(instant, date: .complete, time: .omitted, language: .english)
     != V3Localization.date(instant, date: .complete, time: .omitted, language: .hebrew))
 print("native-display-policy-passed")
-'''
+'''.replace('__EXPECTED_LANGUAGES__', json.dumps(expected_languages))
    source=root/'main.swift';source.write_text(helper+'\n'+harness)
    subprocess.run(['swiftc',str(source),'-o',str(root/'test')],check=True,capture_output=True,text=True,timeout=120)
    result=subprocess.run([str(root/'test'),str(bundle)],check=True,capture_output=True,text=True,timeout=30)

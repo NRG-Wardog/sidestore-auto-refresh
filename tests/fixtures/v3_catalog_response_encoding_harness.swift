@@ -546,7 +546,7 @@ struct CatalogResponseEncodingHarness {
             var request: [String: Any] = ["version": 1, "id": UUID().uuidString,
                 "operation": operation, "target": refreshRunID,
                 "deadline": Date().addingTimeInterval(30)]
-            if operation == "refreshAdmissionEnd" { request["payload"] = ["state": "completed"] }
+            if operation == "refreshAdmissionEnd" { request["payload"] = ["state": "completed", "admissionID": UUID().uuidString] }
             let requestData = try! PropertyListSerialization.data(
                 fromPropertyList: request, format: .binary, options: 0)
             guard let decodedRequest = V3WireContract.decodeRequest(requestData) else {

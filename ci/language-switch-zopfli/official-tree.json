@@ -1,0 +1,739 @@
+{
+  "sha": "df1517dd8518113a245e4d203a04b8a0e02ab493",
+  "url": "https://api.github.com/repos/google/zopfli/git/trees/df1517dd8518113a245e4d203a04b8a0e02ab493",
+  "tree": [
+    {
+      "path": "CMakeLists.txt",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e56fd2fb35391fedf2027266c772abc3e2b5142b",
+      "size": 5957,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/e56fd2fb35391fedf2027266c772abc3e2b5142b"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1ba853922fb804fd5265e877f3e8a4e1d6615448",
+      "size": 1395,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/1ba853922fb804fd5265e877f3e8a4e1d6615448"
+    },
+    {
+      "path": "CONTRIBUTORS",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6eccb31db6376103c352b8a4cfc904890ac9cf69",
+      "size": 137,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/6eccb31db6376103c352b8a4cfc904890ac9cf69"
+    },
+    {
+      "path": "COPYING",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2e64530473452df1e6f8293a2474b511d438282f",
+      "size": 11341,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/2e64530473452df1e6f8293a2474b511d438282f"
+    },
+    {
+      "path": "Makefile",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5407de8a1b5060f3212aa13f0a0fbb4e64dadcaa",
+      "size": 2311,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/5407de8a1b5060f3212aa13f0a0fbb4e64dadcaa"
+    },
+    {
+      "path": "README",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "37f6fc3e70424038bd27deb06592f0242363f6cd",
+      "size": 1857,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/37f6fc3e70424038bd27deb06592f0242363f6cd"
+    },
+    {
+      "path": "README.zopflipng",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fc1ced45bd8802e2329688a0cf6da78732472cc2",
+      "size": 2997,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/fc1ced45bd8802e2329688a0cf6da78732472cc2"
+    },
+    {
+      "path": "go",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "c903afa0a72294b8170ab3d6b38a44220d828d7a",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/c903afa0a72294b8170ab3d6b38a44220d828d7a"
+    },
+    {
+      "path": "go/zopfli",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "d4e4bc4c866dfb6d563220d02087f9f0f8190cb1",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/d4e4bc4c866dfb6d563220d02087f9f0f8190cb1"
+    },
+    {
+      "path": "go/zopfli/zopfli.go",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0cb78aaf3efcd808552f4fa57d47a905c76ad814",
+      "size": 1999,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/0cb78aaf3efcd808552f4fa57d47a905c76ad814"
+    },
+    {
+      "path": "go/zopfli/zopfli_test.go",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4d61703df765fcc1bd660a1e537f089ee4eeeacb",
+      "size": 2037,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/4d61703df765fcc1bd660a1e537f089ee4eeeacb"
+    },
+    {
+      "path": "go/zopflipng",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3769aac2f69601383aff5df4cead37a861767797",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/3769aac2f69601383aff5df4cead37a861767797"
+    },
+    {
+      "path": "go/zopflipng/testdata",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "37643abff83de3229339f97fd3b75810019edc92",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/37643abff83de3229339f97fd3b75810019edc92"
+    },
+    {
+      "path": "go/zopflipng/testdata/zoidberg.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "434d918d5794a2b650c8d4922c7a3f641392ea7c",
+      "size": 25709,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/434d918d5794a2b650c8d4922c7a3f641392ea7c"
+    },
+    {
+      "path": "go/zopflipng/zopflipng.go",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f532321940feef68b5444ba5ea95bc0ed7c57113",
+      "size": 2556,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/f532321940feef68b5444ba5ea95bc0ed7c57113"
+    },
+    {
+      "path": "go/zopflipng/zopflipng_test.go",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8f3d423b6aadd1ef4b2a3b066fec708eb418e045",
+      "size": 1069,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/8f3d423b6aadd1ef4b2a3b066fec708eb418e045"
+    },
+    {
+      "path": "rust",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "66115f481d50bdbfce3b1c37e2e914194b446a4c",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/66115f481d50bdbfce3b1c37e2e914194b446a4c"
+    },
+    {
+      "path": "rust/Cargo.toml",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e6360a7d76007f0040e450b895ff8e3aafaa68ec",
+      "size": 207,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/e6360a7d76007f0040e450b895ff8e3aafaa68ec"
+    },
+    {
+      "path": "rust/LICENSE",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2e64530473452df1e6f8293a2474b511d438282f",
+      "size": 11341,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/2e64530473452df1e6f8293a2474b511d438282f"
+    },
+    {
+      "path": "rust/cache.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5ca0c501551788ed60824d8dbdd6e973f002093d",
+      "size": 2256,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/5ca0c501551788ed60824d8dbdd6e973f002093d"
+    },
+    {
+      "path": "rust/deflate.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fcd9ddc0f7d48383c1b6f2219728c55f9abb76be",
+      "size": 3099,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/fcd9ddc0f7d48383c1b6f2219728c55f9abb76be"
+    },
+    {
+      "path": "rust/gzip_container.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "db74d26f48e8dbf3e84a0064661439acfa38c6e8",
+      "size": 1432,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/db74d26f48e8dbf3e84a0064661439acfa38c6e8"
+    },
+    {
+      "path": "rust/hash.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "153c053b795ac3a170b45c191405290ff1613c0e",
+      "size": 2309,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/153c053b795ac3a170b45c191405290ff1613c0e"
+    },
+    {
+      "path": "rust/lz77.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fb937fd79d1798b2af9df93e42d9981466a449b8",
+      "size": 5578,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/fb937fd79d1798b2af9df93e42d9981466a449b8"
+    },
+    {
+      "path": "rust/src",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "fae9752344df8de042974dafb0d804e67f8c02a5",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/fae9752344df8de042974dafb0d804e67f8c02a5"
+    },
+    {
+      "path": "rust/src/bin",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3a17f487da1d82d95b90d24c158e2e78b6c7960c",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/3a17f487da1d82d95b90d24c158e2e78b6c7960c"
+    },
+    {
+      "path": "rust/src/bin/zopfli.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d627b58607979ef88169fb3fd0f281dbb407c564",
+      "size": 5115,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/d627b58607979ef88169fb3fd0f281dbb407c564"
+    },
+    {
+      "path": "rust/src/blocksplitter.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4a1d707e73316dbd64ecc2438b38fbd7c60123ee",
+      "size": 8933,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/4a1d707e73316dbd64ecc2438b38fbd7c60123ee"
+    },
+    {
+      "path": "rust/src/cache.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f67a53635d9b391b161ad85ea93a549280dbfbf3",
+      "size": 3881,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/f67a53635d9b391b161ad85ea93a549280dbfbf3"
+    },
+    {
+      "path": "rust/src/checksum.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "75bc8ec6ac085ef4631fb1c21de8e6a737d5fb16",
+      "size": 5964,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/75bc8ec6ac085ef4631fb1c21de8e6a737d5fb16"
+    },
+    {
+      "path": "rust/src/deflate.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "eb39b6e1fc2d50235febb681d33537acec9d6516",
+      "size": 18710,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/eb39b6e1fc2d50235febb681d33537acec9d6516"
+    },
+    {
+      "path": "rust/src/error.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "07132092100fb08bef0b02eacb0b4ce32c5c5554",
+      "size": 1210,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/07132092100fb08bef0b02eacb0b4ce32c5c5554"
+    },
+    {
+      "path": "rust/src/ffi.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "81216982fb1a8e4dfcbe8c33981abe36e02c31c7",
+      "size": 24692,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/81216982fb1a8e4dfcbe8c33981abe36e02c31c7"
+    },
+    {
+      "path": "rust/src/gzip_container.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b564328c83aeea662e4c7c15ca144b75dd2fc2fb",
+      "size": 1707,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/b564328c83aeea662e4c7c15ca144b75dd2fc2fb"
+    },
+    {
+      "path": "rust/src/hash.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "03a536540863e12f1cbd85804580a24c1feb9746",
+      "size": 6241,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/03a536540863e12f1cbd85804580a24c1feb9746"
+    },
+    {
+      "path": "rust/src/katajainen.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "416dfd6280c068e6614beac605104f0f2915f079",
+      "size": 6154,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/416dfd6280c068e6614beac605104f0f2915f079"
+    },
+    {
+      "path": "rust/src/lib.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a7e0a2c1f3ecabe86ceccc1f24013a7e29f94a14",
+      "size": 928,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/a7e0a2c1f3ecabe86ceccc1f24013a7e29f94a14"
+    },
+    {
+      "path": "rust/src/lz77.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "653756e0d1b425d70086b406e6d61f83c9f0e410",
+      "size": 21894,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/653756e0d1b425d70086b406e6d61f83c9f0e410"
+    },
+    {
+      "path": "rust/src/squeeze.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a4b889add7a881ab4cb8860eb59d8ce3124af69c",
+      "size": 30811,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/a4b889add7a881ab4cb8860eb59d8ce3124af69c"
+    },
+    {
+      "path": "rust/src/symbols.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "24ddbd650537ad3fa2ed301d61bc90a1601b816b",
+      "size": 6709,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/24ddbd650537ad3fa2ed301d61bc90a1601b816b"
+    },
+    {
+      "path": "rust/src/tree.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2c5c077c2f54d48a8fa30405393e6415870cc8ea",
+      "size": 5494,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/2c5c077c2f54d48a8fa30405393e6415870cc8ea"
+    },
+    {
+      "path": "rust/src/util.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e3c7ed8005356df0ea404cfe065c2d2c0499e6f3",
+      "size": 3080,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/e3c7ed8005356df0ea404cfe065c2d2c0499e6f3"
+    },
+    {
+      "path": "rust/src/zlib_container.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "cad007a34920de20c6487f1fbd29769661145c6e",
+      "size": 1384,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/cad007a34920de20c6487f1fbd29769661145c6e"
+    },
+    {
+      "path": "rust/tests",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "17b3fc375c7938c1ae6d84219b81eabd9950ef64",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/17b3fc375c7938c1ae6d84219b81eabd9950ef64"
+    },
+    {
+      "path": "rust/tests/test_cache.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "13d3f08f84c361526f9a456d675c29d30334ec61",
+      "size": 1858,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/13d3f08f84c361526f9a456d675c29d30334ec61"
+    },
+    {
+      "path": "rust/tests/test_checksum.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b50fca53269f918e2fe4c46486960ff3e97dad47",
+      "size": 718,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/b50fca53269f918e2fe4c46486960ff3e97dad47"
+    },
+    {
+      "path": "rust/tests/test_containers_headers.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "923f7e0782c1f99c3502f07eb2798294758d602d",
+      "size": 3348,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/923f7e0782c1f99c3502f07eb2798294758d602d"
+    },
+    {
+      "path": "rust/tests/test_deflate_core.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "da9bc0ce9b72da33143ec2e0c0040c959a10a3ba",
+      "size": 1704,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/da9bc0ce9b72da33143ec2e0c0040c959a10a3ba"
+    },
+    {
+      "path": "rust/tests/test_hash.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "43e35cd59aa32a82e0159943febd3d75c79d0ec9",
+      "size": 1598,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/43e35cd59aa32a82e0159943febd3d75c79d0ec9"
+    },
+    {
+      "path": "rust/tests/test_lz77.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ad21c6f2ab8555e2dda0125f1dfa9c7a6db6c367",
+      "size": 4312,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/ad21c6f2ab8555e2dda0125f1dfa9c7a6db6c367"
+    },
+    {
+      "path": "rust/tests/test_symbols.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "459306a1034fdaa91b765392748480866b9c9fcf",
+      "size": 2876,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/459306a1034fdaa91b765392748480866b9c9fcf"
+    },
+    {
+      "path": "rust/tests/test_trees.rs",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "de8ba6fa2f255161e9b2aec0021364b287bc03e9",
+      "size": 4816,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/de8ba6fa2f255161e9b2aec0021364b287bc03e9"
+    },
+    {
+      "path": "rust/util.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d0008f1281d386f35506f8ca2aedf3156d598fd5",
+      "size": 5479,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/d0008f1281d386f35506f8ca2aedf3156d598fd5"
+    },
+    {
+      "path": "rust/zlib_container.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f216f103e7061c748aa9e71245c7156b117c87c6",
+      "size": 1432,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/f216f103e7061c748aa9e71245c7156b117c87c6"
+    },
+    {
+      "path": "rust/zopfli.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c079662aa00b98608254b0c0cf3f3b3f4fc71ce5",
+      "size": 2536,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/c079662aa00b98608254b0c0cf3f3b3f4fc71ce5"
+    },
+    {
+      "path": "rust/zopfli_shim.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9c51218bdf19de775c0f7d8c29f887adc007a32b",
+      "size": 4801,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/9c51218bdf19de775c0f7d8c29f887adc007a32b"
+    },
+    {
+      "path": "src",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "36a846c9639fea8e6bca7177481e059fcb72fb75",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/36a846c9639fea8e6bca7177481e059fcb72fb75"
+    },
+    {
+      "path": "src/zopfli",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3e90eb9616ab930333f12f6fee76433c970cf2d2",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/3e90eb9616ab930333f12f6fee76433c970cf2d2"
+    },
+    {
+      "path": "src/zopfli/blocksplitter.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "161783d89942c377e86b358f22b4518aa50f97b3",
+      "size": 9285,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/161783d89942c377e86b358f22b4518aa50f97b3"
+    },
+    {
+      "path": "src/zopfli/blocksplitter.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d1d622f1b61c440d73433485c72b8391b870af5c",
+      "size": 2656,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/d1d622f1b61c440d73433485c72b8391b870af5c"
+    },
+    {
+      "path": "src/zopfli/cache.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6b9444f0d8c3aaa7200be9226f3e563b1bc087ac",
+      "size": 3928,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/6b9444f0d8c3aaa7200be9226f3e563b1bc087ac"
+    },
+    {
+      "path": "src/zopfli/cache.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5ca0c501551788ed60824d8dbdd6e973f002093d",
+      "size": 2256,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/5ca0c501551788ed60824d8dbdd6e973f002093d"
+    },
+    {
+      "path": "src/zopfli/deflate.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c5abda9ea972913b6ce3535191e96b38c066018c",
+      "size": 32950,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/c5abda9ea972913b6ce3535191e96b38c066018c"
+    },
+    {
+      "path": "src/zopfli/deflate.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fcd9ddc0f7d48383c1b6f2219728c55f9abb76be",
+      "size": 3099,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/fcd9ddc0f7d48383c1b6f2219728c55f9abb76be"
+    },
+    {
+      "path": "src/zopfli/gzip_container.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7615db3009b548eb9b91c6c0d91728327089bbb5",
+      "size": 6208,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/7615db3009b548eb9b91c6c0d91728327089bbb5"
+    },
+    {
+      "path": "src/zopfli/gzip_container.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8f5ed9092e6835e4b43d8a822b969dcce6b2fbc6",
+      "size": 1402,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/8f5ed9092e6835e4b43d8a822b969dcce6b2fbc6"
+    },
+    {
+      "path": "src/zopfli/hash.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3025d1e29514387dc5b267f6f13dcfa4c4e3ad22",
+      "size": 3958,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/3025d1e29514387dc5b267f6f13dcfa4c4e3ad22"
+    },
+    {
+      "path": "src/zopfli/hash.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e59c1d46fd12b0c6129624d740fa3a7ecc4edc05",
+      "size": 2377,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/e59c1d46fd12b0c6129624d740fa3a7ecc4edc05"
+    },
+    {
+      "path": "src/zopfli/katajainen.c",
+      "mode": "100755",
+      "type": "blob",
+      "sha": "145901755549c08739ee619f734949e435bc1bbc",
+      "size": 7993,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/145901755549c08739ee619f734949e435bc1bbc"
+    },
+    {
+      "path": "src/zopfli/katajainen.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5927350d61a13adbb618389b5e95640dd289da3c",
+      "size": 1497,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/5927350d61a13adbb618389b5e95640dd289da3c"
+    },
+    {
+      "path": "src/zopfli/lz77.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9df899dd03de0564e4df20887f89e75ae1ea7aa5",
+      "size": 20577,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/9df899dd03de0564e4df20887f89e75ae1ea7aa5"
+    },
+    {
+      "path": "src/zopfli/lz77.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dc8597abfdf9572ba943534bc7f7e72ee50a6cb1",
+      "size": 5645,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/dc8597abfdf9572ba943534bc7f7e72ee50a6cb1"
+    },
+    {
+      "path": "src/zopfli/squeeze.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a695c18cf3831bf0fd3e87658e68a23332588ab3",
+      "size": 18844,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/a695c18cf3831bf0fd3e87658e68a23332588ab3"
+    },
+    {
+      "path": "src/zopfli/squeeze.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "48bb7753de87ee854e8d3570c6efda0aa5bf027e",
+      "size": 2217,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/48bb7753de87ee854e8d3570c6efda0aa5bf027e"
+    },
+    {
+      "path": "src/zopfli/symbols.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b49df06c7764d429db01bc01bc725d992486f88f",
+      "size": 8654,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/b49df06c7764d429db01bc01bc725d992486f88f"
+    },
+    {
+      "path": "src/zopfli/tree.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c4575119d690f460c1e567f06f82c6a0fc5de48d",
+      "size": 3375,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/c4575119d690f460c1e567f06f82c6a0fc5de48d"
+    },
+    {
+      "path": "src/zopfli/tree.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4d6f469759c3d5008ac5e66ad583d35b5dd69d3d",
+      "size": 1677,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/4d6f469759c3d5008ac5e66ad583d35b5dd69d3d"
+    },
+    {
+      "path": "src/zopfli/util.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "428961c4670b03e046cff1eb1f3454bc5fe6be41",
+      "size": 1023,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/428961c4670b03e046cff1eb1f3454bc5fe6be41"
+    },
+    {
+      "path": "src/zopfli/util.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4b73504f96ea065847476d694ff0bbc1e1dc466f",
+      "size": 5482,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/4b73504f96ea065847476d694ff0bbc1e1dc466f"
+    },
+    {
+      "path": "src/zopfli/zlib_container.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "130ffc793e49806591de9d64d4b5b70484253e31",
+      "size": 2415,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/130ffc793e49806591de9d64d4b5b70484253e31"
+    },
+    {
+      "path": "src/zopfli/zlib_container.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9ddfb9c1d4674d3c992816b715f7efb461fabe61",
+      "size": 1402,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/9ddfb9c1d4674d3c992816b715f7efb461fabe61"
+    },
+    {
+      "path": "src/zopfli/zopfli.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c079662aa00b98608254b0c0cf3f3b3f4fc71ce5",
+      "size": 2536,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/c079662aa00b98608254b0c0cf3f3b3f4fc71ce5"
+    },
+    {
+      "path": "src/zopfli/zopfli_bin.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a42badef65b8c2b972b0132567459e77fc5f4dd0",
+      "size": 6359,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/a42badef65b8c2b972b0132567459e77fc5f4dd0"
+    },
+    {
+      "path": "src/zopfli/zopfli_lib.c",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5f5b214ed8e5a96e10ef1fed7b630576e8b3ca20",
+      "size": 1428,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/5f5b214ed8e5a96e10ef1fed7b630576e8b3ca20"
+    },
+    {
+      "path": "src/zopflipng",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "f833b344d1d3ebb62b1c170e6cd4ac8d13fc3639",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/f833b344d1d3ebb62b1c170e6cd4ac8d13fc3639"
+    },
+    {
+      "path": "src/zopflipng/lodepng",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "85b382406680affe0cfd4719084a897cce6026c7",
+      "url": "https://api.github.com/repos/google/zopfli/git/trees/85b382406680affe0cfd4719084a897cce6026c7"
+    },
+    {
+      "path": "src/zopflipng/lodepng/lodepng.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "51492b887fde87faf0fbfc87899b79d2cc5e7969",
+      "size": 263390,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/51492b887fde87faf0fbfc87899b79d2cc5e7969"
+    },
+    {
+      "path": "src/zopflipng/lodepng/lodepng.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6801cb789d52c1582f9e344e913cbeee9e7ab935",
+      "size": 95564,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/6801cb789d52c1582f9e344e913cbeee9e7ab935"
+    },
+    {
+      "path": "src/zopflipng/lodepng/lodepng_util.cpp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "11a6c0f3dc471ef9f0f6d3ee3216255b88104d9b",
+      "size": 72923,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/11a6c0f3dc471ef9f0f6d3ee3216255b88104d9b"
+    },
+    {
+      "path": "src/zopflipng/lodepng/lodepng_util.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "97fd804c36527074e2276a875c416b8e9631bd4d",
+      "size": 13737,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/97fd804c36527074e2276a875c416b8e9631bd4d"
+    },
+    {
+      "path": "src/zopflipng/zopflipng_bin.cc",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ea764b93e63cf59aac5fcbaab24ae1e914598b68",
+      "size": 18604,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/ea764b93e63cf59aac5fcbaab24ae1e914598b68"
+    },
+    {
+      "path": "src/zopflipng/zopflipng_lib.cc",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "15188db43944834d527f1bbbe87ef690dac69b11",
+      "size": 18683,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/15188db43944834d527f1bbbe87ef690dac69b11"
+    },
+    {
+      "path": "src/zopflipng/zopflipng_lib.h",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b2bcd12d4687af304ce78ee72ae298f9599a6ecb",
+      "size": 3899,
+      "url": "https://api.github.com/repos/google/zopfli/git/blobs/b2bcd12d4687af304ce78ee72ae298f9599a6ecb"
+    }
+  ],
+  "truncated": false
+}

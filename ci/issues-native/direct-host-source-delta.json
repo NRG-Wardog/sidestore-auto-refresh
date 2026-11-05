@@ -1,0 +1,134 @@
+{
+  "before_sha256": "8bdbb065c0b9e5eab90a23517cefd35b5ce279ac554ee3e7d2dbcc6f0c6d467e",
+  "after_sha256": "136a02e5a8c74a47cd463c91f6e8cabccc92f9bb9f19dab5c648099c1f603834",
+  "edits": [
+    {
+      "after_lines": [
+        4906,
+        4916
+      ],
+      "before": "",
+      "after": "// V3_REFRESH_CALLBACK_ADMISSION_V1: a run may contain multiple safe attempts.\nenum V3RefreshCallbackIdentityPolicy {\n    static func matches(callbackRunID: String, callbackAdmissionID: String,\n                        activeRunID: String?, activeAdmissionID: String?) -> Bool {\n        guard UUID(uuidString: callbackRunID)?.uuidString == callbackRunID,\n              UUID(uuidString: callbackAdmissionID)?.uuidString == callbackAdmissionID else { return false }\n        return callbackRunID == activeRunID && callbackAdmissionID == activeAdmissionID\n    }\n}\n\n"
+    },
+    {
+      "after_lines": [
+        4933,
+        4934
+      ],
+      "before": "",
+      "after": "    private var refreshAdmissionID: String?\n"
+    },
+    {
+      "after_lines": [
+        5416,
+        5419
+      ],
+      "before": "              V3ServiceBridge.strictBool(admission[\"admitted\"]) == true else {\n",
+      "after": "              V3ServiceBridge.strictBool(admission[\"admitted\"]) == true,\n              let admissionID = admission[\"admissionID\"] as? String,\n              UUID(uuidString: admissionID)?.uuidString == admissionID else {\n"
+    },
+    {
+      "after_lines": [
+        5422,
+        5424
+      ],
+      "before": "",
+      "after": "        refreshAdmissionID = admissionID\n        defer { if refreshAdmissionID == admissionID { refreshAdmissionID = nil } }\n"
+    },
+    {
+      "after_lines": [
+        5454,
+        5455
+      ],
+      "before": "                    client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: run)\n",
+      "after": "                    client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: run, admissionID: admissionID)\n"
+    },
+    {
+      "after_lines": [
+        5468,
+        5469
+      ],
+      "before": "                await releaseRefreshAdmission(run,\n",
+      "after": "                await releaseRefreshAdmission(run, admissionID: admissionID,\n"
+    },
+    {
+      "after_lines": [
+        5471,
+        5472
+      ],
+      "before": "                await releaseRefreshAdmission(run, terminalState: \"failed\")\n",
+      "after": "                await releaseRefreshAdmission(run, admissionID: admissionID, terminalState: \"failed\")\n"
+    },
+    {
+      "after_lines": [
+        5482,
+        5483
+      ],
+      "before": "        await releaseRefreshAdmission(run, terminalState: \"completed\")\n",
+      "after": "        await releaseRefreshAdmission(run, admissionID: admissionID, terminalState: \"completed\")\n"
+    },
+    {
+      "after_lines": [
+        5484,
+        5485
+      ],
+      "before": "    private func releaseRefreshAdmission(_ runID: String, terminalState: String) async {\n",
+      "after": "    private func releaseRefreshAdmission(_ runID: String, admissionID: String, terminalState: String) async {\n"
+    },
+    {
+      "after_lines": [
+        5491,
+        5492
+      ],
+      "before": "                    payload: [\"state\": terminalState])\n",
+      "after": "                    payload: [\"state\": terminalState, \"admissionID\": admissionID])\n"
+    },
+    {
+      "after_lines": [
+        5493,
+        5494
+      ],
+      "before": "",
+      "after": "                      reply[\"admissionID\"] as? String == admissionID,\n"
+    },
+    {
+      "after_lines": [
+        5510,
+        5518
+      ],
+      "before": "",
+      "after": "        guard refreshAdmissionID == nil else { return }\n        applyRefreshProgress(value, id: id)\n    }\n    fileprivate func updateHostProgress(_ value: Double, runID: String, admissionID: String, id: UUID) {\n        guard refreshRunID == runID, refreshAdmissionID == admissionID else { return }\n        applyRefreshProgress(value, id: id)\n    }\n    private func applyRefreshProgress(_ value: Double, id: UUID) {\n"
+    },
+    {
+      "after_lines": [
+        5522,
+        5533
+      ],
+      "before": "",
+      "after": "        // A legacy callback cannot settle a host-owned admission.\n        guard refreshAdmissionID == nil else { return }\n        acceptRefreshCompletion(error, runID: runID, verification: verification, id: id)\n    }\n    fileprivate func completedHostRefresh(_ error: String?, runID: String, admissionID: String, verification: Data?, id: UUID) {\n        guard V3RefreshCallbackIdentityPolicy.matches(\n            callbackRunID: runID, callbackAdmissionID: admissionID,\n            activeRunID: refreshRunID, activeAdmissionID: refreshAdmissionID) else { return }\n        acceptRefreshCompletion(error, runID: runID, verification: verification, id: id)\n    }\n    private func acceptRefreshCompletion(_ error: String?, runID: String, verification: Data?, id: UUID) {\n"
+    },
+    {
+      "after_lines": [
+        5594,
+        5595
+      ],
+      "before": "",
+      "after": "        guard refreshAdmissionID == nil else { return }\n"
+    },
+    {
+      "after_lines": [
+        5660,
+        5666
+      ],
+      "before": "",
+      "after": "    }\n    func finishHostRefresh(_ error: String?, runID: String, admissionID: String, verification: Data?) {\n        Task { @MainActor in self.owner?.completedHostRefresh(error, runID: runID, admissionID: admissionID, verification: verification, id: self.identity) }\n    }\n    func updateHostProgress(_ value: Double, runID: String, admissionID: String) {\n        Task { @MainActor in self.owner?.updateHostProgress(value, runID: runID, admissionID: admissionID, id: self.identity) }\n"
+    },
+    {
+      "after_lines": [
+        5972,
+        5974
+      ],
+      "before": "            return Set(payload.keys) == Set([\"state\"]) &&\n",
+      "after": "            return Set(payload.keys) == Set([\"state\", \"admissionID\"]) &&\n                canonicalSecretToken(payload[\"admissionID\"]) &&\n"
+    }
+  ]
+}

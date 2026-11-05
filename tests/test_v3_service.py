@@ -8,11 +8,16 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch as mock
 
 ROOT = Path(__file__).resolve().parents[1]
+# Dynamic patcher imports must resolve sibling helpers exactly as the CLI does.
+SCRIPTS = str(ROOT / "scripts")
+if SCRIPTS not in sys.path:
+    sys.path.insert(0, SCRIPTS)
 
 
 def module(name):
@@ -40,6 +45,19 @@ shell = module("patch_v3_unified_shell")
 refresh = module("patch_livecontainer_autorefresh")
 results = module("patch_refresh_result_bridge")
 embedded_keychain = module("patch_embedded_keychain")
+
+
+class DirectHostRefreshBackendPatchTests(unittest.TestCase):
+    def test_exact_backend_transform_idempotence_and_fail_closed(self):
+        source = service.DIRECT_REFRESH_PERFORM_OLD + service.DIRECT_REFRESH_BACKEND_OLD
+        expected = service.DIRECT_REFRESH_PERFORM_NEW + service.DIRECT_REFRESH_BACKEND_NEW
+        generated = service.headless_direct_refresh_backend(source)
+        self.assertEqual(generated, expected)
+        self.assertEqual(service.headless_direct_refresh_backend(generated), generated)
+        for token in ('validateRefreshExecution(ticket)', 'beginExternalRefreshExecution()',
+                      'endRefreshExecution(ticket)', 'AppManager.shared.backgroundRefresh'):
+            with self.subTest(token=token), self.assertRaises(SystemExit):
+                service.headless_direct_refresh_backend(generated.replace(token, 'invalid'))
 
 
 class ServicePatchTests(unittest.TestCase):
@@ -2291,11 +2309,16 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn('strictBool(reply["released"]) == true', refresh)
         self.assertIn("self.v3_stopService()", refresh)
         self.assertIn("v3RefreshDispatchedRunID", refresh)
-        self.assertIn('payload: ["state": terminalState]', refresh)
+        self.assertIn('payload: ["state": terminalState, "admissionID": admissionID]', refresh)
         self.assertIn('kind: "refreshAll"', service)
         self.assertIn("V3OperationRecoveryJournal.settleRefreshAdmission", service)
         self.assertIn("refreshAdmission.restoreLost(runID:", service)
-        self.assertIn("refreshAdmission.release(requestID: target)", service)
+        self.assertIn("releaseUnstartedRefreshAdmission(requestID: target)", service)
+        self.assertIn("releaseUnstartedRefreshAdmission(requestID: id)", service)
+        self.assertIn("refreshAdmission.requestID == requestID", service)
+        self.assertIn("!refreshExecutionGate.hasDispatched(hostRunID: runID, hostAdmissionID: requestID)", service)
+        cleanup = service[service.index("private func releaseUnstartedRefreshAdmission("):service.index("private func hostRefreshDefaults(")]
+        self.assertLess(cleanup.index("clearPreparedRefreshAdmissionAfterRequestCancellation"), cleanup.index("refreshAdmission.release(requestID: requestID)"))
         self.assertIn('cancellationReply["refreshAdmissionReleased"] = true', service)
         self.assertIn("pendingRefreshAdmissionRequests", service)
         end_case = service[service.index('case "refreshAdmissionEnd":'):]

@@ -1,0 +1,35 @@
+{
+  "schema": "reviewed-refresh-truth-setup-extension-v1",
+  "additional_cases": [
+    "actual-source-copy-en-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app\u2019s verification status.",
+    "actual-source-copy-en-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "actual-source-copy-he-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app\u2019s verification status.",
+    "actual-source-copy-he-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "actual-source-copy-ru-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app\u2019s verification status.",
+    "actual-source-copy-ru-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "actual-source-copy-zh-Hans-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app\u2019s verification status.",
+    "actual-source-copy-zh-Hans-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "actual-source-copy-zh-Hant-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app\u2019s verification status.",
+    "actual-source-copy-zh-Hant-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "baseline-reproduces-missing-owned-copy-en-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app\u2019s verification status.",
+    "baseline-reproduces-missing-owned-copy-en-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "baseline-reproduces-missing-owned-copy-he-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app\u2019s verification status.",
+    "baseline-reproduces-missing-owned-copy-he-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "baseline-reproduces-missing-owned-copy-ru-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app\u2019s verification status.",
+    "baseline-reproduces-missing-owned-copy-ru-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "baseline-reproduces-missing-owned-copy-zh-Hans-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app\u2019s verification status.",
+    "baseline-reproduces-missing-owned-copy-zh-Hans-Review the observed profile validity and signing setup before another action. No automatic retry will occur.",
+    "baseline-reproduces-missing-owned-copy-zh-Hant-Certificate verification is unavailable. This does not mean the certificate was revoked. Check the connection and review this app\u2019s verification status.",
+    "baseline-reproduces-missing-owned-copy-zh-Hant-Review the observed profile validity and signing setup before another action. No automatic retry will occur."
+  ],
+  "candidate_inputs": {
+    "LiveContainer/Resources/Localizable.xcstrings": "fea8f9f9cb70b3a45f72d0f42c51877fbd1b9a51b09ce251fb5b3179dde8cde4",
+    "LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py": "154c18a26e69a8be402ff61a563f57c28991f48d1fe690a02252406a70874e36",
+    "LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py": "1222f013816035a0ec590c6557cb7b07e6a37983d0cb77dd5ecf5ca1f0e1b655",
+    "LiveContainer/.ci/refresh-truth/localization_keys.json": "7f6c105a831d0f9bded2ef4c87de972d2337ba4a0e185a554e52097e707624b9"
+  },
+  "key_count": 186,
+  "localized_values": 930,
+  "baseline_missing": 354,
+  "expected_case_count": 1779
+}

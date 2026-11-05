@@ -1,0 +1,2055 @@
+{
+  "schema_version": 1,
+  "owners": {
+    "sidestore-auto-refresh": {
+      "repository": "NRG-Wardog/sidestore-auto-refresh",
+      "graph_key": null
+    },
+    "LiveContainer": {
+      "repository": "NRG-Wardog/LiveContainer",
+      "graph_key": "LiveContainer"
+    },
+    "SideStore": {
+      "repository": "NRG-Wardog/SideStore",
+      "graph_key": "SideStore"
+    },
+    "SideSign": {
+      "repository": "NRG-Wardog/SideSign",
+      "graph_key": "SideStore/Dependencies/SideSign"
+    },
+    "AnisetteKit": {
+      "repository": "NRG-Wardog/AnisetteKit",
+      "graph_key": "AnisetteKit"
+    },
+    "idevice": {
+      "repository": "NRG-Wardog/idevice",
+      "graph_key": "idevice"
+    },
+    "jktcp": {
+      "repository": "NRG-Wardog/jktcp",
+      "graph_key": "jktcp"
+    },
+    "minimuxer": {
+      "repository": "NRG-Wardog/minimuxer",
+      "graph_key": "SideStore/Dependencies/minimuxer"
+    }
+  },
+  "features": [
+    {
+      "id": "packaging",
+      "contract": "Eight named immutable adapters preserve compiled inputs, signing, App Intents and entitlement preparation; unknown, missing, duplicate or overlapping anchors fail closed.",
+      "limitations": "Real historical upstream scripts are transformed as data, never executed by the rehearsal. Native artifact and device validation are separate.",
+      "modules": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/packaging_adapters.py",
+          "interface": "IntegrationRule / apply_rules / COMBINED_PACKAGING_RULES",
+          "rationale": "Keep custom replacement logic separate from the upstream shell."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/package_livecontainer_combined.py",
+          "interface": "adapt / verify",
+          "rationale": "Only this adapter consumes upstream packaging shell text."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": ".github/build_github.sh",
+          "interface": "Exact named anchors in PACKAGING_PATCH_SURFACE.json",
+          "rationale": "Track the entire eight-rule upstream patch surface without changing unrelated upstream steps."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_packaging_adapters.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_packaging_adapters.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_combined_packaging.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_combined_packaging.py -v",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "source-catalog-and-appid",
+      "contract": "Pure presentation policy preserves canonical identity, unknown App ID expiry and explicit install confirmation.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Utilities/V3SourceAppPresentation.swift",
+          "interface": "V3SourceAppPresentation",
+          "rationale": "Version and expiry decisions remain independent of UI and installation."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+          "interface": "Source catalog selection and Developer Services rows",
+          "rationale": "Call pure presentation logic while keeping side effects in existing installer."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "V3BackendCommands.developerAppIDRow",
+          "rationale": "Bridge the portal App ID date, not profile expiry."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_source_app_presentation.py",
+          "command": "python3 -B tests/test_source_app_presentation.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/appid_expiry/test_appid_expiry_bridge.py",
+          "command": "python3 -B tests/appid_expiry/test_appid_expiry_bridge.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "authentication-provider-sequencing",
+      "contract": "Ordered bounded providers preserve one authentication session, cancellation, 2FA and non-retryable error boundaries.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift",
+          "interface": "V3DiagnosticProviderSequence",
+          "rationale": "Separate provider retry policy from account mutation."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift",
+          "interface": "Provider prompt model",
+          "rationale": "Keep host prompt policy independently testable."
+        },
+        {
+          "owner": "SideSign",
+          "path": "Sources/DeveloperPortal/ILoaderAuthenticationPolicy.swift",
+          "interface": "Authentication retry policy",
+          "rationale": "Keep provider admission and request construction explicit."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "V3AuthenticationSession",
+          "rationale": "Own account and prompt side effects."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+          "interface": "Authentication prompt adapter",
+          "rationale": "User response resumes only its matching session."
+        },
+        {
+          "owner": "SideSign",
+          "path": "Sources/DeveloperPortal/Authentication.swift",
+          "interface": "Authentication API",
+          "rationale": "Apply bounded policy at the actual request boundary."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "SideStore",
+          "path": "tests/test_diagnostic_provider_sequence.py",
+          "command": "python3 -B tests/test_diagnostic_provider_sequence.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_diagnostic_provider_sequence.py",
+          "command": "python3 -B tests/test_diagnostic_provider_sequence.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideSign",
+          "path": ".ci/iloader-auth-parity/test_source.py",
+          "command": "python3 -B .ci/iloader-auth-parity/test_source.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "anisette-owned-attempt",
+      "contract": "Each owned on-device attempt keeps checked input, cleanup and native lifetime within one isolated owner; no credentials enter diagnostics.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "AnisetteKit",
+          "path": "Sources/OwnedOnDeviceAnisetteAttempt.swift",
+          "interface": "OwnedOnDeviceAnisetteAttempt",
+          "rationale": "Expose one bounded attempt rather than native implementation details."
+        },
+        {
+          "owner": "AnisetteKit",
+          "path": "Native/Loader/owned_attempt_lifecycle.h",
+          "interface": "Owned lifecycle",
+          "rationale": "Keep cleanup and cancellation ownership testable."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "AnisetteKit",
+          "path": "Sources/AnisetteClient.swift",
+          "interface": "AnisetteClient provider API",
+          "rationale": "Bridge Swift lifecycle to native provider."
+        },
+        {
+          "owner": "AnisetteKit",
+          "path": "Native/anisette_core_uc.cpp",
+          "interface": "Owned native entry points",
+          "rationale": "Bind caller context to actual isolated native work."
+        },
+        {
+          "owner": "SideSign",
+          "path": "Sources/Anisette/RemoteAnisetteDataProvider.swift",
+          "interface": "Remote provider adapter",
+          "rationale": "Retain remote fallback contract without leaking account material."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "AnisetteKit",
+          "path": "Tests/AnisetteKitTests/OwnedOnDeviceAnisetteAttemptTests.swift",
+          "command": "swift test --filter OwnedOnDeviceAnisetteAttemptTests",
+          "level": "native"
+        },
+        {
+          "owner": "AnisetteKit",
+          "path": ".ci/owned-attempt/run.py",
+          "command": "python3 -B .ci/owned-attempt/run.py --unicorn-archive \"$VERIFIED_UNICORN_ARCHIVE\"",
+          "level": "native"
+        }
+      ]
+    },
+    {
+      "id": "extension-signing",
+      "contract": "ReuseMain remains explicit opt-in; team, certificate, entitlements and extension compatibility determine admission and fallback.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "SideSign",
+          "path": "Sources/CodeSigning/ExtensionSigningPolicy.swift",
+          "interface": "ExtensionSigningPolicy",
+          "rationale": "Keep entitlement/profile decisions pure and separate from signing."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "SideSign",
+          "path": "Sources/CodeSigning/CodeSignerAPI.swift",
+          "interface": "AppBundleSigner overload",
+          "rationale": "Apply explicit extension strategy while preserving ordinary signer API."
+        },
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift",
+          "interface": "Signing operation",
+          "rationale": "Retain confirmation, profile selection and registry activation boundaries."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "SideSign",
+          "path": ".ci/reuse-main/test_source.py",
+          "command": "python3 -B .ci/reuse-main/test_source.py",
+          "level": "source-contract"
+        },
+        {
+          "owner": "SideSign",
+          "path": ".ci/reuse-main/run.sh",
+          "command": "bash .ci/reuse-main/run.sh",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/reuse_main/test_contract.py",
+          "command": "python3 -B tests/reuse_main/test_contract.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "preserved-refresh",
+      "contract": "Refresh preserves validated installed-app identity and profiles; installation success remains authoritative and cache mismatches fail explicitly.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate. Cache qualification uses the exact production Apps getter with an inert optional-URL MaintenanceManager boundary, not the recovery engine. Native setup verification requires matching BUILDER_ROOT, SOURCES_ROOT, SWIFTC, a fresh SETUP_RECOVERY_OUTPUT outside source checkouts and the reviewed same-graph SETUP_RECOVERY_CONTRACT; source generation and portable controls do not prove compilation or execution.",
+      "modules": [
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Operations/PipelineOperations/PreservedProfileDecoder.swift",
+          "interface": "Preserved profile decoder",
+          "rationale": "Bound profile parsing separately from operations."
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/generate_fixture.py",
+          "interface": "verify_installed_recovery_selection / verify_production_apps_getter / main",
+          "rationale": "Generate the exact production Apps getter with an inert optional-URL selection boundary; retain the historical whole-file pin through one exact getter-expression inverse, never a broad repin. Generation alone is not native execution."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift",
+          "interface": "Refresh operation adapter",
+          "rationale": "Route preserved profile validation before side effects."
+        },
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Operations/PipelineOperations/InstallAppOperation.swift",
+          "interface": "Installation completion",
+          "rationale": "Activate state only after confirmed installation."
+        },
+        {
+          "owner": "SideStore",
+          "path": "SideStore/Core/Operations/PipelineOperations/CacheAppOperation.swift",
+          "interface": "Cached payload admission",
+          "rationale": "Prevent upstream cache rewrites from bypassing identity checks."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/InstalledApp.swift",
+          "interface": "InstalledApp.appsDirectoryURL / payloadDirectoryURL / payloadURL",
+          "rationale": "Cache payload paths depend on the selected recovered Apps root and the retained nil-selection fallback; review both preservation and recovery when this getter changes."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "SideStore",
+          "path": "tests/preservation_refresh/test_contract.py",
+          "command": "python3 -B tests/preservation_refresh/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/test_host_preservation.py",
+          "command": "python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/cache_compatibility --pattern test_host_preservation.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/host_refresh_bundle/test_contract.py",
+          "command": "python3 -B tests/host_refresh_bundle/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/Cases.swift",
+          "command": "python3 -B \"$BUILDER_ROOT/ci/issues-native/verify_setup_state_recovery.py\" run --sources \"$SOURCES_ROOT\" --swiftc \"$SWIFTC\" --output \"$SETUP_RECOVERY_OUTPUT\" --contract \"$SETUP_RECOVERY_CONTRACT\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/verify_setup_state_recovery.py",
+          "command": "python3 -B \"$BUILDER_ROOT/ci/issues-native/verify_setup_state_recovery.py\" run --sources \"$SOURCES_ROOT\" --swiftc \"$SWIFTC\" --output \"$SETUP_RECOVERY_OUTPUT\" --contract \"$SETUP_RECOVERY_CONTRACT\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_setup_state_recovery_contract.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_setup_state_recovery_contract.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "refresh-results-and-xpc",
+      "contract": "Run-correlated refresh results and versioned primitive XPC messages remain authoritative; neither UI progress nor a completed request fabricates device success. Host-owned refresh uses its explicit admitted run through the direct service selector, with one shared external/host execution ticket and immutable completion evidence; standalone AppIntents keep their own lifecycle.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate. Native extracted backend/service/Objective-C fixtures use inert storage and operations. They do not prove real XPC transport, iOS process lifetime, device refresh or cancellation by service termination.",
+      "modules": [
+        {
+          "owner": "LiveContainer",
+          "path": "SideStoreSupport/SideStoreClient.swift",
+          "interface": "SideStoreClient",
+          "rationale": "Keep client transport separate from host UI."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "SideStoreSupport/XPCServer.h",
+          "interface": "RefreshServer / RefreshClient",
+          "rationale": "Expose narrow service selectors and primitive payloads."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+          "interface": "V3RefreshIntentBackend / external RefreshAllAppsIntent",
+          "rationale": "Share the canonical refresh backend while retaining standalone foreground-continuation behavior."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "SideStoreSupport/SideStore.swift",
+          "interface": "Versioned service bridge / refresh result policies",
+          "rationale": "Preserve command-envelope and result correlation."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "Versioned backend commands",
+          "rationale": "Dispatch to actual backend work."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "SideStoreSupport/XPCClient.m",
+          "interface": "Client dispatch adapter",
+          "rationale": "Retain selector/signature and readiness contract."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/templates/v3_sidestore_service.swift",
+          "interface": "refreshForHost:progress:completion: / execution admission",
+          "rationale": "Require explicit live run ownership, shared host/external exclusion and post-backend validation."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/templates/v3_behavioral_primitives.swift",
+          "interface": "V3RefreshAdmissionLease",
+          "rationale": "Keep consumed request identity, lease expiry and recovery hold semantics aligned."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": ".ci/vpn-refresh-recovery/generate_fixture.py",
+          "interface": "Exact old/direct dispatch source binding",
+          "rationale": "Retain every historical VPN recovery case while binding the reviewed direct selector and captured run."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct_refresh_projection.py",
+          "interface": "Exact generator inverse / proof normalization",
+          "rationale": "Admit only the reviewed successor generator bytes while retaining immutable historical case lists and source proof fields."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct_service_projection.py",
+          "interface": "Exact direct-refresh inverse source proof",
+          "rationale": "Restore the exact prior source for historical preservation validation without changing fixture cases or hiding actual candidate hashes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct_host_projection.py",
+          "interface": "Exact direct-refresh inverse source proof",
+          "rationale": "Restore the exact prior source for historical preservation validation without changing fixture cases or hiding actual candidate hashes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct-service-source-delta.json",
+          "interface": "Exact direct-refresh inverse source proof",
+          "rationale": "Restore the exact prior source for historical preservation validation without changing fixture cases or hiding actual candidate hashes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct-host-source-delta.json",
+          "interface": "Exact direct-refresh inverse source proof",
+          "rationale": "Restore the exact prior source for historical preservation validation without changing fixture cases or hiding actual candidate hashes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct_fixture_projection.py",
+          "interface": "Exact callback extraction successor inverse",
+          "rationale": "Bind delegated completion fixture extraction while preserving historical assertions, readiness dependencies and case counts."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/direct-fixture-source-delta.json",
+          "interface": "Exact callback extraction successor inverse",
+          "rationale": "Bind delegated completion fixture extraction while preserving historical assertions, readiness dependencies and case counts."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "SideStore",
+          "path": "tests/refresh_truth/test_contract.py",
+          "command": "python3 -B tests/refresh_truth/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_combined_refresh_contract.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_combined_refresh_contract.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_refresh_result_bridge.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_refresh_result_bridge.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_direct_refresh_projection.py",
+          "command": "python3 -B ci/issues-native/test_direct_refresh_projection.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/backend_fixture.swift",
+          "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/backend_fixture.swift -o \"$TEST_OUTPUT/backend-test\" && \"$TEST_OUTPUT/backend-test\" --long",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/service_fixture.swift",
+          "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/service_fixture.swift -o \"$TEST_OUTPUT/service-test\" && \"$TEST_OUTPUT/service-test\" --long",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/gate_fixture.swift",
+          "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/gate_fixture.swift -o \"$TEST_OUTPUT/gate-test\" && \"$TEST_OUTPUT/gate-test\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/test_source_binding.py",
+          "command": "python3 -B ci/refresh-direct-native/test_source_binding.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/verify_source_binding.py",
+          "command": "python3 -B ci/refresh-direct-native/verify_source_binding.py --sources \"$SOURCES_ROOT\" --builder \"$BUILDER_ROOT\" --output \"$TEST_OUTPUT/direct-refresh-source-binding.json\"",
+          "level": "source-contract"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_direct_service_projection.py",
+          "command": "python3 -B ci/issues-native/test_direct_service_projection.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_direct_host_projection.py",
+          "command": "python3 -B ci/issues-native/test_direct_host_projection.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/host_callback_fixture.swift",
+          "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/host_callback_fixture.swift -o \"$TEST_OUTPUT/host-callback-test\" && \"$TEST_OUTPUT/host-callback-test\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/refresh-direct-native/release_fixture.swift",
+          "command": "swiftc -swift-version 5 -parse-as-library ci/refresh-direct-native/release_fixture.swift -o \"$TEST_OUTPUT/release-control-test\" && \"$TEST_OUTPUT/release-control-test\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_direct_fixture_projection.py",
+          "command": "python3 -B ci/issues-native/test_direct_fixture_projection.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "diagnostics-and-recovery",
+      "contract": "Finite diagnostic codes and recovery actions preserve original causes, privacy, session identity and truthful native/device evidence.",
+      "limitations": "Set SIDESTORE_ROOT, ANISETTEKIT_ROOT and BUILDER_ROOT to matching reviewed checkouts and use the required Swift toolchain. Missing cross-owner inputs or Swift execution cannot count as passing coverage. No real-device outcome is claimed.",
+      "modules": [
+        {
+          "owner": "AnisetteKit",
+          "path": "Native/Loader/bounded_fault_diagnostics.h",
+          "interface": "Bounded native diagnostics",
+          "rationale": "Keep fault capture finite and non-secret."
+        },
+        {
+          "owner": "minimuxer",
+          "path": "Sources/MinimuxerError.swift",
+          "interface": "MinimuxerError",
+          "rationale": "Keep transport errors typed at the package boundary."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "SideStoreSupport/SideStore.swift",
+          "interface": "Diagnostic wire values and host recovery presentation",
+          "rationale": "Preserve cross-owner error fields."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "Diagnostic producers and recovery dispatch",
+          "rationale": "Do not silently replace the underlying cause."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+          "interface": "Diagnostic presentation adapters",
+          "rationale": "Map stable error values to user-visible actions."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "LiveContainer",
+          "path": "tests/login_trace/test_contract.py",
+          "command": "LOGIN_TRACE_PEER_ROOT=\"$SIDESTORE_ROOT\" LOGIN_TRACE_PRODUCER_ROOT=\"$ANISETTEKIT_ROOT\" python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/login_trace --pattern test_contract.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/refresh_failure/test_contract.py",
+          "command": "REQUIRE_SWIFT_REFRESH_FAILURE_TESTS=1 python3 -B tests/refresh_failure/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_native_error_presenters.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_native_error_presenters.py -v",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "transport-readiness",
+      "contract": "Preserve LocalDevVPN \u2192 Lockdown \u2192 CoreDeviceProxy \u2192 CDTunnel \u2192 RSD selection, leases, cancellation and bounded readiness.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "minimuxer",
+          "path": "Sources/RefreshTransportPolicy.swift",
+          "interface": "RefreshTransportPolicy",
+          "rationale": "Keep selection/admission independent of UI."
+        },
+        {
+          "owner": "minimuxer",
+          "path": "DeviceGateway/DeviceGatewayAPI.swift",
+          "interface": "DeviceGatewayAPI",
+          "rationale": "Hide transport implementation behind a stable gateway."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "minimuxer",
+          "path": "DeviceGateway/idevice/IdeviceGateway.swift",
+          "interface": "IdeviceGateway",
+          "rationale": "Keep actual FFI consumption in one adapter."
+        },
+        {
+          "owner": "minimuxer",
+          "path": "Sources/DeviceProvider.swift",
+          "interface": "DeviceProvider",
+          "rationale": "Select transport without bypassing readiness."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "Transport readiness commands",
+          "rationale": "Expose truthful capabilities to host."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "minimuxer",
+          "path": ".ci/test-owned-readiness.py",
+          "command": "python3 -B .ci/test-owned-readiness.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cold_vpn_readiness/test_contract.py",
+          "command": "python3 -B tests/cold_vpn_readiness/test_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/vpn_transport_recovery/test_contract.py",
+          "command": "python3 -B tests/vpn_transport_recovery/test_contract.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "ffi-ownership",
+      "contract": "Borrowed versus consumed handles, full-width listener IDs and generated headers remain paired with the exact Rust implementation.",
+      "limitations": "Source-owned fixtures compile real C++ method bodies with deterministic doubles; they do not execute Rust or prove the produced ABI. Native checks require matching freshly generated ffi/idevice.h and cpp/include/idevice.h, C11/C++17 compilers, the exact acquired owner graph and Rust 1.98.1. Run the builder --idevice-native entry point from its normal workflow root with sources/idevice; require all named Rust cases and both exact generated-header markers. No device outcome is claimed. Repeated fixture command references describe shared inputs; one complete invocation covers those inputs.",
+      "modules": [
+        {
+          "owner": "idevice",
+          "path": "ffi/src/lib.rs",
+          "interface": "C ABI module surface",
+          "rationale": "Keep C ABI names and types explicit."
+        },
+        {
+          "owner": "idevice",
+          "path": "idevice/src/tunnel.rs",
+          "interface": "Tunnel lifecycle",
+          "rationale": "Keep native transport ownership in its maintained owner."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/afc.rs",
+          "interface": "afc_client_connect, afc2_client_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/amfi.rs",
+          "interface": "amfi_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/bt_packet_logger.rs",
+          "interface": "bt_packet_logger_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/companion_proxy.rs",
+          "interface": "companion_proxy_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/heartbeat.rs",
+          "interface": "heartbeat_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/location_simulation.rs",
+          "interface": "lockdown_location_simulation_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/misagent.rs",
+          "interface": "misagent_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/mobileactivationd.rs",
+          "interface": "mobileactivationd_connect",
+          "rationale": "The returned lazy mobileactivationd client borrows the provider for the entire client lifetime; callers must keep the provider alive until that client is freed, including error and retry paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/notification_proxy.rs",
+          "interface": "notification_proxy_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/pcapd.rs",
+          "interface": "pcapd_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/preboard_service.rs",
+          "interface": "preboard_service_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/screenshotr.rs",
+          "interface": "screenshotr_connect",
+          "rationale": "Borrow the provider for the call on success and failure; keep output-client ownership independent."
+        },
+        {
+          "owner": "idevice",
+          "path": "ffi/src/provider.rs",
+          "interface": "Provider ownership regression module",
+          "rationale": "Exercise actual Rust borrowed-provider service paths and exactly-once consuming connection cleanup."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/provider_ownership_package_admission.py",
+          "interface": "rust_counts / verify",
+          "rationale": "Require every reviewed Rust test, zero ignored/failed cases, both generated-header markers, the exact idevice graph and original IPA bytes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/run_issue_tests.py",
+          "interface": "Reviewed ownership verifier snapshot",
+          "rationale": "Keep named Rust tests, generated-header markers and receipt semantics paired with the exact native builder."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "idevice",
+          "path": "cpp/src/ffi.cpp",
+          "interface": "C++ FFI wrapper",
+          "rationale": "Pair consuming and borrowing callers with Rust ownership."
+        },
+        {
+          "owner": "minimuxer",
+          "path": "DeviceGateway/idevice/IdeviceGateway.swift",
+          "interface": "Swift FFI consumer",
+          "rationale": "Do not infer ABI correctness from compilation alone."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/afc.cpp",
+          "interface": "AfcClient.connect, AfcClient.connect_afc2",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/afc.hpp",
+          "interface": "AfcClient.connect, AfcClient.connect_afc2 ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/amfi.cpp",
+          "interface": "Amfi.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/amfi.hpp",
+          "interface": "Amfi.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/bt_packet_logger.cpp",
+          "interface": "BtPacketLogger.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/bt_packet_logger.hpp",
+          "interface": "BtPacketLogger.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/companion_proxy.cpp",
+          "interface": "CompanionProxy.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/companion_proxy.hpp",
+          "interface": "CompanionProxy.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/heartbeat.cpp",
+          "interface": "Heartbeat.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/heartbeat.hpp",
+          "interface": "Heartbeat.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/location_simulation.cpp",
+          "interface": "LockdownLocationSimulation.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/location_simulation.hpp",
+          "interface": "LockdownLocationSimulation.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/misagent.cpp",
+          "interface": "Misagent.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/misagent.hpp",
+          "interface": "Misagent.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/mobileactivationd.cpp",
+          "interface": "MobileActivationd.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/mobileactivationd.hpp",
+          "interface": "MobileActivationd.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/notification_proxy.cpp",
+          "interface": "NotificationProxy.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/notification_proxy.hpp",
+          "interface": "NotificationProxy.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/pcapd.cpp",
+          "interface": "Pcapd.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/pcapd.hpp",
+          "interface": "Pcapd.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/preboard_service.cpp",
+          "interface": "PreboardService.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/preboard_service.hpp",
+          "interface": "PreboardService.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/src/screenshotr.cpp",
+          "interface": "Screenshotr.connect",
+          "rationale": "Retain caller-owned providers across borrowed FFI success, error, retry and move paths."
+        },
+        {
+          "owner": "idevice",
+          "path": "cpp/include/idevice++/screenshotr.hpp",
+          "interface": "Screenshotr.connect ownership declaration",
+          "rationale": "Keep public C++ ownership documentation paired with implementation and generated-header checks."
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/README.md",
+          "interface": "Reviewed borrowed/consumed ownership contract and native prerequisites",
+          "rationale": "Keep the exact contract documentation and qualification limits aligned with service adapters; this is not executable evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/run_issue_tests.py",
+          "interface": "RUST_FEATURES / REQUIRED_RUST_TESTS / validate_generated_provider_output",
+          "rationale": "Keep all actual Rust ownership cases and both generated-header execution markers mandatory in same-run native qualification."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/test_ownership.py",
+          "command": "python3 -B .ci/issue53/test_ownership.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/test_listener.py",
+          "command": "python3 -B .ci/issue53/test_listener.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/test_adapter_clone_scope.py",
+          "command": "python3 -B .ci/issue53/test_adapter_clone_scope.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/fixtures/borrowed_providers.cpp",
+          "command": "python3 -B .ci/issue53/test_ownership.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/fixtures/borrowed_providers.json",
+          "command": "python3 -B .ci/issue53/test_ownership.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/fixtures/idevice.h",
+          "command": "python3 -B .ci/issue53/test_ownership.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/check_provider_ownership.py",
+          "command": "python3 -B .ci/issue53/check_provider_ownership.py",
+          "level": "native"
+        },
+        {
+          "owner": "idevice",
+          "path": ".ci/issue53/check_listener_abi.sh",
+          "command": "bash .ci/issue53/check_listener_abi.sh",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_issue_receipt.py",
+          "command": "python3 -B ci/issues-native/test_issue_receipt.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_provider_ownership_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "tcp-reliability",
+      "contract": "Preserve bounded zero-window persist, cancellation-safe outbox, reader wakeups and fatal error propagation across upstream changes.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "jktcp",
+          "path": "src/adapter.rs",
+          "interface": "TCP adapter lifecycle",
+          "rationale": "Keep persistence and outgoing queue ownership in the transport module."
+        },
+        {
+          "owner": "jktcp",
+          "path": "src/handle.rs",
+          "interface": "TCP handle lifecycle",
+          "rationale": "Preserve cancellation and consumer wakeup contract."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "idevice",
+          "path": "idevice/Cargo.toml",
+          "interface": "jktcp dependency",
+          "rationale": "Use the maintained sibling source, never an accidental registry substitute."
+        },
+        {
+          "owner": "jktcp",
+          "path": "Cargo.toml",
+          "interface": "Package interface",
+          "rationale": "Keep package dependency and feature changes visible."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "jktcp",
+          "path": ".ci/test-source-parity.py",
+          "command": "python3 -B .ci/test-source-parity.py",
+          "level": "source-contract"
+        },
+        {
+          "owner": "jktcp",
+          "path": "src/adapter.rs",
+          "command": "cargo test --locked --lib",
+          "level": "native"
+        }
+      ]
+    },
+    {
+      "id": "guest-input-and-geometry",
+      "contract": "Only outgoing guest ownership is cleaned up; safe-area geometry follows measured state and orientation.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "LiveContainer",
+          "path": "MultitaskSupport/LCGuestSafeAreaGeometry.h",
+          "interface": "LCGuestSafeAreaGeometry",
+          "rationale": "Keep inset decisions independent of scene side effects."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "MultitaskSupport/AppSceneViewController.m",
+          "interface": "lcEndGuestEditing",
+          "rationale": "Keep ownership cleanup at scene lifecycle seam."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "MultitaskSupport/DecoratedAppSceneViewController.m",
+          "interface": "lcPrepareForGuestActivation",
+          "rationale": "Apply measured geometry at activation."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_guest_input_lifecycle.py",
+          "command": "python3 -B tests/test_guest_input_lifecycle.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_guest_safe_area_geometry.py",
+          "command": "python3 -B tests/test_guest_safe_area_geometry.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "shared-storage-and-startup",
+      "contract": "App Group choice remains fail-closed and shared storage preserves existing data; bootstrap visibility does not reset credentials or profiles.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate. Startup guard and model-resource controls have two distinct commands: --source-only runs 14 portable cases and explicitly reports NATIVE_NOT_RUN; the mandatory-Swift command runs 16 cases including two extracted-production Swift fixtures. These fixtures do not execute real application startup, Core Data or a physical device. The portable preflight cannot replace the mandatory same-run native startup receipt.",
+      "modules": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainer/LCAppGroupIdentityRules.h",
+          "interface": "App Group identity rules",
+          "rationale": "Keep identity validation separate from storage mutation."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainer/LCAppGroupSelectionPolicy.h",
+          "interface": "App Group selection policy",
+          "rationale": "Keep group selection pure."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift",
+          "interface": "Shared storage access",
+          "rationale": "Expose bounded group storage API."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainer/LCSharedUtils.m",
+          "interface": "Storage bridge",
+          "rationale": "Retain file and keychain ownership across startup."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveProcess/main.m",
+          "interface": "Embedded service launch",
+          "rationale": "Keep startup attached to reviewed shared storage."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/AppDelegate.swift",
+          "interface": "Backend startup and shared group use",
+          "rationale": "Avoid replacing persisted state during service initialization."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/cold-vpn-native.yml",
+          "interface": "Early actual-owner startup source preflight",
+          "rationale": "Run the direct 14-case source-only command under pipefail before expensive build work; keep the separate full native startup receipt mandatory."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/refresh-truth-preflight.yml",
+          "interface": "Early actual-owner startup source preflight",
+          "rationale": "Run the direct 14-case source-only command under pipefail before expensive build work; keep the separate full native startup receipt mandatory."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_runtime_source.py",
+          "command": "python3 -B tests/test_runtime_source.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_embedded_keychain.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_embedded_keychain.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/startup_outcome/test_contract.py",
+          "command": "REQUIRE_SWIFT_STARTUP_TESTS=1 python3 -B tests/startup_outcome/test_contract.py",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/startup_outcome/test_model_resource_owner.py",
+          "command": "python3 -B tests/startup_outcome/test_contract.py --source-only",
+          "level": "source-contract"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issue56-startup/test_startup_runner.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issue56-startup --pattern test_startup_runner.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "database-preserving-recovery",
+      "contract": "Preserve original databases and Apps while selecting a verified recovery generation. Hold source SQLite write reservations for the selected store lifetime, migrate only an owned staged copy, publish the complete generation exclusively, and reject divergent data, unsafe layouts or resets of recovered generations.",
+      "limitations": "The exact-engine native SQLite fixture uses a synthetic validation callback, not Core Data. The separate native Core Data fixture compiles the complete production PersistentContainer and original models; it exercises v17.6-to-v17.7 DELETE and committed-WAL migration with generic managed-object classes, not account/keychain code. Both require macOS and matching Xcode/Swift/C toolchains and derive the Swift language mode from the actual SideStore Release target; use distinct fresh output directories outside the source tree via RECOVERY_ENGINE_OUTPUT and RECOVERY_COREDATA_OUTPUT. Set SIDESTORE_ROOT to the matching acquired owner checkout for the real-source case/input inventory gate in the builder receipt tests. That gate and portable runner/source tests never substitute for native execution. Source reservations do not exclude independent legacy filesystem-only Apps writers; pre/post inventories reject observed edits. No arbitrary divergent-store merge, power-loss durability, physical-device upgrade or app-group entitlement success is claimed. Repeated native command references describe shared inputs; one complete invocation covers them. Cache qualification uses the exact production Apps getter with an inert optional-URL MaintenanceManager boundary, not the recovery engine. Native setup verification requires matching BUILDER_ROOT, SOURCES_ROOT, SWIFTC, a fresh SETUP_RECOVERY_OUTPUT outside source checkouts and the reviewed same-graph SETUP_RECOVERY_CONTRACT; source generation and portable controls do not prove compilation or execution. Startup guard and model-resource controls have two distinct commands: --source-only runs 14 portable cases and explicitly reports NATIVE_NOT_RUN; the mandatory-Swift command runs 16 cases including two extracted-production Swift fixtures. These fixtures do not execute real application startup, Core Data or a physical device. The portable preflight cannot replace the mandatory same-run native startup receipt.",
+      "modules": [
+        {
+          "owner": "SideStore",
+          "path": "SideStore/DatabaseRecovery.swift",
+          "interface": "DatabaseRecovery.resolve / Selection / SourceReservation / withResetLock",
+          "rationale": "Own SQLite snapshots, retained original-source reservations, Apps inventory and exclusive recovery-generation publication independently of Core Data and UI."
+        },
+        {
+          "owner": "SideStore",
+          "path": "SideStore/DatabaseRecoverySQLite.c",
+          "interface": "sidestore_recovery_disable_close_checkpoint",
+          "rationale": "Bridge the variadic SQLite configuration API and prevent source-close checkpoints from rewriting retained persistent bytes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/run_database_recovery.py",
+          "interface": "produce / verify_local / verify_portable / seal_effective / verify_effective",
+          "rationale": "Bind both actual source-owned native suites, pristine acquired and compiled source closures, required cases, retained evidence and actual Release Swift build-setting proof to the exact workflow commit, run and attempt. Portable receipt checks do not execute native code. Effective SideStore Release settings may repeat only when entire canonical target rows are identical; reject divergent fields or types, malformed/nonfinite settings and missing or wrong Swift mode without weakening the receipt schema."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/database_recovery_upstream_projection.py",
+          "interface": "specification / bind / verify_report",
+          "rationale": "Layer a finite reviewed recovery successor over the frozen predecessor; admit the explicit source-case substitution without silently weakening unrelated tests or claiming native execution."
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/generate_fixture.py",
+          "interface": "verify_installed_recovery_selection / verify_production_apps_getter / main",
+          "rationale": "Generate the exact production Apps getter with an inert optional-URL selection boundary; retain the historical whole-file pin through one exact getter-expression inverse, never a broad repin. Generation alone is not native execution."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/capture_release_settings.py",
+          "interface": "capture / finite Release settings diagnostics",
+          "rationale": "Retain whitelisted settings including SWIFT_VERSION and a whole-row canonical hash for diagnosis; policy_admission remains false and diagnostic output never admits a build."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/database_recovery_package_admission.py",
+          "interface": "trusted / verify",
+          "rationale": "Require exact SQLite/Core Data reports, source closure, acquired bytes, effective Swift settings, raw evidence and IPA provenance from the same native run."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/run_database_recovery.py",
+          "interface": "Reviewed recovery verify_portable / verify_effective snapshot",
+          "rationale": "Keep package verification byte-paired with the native producer and effective Release Swift settings proof."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "SideStore",
+          "path": "SideStore/MaintenanceManager.swift",
+          "interface": "preparePersistentStoreURLs / recoveredAppsDirectory / performDatabaseResetIfSafe",
+          "rationale": "Retain the selection and source reservations for the full recovered-store lifetime; serialize startup/retry and reset and preserve underlying startup causes."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
+          "interface": "performStart / deleteDatabase / recreateDatabase",
+          "rationale": "Select recovery before normal store loading and refuse legacy destructive reset for recovered generations, including before attachment."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift",
+          "interface": "validateRecoveryStore / progressive Core Data migration",
+          "rationale": "Migrate and materialize only the owned staging store; restore the original description URL and validate the selected store identity before reuse."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/InstalledApp.swift",
+          "interface": "InstalledApp.appsDirectoryURL",
+          "rationale": "Select recovered Apps storage together with the recovered database rather than mixing database and cached-app generations."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore.xcodeproj/project.pbxproj",
+          "interface": "SideStore synchronized source membership and model resources",
+          "rationale": "Review actual target inclusion of the Swift recovery engine, C shim, production callers and original model resources; inventory alone is not a link/build pass."
+        },
+        {
+          "owner": "SideStore",
+          "path": ".github/workflows/database-recovery.yml",
+          "interface": "Isolated macOS native recovery qualification",
+          "rationale": "Keep portable controls, exact-engine SQLite execution and real Core Data execution independently mandatory; uploaded logs are not by themselves a passing receipt."
+        },
+        {
+          "owner": "SideStore",
+          "path": "docs/database-recovery/README.md",
+          "interface": "Recovery invariants, preserved-source ownership and qualification limits",
+          "rationale": "Keep the ownership and failure contract explicit without treating documentation as execution evidence."
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery/README.md",
+          "interface": "Exact-engine native fixture scope and command",
+          "rationale": "Separate synthetic validation, interruption tests and host requirements from real Core Data and device acceptance."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/.xccurrentversion",
+          "interface": "Current persistent model selection",
+          "rationale": "Keep the native model-bundle selection aligned with the production migration target."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore.xcdatamodel/contents",
+          "interface": "Original AltStore persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 2.xcdatamodel/contents",
+          "interface": "Original AltStore 2 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 3.xcdatamodel/contents",
+          "interface": "Original AltStore 3 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 4.xcdatamodel/contents",
+          "interface": "Original AltStore 4 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 5.xcdatamodel/contents",
+          "interface": "Original AltStore 5 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 6.xcdatamodel/contents",
+          "interface": "Original AltStore 6 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 7.xcdatamodel/contents",
+          "interface": "Original AltStore 7 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 8.xcdatamodel/contents",
+          "interface": "Original AltStore 8 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 9.xcdatamodel/contents",
+          "interface": "Original AltStore 9 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 10.xcdatamodel/contents",
+          "interface": "Original AltStore 10 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 11.xcdatamodel/contents",
+          "interface": "Original AltStore 11 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_1.xcdatamodel/contents",
+          "interface": "Original AltStore 17_1 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_2.xcdatamodel/contents",
+          "interface": "Original AltStore 17_2 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_3.xcdatamodel/contents",
+          "interface": "Original AltStore 17_3 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_4.xcdatamodel/contents",
+          "interface": "Original AltStore 17_4 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_5.xcdatamodel/contents",
+          "interface": "Original AltStore 17_5 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_6.xcdatamodel/contents",
+          "interface": "Original AltStore 17_6 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore/Core/Model/AltStore.xcdatamodeld/AltStore 17_7.xcdatamodel/contents",
+          "interface": "Original AltStore 17_7 persistent model resource",
+          "rationale": "Preserve explicit source/target schema metadata compiled into the native fixture; only v17.6-to-v17.7 DELETE and WAL behavior is qualified by that fixture."
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery/target_settings.py",
+          "interface": "inspect_project / settings_from_objects",
+          "rationale": "Select the actual SideStore Release target Swift language mode for both native suites; reject ambiguous, inherited or unsupported settings instead of silently downgrading or using another target."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/record.py",
+          "interface": "receipt database recovery admission",
+          "rationale": "Require the same-run recovery receipt and actual Release Swift build-setting proof before recording successful native qualification; retain exact evidence hashes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/package_candidate.py",
+          "interface": "Native package admission and retained recovery provenance",
+          "rationale": "Reject missing or mismatched recovery evidence or effective Release Swift settings before packaging and replay admission before retaining the final diagnostic receipts."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/startup-upgrade/acquire.py",
+          "interface": "harness_hashes / acquire / verify",
+          "rationale": "Include the recovery verifier in the independently acquired source/fixture harness identity; preserve original acquisition checks."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/cold-vpn-native.yml",
+          "interface": "Mandatory exact recovery execution and finite failure collection",
+          "rationale": "Run both SQLite and Core Data suites before native/package success; collect bounded logs on failure without treating upload success as qualification. Run the direct 14-case startup source-only command early under pipefail; it never substitutes for the separate mandatory same-run native startup receipt."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/database-recovery-upstream-tests-extension.json",
+          "interface": "Exact recovery source-case map, case inventory and source hashes",
+          "rationale": "Retain the reviewed replacement of the old no-relocation source assertion with preserving recovery; preserve the unrelated historical case inventory and predecessor identity."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/upstream_candidate_projection.py",
+          "interface": "current_spec recovery successor selection",
+          "rationale": "Report the reviewed source-case replacement explicitly while preserving existing runtime case and marker claims; do not describe all original source cases as unchanged."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/verify_upstream_sync.py",
+          "interface": "sidestore_tests successor binding",
+          "rationale": "Bind actual discovered source-owned cases and their files to the finite recovery descriptor before execution and report verification."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/refresh-truth-preflight.yml",
+          "interface": "Recovery upstream successor controls and source-report verification",
+          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence. Run the direct 14-case startup source-only command early under pipefail; it never substitutes for the separate mandatory same-run native startup receipt."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/issues-native.yml",
+          "interface": "Recovery upstream successor controls and source-report verification",
+          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/language-switch-native.yml",
+          "interface": "Recovery upstream successor controls and source-report verification",
+          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/issue56-native.yml",
+          "interface": "Recovery upstream successor controls and source-report verification",
+          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/database-recovery-source-contract.json",
+          "interface": "Reviewed recovery source/helper contract",
+          "rationale": "Bind the current native builder, helper bytes and exact33-source recovery closure independently of transient artifact pins."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery/main.swift",
+          "command": "python3 -B tests/database_recovery/run.py --output \"$RECOVERY_ENGINE_OUTPUT\"",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery/run.py",
+          "command": "python3 -B tests/database_recovery/run.py --output \"$RECOVERY_ENGINE_OUTPUT\"",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery/test_runner.py",
+          "command": "python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/database_recovery --pattern test_runner.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery_coredata/Cases.swift",
+          "command": "python3 -B tests/database_recovery_coredata/run.py --output \"$RECOVERY_COREDATA_OUTPUT\"",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery_coredata/run.py",
+          "command": "python3 -B tests/database_recovery_coredata/run.py --output \"$RECOVERY_COREDATA_OUTPUT\"",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/database_recovery_coredata/test_contract.py",
+          "command": "python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/database_recovery_coredata --pattern test_contract.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "source-contract"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/upstream_sync/test_maintenance_preservation.py",
+          "command": "python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/upstream_sync --pattern test_maintenance_preservation.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_database_recovery_receipt.py",
+          "command": "python3 -B ci/issues-native/test_database_recovery_receipt.py --source \"$SIDESTORE_ROOT\" && python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_database_recovery_receipt.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_database_recovery_upstream_projection.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_database_recovery_upstream_projection.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_preservation_upstream_tests_projection.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_preservation_upstream_tests_projection.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/startup-upgrade/test_acquire.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/startup-upgrade --pattern test_acquire.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/test_host_preservation.py",
+          "command": "python3 -B \"$BUILDER_ROOT/scripts/run_required_tests.py\" --start-directory tests/cache_compatibility --pattern test_host_preservation.py --allowlist \"$BUILDER_ROOT/scripts/required_test_skip_allowlist.json\"",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/cache_compatibility/Cases.swift",
+          "command": "python3 -B \"$BUILDER_ROOT/ci/issues-native/verify_setup_state_recovery.py\" run --sources \"$SOURCES_ROOT\" --swiftc \"$SWIFTC\" --output \"$SETUP_RECOVERY_OUTPUT\" --contract \"$SETUP_RECOVERY_CONTRACT\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/verify_setup_state_recovery.py",
+          "command": "python3 -B \"$BUILDER_ROOT/ci/issues-native/verify_setup_state_recovery.py\" run --sources \"$SOURCES_ROOT\" --swiftc \"$SWIFTC\" --output \"$SETUP_RECOVERY_OUTPUT\" --contract \"$SETUP_RECOVERY_CONTRACT\"",
+          "level": "native"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_setup_state_recovery_contract.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_setup_state_recovery_contract.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/startup_outcome/test_contract.py",
+          "command": "REQUIRE_SWIFT_STARTUP_TESTS=1 python3 -B tests/startup_outcome/test_contract.py",
+          "level": "native"
+        },
+        {
+          "owner": "SideStore",
+          "path": "tests/startup_outcome/test_model_resource_owner.py",
+          "command": "python3 -B tests/startup_outcome/test_contract.py --source-only",
+          "level": "source-contract"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issue56-startup/test_startup_runner.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issue56-startup --pattern test_startup_runner.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_release_settings_cache.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/issues-native --pattern test_release_settings_cache.py --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_database_recovery_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "localization",
+      "contract": "Live language changes preserve host state and cover user-visible owned strings without altering locale-sensitive authentication inputs.",
+      "limitations": "Fixtures and source checks do not prove real device behavior; native and device acceptance remain separate.",
+      "modules": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift",
+          "interface": "V3LanguageSettings",
+          "rationale": "Keep live language selection separate from application state."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Utilities/V3Localization.swift",
+          "interface": "V3Localization",
+          "rationale": "Use a stable localization lookup interface."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+          "interface": "Language setting and localized presentation",
+          "rationale": "Observe live settings without rebuilding persistent state."
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "Resources/Localizable.xcstrings",
+          "interface": "Localized resource catalog",
+          "rationale": "Keep compiled resources paired with call sites."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_live_language_state.py",
+          "command": "python3 -B tests/test_live_language_state.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_russian_localization.py",
+          "command": "python3 -B tests/test_russian_localization.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "LiveContainer",
+          "path": "tests/test_live_language_root.py",
+          "command": "python3 -B tests/test_live_language_root.py",
+          "level": "executable-fixture"
+        }
+      ]
+    },
+    {
+      "id": "build-membership-and-dependencies",
+      "contract": "Owned modules and adapters must remain compiled into their intended targets, and exact multi-owner pins remain independently verified.",
+      "limitations": "Inventory classification flags changed build files; only actual native builds and source/ABI gates prove inclusion and correct dependency resolution.",
+      "modules": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/maintained_sources.py",
+          "interface": "Maintained-source validation",
+          "rationale": "Separate source acquisition and verification from historical patch generation."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/verify_candidate_graph.py",
+          "interface": "Candidate source graph gate",
+          "rationale": "Keep exact source identity separate from reusable boundary descriptions."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "LiveContainer",
+          "path": "LiveContainer.xcodeproj/project.pbxproj",
+          "interface": "Xcode target membership",
+          "rationale": "Omitted custom source must trigger review."
+        },
+        {
+          "owner": "SideStore",
+          "path": "AltStore.xcodeproj/project.pbxproj",
+          "interface": "Xcode target membership",
+          "rationale": "Keep service-side custom sources in actual compiled target."
+        },
+        {
+          "owner": "SideSign",
+          "path": "Package.swift",
+          "interface": "Swift package targets",
+          "rationale": "Preserve signing and authentication target inclusion."
+        },
+        {
+          "owner": "AnisetteKit",
+          "path": "Package.swift",
+          "interface": "Swift/native package targets",
+          "rationale": "Preserve native and Swift ownership modules."
+        },
+        {
+          "owner": "minimuxer",
+          "path": "Package.swift",
+          "interface": "Transport package targets",
+          "rationale": "Preserve gateway compilation and dependencies."
+        },
+        {
+          "owner": "idevice",
+          "path": "Cargo.toml",
+          "interface": "Rust workspace",
+          "rationale": "Keep FFI and runtime crates in native graph."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/candidate-graph.json",
+          "interface": "Immutable owner tuple",
+          "rationale": "Any owner pin update requires source review and inventory validation."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_candidate_graph.py",
+          "command": "python3 -B ci/issues-native/test_candidate_graph.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/issues-native/test_sync_contract.py",
+          "command": "python3 -B ci/issues-native/test_sync_contract.py",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_pinned_source_identity.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_pinned_source_identity.py -v",
+          "level": "source-contract"
+        }
+      ]
+    },
+    {
+      "id": "integration-maintenance",
+      "contract": "Maintain reusable named boundaries and fail closed on missing paths, unknown changes, removals or gitlink changes; a plan never claims tests were run.",
+      "limitations": "This finite maintenance map is not a proof every changed upstream file is safe; unknown changes are explicitly held for manual review.",
+      "modules": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "scripts/integration_contracts.py",
+          "interface": "Registry validation / impact planning",
+          "rationale": "Keep generic review independent of one snapshot or language."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "docs/CUSTOM_INTEGRATION_CONTRACTS.json",
+          "interface": "Feature-to-module-and-test registry",
+          "rationale": "Require explicit rationale and practical evidence per boundary."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/custom-integration-contract.yml",
+          "interface": "Read-only integration gate",
+          "rationale": "Continuously validate current registry and representative integration fixtures."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_integration_contracts.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_integration_contracts.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/test_custom_integration_boundaries.py",
+          "command": "python3 -B -m unittest discover -s tests -p test_custom_integration_boundaries.py -v",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/fixtures/issue53-ownership-delta.json",
+          "command": "python3 -B -m unittest discover -s tests -p test_integration_contracts.py -v",
+          "level": "source-contract"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "tests/fixtures/issue56-recovery-delta.json",
+          "command": "python3 -B -m unittest discover -s tests -p test_integration_contracts.py -v",
+          "level": "source-contract"
+        }
+      ]
+    },
+    {
+      "id": "package-native-evidence",
+      "contract": "Package only artifacts bound to the successful reviewed native source and run. Preserve existing compression, size, signature and preservation gates; require ownership and recovery admission before compression and repeat those checks during the independent final audit.",
+      "limitations": "Portable package tests, source snapshots and archive projection do not run Rust, SQLite, Core Data, signing, authentication or a physical device. Native evidence must already match the explicit workflow commit, run and attempt, complete owner graph, source/helper hashes, raw receipts/logs and original IPA. Preserve all existing CMS, owned-attempt and fallback checks. Source-only composition or placeholder/old artifact metadata is unqualified. Only hash-verified repository helper snapshots may be loaded; never execute artifact-supplied code. All regression entries use the complete package test directory once; repeated command references do not imply repeated native runs.",
+      "modules": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/acquire.py",
+          "interface": "validate_metadata / unpack / main",
+          "rationale": "Acquire only the explicitly bound successful native artifact and approved source, validating archive and IPA identity before extraction."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/cms-native-helper.snapshot",
+          "interface": "Reviewed native CMS verifier snapshot",
+          "rationale": "Load only source-contract-hash-verified repository bytes for portable receipt verification, never executable content taken from an artifact."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/cms_package_admission.py",
+          "interface": "verify",
+          "rationale": "Admit the exact projected CMS evidence and its current native identity without rerunning native tests."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/contract.py",
+          "interface": "manifest / verify_round_schedule / verify_size_acceptance",
+          "rationale": "Keep immutable input and compression/size acceptance policy distinct from evidence acquisition or native execution."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/database_recovery_package_admission.py",
+          "interface": "trusted / verify",
+          "rationale": "Require exact SQLite/Core Data reports, source closure, acquired bytes, effective Swift settings, raw evidence and IPA provenance from the same native run."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/initial_rejection_package_admission.py",
+          "interface": "trusted / projected_evidence / verify",
+          "rationale": "Keep shared reviewed-source loading and archive projection bound to exact fallback, authentication and source identities."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/owned_oda_package_admission.py",
+          "interface": "trusted / project / verify",
+          "rationale": "Validate the exact owned-attempt evidence capsule, bounded members and native provenance without executing artifact code."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/owned_oda_package_binding.py",
+          "interface": "artifact_from_source / project / verify",
+          "rationale": "Bind the ODA admission to reviewed projector source constants and retained capsule identity."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/preservation_cms_portable.py",
+          "interface": "verify",
+          "rationale": "Verify reviewed CMS source, fixture, report and raw evidence bindings portably; do not convert archive replay into native execution."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/project_native_evidence.py",
+          "interface": "validate_read_only_archive / project",
+          "rationale": "Project only the exact source-pinned successful native archive with safe finite members and hash-bound receipt bytes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/provider_ownership_package_admission.py",
+          "interface": "rust_counts / verify",
+          "rationale": "Require every reviewed Rust test, zero ignored/failed cases, both generated-header markers, the exact idevice graph and original IPA bytes."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/refresh_truth_receipt.py",
+          "interface": "Reviewed refresh-truth verifier snapshot",
+          "rationale": "Retain exact native verifier source for portable semantic checking; copying this helper does not execute native tests."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/run_database_recovery.py",
+          "interface": "Reviewed recovery verify_portable / verify_effective snapshot",
+          "rationale": "Keep package verification byte-paired with the native producer and effective Release Swift settings proof."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/run_issue_tests.py",
+          "interface": "Reviewed ownership verifier snapshot",
+          "rationale": "Keep named Rust tests, generated-header markers and receipt semantics paired with the exact native builder."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/run_owned_oda.py",
+          "interface": "Reviewed owned-attempt verifier snapshot",
+          "rationale": "Keep the owned-attempt receipt semantics paired with the same native source graph."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/verify_candidate_graph.py",
+          "interface": "Reviewed candidate graph verifier snapshot",
+          "rationale": "Preserve exact owner graph verification when portable validators load their reviewed native dependencies."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/language_cleanup_package_admission.py",
+          "interface": "verify_language_cleanup",
+          "rationale": "Verify embedded cleanup JSON hash and exact owned simulator absence using reviewed source only at both package boundaries."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/cleanup-evidence.snapshot",
+          "interface": "Reviewed native simulator cleanup verifier",
+          "rationale": "Hash-pinned source snapshot parses exact native cleanup evidence; packaging never invokes cleanup or simulator commands."
+        }
+      ],
+      "integration_points": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": ".github/workflows/cold-vpn-zopfli.yml",
+          "interface": "Acquisition, precompression admissions, packaging and independent final audit",
+          "rationale": "Retain all existing adapters and gates while making ownership and recovery checks mandatory before compression and at final verification."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/README.md",
+          "interface": "Package qualification and evidence limits",
+          "rationale": "Document the required native provenance and package procedure without treating documentation as passing evidence."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/cms-native-graph.json",
+          "interface": "Reviewed CMS owner graph",
+          "rationale": "Bind CMS evidence and source snapshots to the intended native owner tuple."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/cms-source-contract.json",
+          "interface": "Reviewed CMS source/helper contract",
+          "rationale": "Keep trusted helper bytes and exact CMS evidence inputs explicit; regenerate only from reviewed source."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/database-recovery-source-contract.json",
+          "interface": "Reviewed recovery source/helper contract",
+          "rationale": "Bind the current native builder, helper bytes and exact33-source recovery closure independently of transient artifact pins."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/fallback-source-contract.json",
+          "interface": "Shared trusted native helper and fallback graph contract",
+          "rationale": "Require the complete reviewed helper closure and native builder identity before either shared or specialized admission."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/independent_verify.py",
+          "interface": "Read-only final archive audit",
+          "rationale": "Replay ownership, recovery, CMS, fallback and ODA admission against retained evidence and final payload without invoking compressor or artifact executables."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/input-manifest.json",
+          "interface": "Explicit successful run, artifact and IPA binding",
+          "rationale": "Populate actual qualification metadata only after matching native success; an old or incomplete manifest must not admit a new candidate."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/owned-oda-source-contract.json",
+          "interface": "Owned-attempt trusted source contract",
+          "rationale": "Keep native builder and reviewed owned-attempt verifier/source identities explicit."
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/reviewed-native/candidate-graph.json",
+          "interface": "Reviewed complete native owner graph snapshot",
+          "rationale": "Require graph byte identity with the final native source; never overwrite current native graph with the earlier package baseline."
+        }
+      ],
+      "regressions": [
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/fixtures/actual-macos-boundary-25fc5b5d.json",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "source-contract"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_acquire.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_cms_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_database_recovery_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_independent_verify.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_initial_rejection_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_owned_oda_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_owned_oda_package_binding.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_preservation_cms_portable.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_project_native_evidence.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_provider_ownership_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        },
+        {
+          "owner": "sidestore-auto-refresh",
+          "path": "ci/cold-vpn-zopfli/test_language_cleanup_package_admission.py",
+          "command": "python3 -B scripts/run_required_tests.py --start-directory ci/cold-vpn-zopfli --pattern 'test_*.py' --allowlist scripts/required_test_skip_allowlist.json",
+          "level": "executable-fixture"
+        }
+      ]
+    }
+  ]
+}

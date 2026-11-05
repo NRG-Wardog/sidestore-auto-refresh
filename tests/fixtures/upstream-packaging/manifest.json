@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "revisions": [
+    {
+      "source_repository": "https://github.com/NRG-Wardog/LiveContainer",
+      "source_commit": "433dd73edd78401bc5d38eef87d51414bb30f6f4",
+      "source_path": ".github/build_github.sh",
+      "fixture": "433dd73-build_github.sh.txt",
+      "source_sha256": "4a83b9594c13e8f5d2de57433286f7381d4221961bbd4946c0699bcfbaed7e4f",
+      "adapted_sha256": "4cc8d1c34fecfb9772fbc070b28a05b127622a1d20add4e244abd9be0ecb7c7b",
+      "baseline_adapter_commit": "eb1b05b94dee5170b5720c665c806be84e442f96",
+      "license": "AGPL-3.0; source retained unchanged as test data; never executed"
+    },
+    {
+      "source_repository": "https://github.com/LiveContainer/LiveContainer",
+      "source_commit": "2d092098cae6ef6d98eefe3943927f81d925e527",
+      "source_path": ".github/build_github.sh",
+      "fixture": "2d092098-build_github.sh.txt",
+      "source_sha256": "eaba9d1550fe5bc2d10cf8ab1b87e509e0c19bd2b21c71b837b9ccd95d2debd0",
+      "adapted_sha256": "3a476070cc6f0ccc2272828a95c33720b940c2efae5216b3f8082414365f6f1e",
+      "anchor_profile": "2d092098-anchor-profile.json",
+      "default_outcome": "reject:compiled-sidestore",
+      "preserved_upstream_delta": "cp -r ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Frameworks ./Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex\n",
+      "license": "AGPL-3.0; source retained unchanged as test data; never executed"
+    }
+  ]
+}

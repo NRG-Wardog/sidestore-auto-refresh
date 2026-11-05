@@ -112,7 +112,7 @@ class V3OperationRecoveryTests(unittest.TestCase):
         self.assertIn("recoveryDiscardable: recoveryStorageFailure?.clearEligible == true", service)
         self.assertIn("V3ServiceRecoveryAdmissionPolicy.decide(", service)
         self.assertIn("V3OperationCancelKnownStartedPolicy.resolve(sessionID: target", service)
-        self.assertIn('payload: ["state": terminalState]',
+        self.assertIn('payload: ["state": terminalState, "admissionID": admissionID]',
                       (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8"))
         self.assertIn("reconcileDurableOperationAfterDeviceCheck", shell)
         self.assertIn("unresolvedOperationRecovery?.stagedIPAToken", shell)

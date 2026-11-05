@@ -1,0 +1,35 @@
+{
+  "sha": "df1517dd8518113a245e4d203a04b8a0e02ab493",
+  "node_id": "C_kwDOAeajG9oAKGRmMTUxN2RkODUxODExM2EyNDVlNGQyMDNhMDRiOGEwZTAyYWI0OTM",
+  "url": "https://api.github.com/repos/google/zopfli/git/commits/df1517dd8518113a245e4d203a04b8a0e02ab493",
+  "html_url": "https://github.com/google/zopfli/commit/df1517dd8518113a245e4d203a04b8a0e02ab493",
+  "author": {
+    "name": "Googler",
+    "email": "no-reply@google.com",
+    "date": "2026-09-30T13:34:03Z"
+  },
+  "committer": {
+    "name": "Copybara-Service",
+    "email": "copybara-worker@google.com",
+    "date": "2026-09-30T13:34:34Z"
+  },
+  "tree": {
+    "sha": "b635c1f017ccce001399fcc3ff9c687cbf00f5b2",
+    "url": "https://api.github.com/repos/google/zopfli/git/trees/b635c1f017ccce001399fcc3ff9c687cbf00f5b2"
+  },
+  "message": "No public description\n\nPiperOrigin-RevId: 990951687",
+  "parents": [
+    {
+      "sha": "5dbc30ef55587241851051eb62be6bc217401bf7",
+      "url": "https://api.github.com/repos/google/zopfli/git/commits/5dbc30ef55587241851051eb62be6bc217401bf7",
+      "html_url": "https://github.com/google/zopfli/commit/5dbc30ef55587241851051eb62be6bc217401bf7"
+    }
+  ],
+  "verification": {
+    "verified": false,
+    "reason": "unsigned",
+    "signature": null,
+    "payload": null,
+    "verified_at": null
+  }
+}

@@ -1,0 +1,70 @@
+name: Focused live language simulator validation
+on:
+  workflow_dispatch:
+  push:
+    branches: ['validation/language-switch-ui']
+    paths: ['ci/language-switch/**', 'ci/issues-native/candidate-graph.json', '.github/workflows/language-switch-ui.yml']
+permissions:
+  contents: read
+concurrency:
+  group: language-switch-ui-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  simulator:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/language-switch-ui'
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Initialize bounded evidence
+        id: initialized
+        run: mkdir -p evidence sources
+      - name: Checkout exact harness only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/sidestore-auto-refresh
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Require source-owned fixture controls
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s harness/ci/language-switch -p 'test_*.py' -v 2>&1 | tee evidence/controls.log
+      - name: Acquire and verify same immutable candidate source graph
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/issues-native/record.py acquire 2>&1 | tee evidence/acquisition.log
+          python3 -B harness/ci/issues-native/verify_candidate_graph.py 2>&1 | tee evidence/source-graph.log
+          { xcodebuild -version; swift --version; xcrun --sdk iphonesimulator --show-sdk-version; } > evidence/toolchain.log
+          xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Counterfactual observations and mandatory same-session simulator qualification
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/language-switch/run_language_switch_tests.py --sources sources --output evidence \
+            2>&1 | tee evidence/language-switch-driver.log
+      - name: Preserve observations and runtime failure evidence only
+        if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: language-ui-runtime-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/*.log
+            evidence/*.json
+            evidence/language-switch/*.log
+            evidence/language-switch/*.json
+          if-no-files-found: error
+          retention-days: 14

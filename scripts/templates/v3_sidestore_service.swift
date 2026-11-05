@@ -949,6 +949,160 @@ final class V3SideStoreService: NSObject {
     private var pendingCancellationReplyReservations: Set<String> = []
     var mutationID: String?
     private var refreshAdmission = V3RefreshAdmissionLease()
+    private var refreshExecutionGate = V3RefreshExecutionGate()
+
+    // Cancellation of the short admission request is not proof that the
+    // independently dispatched device operation has stopped.
+    private func releaseUnstartedRefreshAdmission(requestID: String) -> Bool {
+        guard refreshAdmission.requestID == requestID,
+              let runID = refreshAdmission.runID,
+              !refreshExecutionGate.isActive,
+              !refreshExecutionGate.hasDispatched(hostRunID: runID, hostAdmissionID: requestID),
+              (try? V3OperationRecoveryJournal.clearPreparedRefreshAdmissionAfterRequestCancellation(
+                  runID: runID)) == true else { return false }
+        return refreshAdmission.release(requestID: requestID)
+    }
+
+    private func hostRefreshDefaults(for runID: String) throws -> UserDefaults {
+        _ = refreshAdmission.expire()
+        let defaults = try V3SharedAppGroup.requireSharedUserDefaults()
+        let journal = try V3OperationRecoveryJournal.current()
+        let activeRunID = defaults.string(forKey: "liveContainerAutoRefreshActiveRunID")
+        let direct = defaults.dictionary(forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)
+        let directOwned = direct?["run_id"] as? String == runID &&
+            V3DirectRefreshRunClaimPolicy.isActive(runID: runID, deadline: direct?["deadline"] as? Date)
+        guard UUID(uuidString: runID)?.uuidString == runID,
+              (refreshAdmission.isActive && !refreshAdmission.ownerLost), refreshAdmission.owns(runID),
+              defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") == runID,
+              activeRunID == runID || (activeRunID == nil && directOwned),
+              journal?.kind == "refreshAll", journal?.sessionID == runID else {
+            throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                code: .staleResult, id: runID, retryable: false, safeCause: .staleRefreshAttempt)
+        }
+        return defaults
+    }
+
+    func beginExternalRefreshExecution() throws -> V3RefreshExecutionTicket {
+        // External refresh is a mutation, not a recovery-control operation.
+        // Any unresolved journal record (including directMutation) blocks it.
+        let journal = try V3OperationRecoveryJournal.currentState()
+        guard journal == nil,
+              mutationID == nil,
+              !V3HeadlessRuntime.shared.auth.hasActiveSession,
+              V3HeadlessRuntime.shared.operations.activeMutationID == nil,
+              let ticket = refreshExecutionGate.acquire(hostRunID: nil,
+                  hostLeaseActive: refreshAdmission.isActive) else {
+            throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                code: .busy, id: UUID().uuidString, retryable: false, safeCause: .operationInProgress)
+        }
+        return ticket
+    }
+
+    func validateRefreshExecution(_ ticket: V3RefreshExecutionTicket) throws {
+        guard refreshExecutionGate.owns(ticket) else {
+            throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                code: .staleResult, id: ticket.hostRunID ?? ticket.id.uuidString,
+                retryable: false, safeCause: .staleRefreshAttempt)
+        }
+        if let runID = ticket.hostRunID {
+            guard refreshAdmission.requestID == ticket.hostAdmissionID else {
+                throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                    code: .staleResult, id: runID, retryable: false, safeCause: .staleRefreshAttempt)
+            }
+            _ = try hostRefreshDefaults(for: runID)
+        } else {
+            guard !refreshAdmission.isActive else {
+                throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                    code: .busy, id: ticket.id.uuidString, retryable: false,
+                    safeCause: .operationInProgress)
+            }
+        }
+    }
+
+    func endRefreshExecution(_ ticket: V3RefreshExecutionTicket) {
+        refreshExecutionGate.release(ticket)
+    }
+
+    // Invoked only through the existing host-to-service XPC refresh method.
+    // The explicit run must already own the admission lease and journal.
+    // This does not use LNAction, AppIntent execution or foreground continuation.
+    @objc(refreshForHost:admissionID:progress:completion:)
+    nonisolated static func refreshForHost(_ runID: String, admissionID: String,
+        progress: @escaping (Double) -> Void,
+        completion: @escaping (String?, Data?) -> Void) {
+        Task { @MainActor in
+            await shared.performHostRefresh(runID: runID, admissionID: admissionID, progress: progress, completion: completion)
+        }
+    }
+
+    private func refreshVerificationPayload(runID: String) -> Data? {
+        guard let defaults = V3SharedAppGroup.sharedUserDefaults(),
+              defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") == runID else { return nil }
+        var raw: [String: Any] = [:]
+        for key in ["liveContainerAutoRefreshVerification", "liveContainerAutoRefreshHostHandoff",
+                    "liveContainerAutoRefreshHostHandoffRunID", "liveContainerAutoRefreshHostHandoffStartedAt",
+                    "liveContainerAutoRefreshHostPreviousExpiration"] {
+            if let value = defaults.object(forKey: key) { raw[key] = value }
+        }
+        let payload = CombinedVerification.sanitized(raw, runID: runID)
+        guard let data = try? PropertyListSerialization.data(fromPropertyList: payload,
+                    format: .binary, options: 0), data.count <= 262144 else { return nil }
+        return data
+    }
+
+    private func performHostRefresh(runID: String, admissionID: String, progress: @escaping (Double) -> Void,
+                                    completion: @escaping (String?, Data?) -> Void) async {
+        // Duplicate dispatch is not a second logical operation. In particular,
+        // never send a busy callback that could terminate its still-live owner.
+        if refreshExecutionGate.hasDispatched(hostRunID: runID, hostAdmissionID: admissionID) { return }
+        var acquired: V3RefreshExecutionTicket?
+        var observation: NSKeyValueObservation?
+        var failure: CombinedFailure?
+        do {
+            guard #available(iOS 17.0, tvOS 17.0, *) else {
+                throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                    code: .unavailable, id: runID, retryable: false)
+            }
+            guard UUID(uuidString: admissionID)?.uuidString == admissionID,
+                  refreshAdmission.requestID == admissionID else {
+                throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                    code: .staleResult, id: runID, retryable: false, safeCause: .staleRefreshAttempt)
+            }
+            let defaults = try hostRefreshDefaults(for: runID)
+            guard let ticket = refreshExecutionGate.acquire(hostRunID: runID,
+                    hostAdmissionID: admissionID, hostLeaseActive: (refreshAdmission.isActive && !refreshAdmission.ownerLost)) else {
+                throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                    code: .busy, id: runID, retryable: false, safeCause: .operationInProgress)
+            }
+            acquired = ticket
+            // Clear only after this explicit invocation owns the run. Never
+            // stamp a delayed request over a newer host's expected run.
+            defaults.removeObject(forKey: "liveContainerAutoRefreshVerification")
+            defaults.removeObject(forKey: "liveContainerAutoRefreshHostHandoff")
+            defaults.removeObject(forKey: "liveContainerAutoRefreshHostHandoffRunID")
+            let parentProgress = Progress(totalUnitCount: 1)
+            observation = parentProgress.observe(\.fractionCompleted, options: [.new]) { value, _ in
+                let fraction = value.fractionCompleted
+                if fraction.isFinite { progress(max(0, min(1, fraction))) }
+            }
+            print("[V3_REFRESH_EXECUTION] route=direct_host phase=started")
+            try await V3RefreshIntentBackend.run(presentsNotifications: false,
+                progress: parentProgress, ticket: ticket)
+            try validateRefreshExecution(ticket)
+            print("[V3_REFRESH_EXECUTION] route=direct_host phase=pipelineCompleted")
+        } catch {
+            failure = CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error),
+                operation: "refresh", stage: .command, id: runID)
+            print("[V3_REFRESH_EXECUTION] route=direct_host phase=pipelineThrew")
+        }
+        observation?.invalidate()
+        // Capture exact-run immutable bytes before releasing the execution slot.
+        // Admission failures have no producer result and must not borrow one.
+        let payload = acquired == nil ? nil : refreshVerificationPayload(runID: runID)
+        if let acquired { endRefreshExecution(acquired) }
+        completion(failure?.encodedString, payload)
+    }
+
     private var pendingRefreshAdmissionRequests: Set<String> = []
     private var pendingAuthStartSessions: [String: String] = [:]
     private var knownSourcesUpdateTask: Task<Void, Error>?
@@ -1034,10 +1188,7 @@ final class V3SideStoreService: NSObject {
             }
             var cancellationReply: [String: Any] = ["id": id, "version": 1, "ok": true]
             if isPendingRefreshAdmission {
-                let refreshRunID = refreshAdmission.runID
-                if refreshAdmission.release(requestID: target), let refreshRunID,
-                   (try? V3OperationRecoveryJournal.clearPreparedRefreshAdmissionAfterRequestCancellation(
-                    runID: refreshRunID)) == true {
+                if releaseUnstartedRefreshAdmission(requestID: target) {
                     cancellationReply["refreshAdmissionReleased"] = true
                 }
             }
@@ -1172,13 +1323,13 @@ final class V3SideStoreService: NSObject {
             authenticationActive: authenticationActive,
             isAuthContinuation: authContinuation,
             responseCapacityAvailable: responseCapacityAvailable,
-            refreshActive: refreshAdmission.isActive,
+            refreshActive: refreshAdmission.isActive || refreshExecutionGate.isActive,
             isRefreshRelease: refreshRelease) else {
             let safeCause = V3ServiceMutationBusyCausePolicy.safeCause(
                 operation: operation,
                 anotherMutationActive: mutationID != nil || operationMutationActive,
                 responseCapacityAvailable: responseCapacityAvailable,
-                refreshActive: refreshAdmission.isActive, refreshRelease: refreshRelease,
+                refreshActive: refreshAdmission.isActive || refreshExecutionGate.isActive, refreshRelease: refreshRelease,
                 authenticationActive: authenticationActive,
                 isAuthContinuation: authContinuation)
             let sourceRemoval = safeCause == .sourceRemoveBusy
@@ -1268,11 +1419,8 @@ final class V3SideStoreService: NSObject {
             } catch {
                 let directNotDispatched = V3DirectMutationRecoveryRecord.isEligible(request: request) &&
                     V3DirectMutationRecoveryLifecycle.clearPreparedAfterFailure(requestID: id)
-                if operation == "refreshAdmissionBegin", error is CancellationError,
-                   let refreshRunID = request["target"] as? String,
-                   refreshAdmission.release(runID: refreshRunID) {
-                    _ = try? V3OperationRecoveryJournal.clearPreparedRefreshAdmissionAfterRequestCancellation(
-                        runID: refreshRunID)
+                if operation == "refreshAdmissionBegin", error is CancellationError {
+                    _ = releaseUnstartedRefreshAdmission(requestID: id)
                 }
                 // Raw framework errors can contain URLs, authentication data or server responses.
                 // Detailed errors remain inside the SideStore process.
@@ -1630,7 +1778,7 @@ final class V3SideStoreService: NSObject {
                     requestID: id,
                     authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
                     anotherMutationActive: (mutationID != nil && mutationID != id) ||
-                        V3HeadlessRuntime.shared.operations.activeMutationID != nil
+                        V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshExecutionGate.isActive
                     // This ownership lifetime follows the native refresh timeout,
                     // not the short XPC begin-request deadline.
                     ) else {
@@ -1644,8 +1792,13 @@ final class V3SideStoreService: NSObject {
                 _ = refreshAdmission.release(runID: target)
                 throw ServiceError.busy
             }
-            return ["runID": target, "admitted": true]
+            return ["runID": target, "admissionID": id, "admitted": true]
         case "refreshAdmissionEnd":
+            guard !refreshExecutionGate.isActive else { throw ServiceError.busy }
+            guard let admissionID = payload["admissionID"] as? String,
+                  UUID(uuidString: admissionID)?.uuidString == admissionID else {
+                throw ServiceError.invalidRequest
+            }
             guard let parsed = UUID(uuidString: target), parsed.uuidString == target else {
                 throw ServiceError.invalidRequest
             }
@@ -1658,19 +1811,22 @@ final class V3SideStoreService: NSObject {
             catch { throw ServiceError.busy }
             guard let recovery else {
                 guard !refreshAdmission.isActive else { throw ServiceError.busy }
-                return ["runID": target, "released": true, "alreadyReleased": true]
+                return ["runID": target, "admissionID": admissionID, "released": true, "alreadyReleased": true]
             }
-            guard recovery.kind == "refreshAll", recovery.sessionID == target,
+            guard refreshAdmission.requestID == admissionID,
+                  refreshAdmission.owns(target),
+                  recovery.kind == "refreshAll", recovery.sessionID == target,
                   try V3OperationRecoveryJournal.settleRefreshAdmission(runID: target,
                     terminalState: terminalState, terminalConfirmed: true) else {
                 throw ServiceError.notFound
             }
             _ = refreshAdmission.release(runID: target)
-            return ["runID": target, "released": true]
+            return ["runID": target, "admissionID": admissionID, "released": true]
         case "refreshAdmissionReconcile":
+            guard !refreshExecutionGate.isActive else { throw ServiceError.busy }
             guard let parsed = UUID(uuidString: target), parsed.uuidString == target,
                   V3WireContract.strictBool(payload["userConfirmed"]) == true,
-                  refreshAdmission.ownerLost else {
+                  refreshAdmission.ownerLost, refreshAdmission.owns(target) else {
                 throw ServiceError.invalidRequest
             }
             do {
@@ -1866,6 +2022,7 @@ final class V3SideStoreService: NSObject {
             } catch { throw ServiceError.busy }
             return ["session": session, "kind": kind, "phase": "prepared"]
         case "recoveryDiscardUnreadable":
+            guard !refreshExecutionGate.isActive else { throw ServiceError.busy }
             guard target.isEmpty, V3WireContract.strictBool(payload["userConfirmed"]) == true else {
                 throw ServiceError.invalidRequest
             }
@@ -2399,7 +2556,7 @@ final class V3SideStoreService: NSObject {
             recoveryStorageFailure = V3RecoveryStorageFailure(.readFailure, underlying: error)
         }
         let activeMutation = mutationID != nil || activeAuthenticationSessionID != nil ||
-            V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive
+            V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive || refreshExecutionGate.isActive
         let provisioningState = V3HeadlessRuntime.shared.auth.provisioningCompletion.status(
             owner: credentialAppleID, identityStamp: identityStampAtStart, identityStable: identityReadStable,
             activeAccountPresent: activeAccount != nil, activeTeamPresent: team != nil,
@@ -2413,7 +2570,7 @@ final class V3SideStoreService: NSObject {
             V3HeadlessRuntime.shared.auth.canReauthenticateProvisioning()
         var response: [String: Any] = ["updatedAt": Date(), "busy": mutationID != nil ||
                     activeAuthenticationSessionID != nil ||
-                    V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive ||
+                    V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive || refreshExecutionGate.isActive ||
                     operationRecovery != nil || directRecoveryRecord != nil || recoveryJournalUnreadable,
                  "activeMutation": activeMutation,
                  "recoveryHold": operationRecovery != nil || directRecoveryRecord != nil || recoveryJournalUnreadable,

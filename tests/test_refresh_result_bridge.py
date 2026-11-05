@@ -123,6 +123,49 @@ print("RESULT_BRIDGE_TESTS_PASSED")
         for secret in ('password', 'token', 'Keychain', 'certificate'):
             self.assertNotIn(secret, bridge.CLIENT)
 
+    def test_direct_dispatch_generation_is_exact_and_repeatable(self):
+        legacy_protocol = "@protocol V3CommandService\n+ (void)execute:(NSData *)request reply:(void (^)(NSData *))reply;\n@end"
+        category = "                                     server:(id <RefreshServer> _Nonnull)server;"
+        old = legacy_protocol + "\n" + category + "\n" + bridge.LEGACY_HOST_METHOD
+        new = bridge.install_direct_host_objc(old)
+        self.assertIn(bridge.DIRECT_HOST_METHOD, new)
+        self.assertIn(bridge.DIRECT_HOST_PROTOCOL, new)
+        self.assertEqual(bridge.install_direct_host_objc(new), new)
+        for bad in (old.replace('setObject:refreshRunID', 'setObject:other'),
+                    new.replace('[refreshRunID copy]', '[other copy]')):
+            with self.assertRaises(SystemExit): bridge.install_direct_host_objc(bad)
+        anchor = "    @objc(performRefreshForRealWithIdentifier:mangledTypeName:server:)"
+        client = bridge.install_direct_host_client(anchor)
+        self.assertIn(bridge.DIRECT_HOST_FAILURE, client)
+        self.assertEqual(bridge.install_direct_host_client(client), client)
+
+    def test_direct_successor_contract_is_strict_and_idempotent(self):
+        required = [
+            'fileprivate func completedRefresh(_ error: String?, runID: String, verification: Data?, id: UUID)',
+            'guard launchID == id, refreshContinuation != nil, refreshRunID == runID else { return }',
+            'verification.count <= 262144',
+            'CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID)',
+            'finishRefreshContinuation(.failure(failure))']
+        objc = bridge.DIRECT_HOST_PROTOCOL + "\n" + bridge.DIRECT_HOST_METHOD
+        client = bridge.DIRECT_HOST_FAILURE
+        receiver = "\n".join(required + list(bridge.callback_admission_module().HOST_FRAGMENTS))
+        bridge.validate_direct_host_bridge(objc, receiver, client)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); folder = root / "SideStoreSupport"; folder.mkdir()
+            sources = {'XPCServer.h': bridge.MARKER + '\n' + '\n'.join(bridge.callback_admission_module().HEADER_FRAGMENTS), 'XPCClient.m': objc,
+                       'SideStore.swift': receiver, 'SideStoreClient.swift': client}
+            for name, value in sources.items(): (folder / name).write_text(value)
+            for _ in range(2): bridge.patch(root)
+            self.assertEqual(sources, {name: (folder / name).read_text() for name in sources})
+        for guard in required:
+            with self.subTest(receiver=guard), self.assertRaises(SystemExit):
+                bridge.validate_direct_host_bridge(objc, receiver.replace(guard, ''), client)
+        for token in ('[refreshRunID copy]', 'runID:runID', 'refreshForHost:runID'):
+            with self.subTest(dispatch=token), self.assertRaises(SystemExit):
+                bridge.validate_direct_host_bridge(objc.replace(token, 'invalid'), receiver, client)
+        with self.assertRaises(SystemExit):
+            bridge.validate_direct_host_bridge(objc, receiver, client.replace('verification: nil', 'verification: Data()'))
+
     def test_pinned_xpc_patch_idempotence(self):
         source = Path(os.environ.get("LIVE_CONTAINER_TEST_SOURCE", ROOT / ".audit/upstream/LiveContainer"))
         if not source.exists():
@@ -139,8 +182,18 @@ print("RESULT_BRIDGE_TESTS_PASSED")
             bridge.patch(root)
             self.assertEqual(first, {p.name: p.read_bytes() for p in (root / "SideStoreSupport").iterdir()})
             client = (root / "SideStoreSupport/XPCClient.m").read_text()
-            self.assertLess(client.index('setObject:refreshRunID'), client.index('[self performRefreshForRealWithIdentifier:'))
-            self.assertIn('removeObjectForKey:@"liveContainerAutoRefreshVerification"', client)
+            if "V3_DIRECT_HOST_REFRESH_V1" in client:
+                bridge.validate_direct_host_bridge(client,
+                    (root / "SideStoreSupport/SideStore.swift").read_text(),
+                    (root / "SideStoreSupport/SideStoreClient.swift").read_text())
+                body = client.split('- (void)refreshAllAppsWithIdentifier:', 1)[1]
+                self.assertNotIn('NSUserDefaults', body)
+                self.assertNotIn('performRefreshForRealWithIdentifier:', body)
+                self.assertIn('[server finishHostRefresh:error runID:runID admissionID:dispatchAdmissionID verification:verification]', body)
+                self.assertIn('[server updateHostProgress:value runID:runID admissionID:dispatchAdmissionID]', body)
+            else:
+                self.assertLess(client.index('setObject:refreshRunID'), client.index('[self performRefreshForRealWithIdentifier:'))
+                self.assertIn('removeObjectForKey:@"liveContainerAutoRefreshVerification"', client)
 
 
 if __name__ == "__main__":
