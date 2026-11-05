@@ -20,8 +20,7 @@ A retained document or successful historical run does not qualify a newer build.
 - [Custom integration boundaries](CUSTOM_INTEGRATION_BOUNDARIES.md)
 - [Validation history reconciliation](VALIDATION_HISTORY_RECONCILIATION.md)
 - [Combined candidate acceptance](COMBINED_CANDIDATE_ACCEPTANCE.md)
-- [CI harnesses and exact candidate evidence](../ci/README.md)
-- [Frozen validation and maintenance controls](../.ci/README.md)
+- [CI harnesses, validation history and maintenance controls](../ci/README.md)
 - [Migration and source provenance](../migration/README.md)
 
 ## Repository layout
@@ -31,8 +30,8 @@ A retained document or successful historical run does not qualify a newer build.
 - `tests/`: regression tests and fixtures, including platform-specific checks.
 - `.github/workflows/`: active workflow entry points. Some are manual diagnostic
   or release tools, not automatic production build steps.
-- `.github/workflow-archive/`: retained historical workflows, outside the active
-  workflow directory.
+- `.github/workflow-archive/`: retained historical workflows, including completed
+  one-time release and branch maintenance, outside the active workflow directory.
 - `docs/releases/`: historical release notes retained in this repository.
 - `docs/validation/`: issue-specific validation records.
 - `docs/screenshots/` and `docs/assets/`: documentation images.

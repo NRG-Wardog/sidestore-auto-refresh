@@ -251,7 +251,7 @@ class RepositoryTests(unittest.TestCase):
         # Historical patch recipes remain inspectable, but active entrypoints
         # must use the maintained immutable implementation, not those recipes.
         import json
-        maintained = json.loads((ROOT / ".ci/maintained-build/contract.json").read_text())
+        maintained = json.loads((ROOT / "ci/maintained-build/contract.json").read_text())
         for name in ("livecontainer-build.yml", "build-current.yml"):
             workflow = (ROOT / ".github/workflows" / name).read_text()
             self.assertIn("uses: NRG-Wardog/LiveContainer/.github/workflows/native-app-compile.yml@"

@@ -58,7 +58,7 @@ P2-only commits outside the baseline main ancestry. Consolidation preserves all
 
 ## Verification scope
 
-`.ci/validation-history/manifest.json` binds the unchanged maintained files and
+`ci/validation-history/manifest.json` binds the unchanged maintained files and
 archived workflow bytes. Its checker verifies both historical heads are ancestors,
 the separate research files are absent, and restored Python sources parse. The
 bounded CI runs maintained entry/packaging/localization, local evidence-runner,
@@ -73,3 +73,37 @@ source captures retain original whitespace where byte identity matters.
 
 Public 6.0 release assets, tags, source pins and packaging admission are unchanged.
 No release-publication workflow is part of this consolidation.
+
+
+## CI directory consolidation (2026-11-05)
+
+The seven former `.ci/` directories now live directly under `ci/`, at the same
+nesting depth. The original manifest and reviewed-successor JSON bytes remain
+unchanged, as do the historical Git-object and qualified-tree assertions.
+`ci/validation-history/relocation.py` enumerates each permitted source/destination
+pair and each affected caller. It checks exact baseline objects from
+`6f20f702daad7aa8f870a9a3fe0d0b321dc41741` against their original hashes before
+applying only the enumerated literal path replacements. Other files still require
+the original exact hashes. Missing destinations, symlinks, edited payloads and
+revived old paths are rejected. Historical control inventories, pinned content-API
+paths and other repositories' `.ci/` references are deliberately unchanged.
+
+The six completed release-promotion, release-note amendment, branch-deletion,
+classification, semantic-inventory and forwardport workflows are
+retained byte-for-byte under `.github/workflow-archive/maintenance-v6.0.0/`.
+They are explicitly excluded from the active workflow inventory so the directory
+move cannot retrigger their historical write operations. Their receipts and tests
+remain available; archiving them does not authorize any new release or branch
+mutation. No production build pins or release assets change.
+
+The semantic-inventory suite also hashes its own source and test file, so these
+remain byte-identical rather than rewriting their archived-workflow references.
+Run `python3 -B ci/validation-history/historical_semantic.py` to exercise all 21
+retained tests. This runner checks each current local input against the exact
+baseline blob before reconstructing only the six required files in an isolated
+temporary historical layout. It runs the known unittest suite, not the collector
+or an archived workflow, and propagates test failures. The same suite runs through
+`test_source_contract.py`; negative tests reject missing or altered fixture inputs.
+Running the frozen semantic suite directly from its relocated directory is not
+supported because its workflow-location assertions intentionally describe the
+original layout.
