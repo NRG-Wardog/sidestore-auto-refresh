@@ -79,9 +79,21 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         allowed = load_allowlist(args.allowlist)
+        top_level = args.top_level_directory
+        if (args.start_directory / "__init__.py").is_file():
+            # Package-qualified support imports must also work when a caller
+            # launches this script from outside the checkout. Keep the package
+            # directory for retained root suites' bare sibling-helper imports.
+            package = args.start_directory.resolve()
+            while (package.parent / "__init__.py").is_file():
+                package = package.parent
+            if str(package) not in sys.path:
+                sys.path.insert(0, str(package))
+            if top_level is None:
+                top_level = package.parent
         suite = unittest.defaultTestLoader.discover(
             str(args.start_directory), pattern=args.pattern,
-            top_level_dir=str(args.top_level_directory) if args.top_level_directory else None)
+            top_level_dir=str(top_level) if top_level else None)
     except (OSError, ValueError, ImportError) as error:
         print(f"required test runner setup failed: {error}", file=sys.stderr)
         return 2

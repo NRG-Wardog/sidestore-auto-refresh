@@ -9,7 +9,9 @@ and validation tooling.
 - Explain the problem and the exact source/build affected.
 - Run the focused tests for every changed tool, plus `git diff --check`.
 - Use `python3 -B -m unittest discover -s tests -p 'test_NAME.py' -v` for a
-  focused Python suite. Native suites also need their documented macOS/Xcode,
+  focused Python suite, including domain subdirectories. See the
+  [test guide](tests/README.md) for domain commands and coverage scope.
+  Native suites also need their documented macOS/Xcode,
   Swift or pinned-source prerequisites; a skipped test is not a pass.
 - Use the matching GitHub Actions checks for the final commit. Repository-wide
   discovery also includes historical/platform-specific tests and is not a
