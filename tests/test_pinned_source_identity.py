@@ -1,5 +1,6 @@
 """Mirror transport must never relax source identity or cleanliness."""
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -50,11 +51,23 @@ class PinnedSourceIdentityTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unexpected commit"):
                     pinned.verify_checkout(directory, "a" * 40)
 
-    def test_workflow_verifies_before_tests_or_patches(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
-        self.assertLess(workflow.index("verify_pinned_sources.py"), workflow.index("Run repository checks"))
-        self.assertIn("https://github.com/SideStore/SideStore.git", workflow)
-        self.assertIn("submodule.litehook.url=https://github.com/LiveContainerMirror/litehook.git", workflow)
+    def test_current_entries_use_reviewed_immutable_native_source_pipeline(self):
+        # The old in-repository patch build is retired. Source verification now
+        # belongs to the immutable native pipeline, not a local pre-patch step.
+        contract = json.loads((ROOT / 'ci/maintained-build/contract.json').read_text())
+        implementation = contract['implementation_commit']
+        self.assertRegex(implementation, r'^[0-9a-f]{40}$')
+        expected = ('uses: NRG-Wardog/LiveContainer/.github/workflows/'
+                    'native-app-compile.yml@' + implementation)
+        for entry in ('livecontainer-build.yml', 'build-current.yml'):
+            with self.subTest(entry=entry):
+                workflow = (ROOT / '.github/workflows' / entry).read_text()
+                self.assertEqual(workflow.count(expected), 1)
+                self.assertIn('permissions:\n  contents: read', workflow)
+                self.assertNotIn('steps:', workflow)
+                self.assertNotIn('patch_', workflow)
+                self.assertNotIn('verify_pinned_sources.py', workflow)
+
 
 
 if __name__ == "__main__":

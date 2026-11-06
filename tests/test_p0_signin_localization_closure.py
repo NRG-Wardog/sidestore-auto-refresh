@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import plistlib
 from pathlib import Path
 import re
 import shutil
@@ -14,6 +15,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('p0_localization_renderer', ROOT / 'scripts/run_p0_signin_rendering.py')
 renderer = importlib.util.module_from_spec(spec); spec.loader.exec_module(renderer)
+import p2_localization_contract as localization_contract
 
 
 class P0LocalizationProjectTests(unittest.TestCase):
@@ -131,18 +133,28 @@ class P0ActualLocalizationClosureTests(unittest.TestCase):
                 app = products / 'Debug-iphonesimulator/P0SignIn.app'
                 for language in renderer.localization.LOCALIZATION_LANGUAGES:
                     folder = app / (language + '.lproj'); folder.mkdir(parents=True)
-                    values = {key: catalog[key]['localizations'][language]['stringUnit']['value'] for key in renderer.SIGNIN_LOCALIZATION_KEYS}
+                    # Synthetic Xcode output, not evidence of native compilation.
+                    # Feed valid full plist resources through both real validators.
+                    values = dict(localization_contract.REQUIRED_TRANSLATIONS[language])
+                    values.update({key: catalog[key]['localizations'][language]['stringUnit']['value']
+                                   for key in renderer.SIGNIN_LOCALIZATION_KEYS})
                     if mutation == 'label' and language == 'he': values['Password'] = 'unverified'
-                    (folder / 'Localizable.strings').write_text(json.dumps(values))
+                    (folder / 'Localizable.strings').write_bytes(plistlib.dumps(values))
                     if mutation != 'missing' or language != 'he':
-                        (folder / 'Localizable.stringsdict').write_text('{"synthetic_plural_fixture":true}')
+                        plurals = {key: {
+                            'NSStringLocalizedFormatKey': '%#@count@',
+                            'count': {'NSStringFormatSpecTypeKey': 'NSStringPluralRuleType',
+                                      'NSStringFormatValueTypeKey': 'lld', 'other': '%lld'}
+                        } for key in localization_contract.PLURAL_KEYS}
+                        plurals.update(localization_contract.COMPOUND_PLURALS[language])
+                        (folder / 'Localizable.stringsdict').write_bytes(plistlib.dumps(plurals))
                 if mutation == 'catalog-input':
                     (output / 'p0-build/P0SignIn.xcodeproj/Localizable.xcstrings').write_text('{}')
                 if mutation == 'swift-input':
                     (output / 'p0-build/Sources/V3Localization.swift').write_text('// changed')
                 return ''
             self.assertEqual(args[:5], ('plutil', '-convert', 'json', '-o', '-'))
-            return Path(args[5]).read_text()
+            return json.dumps(plistlib.loads(Path(args[5]).read_bytes()))
         prepared = renderer.prepare(output, live / 'LiveContainerSwiftUI/Views/V3UnifiedShell.swift', command)
         return output, prepared, calls
 

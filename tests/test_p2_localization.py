@@ -13,7 +13,17 @@ class ReconstructedP2Tests(unittest.TestCase):
  def test_host_preference_does_not_reset_auth_identity(self):
   shell=(HOST/'LiveContainerSwiftUI/Views/V3UnifiedShell.swift').read_text()
   root=renderer.declaration(shell,'struct V3UnifiedShell')
-  self.assertIn('@AppStorage(V3AppLanguage.storageKey, store: V3Localization.hostDefaults)',root)
+  self.assertIn('@ObservedObject private var languageState = V3HostLanguageState.shared',root)
+  self.assertIn('V3HostLanguageUIKitBridge(language: languageState.selected)',root)
+  self.assertNotIn('@AppStorage',root)
+  settings=(HOST/'LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift').read_text()
+  state=renderer.declaration(settings,'final class V3HostLanguageState')
+  self.assertIn('static let shared = V3HostLanguageState(defaults: V3Localization.hostDefaults)',state)
+  self.assertIn('defaults.set(language.rawValue, forKey: V3AppLanguage.storageKey)\n        publish(language)',state)
+  self.assertIn('guard selected != language else { return }',state)
+  self.assertIn('object: defaults',state)
+  for forbidden in ('UserDefaults.standard', 'AppleLanguages', 'V3AuthStore', 'authBegin', 'authCancel'):
+   self.assertNotIn(forbidden,state)
   self.assertIn('.environment(\\.locale',root);self.assertIn('.environment(\\.layoutDirection',root)
   self.assertNotIn('.id(',root)
   helper=(HOST/'LiveContainerSwiftUI/Utilities/V3Localization.swift').read_text()

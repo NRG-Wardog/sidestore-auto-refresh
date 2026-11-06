@@ -6,14 +6,16 @@ import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
+# Monolithic build assertions below cover the retained historical workflow;
+# current native entrypoint contracts are checked by test_repository.py.
+WORKFLOW = (ROOT / 'migration/historical/ssa-validation/p0-livecontainer-build.yml').read_text()
 
 
 def step(name):
     return WORKFLOW.split('      - name: ' + name + '\n', 1)[1].split('      - name:', 1)[0]
 
 
-class ArtifactDeliveryRecoveryTests(unittest.TestCase):
+class HistoricalArtifactDeliveryRecoveryTests(unittest.TestCase):
     def test_uploads_are_bounded_identical_payloads_with_distinct_names(self):
         names = ['Upload combined LiveContainer IPA', 'Retry combined LiveContainer IPA upload',
                  'Recover combined LiveContainer IPA upload']

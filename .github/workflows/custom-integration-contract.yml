@@ -5,8 +5,8 @@ on:
     paths:
       - 'scripts/**'
       - 'tests/**'
-      - 'docs/CUSTOM_INTEGRATION*'
-      - 'docs/PACKAGING_PATCH_SURFACE.json'
+      - 'ci/issue52-integration/contracts.json'
+      - 'ci/packaging/patch-surface.json'
       - 'ci/issue52-integration/**'
       - 'ci/issues-native/candidate-graph.json'
       - '.github/workflows/cold-vpn-zopfli.yml'
@@ -78,8 +78,8 @@ on:
     paths:
       - 'scripts/**'
       - 'tests/**'
-      - 'docs/CUSTOM_INTEGRATION*'
-      - 'docs/PACKAGING_PATCH_SURFACE.json'
+      - 'ci/issue52-integration/contracts.json'
+      - 'ci/packaging/patch-surface.json'
       - 'ci/issue52-integration/**'
       - 'ci/issues-native/candidate-graph.json'
       - '.github/workflows/cold-vpn-zopfli.yml'

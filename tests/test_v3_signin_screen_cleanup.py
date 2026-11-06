@@ -27,12 +27,21 @@ class SignInScreenCleanupTests(unittest.TestCase):
     def test_every_interactive_prompt_has_only_its_lower_panel(self):
         body = VIEW[:VIEW.index("@ViewBuilder private var accountContent")]
         self.assertIn('if shouldShowAccountSection {\n                Section("Apple ID")', body)
-        self.assertIn('private var shouldShowAccountSection: Bool { auth.prompt == nil }', VIEW)
+        if source:
+            self.assertIn('private var shouldShowAccountSection: Bool { displayedPrompt == nil }', VIEW)
+            self.assertIn('if let prompt = displayedPrompt {', body)
+            self.assertIn('if let prompt = auth.prompt { return prompt }', VIEW)
+            self.assertIn('guard showsInitialCredentialDraft else { return nil }', VIEW)
+            self.assertIn('isSubmissionBlocked: showsInitialCredentialDraft ||', body)
+            self.assertIn('(auth.promptResponseBlocked && (prompt["kind"] as? String == "twoFactor"))', body)
+        else:
+            self.assertIn('private var shouldShowAccountSection: Bool { auth.prompt == nil }', VIEW)
         self.assertNotIn('isProvisioningRecoveryPrompt', VIEW)
         self.assertEqual(body.count('Section("Apple ID")'), 1)
         self.assertNotIn('Section("Verification response")', body)
         self.assertIn('supplementalContent: AnyView(accountContent)', body)
-        self.assertIn('if auth.prompt == nil || auth.isCancelling {', VIEW)
+        self.assertIn('if (auth.prompt == nil || auth.isCancelling) && !showsInitialCredentialDraft {'
+                      if source else 'if auth.prompt == nil || auth.isCancelling {', VIEW)
         for required in ("auth.isSignedIn", "auth.isCancelling", "auth.cancellationWasAttempted",
                          "auth.currentAttemptFailure.message", "auth.hasProvisioningProblem",
                          "auth.provisioningRecoveryRequiresReconciliation",
@@ -86,13 +95,79 @@ class SignInScreenCleanupTests(unittest.TestCase):
                          'auth.reauthenticateProvisioning()', 'auth.currentAttemptFailure.message',
                          'auth.provisioningMessage', 'V3AuthFailureDiagnosticsPolicy.shouldShowTerminalDetails'):
             self.assertIn(required, VIEW)
-        self.assertIn('auth.answer(promptID: prompt["id"] as? String ?? "", answer: answer)', VIEW)
-        self.assertIn('.onDisappear {\n            auth.cancel()\n            auth.clearPreviousFailure()', VIEW)
+        if source:
+            submission = VIEW.split('onCancel: { auth.cancel() }) { answer in', 1)[1].split('\n                }', 1)[0]
+            for required in ('guard !isPreparingSignIn,',
+                             'let promptID = auth.prompt?["id"] as? String, !promptID.isEmpty,',
+                             'promptID == prompt["id"] as? String else { return }'):
+                self.assertIn(required, submission)
+                self.assertLess(submission.index(required), submission.index('auth.answer('))
+            self.assertEqual(submission.count('auth.answer(promptID: promptID, answer: answer)'), 1)
+            self.assertNotIn('?? ""', submission)
+            disappearance = VIEW.split('.onDisappear {', 1)[1].split('\n        }', 1)[0]
+            for required in ('preparationGeneration = UUID()', 'isPreparingInitialCredentials = false',
+                             '\n            auth.cancel()', 'auth.clearPreviousFailure()'):
+                self.assertIn(required, disappearance)
+            self.assertLess(disappearance.index('preparationGeneration = UUID()'), disappearance.index('\n            auth.cancel()'))
+            self.assertLess(disappearance.index('isPreparingInitialCredentials = false'), disappearance.index('\n            auth.cancel()'))
+            self.assertLess(disappearance.index('\n            auth.cancel()'), disappearance.index('auth.clearPreviousFailure()'))
+            self.assertIn('status.reload()', disappearance)
+        else:
+            self.assertIn('auth.answer(promptID: prompt["id"] as? String ?? "", answer: answer)', VIEW)
+            self.assertIn('.onDisappear {\n            auth.cancel()\n            auth.clearPreviousFailure()', VIEW)
+
+    def test_initial_credential_draft_cannot_bypass_recovery_or_cancellation(self):
+        if source:
+            draft = VIEW.split('private var showsInitialCredentialDraft: Bool {', 1)[1].split('\n    }', 1)[0]
+            for required in ('isPreparingInitialCredentials && auth.prompt == nil',
+                             '["idle", "working"].contains(auth.state) && !auth.isSignedIn',
+                             '!auth.pendingCertificateRecoveryState.requiresAttention',
+                             '!auth.provisioningRecoveryRequiresReconciliation',
+                             '!auth.provisioningRetryBlockedByActiveSession && !auth.hasProvisioningProblem',
+                             '!auth.isCancelling && auth.cancellationConfirmed && !auth.cancellationWasAttempted'):
+                self.assertIn(required, draft)
+            preparation = VIEW.split('@MainActor private func prepareSignIn() async {', 1)[1].split('\n    }', 1)[0]
+            self.assertLess(preparation.index('await auth.reconcile()'), preparation.index('auth.begin()'))
+            self.assertIn('guard !Task.isCancelled, preparationRetry == retry,', preparation)
+            self.assertIn('preparationGeneration == generation else { return }', preparation)
+            self.assertIn('guard shouldBegin, snapshotConfirmed,', preparation)
+            self.assertIn('!auth.pendingCertificateRecoveryState.requiresAttention,', preparation)
+            self.assertIn('auth.canBegin else { return }', preparation)
+        else:
+            # The retained generator has no local credential draft; only the
+            # service-owned prompt may own its response controls.
+            self.assertNotIn('initialCredentialDraftID', VIEW)
+            self.assertIn('if let prompt = auth.prompt {', VIEW)
 
 
     def test_recovery_banner_reserves_navigation_space(self):
         root = SHELL[SHELL.index("struct V3UnifiedTabs:"):SHELL.index("struct V3HomeView:")]
-        if P1_AVAILABLE:
+        if source:
+            self.assertIn('.modifier(V3RecoveryBannerLayout(isPresented:', root)
+            self.assertNotIn('.safeAreaInset(edge: .top, spacing: 0)', root)
+            self.assertNotIn('.overlay(alignment: .top)', root)
+            self.assertIn('.safeAreaInset(edge: .bottom)', root)
+            modifier = SHELL.split('private struct V3RecoveryBannerLayout<Banner: View>', 1)[1].split('struct V3UnifiedTabs:', 1)[0]
+            self.assertIn('min(CGFloat(320), max(0, geometry.size.height) * 0.4)', modifier)
+            self.assertIn('ScrollView(.vertical, showsIndicators: true)', modifier)
+            self.assertIn('.frame(height: min(naturalHeight > 0 ? naturalHeight : limit, limit))', modifier)
+            self.assertIn('guard measuredHeight.isFinite, measuredHeight >= 0 else { return }', modifier)
+            self.assertIn('if !presented { naturalHeight = 0 }', modifier)
+            self.assertEqual(modifier.count('content.frame('), 1)
+            self.assertLess(modifier.index('if isPresented {'), modifier.index('content.frame('))
+            self.assertNotIn('else {\n                    content', modifier)
+            self.assertNotIn('.id(', modifier)
+            for condition in ('status.unresolvedOperationRecovery != nil',
+                              'status.unresolvedDirectRecovery != nil',
+                              'status.unresolvedRefreshRecoveryRunID != nil',
+                              'status.unresolvedRecoveryJournalUnreadable'):
+                self.assertIn(condition, root)
+            for action in ('status.resumeOperationRecovery()',
+                           'status.reconcileDurableOperationAfterDeviceCheck()',
+                           'status.inspectDirectRecovery()',
+                           'status.discardUnreadableRecoveryAfterDeviceCheck()'):
+                self.assertIn(action, root)
+        elif P1_AVAILABLE:
             self.assertIn('.safeAreaInset(edge: .top, spacing: 0)', root)
             self.assertNotIn('.overlay(alignment: .top)', root)
         else:

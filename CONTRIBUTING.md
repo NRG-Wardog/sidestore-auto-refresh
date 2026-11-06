@@ -1,78 +1,35 @@
 # Contributing
 
-Thanks for helping improve the SideStore CoreDevice refresh path.
+Start with the [architecture](docs/README.md) and [build instructions](ci/README.md). Application implementation
+lives in the pinned upstream repositories; this repository owns build, packaging
+and validation tooling.
 
-This repository contains build-time patches for pinned upstream SideStore dependencies. Contributions should preserve the current transport objective:
+## Changes and tests
 
-```text
-official LocalDevVPN -> Lockdown -> CoreDeviceProxy -> CDTunnel -> RSD
-```
+- Explain the problem and the exact source/build affected.
+- Run the focused tests for every changed tool, plus `git diff --check`.
+- Use `python3 -B -m unittest discover -s tests -p 'test_NAME.py' -v` for a
+  focused Python suite. Native suites also need their documented macOS/Xcode,
+  Swift or pinned-source prerequisites; a skipped test is not a pass.
+- Use the matching GitHub Actions checks for the final commit. Repository-wide
+  discovery also includes historical/platform-specific tests and is not a
+  substitute for the current required workflow gates.
+- Keep packaging/source identity checks and immutable evidence intact. Historical
+  records refer to their recorded revisions, not necessarily the current layout.
+- Distinguish CI evidence from real-device results. Never claim a release is
+  qualified by a different commit's successful build.
 
-## The most useful contributions right now
+## Reporting a problem
 
-The highest-value contribution is **real-device compatibility testing** across additional iPhone/iPad models, iOS versions, and Wi-Fi network ranges.
+Include the release/build, device model, iOS version, action attempted and the
+exact sanitized error. For refresh problems, include the final history result
+and whether Wi-Fi and LocalDevVPN were connected. Do not reset pairing or account
+state merely to collect diagnostics.
 
-The standalone SideStore proof device has completed manual CoreDevice refresh and a full PC-free scheduled refresh. Combined LiveContainer results are tracked separately; do not infer combined host replacement or unattended refresh from the standalone proof.
+Never post credentials, pairing files, private keys, signing material, full
+personal logs or unnecessary device/network identifiers. See [security reporting](SECURITY.md).
 
-Useful reports include:
+## License
 
-- iPhone/iPad model
-- Standalone or combined variant and installed build/version
-- iOS version
-- Wi-Fi IPv4 network family (`10.x`, `192.168.x`, `172.16-31.x`, or other; exact addresses are not required)
-- whether official LocalDevVPN remained connected
-- whether the same-subnet `/32` Tunnel IP and Device IP configuration worked
-- whether manual `Refresh All` succeeded
-- whether a native scheduled task triggered and completed with PC/USB disconnected
-- non-sensitive `[AUTO_REFRESH]` and `[SIDESTORE_COREDEVICE]` markers
-- whether SideStore and the selected apps received a new expiration date
-
-See [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) and [Issue #1](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/1).
-
-Do not upload a complete device log if it may contain private account, pairing, certificate, network, or device information. Reduce logs to the minimum non-sensitive evidence needed to reproduce or verify the result.
-
-## Before opening a pull request
-
-1. Run `python -m unittest discover -s tests -v`.
-2. Run `git diff --check`.
-3. Confirm patch scripts remain idempotent.
-4. Confirm no pairing files, private keys, certificates, signed IPAs, unnecessary device identifiers, or personal logs are included.
-5. Explain device, iOS, network, and upstream revision assumptions for transport changes.
-6. For behavior changes, describe what was verified in CI and what was verified on a real device.
-
-## Transport changes
-
-Changes to the transport should include evidence from source inspection and a real device where practical.
-
-Do not reintroduce QUIC or RemotePairing dynamic TCP as the production path without new primary evidence showing why the current Lockdown/CoreDevice path should change.
-
-The current route discovery is intentionally range-agnostic: it derives candidate peers from the active tunnel interface and routing table rather than hardcoding `10.x` or `192.168.x`. Changes in this area should preserve that behavior.
-
-## Background-refresh claims
-
-Be precise about proof level:
-
-- `REGISTER_PASS` proves registration.
-- `SCHEDULE_PASS` proves iOS accepted the request.
-- Neither marker alone proves that iOS executed the task.
-- A real scheduled run is established by `TRIGGER`, operation markers, and a successful completion/result.
-
-The standalone proof device has satisfied the PC-free scheduled-refresh condition documented in [`docs/VERIFICATION.md`](docs/VERIFICATION.md). New variant or compatibility claims need their own equivalent non-sensitive evidence.
-
-## Security and privacy
-
-Never commit or attach:
-
-- pairing records
-- certificate private keys
-- Apple account credentials
-- signed IPAs containing personal signing material
-- unnecessary UDIDs/device identifiers
-- exact private network addresses if they are not needed
-- private device logs
-
-If a bug report needs sensitive evidence, first reduce it to non-sensitive markers or a minimal redacted reproduction.
-
-## Licensing
-
-Original repository-authored builder scripts, tests, and documentation are covered by the MIT License unless a file says otherwise. Upstream projects and SideStore-derived binaries retain their applicable upstream licenses. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the license scope and third-party notices.
+Repository-authored code uses the [MIT License](LICENSE) unless stated otherwise.
+Upstream components retain their own licenses and [third-party notices](THIRD_PARTY_NOTICES.md).

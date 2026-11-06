@@ -25,8 +25,10 @@ class MaintainedFixtureClosureTests(unittest.TestCase):
             self.skipTest('Acquired diagnostic host is exercised in required maintained CI')
         self.sources, self.hashes = renderer.extract_sources(self.shell, ROOT / 'scripts/templates')
 
-    def test_required_native_gate_uses_explicit_maintained_source_before_layout(self):
-        workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
+    def test_historical_native_gate_uses_explicit_maintained_source_before_layout(self):
+        # This monolithic gate belongs to the retained P0 workflow. Current
+        # native entrypoint pins are verified separately by test_repository.
+        workflow = (ROOT / 'migration/historical/ssa-validation/p0-livecontainer-build.yml').read_text()
         step = workflow.split('- name: Run repository checks and historical patch regressions', 1)[1].split('- name:', 1)[0]
         self.assertIn('MAINTAINED_LIVE_CONTAINER_TEST_SOURCE: ${{ github.workspace }}/work/LiveContainer', step)
         self.assertIn('--start-directory builder/tests', step)

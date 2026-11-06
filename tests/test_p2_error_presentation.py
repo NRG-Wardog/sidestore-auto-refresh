@@ -21,7 +21,8 @@ class ErrorPresentationTests(unittest.TestCase):
   self.assertNotIn('AppleLanguages', '\n'.join(l for l in s.splitlines() if not l.lstrip().startswith('//')))
   picker=(HOST/'LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift').read_text()
   self.assertIn('value.rendered(language: .resolve(locale.identifier))',picker)
-  self.assertIn('@AppStorage(V3AppLanguage.storageKey, store: V3Localization.hostDefaults)',picker)
+  self.assertIn('@ObservedObject private var languageState = V3HostLanguageState.shared',picker)
+  self.assertIn('V3HostLanguageState(defaults: V3Localization.hostDefaults)',picker)
   self.assertNotIn('.id(',picker)
  def test_nested_error_arguments_are_never_opaque(self):
   rows=json.loads((ROOT/'tests/fixtures/p2_localization_contracts/dynamic-format-contract.json').read_text())['entries']
@@ -58,18 +59,31 @@ class ErrorPresentationTests(unittest.TestCase):
   health=runtime.split('static func health()',1)[1].split('static func ',1)[0]
   self.assertIn('"activeAccountPresent": activeAccount != nil, "activeTeamPresent": team != nil',health)
   self.assertIn('"account": account, "team": team?.name ?? "No active team"',health)
- def test_every_compiled_scalar_translation_is_bound_to_source(self):
+ def test_historical_compiled_translations_are_preserved_by_current_source(self):
   import sys
   sys.path.insert(0,str(ROOT/'scripts'))
   import p2_localization_contract as compiled
   catalog_path=HOST/'Resources/Localizable.xcstrings'
   catalog=json.loads(catalog_path.read_text())['strings']
-  self.assertEqual(compiled.TRANSLATION_MANIFEST['sourceCatalogSHA256'],hashlib.sha256(catalog_path.read_bytes()).hexdigest())
+  # The compiled manifest seals the original 2,088-key P2 fixture, not
+  # the growing maintained owner catalog. Preserve that historical binding
+  # and every original translation without blessing a replacement hash.
+  self.assertEqual(compiled.TRANSLATION_MANIFEST['sourceCatalogSHA256'],
+                   'a99d3776639f767c0b9a85432be6d129a5a95b437d0919304383ac9f4c39d9ba')
   for language in compiled.LANGUAGES:
    expected={key:row['localizations'][language]['stringUnit']['value'] for key,row in catalog.items() if 'stringUnit' in row['localizations'][language] and not row['localizations'][language].get('substitutions')}
-   self.assertEqual(compiled.REQUIRED_TRANSLATIONS[language],expected)
-   self.assertEqual(len(expected),2081)
-   self.assertEqual(set(expected) | set(compiled.PLURAL_KEYS) | set(compiled.COMPOUND_PLURAL_KEYS),set(catalog))
+   self.assertEqual(len(compiled.REQUIRED_TRANSLATIONS[language]),2081)
+   self.assertTrue(set(compiled.REQUIRED_TRANSLATIONS[language]) <= set(expected))
+   for key,value in compiled.REQUIRED_TRANSLATIONS[language].items():
+    self.assertEqual(expected[key],value,(language,key))
+   plurals={key:row['localizations'][language]['variations']['plural']
+            for key,row in catalog.items() if 'plural' in row['localizations'][language].get('variations',{})}
+   self.assertTrue(set(compiled.PLURAL_KEYS) <= set(plurals))
+   for key,forms in plurals.items():
+    self.assertIn('other',forms,(language,key))
+    for form in forms.values():
+     compiled.validate_int64_format(form['stringUnit']['value'],expect_count=True)
+   self.assertEqual(set(expected) | set(plurals) | set(compiled.COMPOUND_PLURAL_KEYS),set(catalog))
    compounds={key:row['localizations'][language] for key,row in catalog.items() if row['localizations'][language].get('substitutions')}
    self.assertEqual(set(compounds),set(compiled.COMPOUND_PLURAL_KEYS))
    for key,row in compounds.items():
@@ -86,8 +100,20 @@ class ErrorPresentationTests(unittest.TestCase):
   self.assertIn('retainedHostObject("lcMainBundle")',helper)
   self.assertIn('preconditionFailure("Captured host localization context is unavailable")',helper)
   self.assertIn('V3Localization.hostDefaults.set(value.rawValue, forKey: storageKey)',helper)
-  for rel in ['LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift','LiveContainerSwiftUI/Views/V3UnifiedShell.swift','MultitaskSupport/MultitaskAppWindow.swift']:
-   self.assertIn('@AppStorage(V3AppLanguage.storageKey, store: V3Localization.hostDefaults)',(HOST/rel).read_text())
+  for rel in ['LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift','LiveContainerSwiftUI/Views/V3UnifiedShell.swift']:
+   self.assertIn('@ObservedObject private var languageState = V3HostLanguageState.shared',(HOST/rel).read_text())
+  picker=(HOST/'LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift').read_text()
+  state=picker.split('// V3_LIVE_HOST_LANGUAGE_BEGIN',1)[1].split('// V3_LIVE_HOST_LANGUAGE_END',1)[0]
+  self.assertIn('V3HostLanguageState(defaults: V3Localization.hostDefaults)',state)
+  self.assertNotIn('UserDefaults.standard',state)
+  self.assertNotIn('AppleLanguages',state)
+  self.assertIn('defaults.set(language.rawValue, forKey: V3AppLanguage.storageKey)',state)
+  self.assertIn('publish(language)',state)
+  window=(HOST/'MultitaskSupport/MultitaskAppWindow.swift').read_text()
+  self.assertIn('@ObservedObject private var hostLanguageState = V3HostLanguageState.shared',window)
+  self.assertIn('let hostLanguage = hostLanguageState.selected',window)
+  self.assertIn('Locale(identifier: hostLanguage.rawValue)',window)
+  self.assertIn('hostLanguage.isRightToLeft ? .rightToLeft : .leftToRight',window)
  def test_alarm_delta_only_binds_new_presentation_resources(self):
   source=(HOST/'LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift').read_text()
   new='''        let presentationLocale = Locale(identifier: V3AppLanguage.selected.rawValue)

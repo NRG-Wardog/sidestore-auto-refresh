@@ -62,7 +62,7 @@ def verify(registry, graph, sources, builder):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--registry', type=Path, default=ROOT / 'docs/CUSTOM_INTEGRATION_CONTRACTS.json')
+    parser.add_argument('--registry', type=Path, default=ROOT / 'ci/issue52-integration/contracts.json')
     parser.add_argument('--graph', type=Path, default=ROOT / 'ci/issues-native/candidate-graph.json')
     parser.add_argument('--emit-plan', action='store_true')
     parser.add_argument('--sources', type=Path)

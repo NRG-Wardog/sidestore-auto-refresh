@@ -2136,7 +2136,7 @@ enum V3AnisetteSyncFailurePolicy {
 
 
 // V3_STABLE_DIAGNOSTIC_CODE_V1: identifiers classify finite evidence, never attempts.
-// Values are append-only. See docs/ERROR_CODES_V1.json; never renumber existing cases.
+// Values are append-only. See ci/diagnostics/error-codes-v1.json; never renumber existing cases.
 extension CombinedFailure {
     public var diagnosticCode: String {
         var parts = ["SS", stage.diagnosticToken, code.diagnosticToken]
