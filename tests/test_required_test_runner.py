@@ -15,6 +15,40 @@ SPEC.loader.exec_module(runner)
 
 
 class RequiredSkipGateTests(unittest.TestCase):
+    def test_package_discovery_canonicalizes_symlinked_start_and_top_level(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "project"
+            package = project / "suite_package"
+            domain = package / "domain"
+            domain.mkdir(parents=True)
+            (package / "__init__.py").write_text("")
+            (domain / "__init__.py").write_text("")
+            (domain / "test_example.py").write_text(
+                "import unittest\n"
+                "class Example(unittest.TestCase):\n"
+                "    def test_found(self):\n"
+                "        self.assertTrue(True)\n")
+            alias = root / "project-alias"
+            alias.symlink_to(project, target_is_directory=True)
+            allowlist = root / "allowlist.json"
+            allowlist.write_text("[]")
+            starts = (package, domain, alias / "suite_package", alias / "suite_package/domain")
+            for start in starts:
+                for top in (None, project, alias):
+                    with self.subTest(start=start, top=top):
+                        command = [
+                            sys.executable, "-B", str(ROOT / "scripts/run_required_tests.py"),
+                            "--start-directory", str(start), "--allowlist", str(allowlist),
+                        ]
+                        if top is not None:
+                            command.extend(["--top-level-directory", str(top)])
+                        result = subprocess.run(command, cwd=ROOT.parent,
+                                                capture_output=True, text=True, timeout=30)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertIn("suite_package.domain.test_example.Example.test_found", result.stderr)
+                        self.assertIn("observed=0 allowlisted=0 unexpected=0", result.stdout)
+
     def test_package_discovery_resolves_support_from_outside_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

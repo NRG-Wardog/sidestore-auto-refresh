@@ -79,12 +79,15 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         allowed = load_allowlist(args.allowlist)
-        top_level = args.top_level_directory
-        if (args.start_directory / "__init__.py").is_file():
+        # Discovery compares these paths lexically. Resolve both so aliases
+        # such as macOS /var and /private/var describe the same project root.
+        start_directory = args.start_directory.resolve()
+        top_level = args.top_level_directory.resolve() if args.top_level_directory is not None else None
+        if (start_directory / "__init__.py").is_file():
             # Package-qualified support imports must also work when a caller
             # launches this script from outside the checkout. Keep the package
             # directory for retained root suites' bare sibling-helper imports.
-            package = args.start_directory.resolve()
+            package = start_directory
             while (package.parent / "__init__.py").is_file():
                 package = package.parent
             if str(package) not in sys.path:
@@ -92,7 +95,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             if top_level is None:
                 top_level = package.parent
         suite = unittest.defaultTestLoader.discover(
-            str(args.start_directory), pattern=args.pattern,
+            str(start_directory), pattern=args.pattern,
             top_level_dir=str(top_level) if top_level else None)
     except (OSError, ValueError, ImportError) as error:
         print(f"required test runner setup failed: {error}", file=sys.stderr)
