@@ -8,7 +8,7 @@ import hashlib
 import json
 import subprocess
 import sys
-from relocation import verify_current, verify_auxiliary, BASELINE, ARCHIVED_WORKFLOWS
+from relocation import verify_current, verify_auxiliary, BASELINE, ARCHIVED_WORKFLOWS, REVIEWED_ADDITIONAL_WORKFLOWS
 
 ROOT = Path(__file__).resolve().parents[2]
 OVERRIDES = {'scripts/package_livecontainer_combined.py', 'tests/test_dylibify_source_build.py', '.github/workflows/maintained-packaging-contract.yml'}
@@ -79,6 +79,7 @@ def verify_sources(root=ROOT, *, object_read=git_read, tree_read=None):
             verify_current(root, name, expected, object_read)
     original = {Path(p).name for p in m['protected_sha256'] if p.startswith('.github/workflows/')}
     expected = original | {'validation-history-contract.yml'} | {Path(p).name for p in c['added_workflows_sha256']}
+    expected |= {Path(p).name for p in REVIEWED_ADDITIONAL_WORKFLOWS}
     require({p.name for p in (root/'.github/workflows').glob('*.yml')} == expected - ARCHIVED_WORKFLOWS, 'Unreviewed workflow inventory')
     verify_auxiliary(root, object_read)
     return m,c

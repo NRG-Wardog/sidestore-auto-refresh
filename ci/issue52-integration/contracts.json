@@ -1762,7 +1762,7 @@
       "integration_points": [
         {
           "owner": "sidestore-auto-refresh",
-          "path": "docs/CUSTOM_INTEGRATION_CONTRACTS.json",
+          "path": "ci/issue52-integration/contracts.json",
           "interface": "Feature-to-module-and-test registry",
           "rationale": "Require explicit rationale and practical evidence per boundary."
         },

@@ -26,4 +26,4 @@ For background-refresh changes, distinguish between:
 - actual scheduled execution (`TRIGGER`)
 - completed refresh (`COMPLETE success=true`)
 
-Do not describe scheduled PC-free refresh as proven unless the criteria in `docs/VERIFICATION.md` are satisfied.
+Do not describe scheduled PC-free refresh as proven without the exact build, actual scheduled trigger, completed operation and verified refresh result. See `CONTRIBUTING.md` for reporting and test prerequisites.

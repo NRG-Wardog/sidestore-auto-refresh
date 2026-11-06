@@ -60,8 +60,10 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
             "--anisette-source", str(self.source)], check=True, capture_output=True, text=True)
         verifier.verify_isolated_anisette_evidence(self.output, binding, self.executable)
 
-    def test_workflow_verifies_maintained_resolved_checkout_and_frozen_build(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+    def test_historical_workflow_verifies_resolved_checkout_and_frozen_build(self):
+        # Preserve orchestration coverage of the retained P0 build, not the
+        # current reusable native entry point. Its bytes remain hash-bound.
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         block = workflow.split("- name: Build embedded SideStore\n", 1)[1].split(
             "- name: Package and verify", 1)[0]
         resolved = block.index('test "$resolved" -eq 1')
@@ -84,8 +86,8 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
         self.assertIn('--anisette-manifest artifacts/dependencies/anisette-isolated-otp-after-build.json', package)
         self.assertIn('verify_candidate_ipa.py', package)
 
-    def test_preflight_patterns_are_disjoint_strict_and_before_ui(self):
-        workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
+    def test_historical_preflight_patterns_are_disjoint_strict_and_before_ui(self):
+        workflow = (ROOT / 'migration/historical/ssa-validation/p0-livecontainer-build.yml').read_text()
         focused = workflow.split('  signin-preflight:\n', 1)[1].split('  source-and-host-build:', 1)[0]
         patterns = ('test_p0_signin*.py', 'test_anisette*.py')
         for pattern in patterns:

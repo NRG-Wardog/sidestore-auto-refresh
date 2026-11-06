@@ -12,6 +12,8 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+# Monolithic build assertions below cover the retained historical workflow;
+# current native entrypoint contracts are checked by test_repository.py.
 spec = importlib.util.spec_from_file_location('rendering_bounds', ROOT / 'scripts/run_issue25_rendering.py')
 renderer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(renderer)
@@ -75,8 +77,8 @@ class RenderingCommandBoundsTests(unittest.TestCase):
         source = (ROOT / 'scripts/run_issue25_rendering.py').read_text()
         self.assertEqual(source.count('wait_for_simulator_boot(device)'), 2)
 
-    def test_workflow_keeps_acceptance_and_saves_timeout_diagnostics(self):
-        workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
+    def test_historical_workflow_keeps_acceptance_and_saves_timeout_diagnostics(self):
+        workflow = (ROOT / 'migration/historical/ssa-validation/p0-livecontainer-build.yml').read_text()
         self.assertIn('timeout-minutes: 40', workflow)
         self.assertIn('timeout-minutes: 120', workflow)
         self.assertIn('artifacts/layout-evidence/**/*.jsonl', workflow)

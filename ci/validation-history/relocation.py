@@ -34,6 +34,14 @@ RELOCATED = {'.ci/branch-cleanup/allowlist.json': 'ci/branch-cleanup/allowlist.j
  '.github/workflows/reviewed-branch-cleanup.yml': '.github/workflow-archive/maintenance-v6.0.0/reviewed-branch-cleanup.yml',
  '.github/workflows/reviewed-branch-forwardports.yml': '.github/workflow-archive/maintenance-v6.0.0/reviewed-branch-forwardports.yml',
  '.github/workflows/reviewed-branch-semantic-inventory.yml': '.github/workflow-archive/maintenance-v6.0.0/reviewed-branch-semantic-inventory.yml'}
+
+# Machine-readable contracts belong with their executable CI owners.
+DOCUMENT_CONTRACT_RELOCATIONS = {'docs/CUSTOM_INTEGRATION_CONTRACTS.json': 'ci/issue52-integration/contracts.json',
+ 'docs/ERROR_CODES_V1.json': 'ci/diagnostics/error-codes-v1.json',
+ 'docs/ERROR_PRESENTATION_COVERAGE.json': 'ci/diagnostics/presentation-coverage.json',
+ 'docs/PACKAGING_PATCH_SURFACE.json': 'ci/packaging/patch-surface.json'}
+RELOCATED.update(DOCUMENT_CONTRACT_RELOCATIONS)
+
 # Only these literal path prefixes may change inside these exact files.
 PATH_REWRITES = {'.ci/branch-forwardports/run.py': (('.ci/branch-forwardports', 'ci/branch-forwardports'),),
  '.ci/maintained-build/test_contract.py': (('.ci/maintained-build', 'ci/maintained-build'),),
@@ -80,6 +88,60 @@ BASELINE_SHA256 = {'.ci/branch-cleanup/allowlist.json': '3a14284da05826e1f3f6472
  '.github/workflows/reviewed-branch-semantic-inventory.yml': 'a36160b16f19e3c1591b1b4994e030db1418c2857ddd65650bb846e9b1c58efa',
  '.github/workflows/validation-history-contract.yml': 'c22774f05b7408f27e8c8fbbcac7de99be12e7330f66e38356e5e9838b918b5a'}
 
+
+# Exact path-only edits for the four relocated machine contracts and their callers.
+for _name, _edits in {'.github/workflows/custom-integration-contract.yml': (('docs/PACKAGING_PATCH_SURFACE.json',
+                                                        'ci/packaging/patch-surface.json'),
+                                                       ('docs/CUSTOM_INTEGRATION*',
+                                                        'ci/issue52-integration/contracts.json')),
+ '.github/workflows/maintained-packaging-contract.yml': (('docs/PACKAGING_PATCH_SURFACE.json',
+                                                          'ci/packaging/patch-surface.json'),),
+ 'ci/issue52-integration/verify_inventory.py': (('docs/CUSTOM_INTEGRATION_CONTRACTS.json',
+                                                 'ci/issue52-integration/contracts.json'),),
+ 'docs/CUSTOM_INTEGRATION_CONTRACTS.json': (('docs/CUSTOM_INTEGRATION_CONTRACTS.json',
+                                             'ci/issue52-integration/contracts.json'),),
+ 'scripts/integration_contracts.py': (('docs/CUSTOM_INTEGRATION_CONTRACTS.json',
+                                       'ci/issue52-integration/contracts.json'),),
+ 'tests/test_packaging_adapters.py': (('docs/PACKAGING_PATCH_SURFACE.json',
+                                       'ci/packaging/patch-surface.json'),),
+ 'tests/test_v3_diagnostic_codes.py': (('docs/ERROR_CODES_V1.json',
+                                        'ci/diagnostics/error-codes-v1.json'),
+                                       ('docs/ERROR_PRESENTATION_COVERAGE.json',
+                                        'ci/diagnostics/presentation-coverage.json'))}.items():
+    PATH_REWRITES[_name] = PATH_REWRITES.get(_name, ()) + _edits
+BASELINE_SHA256.update({'.github/workflows/custom-integration-contract.yml': '4ecfdb563c8fdc3aa37791dab9b3eff5d34ab9d9fa12a479d71f6a48898b8b05',
+ '.github/workflows/maintained-packaging-contract.yml': 'bb29bc138201636dd8aa0ee2e3bfabe23fb9a85c35a05bc42568004ea86f51cb',
+ 'ci/issue52-integration/verify_inventory.py': '4b02f6d5a9e335c26b6bb1bbc9a9a165d2c79647b0331ad0abf174d4b92536a7',
+ 'docs/CUSTOM_INTEGRATION_CONTRACTS.json': '708b7083309e447c40e5d008ee84ec80e3146a91c06567c0b9212119247491ea',
+ 'docs/ERROR_CODES_V1.json': 'fbc6ee596461b35bd9afad8e1151f53f9590072fa3be4c9bfbd9676005dddec4',
+ 'docs/ERROR_PRESENTATION_COVERAGE.json': 'ef5c5ed2ace50055fd9517666e69126ae428e48ab589bb41332681d3140f40fb',
+ 'docs/PACKAGING_PATCH_SURFACE.json': '8a536f818ba517c54b97ecd3f61f4cfa5be718cdca549e29f0cdbd01f9bb95c8',
+ 'scripts/integration_contracts.py': '290c2b0443f10f0f5e2b6fe8572630eda4ad32130fdb8094c6652c360da1bcc6',
+ 'tests/test_packaging_adapters.py': '59432d38a84f6dddd234968241992b79299949c88a6542409121c23a5c55db34',
+ 'tests/test_v3_diagnostic_codes.py': '86a84105f2793651fd1cc48e2709f03daf6c9b423f99bd4780963d72586d2ffa'})
+
+# Update only documentation pointers in retained application sources.
+PATH_REWRITES.update({'.github/workflows/build-current.yml': (('docs/MAINTAINED_BUILD.md', 'ci/README.md'),),
+ '.github/workflows/livecontainer-build.yml': (('docs/MAINTAINED_BUILD.md', 'ci/README.md'),),
+ 'scripts/templates/combined_failure.swift': (('docs/ERROR_CODES_V1.json',
+                                               'ci/diagnostics/error-codes-v1.json'),)})
+BASELINE_SHA256.update({'.github/workflows/build-current.yml': 'ad49b58782140ca91902606632592207f334d8692df0afa505671030448900d5',
+ '.github/workflows/livecontainer-build.yml': '31ad8b71e32415865ac47d5a9edf44954c03a3726486b1ffa113174cec1f1d7f',
+ 'scripts/templates/combined_failure.swift': '91eb30bdefee35c0dc9b36ae7d64257a6b8c99dd7c7943997ad6a4c520a78287'})
+
+# Also verify callers outside the frozen historical protected-source inventory.
+DOCUMENT_CONTRACT_CALLERS = {
+    'scripts/integration_contracts.py',
+    'ci/issue52-integration/verify_inventory.py',
+    'tests/test_packaging_adapters.py',
+    'tests/test_v3_diagnostic_codes.py',
+    '.github/workflows/maintained-packaging-contract.yml',
+    '.github/workflows/custom-integration-contract.yml',
+    '.github/workflows/build-current.yml',
+    '.github/workflows/livecontainer-build.yml',
+    'scripts/templates/combined_failure.swift',
+}
+
 # Exact CI job organization, separate from the path-only relocation edits.
 # The immutable process-group tests retain their original Linux execution platform.
 LINUX_SEMANTIC_JOB = """  historical-semantic:
@@ -108,6 +170,11 @@ WORKFLOW_LAYOUT_EDITS = {
         'jobs:\n' + LINUX_SEMANTIC_JOB +
         '  bounded-contracts:\n    needs: historical-semantic\n',
     ),),
+}
+
+# Newly reviewed read-only workflows, outside the frozen historical manifests.
+REVIEWED_ADDITIONAL_WORKFLOWS = {
+    '.github/workflows/documentation-contract.yml': '396364eca5bb7bccd73fc24b2b7a16d89ce1d3d7bf0b45abae7d365be99c1e1a',
 }
 
 ARCHIVED_WORKFLOWS = {'amend-v6.0.0-notes.yml',
@@ -151,4 +218,9 @@ def verify_auxiliary(root, object_read):
     # This workflow was outside the original manifest. Bind it explicitly now.
     name = '.github/workflows/validation-history-contract.yml'
     verify_current(root, name, BASELINE_SHA256[name], object_read)
+    for name in set(DOCUMENT_CONTRACT_RELOCATIONS) | DOCUMENT_CONTRACT_CALLERS:
+        verify_current(root, name, BASELINE_SHA256[name], object_read)
+    for name, expected in REVIEWED_ADDITIONAL_WORKFLOWS.items():
+        require(hashlib.sha256(read(root/name)).hexdigest() == expected,
+                'Additional reviewed workflow bytes differ: '+name)
     require(not (root/'.ci').exists() and not (root/'.ci').is_symlink(), 'Obsolete .ci directory exists')

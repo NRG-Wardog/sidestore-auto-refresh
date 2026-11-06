@@ -19,7 +19,8 @@ class SourceContractTests(unittest.TestCase):
         self.current['.github/workflows/validation-history-contract.yml']=b'history workflow'
         self.m={'protected_sha256':{p:s.sha(b) for p,b in self.history.items()},'archived_workflows_sha256':{'migration/archive.yml':s.sha(b'archive frozen')}}
         self.c={'schema':'reviewed-main-source-successor-v1','historical_manifest_sha256':'','historical_commit':s.HISTORICAL,'qualified_commit':s.QUALIFIED,'qualified_tree':s.TREE,'protected_successors':{p:{'historical_sha256':s.sha(self.history[p]),'reviewed_sha256':s.sha(self.current[p]),'origin':'source_guard_repair' if p.endswith('maintained-packaging-contract.yml') else 'qualified_candidate'} for p in s.OVERRIDES},'added_workflows_sha256':{p:s.sha(self.current[p]) for p in s.ADDED_WORKFLOWS},'dependency_sha256':{p:s.sha(self.current[p]) for p in s.DEPENDENCIES}}
-        for p,b in self.current.items():self.put(p,b)
+        self.current.update({p: b'reviewed new workflow' for p in s.REVIEWED_ADDITIONAL_WORKFLOWS})
+        for p,b in self.current.items():self.put(relocation.RELOCATED.get(p,p),b)
         self.history['.ci/validation-history/manifest.json']=json.dumps(self.m).encode()
         self.put('ci/validation-history/manifest.json',json.dumps(self.m).encode());self.c['historical_manifest_sha256']=s.sha(json.dumps(self.m).encode());self.save()
     def put(self,p,b):
@@ -106,6 +107,11 @@ class RelocationTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(raw)
 
+        for name in relocation.REVIEWED_ADDITIONAL_WORKFLOWS:
+            path = self.root/name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes((s.ROOT/name).read_bytes())
+
     def object_read(self, root, ref, path):
         self.assertEqual(ref, relocation.BASELINE)
         return self.objects[path]
@@ -126,6 +132,27 @@ class RelocationTests(unittest.TestCase):
                 path.write_bytes(original + b'\n# unauthorized change\n')
                 with self.assertRaisesRegex(ValueError, 'Relocated source bytes'): self.verify(name)
                 path.write_bytes(original)
+
+    def test_machine_contracts_reject_old_path_revival_and_missing_destination(self):
+        self.assertEqual(set(relocation.DOCUMENT_CONTRACT_RELOCATIONS), {
+            'docs/CUSTOM_INTEGRATION_CONTRACTS.json', 'docs/PACKAGING_PATCH_SURFACE.json',
+            'docs/ERROR_CODES_V1.json', 'docs/ERROR_PRESENTATION_COVERAGE.json',
+        })
+        for name, destination in relocation.DOCUMENT_CONTRACT_RELOCATIONS.items():
+            with self.subTest(name=name):
+                old = self.root/name
+                old.parent.mkdir(parents=True, exist_ok=True)
+                old.write_bytes(self.objects[name])
+                with self.assertRaisesRegex(ValueError, 'Obsolete relocation source'):
+                    self.verify(name)
+                old.unlink()
+                current = self.root/destination
+                raw = current.read_bytes()
+                current.unlink()
+                with self.assertRaisesRegex(ValueError, 'Missing or linked'):
+                    self.verify(name)
+                current.write_bytes(raw)
+                self.verify(name)
 
     def test_unlisted_source_receives_no_path_rewrite(self):
         raw = b'load .ci/unreviewed/file'
@@ -239,6 +266,26 @@ class RelocationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'Relocated source bytes'):
                         self.verify(name)
                     path.write_bytes(original)
+
+    def test_additional_documentation_workflow_bytes_are_exact(self):
+        self.assertEqual(set(relocation.REVIEWED_ADDITIONAL_WORKFLOWS),
+                         {'.github/workflows/documentation-contract.yml'})
+        path = self.root/'.github/workflows/documentation-contract.yml'
+        original = path.read_bytes()
+        self.assertIn(b'contents: read', original)
+        self.assertIn(b'persist-credentials: false', original)
+        for changed in (original.replace(b'contents: read', b'contents: write'),
+                        original.replace(b'test_documentation.py', b'test_*.py'),
+                        original.replace(b'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683',
+                                         b'actions/checkout@main')):
+            path.write_bytes(changed)
+            with self.assertRaisesRegex(ValueError, 'Additional reviewed workflow bytes'):
+                relocation.verify_auxiliary(self.root, self.object_read)
+        path.write_bytes(original)
+        relocation.verify_auxiliary(self.root, self.object_read)
+        path.unlink()
+        with self.assertRaisesRegex(ValueError, 'Missing or linked'):
+            relocation.verify_auxiliary(self.root, self.object_read)
 
     def test_frozen_successor_cannot_be_coordinately_rebound(self):
         def objects(root, ref, name):

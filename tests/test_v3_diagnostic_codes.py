@@ -25,7 +25,7 @@ def declaration(source, anchor):
 
 class DiagnosticCodeTests(unittest.TestCase):
     def test_frozen_registry_matches_explicit_switches_without_collisions(self):
-        registry = json.loads((ROOT / 'docs/ERROR_CODES_V1.json').read_text())
+        registry = json.loads((ROOT / 'ci/diagnostics/error-codes-v1.json').read_text())
         source = COMMON.read_text()
         for family, name in [('stage', 'Stage'), ('code', 'Code'), ('cause', 'SafeCause'),
                              ('step', 'SourceStep'), ('launch', 'LaunchContext.Step')]:
@@ -48,7 +48,7 @@ class DiagnosticCodeTests(unittest.TestCase):
             self.assertNotIn(prohibited, body)
 
     def test_typed_registry_and_allowlist_include_appended_pair_failure(self):
-        registry = json.loads((ROOT / 'docs/ERROR_CODES_V1.json').read_text())
+        registry = json.loads((ROOT / 'ci/diagnostics/error-codes-v1.json').read_text())
         source = COMMON.read_text()
         body = declaration(source, '    fileprivate static func typedDiagnosticToken(')
         actual = dict(re.findall(r'case "(\w+)": return "([A-Z0-9]+)"', body))
@@ -71,8 +71,8 @@ class DiagnosticCodeTests(unittest.TestCase):
         self.assertIn('case "anisetteIdentityStateInvalid": kindToken = "A12"', primitives)
 
     def test_every_inventoried_local_condition_has_its_frozen_label(self):
-        registry = json.loads((ROOT / 'docs/ERROR_CODES_V1.json').read_text())
-        coverage = json.loads((ROOT / 'docs/ERROR_PRESENTATION_COVERAGE.json').read_text())
+        registry = json.loads((ROOT / 'ci/diagnostics/error-codes-v1.json').read_text())
+        coverage = json.loads((ROOT / 'ci/diagnostics/presentation-coverage.json').read_text())
         codes = []
         for item in coverage['local_conditions']:
             code = item['diagnostic_code']

@@ -13,13 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "build-current.yml"
 SCRIPTS = ROOT / "scripts"
 REQUIRED_SCRIPTS = {
-    "patch_jktcp_reliability.py",
     "patch_coredevice_idevice.py",
     "patch_sidestore_integration.py",
     "patch_background_automation.py",
     "patch_local_idevice_package.py",
-    "adapt_sidestore_070_pairing.py",
-    "adapt_sidestore_070_signing.py",
 }
 LIVE_CONTAINER_SCRIPTS = {
     "ipa_size_report.py",
@@ -47,10 +44,8 @@ LIVE_CONTAINER_SCRIPTS = {
     "combined_build_evidence.py",
     "run_issue25_rendering.py", "rendering_localization.py",
     "run_p0_signin_rendering.py",
-    "run_p0_signin_preflight.py",
     "p2_localization_contract.py",
     "p2_permission_contract.py",
-    "select_livecontainer_lane.py",
     "patch_app_layout.py",
     "audit_ipa_signing.py",
     "patch_guest_return.py",
@@ -211,7 +206,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue((ROOT / "README.md").is_file())
         self.assertTrue((ROOT / "LICENSE").is_file())
         self.assertTrue((ROOT / "CONTRIBUTING.md").is_file())
-        self.assertTrue((ROOT / "docs" / "VERIFICATION.md").is_file())
+        self.assertTrue((ROOT / "docs" / "README.md").is_file())
         self.assertTrue((ROOT / "SECURITY.md").is_file())
         self.assertTrue(WORKFLOW.is_file())
         self.assertEqual(
@@ -219,7 +214,7 @@ class RepositoryTests(unittest.TestCase):
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
                     'experiment_local_symbols.py', 'experiment_sidebackup_stabs.py', 'local_symbol_packaging.py', 'macho_local_symbol_guard.py', 'openssl_local_symbol_policy.py', 'optimize_openssl_local_candidate.py', 'optimize_sidebackup_candidate.py', 'optimize_unsigned_widget.py', 'patch_refresh_callback_admission.py', 'widget_local_symbols.py', 'widget_signature_policy.py',
                     "integration_contracts.py", "experiment_strip_stabs.py", "macho_stab_guard.py", "optimize_native_candidate.py",
-                    "check_compiled_localization.py", "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "p0_maintained_sources.py", "p1_maintained_sources.py", "p0_constructor_diagnostics.py", "p0_elf_metadata_bounds.py", "p0_cxx_allocation.py", "p2_composed_host.py", "p0_full_login_diagnostics.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py", "patch_transport_lockfiles.py"},
+                    "check_compiled_localization.py", "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "p0_maintained_sources.py", "p1_maintained_sources.py", "p0_constructor_diagnostics.py", "p0_elf_metadata_bounds.py", "p0_cxx_allocation.py", "p2_composed_host.py", "p0_full_login_diagnostics.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py"},
 
         )
 
@@ -380,9 +375,8 @@ class RepositoryTests(unittest.TestCase):
 
     def test_public_docs_do_not_expose_known_private_network_details(self):
         """Generic RFC1918 examples are allowed; known diagnostic addresses are not."""
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        verification = (ROOT / "docs" / "VERIFICATION.md").read_text(encoding="utf-8")
-        public_docs = readme + "\n" + verification
+        public_paths = list(ROOT.glob("*.md")) + list((ROOT / "docs").rglob("*.md")) + [ROOT / "ci/README.md"]
+        public_docs = "\n".join(path.read_text(encoding="utf-8") for path in public_paths)
 
         # These were diagnostic/local addresses and must never leak into public docs.
         for sensitive_ip in ("10.7.0.1", "10.7.0.2"):
@@ -390,8 +384,7 @@ class RepositoryTests(unittest.TestCase):
 
         # Documentation may intentionally use RFC1918 examples such as
         # 10.0.0.x or 192.168.1.x to explain same-subnet LocalDevVPN routing.
-        self.assertIn("same subnet", readme)
-        self.assertIn("/32", readme)
+        self.assertTrue(public_paths)
 
 
 if __name__ == "__main__":

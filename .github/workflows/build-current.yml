@@ -1,4 +1,4 @@
-# Unsigned native applications only. See docs/MAINTAINED_BUILD.md for reviewed IPA packaging.
+# Unsigned native applications only. See ci/README.md for reviewed IPA packaging.
 name: Build maintained SideStore native application (shared graph)
 on:
   workflow_dispatch:

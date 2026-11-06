@@ -63,7 +63,7 @@ class PackagingAdapterTests(unittest.TestCase):
             rehearse_bytes(duplicate, commit, matching)
 
     def test_minimal_surface_is_documented_exactly(self):
-        documented = json.loads((ROOT / 'docs/PACKAGING_PATCH_SURFACE.json').read_text())
+        documented = json.loads((ROOT / 'ci/packaging/patch-surface.json').read_text())
         self.assertEqual(documented['rules'], patch_surface(COMBINED_PACKAGING_RULES))
         self.assertEqual(len(documented['rules']), 8)
         self.assertTrue(all(row['owner'] and row['rationale'] and row['exact_occurrences'] == 1

@@ -1,4 +1,4 @@
-# Unsigned native applications only. See docs/MAINTAINED_BUILD.md for reviewed IPA packaging.
+# Unsigned native applications only. See ci/README.md for reviewed IPA packaging.
 name: Build maintained LiveContainer and SideStore native applications
 on:
   workflow_dispatch:

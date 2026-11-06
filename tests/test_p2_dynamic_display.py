@@ -40,14 +40,42 @@ class DynamicDisplayPolicyTests(unittest.TestCase):
   s=(HOST/'LiveContainerSwiftUI/Utilities/V3Localization.swift').read_text()
   self.assertIn('guard depth < 3 else { return value }',s)
   self.assertIn('guard localized != format.key else { continue }',s)
- def test_pending_recovery_and_auth_policy_bytes_are_unchanged(self):
+ def test_live_language_state_cannot_change_auth_or_pending_recovery(self):
+  # Historical whole-shell hashes froze a pre-v6 owner and cannot describe
+  # later reviewed auth fixes. Check the actual presentation/auth boundary.
   import sys
   sys.path.insert(0,str(R/'scripts'))
   import run_p0_signin_rendering as extraction
-  import hashlib
-  after=(HOST/'LiveContainerSwiftUI/Views/V3UnifiedShell.swift').read_text()
-  self.assertEqual(hashlib.sha256(after.split('struct V3UnifiedShell: View {')[0].encode()).hexdigest(), '2449f28374f32628ee88db8a18f04f94e1cf2865b2a52fe88bf7a82b81f25fac')
-  self.assertEqual(hashlib.sha256(extraction.declaration(after,'final class V3AuthStore').encode()).hexdigest(), 'd976a42812917e98e9215cd3cc4ad6bcbcfbdb70300a5a56ca3e7ed6932ec435')
+  shell=(HOST/'LiveContainerSwiftUI/Views/V3UnifiedShell.swift').read_text()
+  settings=(HOST/'LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift').read_text()
+  def check(host, language):
+   auth=extraction.declaration(host,'final class V3AuthStore')
+   state=extraction.declaration(language,'final class V3HostLanguageState')
+   for forbidden in ('V3Localization.', 'V3LocalizedText', 'V3HostLanguageState', 'AppleLanguages'):
+    self.assertNotIn(forbidden,auth)
+   self.assertIn('static let shared = V3HostLanguageState(defaults: V3Localization.hostDefaults)',state)
+   self.assertIn('defaults.set(language.rawValue, forKey: V3AppLanguage.storageKey)',state)
+   for forbidden in ('V3AuthStore', 'authBegin', 'authRespond', 'authCancel', 'pendingCertificate', 'UserDefaults.standard'):
+    self.assertNotIn(forbidden,state)
+   for guard in ('guard canFinishPendingCertificateActivation else { return }',
+                 'pendingCertificateRecoveryState.mayFinishActivation(authenticated: signedIn,',
+                 'guard !promptID.isEmpty, let session,',
+                 'currentPromptID: prompt?["id"] as? String, submittedPromptID: promptID,',
+                 'guard !isCancelling, hasActiveAttempt || canRetryCancellation else { return }'):
+    self.assertIn(guard,auth)
+  check(shell,settings)
+  mutations = [
+   shell.replace('guard canFinishPendingCertificateActivation else { return }',''),
+   shell.replace('guard !promptID.isEmpty, let session,','guard let session,'),
+   shell.replace('guard !isCancelling, hasActiveAttempt || canRetryCancellation else { return }',''),
+   shell.replace('final class V3AuthStore: ObservableObject {',
+                 'final class V3AuthStore: ObservableObject {\n    let translated = V3Localization.string("authBegin")'),
+  ]
+  for index,changed in enumerate(mutations):
+   self.assertNotEqual(changed,shell)
+   with self.subTest(mutation=index), self.assertRaises(AssertionError): check(changed,settings)
+  with self.assertRaises(AssertionError):
+   check(shell,settings.replace('defaults: V3Localization.hostDefaults','defaults: UserDefaults.standard'))
  def test_dates_follow_selected_locale_without_changing_schedule_or_diagnostics(self):
   helper=(HOST/'LiveContainerSwiftUI/Utilities/V3Localization.swift').read_text()
   self.assertIn('locale: Locale(identifier: language.rawValue), calendar: .autoupdatingCurrent',helper)

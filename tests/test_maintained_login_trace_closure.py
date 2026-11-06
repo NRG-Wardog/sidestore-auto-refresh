@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import plistlib
 from pathlib import Path
 import re
 import shutil
@@ -15,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import run_issue25_rendering as legacy
 import run_p0_signin_rendering as renderer
+import p2_localization_contract as localization_contract
 
 
 class LoginTraceClosureTests(unittest.TestCase):
@@ -24,7 +26,10 @@ class LoginTraceClosureTests(unittest.TestCase):
         self.shell = self.live / 'LiveContainerSwiftUI/Views/V3UnifiedShell.swift'
         self.support = self.live / 'SideStoreSupport/SideStore.swift'
         if not self.shell.is_file() or not self.support.is_file():
-            self.fail('Required acquired maintained LiveContainer source is missing')
+            self.fail('Required acquired maintained LiveContainer source is missing at '
+                      + str(self.live) + '. Set MAINTAINED_LIVE_CONTAINER_TEST_SOURCE '
+                      'to the reviewed owner checkout; this source-closure gate cannot '
+                      'run against builder templates or without acquired owner sources.')
         self.support_text = self.support.read_text()
         self.shell_text = self.shell.read_text()
         if 'V3LoginDiagnosticSnapshot' not in self.shell_text + self.support_text:
@@ -114,6 +119,22 @@ class LoginTraceClosureTests(unittest.TestCase):
                     products = output / 'p0-build/DerivedData/Build/Products'
                     products.mkdir(parents=True)
                     (products / 'fixture.xctestrun').write_text('assembly only')
+                    # Synthetic native-command output for this assembly test only.
+                    # Keep the real resource admission gate active; these are not
+                    # claimed to be Xcode-compiled or device-rendered resources.
+                    app = products / 'Debug-iphonesimulator/P0SignIn.app'
+                    for language in localization_contract.LANGUAGES:
+                        localized = app / (language + '.lproj')
+                        localized.mkdir(parents=True)
+                        (localized / 'Localizable.strings').write_bytes(plistlib.dumps(
+                            localization_contract.REQUIRED_TRANSLATIONS[language]))
+                        plurals = {key: {
+                            'NSStringLocalizedFormatKey': '%#@count@',
+                            'count': {'NSStringFormatSpecTypeKey': 'NSStringPluralRuleType',
+                                      'NSStringFormatValueTypeKey': 'lld', 'other': '%lld'}
+                        } for key in localization_contract.PLURAL_KEYS}
+                        plurals.update(localization_contract.COMPOUND_PLURALS[language])
+                        (localized / 'Localizable.stringsdict').write_bytes(plistlib.dumps(plurals))
                 return ''
             catalog = self.live / renderer.localization.LOCALIZATION_CATALOG
             resources = {renderer.localization.LOCALIZATION_CATALOG: renderer.digest(catalog)}

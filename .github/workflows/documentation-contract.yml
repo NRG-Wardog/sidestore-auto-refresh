@@ -1,0 +1,19 @@
+name: Check current documentation
+on:
+  pull_request:
+    paths: ['README*.md', 'CONTRIBUTING.md', 'ci/README.md', 'docs/**', 'tests/test_documentation.py', '.github/workflows/documentation-contract.yml']
+  push:
+    branches: [main]
+    paths: ['README*.md', 'CONTRIBUTING.md', 'ci/README.md', 'docs/**', 'tests/test_documentation.py', '.github/workflows/documentation-contract.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 -B -m unittest discover -s tests -p test_documentation.py -v

@@ -10,6 +10,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# Monolithic build assertions below cover the retained historical workflow;
+# current native entrypoint contracts are checked by test_repository.py.
 sys.path.insert(0, str(ROOT / "scripts"))
 from patch_combined_transport import POLICY, patch
 from patch_v3_service import PINS as V3_SOURCE_PINS
@@ -456,9 +458,9 @@ for modern in [false, true] {
 ''')
 
 
-class CombinedWorkflowTests(unittest.TestCase):
+class HistoricalCombinedWorkflowTests(unittest.TestCase):
     def test_release_installs_and_selects_exact_rust_before_format_gate(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         release = workflow.split('  source-and-host-build:\n', 1)[1]
         self.assertIn('      RUSTUP_TOOLCHAIN: "1.98.1"\n', release.split('    steps:', 1)[0])
         self.assertEqual(workflow.count('RUSTUP_TOOLCHAIN:'), 1)
@@ -493,7 +495,7 @@ class CombinedWorkflowTests(unittest.TestCase):
                         self.assertEqual((root / 'github-path').read_text().strip(), str(expected))
 
     def test_later_build_tools_keep_release_rust_and_target_selection(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         block = workflow.split('- name: Install build tools\n', 1)[1].split('\n      - name:', 1)[0]
         shell = block.split('        run: |\n', 1)[1].replace('          ', '')
         stubs = '''ldid() { :; }
@@ -514,7 +516,7 @@ rustup() { printf '%s|%s\\n' "$RUSTUP_TOOLCHAIN" "$*" >> tool-calls; }
         self.assertNotRegex(later, r'(?:rustup (?:default|override|update)|RUSTUP_TOOLCHAIN\s*=|cargo \+)')
 
     def test_exact_format_prerequisites_gate_layout_once_and_preserve_proof(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         title = '- name: Verify pinned transport format prerequisites before layout\n'
         block = workflow.split(title, 1)[1].split('\n      - name:', 1)[0]
         self.assertLess(workflow.index(title), workflow.index('- name: Execute full layout regression'))
@@ -547,7 +549,7 @@ cargo() { if [[ "$1" == --version ]]; then
                 self.assertTrue(Path(temporary, 'artifacts/logs/transport-format-prerequisites.log').is_file())
 
     def test_matching_rust_reader_failure_blocks_framework_staging(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         block = workflow.split("- name: Build idevice for iOS\n", 1)[1].split("\n      - name:", 1)[0]
         reader = block.index("python3 -B ../builder/scripts/verify_archive_symbols.py")
         framework = block.index("xcodebuild -create-xcframework")
@@ -562,14 +564,14 @@ cargo() { if [[ "$1" == --version ]]; then
         self.assertIn("artifacts/dependencies", evidence)
 
     def test_maintained_source_guards_run_before_native_builds(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         preparation = workflow.index("- name: Verify maintained host and authentication sources")
         host = workflow.index("- name: Build unified host before transport compilation")
         self.assertLess(preparation, host)
         self.assertIn('maintained_sources.py verify', workflow[preparation:host])
 
     def test_serial_native_and_full_rendering_both_gate_packaging(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         host = workflow.index("- name: Build unified host before transport compilation")
         native = workflow.index("- name: Build embedded SideStore\n")
         layout = workflow.index("- name: Execute full layout regression")
@@ -605,7 +607,7 @@ cargo() { if [[ "$1" == --version ]]; then
         self.assertNotIn('continue-on-error', package_block)
 
     def test_native_and_layout_pipelines_propagate_failures(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         for title, command, variable in (
                 ('Build embedded SideStore', 'xcodebuild -project work/EmbeddedSideStore/', 'NATIVE_RESULT'),
                 ('Execute full layout regression', 'python3 builder/scripts/run_issue25_rendering.py', 'LAYOUT_RESULT')):
@@ -625,7 +627,7 @@ cargo() { if [[ "$1" == --version ]]; then
                     self.assertEqual(result.returncode == 0, code == 0)
 
     def test_canonical_certificate_checks_run_once_with_dependency_ready(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         dependency = workflow.index('- name: Install native certificate test dependency')
         suite = workflow.index('- name: Run repository checks and historical patch regressions')
         self.assertLess(dependency, suite)
@@ -634,7 +636,7 @@ cargo() { if [[ "$1" == --version ]]; then
         self.assertIn('--timings-output artifacts/logs/repository-test-timings.json', workflow)
 
     def test_maintained_authentication_graph_and_no_override(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
         self.assertIn('merge-base --is-ancestor "$SIDESIGN_GSA_FIX" HEAD', workflow)
         self.assertNotRegex(workflow, r"SideSign (?:checkout|cherry-pick)")
         self.assertIn("maintained_sources.py acquire", workflow)
@@ -649,7 +651,7 @@ cargo() { if [[ "$1" == --version ]]; then
         self.assertIn("SideSignConfigManager.shared", runtime)
 
     def test_local_binary_staged_without_runtime_rewrites_before_build(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text(encoding="utf-8")
         checks = workflow[workflow.index("- name: Run repository checks and historical patch regressions"):]
         checks = checks.split("\n      - name:", 1)[0]
         self.assertIn("EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/LegacySideStore", checks)

@@ -40,7 +40,12 @@ class FourLanguageTests(unittest.TestCase):
 
     def test_all_catalog_keys_have_four_language_coverage(self):
         catalog = json.loads((HOST / 'Resources/Localizable.xcstrings').read_text())['strings']
-        self.assertEqual(len(catalog), 2088)
+        # Keep the sealed historical key set; additions must pass the same
+        # language/state and plural-placeholder checks below, not a frozen count.
+        baseline = (set(localization.REQUIRED_TRANSLATIONS['en']) |
+                    set(localization.PLURAL_KEYS) | set(localization.COMPOUND_PLURAL_KEYS))
+        self.assertEqual(len(baseline), 2088)
+        self.assertTrue(baseline <= set(catalog))
         self.assertEqual(localization.LANGUAGES, ('en', 'zh-Hans', 'zh-Hant', 'he'))
         def units(value):
             if isinstance(value, dict):

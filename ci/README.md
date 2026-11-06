@@ -1,47 +1,39 @@
-# Candidate validation harnesses
+# Build and validation
 
-This is the single directory for repository CI tooling: issue-specific and
-cross-repository validation harnesses, reviewed source projections, fixtures,
-exact-input manifests, frozen validation and maintenance controls. The subdirectory
-names identify the investigation or candidate that introduced them; older names
-do not mean the contents are unused.
+Application source is maintained in the component repositories. The [current
+v6.0.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v6.0.1)
+records the shipped source graph, exact IPA checksum and matching build runs.
 
-Useful starting points:
+## Build entry points
 
-- [Cold-VPN bounded packaging and final candidate evidence](cold-vpn-zopfli/README.md)
-- [Cold-VPN native validation](cold-vpn/README.md)
-- [Language-switch validation](language-switch/README.md)
-- [Startup and upgrade validation](startup-upgrade/README.md)
-- [Refresh truth checks](refresh-truth/README.md)
-- [Multitask launch checks](multitask-launch/README.md)
-- `issues-native/`: shared native runners, source contracts and reviewed fixtures.
-- `issue52-integration/`: integration maintenance inputs and coverage checks.
+The manual `livecontainer-build.yml` and `build-current.yml` actions call the
+same immutable LiveContainer native workflow at
+`c7111b580254190a0c037037036aaed49bfce8c6`. They replay the pinned **6.0.0 graph**,
+not the latest application source or the current 6.0.1 release. Outputs are
+unsigned application archives, not installable IPAs.
 
-The workflows under `../.github/workflows/` select the relevant harness and exact
-source graph. Do not run an arbitrary historical harness as evidence for a newer
-release. Preserve referenced files, snapshot bytes and fixture paths when making
-layout changes.
+Installable packaging is a separate exact-input admission step. The maintained
+[package action](https://github.com/NRG-Wardog/LiveContainer/actions/workflows/package-diagnostic.yml)
+consumes reviewed 6.0.0 native run `40102842840` and pinned evidence. It does not
+select the newest run or publish a release. Expired artifacts require a new
+build and explicit evidence review/rebinding, not substitution of arbitrary inputs.
 
-## Repository validation and maintenance
+For a new candidate, verify the source graph, workflow revision, run/attempt,
+archive digests and admission receipts before packaging. A green run for a
+different input is not qualification. See [contributing](../CONTRIBUTING.md)
+for focused tests and prerequisites.
 
-- `validation-history/`: frozen validation manifest, exact reviewed successors,
-  and the finite old-to-current path mapping for this directory consolidation.
-- `maintained-build/`: immutable maintained build entry contracts.
-- `branch-semantic-review/`, `branch-cleanup/`, `branch-forwardports/`: reviewed
-  inventories and bounded maintenance tools.
-- `release-v6.0.0/`: original promotion inputs, notes and provenance.
-- `release-notes-v6.0.0-20261024/`: historical release-note amendment records.
+## Validation layout
 
-These controls previously lived under `.ci/`. Their historical manifests retain
-original paths and bytes; the current source gate verifies relocation explicitly.
-Other repositories can still have their own `.ci/` directories. Do not rewrite
-those external references or historical Git-object paths.
+- `issue52-integration/`: current integration inventory and regression coverage.
+- `packaging/`: packaging compatibility contract.
+- `diagnostics/`: structured error codes and presentation coverage.
+- `issues-native/` and candidate-specific directories: native qualification,
+  exact-input manifests and packaging checks.
+- `maintained-build/`: immutable build-entry contracts.
+- `validation-history/`: source/provenance gates. Recorded hashes and historical
+  Git-object paths remain exact even when current file locations change.
 
-Versioned release records are not the current release notes. Completed one-time
-release and branch-maintenance workflows are retained under
-[the workflow archive](../.github/workflow-archive/maintenance-v6.0.0/README.md),
-outside the active Actions directory, so this layout change cannot rerun them.
-Their scripts may have external side effects; retaining them is not an instruction
-to rerun them.
-
-[Documentation and repository map](../docs/README.md)
+Validation evidence is not a device-compatibility guarantee. Keep app identity,
+user data and signing/pairing state intact when testing updates. Do not commit
+credentials, pairing records, private keys or personal logs.
