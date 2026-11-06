@@ -33,6 +33,62 @@ def change(path, status='M', old='100644', new='100644'):
     return {'path': path, 'status': status, 'old_mode': old, 'new_mode': new}
 
 
+class TestSuiteLayoutTests(unittest.TestCase):
+    """Check import/discovery coverage without executing the discovered tests."""
+
+    def discover(self, start="tests", pattern="test_*.py", package_root=False):
+        probe = r'''
+import json
+from pathlib import Path
+import sys
+import unittest
+root = Path(sys.argv[1])
+loader = unittest.TestLoader()
+suite = loader.discover(str(root / sys.argv[2]), pattern=sys.argv[3],
+    top_level_dir=str(root) if sys.argv[4] == "package" else None)
+def cases(suite):
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            yield from cases(item)
+        else:
+            yield item
+found = list(cases(suite))
+paths = set()
+for case in found:
+    module = sys.modules[type(case).__module__]
+    path = Path(module.__file__).resolve()
+    if path.is_relative_to(root):
+        paths.add(path.relative_to(root).as_posix())
+print(json.dumps({"errors": loader.errors, "ids": [case.id() for case in found],
+    "paths": sorted(paths)}))
+'''
+        result = subprocess.run([
+            sys.executable, "-B", "-c", probe, str(ROOT), start, pattern,
+            "package" if package_root else "default",
+        ], cwd=ROOT, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["errors"], [])
+        self.assertTrue(report["ids"], "discovery must not silently select zero tests")
+        self.assertFalse(any("_FailedTest" in name for name in report["ids"]))
+        self.assertEqual(len(report["ids"]), len(set(report["ids"])))
+        return set(report["paths"])
+
+    def test_recursive_discovery_includes_every_root_and_domain_module(self):
+        expected = {path.relative_to(ROOT).as_posix()
+                    for path in (ROOT / "tests").rglob("test_*.py")}
+        self.assertEqual(self.discover(), expected)
+
+    def test_focused_root_and_domain_discovery_preserve_selection(self):
+        self.assertEqual(self.discover(pattern="test_combined_packaging.py"),
+                         {"tests/test_combined_packaging.py"})
+        self.assertEqual(self.discover(pattern="test_settings.py"),
+                         {"tests/settings/test_settings.py"})
+        expected = {path.relative_to(ROOT).as_posix()
+                    for path in (ROOT / "tests/settings").glob("test_*.py")}
+        self.assertEqual(self.discover(start="tests/settings", package_root=True), expected)
+
+
 class RegistryTests(unittest.TestCase):
     def test_real_inventory_covers_all_owners_and_required_concerns(self):
         registry = c.load_registry()

@@ -101,7 +101,7 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
         self.assertIn('rev-parse HEAD)" = "$LEGACY_EMBEDDED_SIDESTORE_REF"', focused)
         self.assertEqual(focused.count('artifacts/logs/signin-preflight-anisette-test-timings.json'), 2)
         self.assertIn('tee artifacts/logs/signin-preflight-anisette-tests.log', focused)
-        names = [path.name for path in (ROOT / 'tests').glob('test_*.py')]
+        names = [path.name for path in (ROOT / 'tests').rglob('test_*.py')]
         selected = [{name for name in names if fnmatch.fnmatchcase(name, pattern)} for pattern in patterns]
         self.assertFalse(selected[0] & selected[1])
         self.assertIn('test_anisette_build_integration.py', selected[1])

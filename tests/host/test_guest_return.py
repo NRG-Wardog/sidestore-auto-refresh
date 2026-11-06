@@ -1,0 +1,422 @@
+"""Execute the actual injected registry and geometry; validate pinned patches in CI."""
+import importlib.util
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location("guest_return", ROOT / "scripts/patch_guest_return.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+SWIFT_STUBS = r'''
+import Foundation
+final class UISceneSession: NSObject {
+    let persistentIdentifier: String
+    init(_ id: String) { persistentIdentifier = id }
+}
+final class UIApplication {
+    static let shared = UIApplication()
+    var openSessions: Set<UISceneSession> = []
+    var activated: [String] = []
+    func requestSceneSessionActivation(_ session: UISceneSession?, userActivity: Any?, options: Any?, errorHandler: ((Error)->Void)?) {
+        if let session { activated.append(session.persistentIdentifier) }
+    }
+}
+final class SharedModel { var enableMultipleWindow = false }
+final class DataManager {
+    static let shared = DataManager()
+    let model = SharedModel()
+}
+final class AppSceneViewController: NSObject {
+    var pid: Int32
+    var isAppRunning = true
+    var cleanupCount = 0
+    var exit: (() -> Void)?
+    init(_ pid: Int32) { self.pid = pid }
+    func appTerminationCleanUp() {
+        cleanupCount += 1
+        isAppRunning = false
+        exit?()
+    }
+}
+struct MultitaskAppInfo {
+    var displayName: String
+    var dataUUID: String
+    var bundleId: String
+    let windowID = UUID().uuidString
+    var pid: Int32 = 0
+    weak var controller: AppSceneViewController?
+    var launchCallback: ((NSNumber, Error?) -> Void)?
+}
+class MultitaskWindowManager: NSObject {
+    static var appDict: [String: MultitaskAppInfo] = [:]
+    static var opened: [(String, String)] = []
+    static func openWindow(id: String, value: String) { opened.append((id, value)) }
+'''
+
+SWIFT_TESTS = r'''
+}
+@main struct Tests {
+    static func main() {
+        typealias M = MultitaskWindowManager
+        func launch(_ id: String, _ callback: @escaping (NSNumber, Error?)->Void) -> String {
+            M.openAppWindow(displayName: id, dataUUID: id, bundleId: "app." + id, pidCallback: callback)
+            return M.appDict.first(where: { $0.value.dataUUID == id })!.key
+        }
+        var results: [String: Int] = [:]
+        let a = launch("A") { p, e in precondition(e == nil); results["A"] = p.intValue }
+        let b = launch("B") { p, e in precondition(e == nil); results["B"] = p.intValue }
+        precondition(a != b && a != "A" && b != "B")
+        let ca = AppSceneViewController(101), cb = AppSceneViewController(202)
+        M.bind(ca, windowID: a); M.bind(cb, windowID: b)
+        // Reverse completion order must not swap callbacks or drop either result.
+        M.initialized(cb, windowID: b, error: nil)
+        M.initialized(ca, windowID: a, error: nil)
+        precondition(results == ["A": 101, "B": 202])
+        precondition(M.appDict[a]?.launchCallback == nil)
+        precondition(M.openExistingAppWindow(dataUUID: "A"))
+        precondition(M.opened.last!.1 == a)
+        precondition(ca.cleanupCount == 0 && cb.cleanupCount == 0)
+        var duplicateError = 0
+        M.openAppWindow(displayName: "A", dataUUID: "A", bundleId: "app.A") { _, e in
+            precondition(e != nil); duplicateError += 1
+        }
+        precondition(duplicateError == 1 && M.appDict.count == 2)
+        // Minimized process death: cleanup before replacement, not a kill/relaunch of a live guest.
+        ca.exit = { M.exited(ca, windowID: a) }
+        ca.isAppRunning = false
+        precondition(!M.openExistingAppWindow(dataUUID: "A"))
+        precondition(ca.cleanupCount == 1 && M.appDict[a] == nil)
+        var newCalls = 0
+        let newA = launch("A") { _, e in precondition(e == nil); newCalls += 1 }
+        precondition(newA != a)
+        let newCA = AppSceneViewController(303)
+        M.bind(newCA, windowID: newA)
+        M.initialized(ca, windowID: a, error: nil) // Old completion must not touch new launch.
+        M.exited(ca, windowID: a)
+        precondition(M.appDict[newA] != nil && newCalls == 0)
+        M.initialized(newCA, windowID: newA, error: nil)
+        M.initialized(newCA, windowID: newA, error: nil)
+        precondition(newCalls == 1)
+        // Pending launch and zero PID are not declared dead.
+        var pendingErrors = 0
+        let pending = launch("pending") { _, e in if e != nil { pendingErrors += 1 } }
+        precondition(M.openExistingAppWindow(dataUUID: "pending"))
+        let pendingC = AppSceneViewController(0)
+        M.bind(pendingC, windowID: pending)
+        M.exited(pendingC, windowID: pending)
+        M.exited(pendingC, windowID: pending)
+        precondition(pendingErrors == 1 && M.appDict[pending] == nil)
+        // Initializer failure must release this exact launch and propagate once.
+        var failureCalls = 0
+        let failed = launch("failed") { _, e in precondition(e != nil); failureCalls += 1 }
+        let failedC = AppSceneViewController(0)
+        M.bind(failedC, windowID: failed)
+        failedC.exit = { M.exited(failedC, windowID: failed) }
+        M.initialized(failedC, windowID: failed, error: NSError(domain: "test", code: 1))
+        precondition(failureCalls == 1 && M.appDict[failed] == nil)
+        // Activating host must target its real session; only create when missing.
+        var creations = 0
+        let main = UISceneSession("main")
+        UIApplication.shared.openSessions = [main]
+        M.mainSceneSession = main
+        M.activateMainScene { creations += 1 }
+        precondition(UIApplication.shared.activated == ["main"] && creations == 0)
+        UIApplication.shared.openSessions = []
+        M.activateMainScene { creations += 1 }
+        precondition(creations == 1 && M.mainSceneSession == nil)
+        precondition(cb.cleanupCount == 0 && newCA.cleanupCount == 0)
+        print("REGISTRY_RUNTIME_TESTS_PASSED")
+    }
+}
+'''
+
+class GuestReturnTests(unittest.TestCase):
+    def test_the_return_control_does_not_depend_on_removed_sidestore_hooks(self):
+        # The SideStore-only escape hook was removed with the rest of that UI.
+        # This patcher used to inject a second copy of the direct-return
+        # diagnostic into it, so it failed closed on a clean patched tree. The
+        # shipped control is LCDirectReturnPresenter in LCBootstrap.m, and the
+        # hooks file is now read, never written.
+        source = (ROOT / "scripts/patch_guest_return.py").read_text(encoding="utf-8")
+        startup = (ROOT / "scripts/patch_embedded_sidestore_startup.py").read_text(encoding="utf-8")
+        self.assertIn("SideStoreMyAppsViewController_orig_viewDidload", startup,
+                      "the hook removal must stay anchored to the swizzle it removes")
+        for removed in ("SideStoreMyAppsViewController_hook_escapeButtonTapped",
+                        "SideStoreMyAppsViewController_orig_viewDidload"):
+            self.assertNotIn(removed, module.DIRECT_CONTROL + module.DIRECT_RUNTIME + module.METHODS,
+                             "the shipped return control must not reintroduce the removed hook")
+        self.assertNotIn("hooks = replace(hooks", source,
+                         "the hooks file must not be patched")
+        self.assertNotIn('(hooks, "DIRECT_PROCESS_RESTART_RETURN")', source,
+                         "the removed hook must not still be a required token")
+
+    def test_virtual_control_is_above_chrome_and_native_stays_local(self):
+        self.assertIn('[(DecoratedAppSceneViewController *)self.delegate view] : self.view', module.METHODS)
+        self.assertIn('[overlayHost addSubview:self.lcReturnControl]', module.METHODS)
+        self.assertIn('[overlayHost bringSubviewToFront:self.lcReturnControl]', module.METHODS)
+        self.assertIn('convertRect:self.view.bounds toView:overlayHost', module.METHODS)
+        self.assertIn('self.lcReturnControl.superview != overlayHost', module.METHODS)
+        self.assertIn('self.lcReturnControl.hidden = LCReturnShouldHide(self.isAppRunning, decorated, maximized)', module.METHODS)
+        self.assertNotIn('[self.view addSubview:self.lcReturnControl]', module.METHODS)
+        self.assertLess(module.METHODS.index('if (self.isAppTerminationCleanUpCalled)'), module.METHODS.index('[overlayHost addSubview:'))
+        self.assertIn('[self.lcReturnControl removeFromSuperview]', module.CLEANUP)
+
+    def test_windowed_visibility_does_not_change_global_preference(self):
+        self.assertIn('[(DecoratedAppSceneViewController *)self.delegate isMaximized]', module.METHODS)
+        self.assertIn('return !running || (decorated && !maximized)', module.GEOMETRY)
+        self.assertNotIn('setBool:', module.METHODS)
+        self.assertNotIn('LCHideReturnControl', module.METHODS)
+
+    def test_preservation_has_no_termination_or_new_session(self):
+        self.assertIn("minimizeWindow", module.METHODS)
+        self.assertIn("self.lcActivateHost()", module.METHODS)
+        for forbidden in ("terminate]", "SIGKILL", "raise(", "launchToGuestApp", "NSExtension", "removeObjectForKey"):
+            self.assertNotIn(forbidden, module.METHODS)
+
+    def test_control_is_event_driven_and_touch_transparent(self):
+        for required in ("return hit == self ? nil : hit", "UIGestureRecognizerStateEnded", "isfinite(x)",
+                         "self.safeAreaInsets", "UIKeyboardWillChangeFrameNotification", "rect.size.width < 44"):
+            self.assertIn(required, module.CONTROL)
+        for forbidden in ("NSTimer", "dispatch_after", "sleep("):
+            self.assertNotIn(forbidden, module.CONTROL)
+
+    def test_direct_control_is_separate_and_honest(self):
+        self.assertIn('Collapse Return Button', module.CONTROL)
+        self.assertIn('boolForKey:@"LCHideReturnControl"', module.CONTROL)
+        self.assertIn('LCHideReturnControl', module.DIRECT_CONTROL)
+        self.assertIn("Restarts LiveContainer and closes this guest", module.DIRECT_CONTROL)
+        self.assertIn("DIRECT_PROCESS_RESTART_RETURN", module.DIRECT_RUNTIME)
+        self.assertIn("launchToGuestAppWithClassicMode:0", module.DIRECT_RUNTIME)
+        self.assertIn("UIWindowDidBecomeVisibleNotification", module.DIRECT_RUNTIME)
+        self.assertIn("UISceneDidDisconnectNotification", module.DIRECT_RUNTIME)
+        self.assertIn("window.hidden = NO", module.DIRECT_RUNTIME)
+        self.assertNotIn("makeKeyAndVisible", module.DIRECT_RUNTIME)
+        self.assertNotIn("launchToGuestApp", module.METHODS)
+        for forbidden in ("NSTimer", "dispatch_after", "SIGKILL", "terminate", "sleep("):
+            self.assertNotIn(forbidden, module.DIRECT_RUNTIME)
+
+    def test_collapse_does_not_disable_global_preference_or_return(self):
+        for control in (module.CONTROL, module.DIRECT_CONTROL):
+            self.assertNotIn('setBool:YES forKey:@"LCHideReturnControl"', control)
+            self.assertIn('[weakControl collapse]', control)
+            self.assertIn('self.collapsed = YES', control)
+            self.assertIn('self.collapsed = NO', control)
+            self.assertIn('CONTROL_RESTORED', control)
+            self.assertIn('chevron.compact.right', control)
+            tapped = control[control.index('- (void)tapped'):]
+            self.assertLess(tapped.index('return;'), tapped.index('self.action()'))
+
+    def test_start_collapsed_is_shared_and_does_not_reset_on_layout(self):
+        for control in (module.CONTROL, module.DIRECT_CONTROL):
+            init = control[control.index('- (instancetype)initWithFrame:'):control.index('- (void)dealloc')]
+            self.assertIn('boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse]', init)
+            self.assertLess(init.index('isfinite(x)'), init.index('[self collapse]'))
+            for start, end in (('- (void)layoutSubviews', '- (void)keyboard:'),
+                               ('- (void)preferencesChanged:', '- (UIView *)hitTest:')):
+                self.assertNotIn('[self collapse]', control[control.index(start):control.index(end)])
+            self.assertIn('name:NSUserDefaultsDidChangeNotification object:NSUserDefaults.lcSharedDefaults', control)
+            self.assertIn('name:UIApplicationDidBecomeActiveNotification', control)
+        self.assertIn('private var returnStartsCollapsed = false', module.SETTINGS_PROPERTIES)
+        self.assertIn('private var returnCustomColors = false', module.SETTINGS_PROPERTIES)
+        for key in ('LCGuestReturnStartsCollapsed', 'LCGuestReturnCustomColors',
+                    'LCGuestReturnTintRGB', 'LCGuestReturnBackgroundRGB'):
+            self.assertIn(f'@AppStorage("{key}", store: UserDefaults.lcShared())', module.SETTINGS_PROPERTIES)
+            self.assertIn(f'@"{key}"', module.CONTROL)
+            self.assertIn(f'@"{key}"', module.DIRECT_CONTROL)
+
+    def test_guest_return_shared_defaults_survive_separate_processes(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        source = r'''
+import Foundation
+let sharedSuite = CommandLine.arguments[1]
+let processSuite = CommandLine.arguments[2]
+let key = CommandLine.arguments[3]
+let mode = CommandLine.arguments[4]
+let shared = UserDefaults(suiteName: sharedSuite)!
+let processDefaults = UserDefaults(suiteName: processSuite)!
+if mode == "write" {
+    processDefaults.set(false, forKey: key)
+    shared.set(true, forKey: key)
+    shared.synchronize()
+} else {
+    precondition(processDefaults.object(forKey: key) == nil,
+                 "the second process must not read the first process's private defaults")
+    precondition(shared.bool(forKey: key),
+                 "the shared suite must carry the host preference across processes")
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            program, executable = root / "shared-defaults.swift", root / "shared-defaults"
+            program.write_text(source, encoding="utf-8")
+            built = subprocess.run([compiler, str(program), "-o", str(executable)],
+                                   capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            suite = "group.test.guest-return." + root.name
+            key = "LCGuestReturnStartsCollapsed." + root.name
+            for mode, process in (("write", "host"), ("read", "liveprocess")):
+                result = subprocess.run([str(executable), suite, process + "." + root.name, key, mode],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("NSUserDefaults.lcSharedDefaults", module.CONTROL)
+        self.assertIn("UserDefaults.lcShared()", module.SETTINGS_PROPERTIES)
+
+    def test_appearance_keeps_tab_transparent_and_system_colors_available(self):
+        for control in (module.CONTROL, module.DIRECT_CONTROL):
+            layout = control[control.index('- (void)layoutSubviews'):control.index('- (void)keyboard:')]
+            self.assertIn('self.collapsed ? UIColor.clearColor : background', layout)
+            self.assertIn('LCGuestReturnColor(@"LCGuestReturnTintRGB", 0x007AFF) : nil', layout)
+            self.assertIn('LCGuestReturnColor(@"LCGuestReturnBackgroundRGB", 0xF2F2F7) : UIColor.secondarySystemBackgroundColor', layout)
+        self.assertIn('private var returnTintRGB = 0x007AFF', module.SETTINGS_PROPERTIES)
+        self.assertIn('private var returnBackgroundRGB = 0xF2F2F7', module.SETTINGS_PROPERTIES)
+
+    def test_control_actions_and_color_decoding_execute(self):
+        compiler = shutil.which('clang')
+        if sys.platform != 'darwin' or not compiler:
+            self.skipTest('Objective-C Foundation runtime requires macOS')
+        harness = (ROOT / 'tests/fixtures/guest_return_control_harness.m').read_text()
+        color = module.CONTROL.split('static UIColor *LCGuestReturnColor', 1)[1].split('@interface LCReturnControl', 1)[0]
+        collapse = module.CONTROL.split('- (void)collapse {', 1)[1].split('- (void)preferencesChanged:', 1)[0]
+        tapped = module.CONTROL.split('- (void)tapped {', 1)[1].split('@end', 1)[0]
+        source = harness.replace('// COLOR_DECODER', 'static UIColor *LCGuestReturnColor' + color)
+        source = source.replace('// COLLAPSE_METHOD', '- (void)collapse {' + collapse)
+        source = source.replace('// TAPPED_METHOD', '- (void)tapped {' + tapped)
+        with tempfile.TemporaryDirectory() as directory:
+            src, exe = Path(directory)/'Control.m', Path(directory)/'control'
+            src.write_text(source)
+            build = subprocess.run([compiler, '-fobjc-arc', '-fblocks', '-framework', 'Foundation',
+                                    str(src), '-o', str(exe)], capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(exe)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn('RETURN_CONTROL_TESTS_PASSED', run.stdout)
+
+    def test_extension_diagnostics_are_truthful_idempotent_and_behavior_neutral(self):
+        original = "\n".join([
+            '    [_extension setRequestCancellationBlock:^(NSUUID *uuid, NSError *error) {\n        [weakSelf appTerminationCleanUp];\n    }];',
+            '    [_extension setRequestInterruptionBlock:^(NSUUID *uuid) {\n        [weakSelf appTerminationCleanUp];\n    }];',
+            '    [self.extension setRequestInterruptionBlock:^(NSUUID *uuid) {\n        [weakSelf appTerminationCleanUp];\n    }];',
+        ])
+        generated = module.patch_lifecycle_diagnostics(original)
+        self.assertEqual(generated.count("PROCESS_INTERRUPTED pid="), 2)
+        self.assertEqual(generated.count("PROCESS_CANCELLED pid="), 1)
+        self.assertEqual(generated, module.patch_lifecycle_diagnostics(generated))
+        without_logs = "\n".join(line for line in generated.split("\n")
+                                 if "[LC_GUEST_LIFECYCLE]" not in line)
+        self.assertEqual(without_logs, original)
+        with self.assertRaises(ValueError):
+            module.patch_lifecycle_diagnostics(generated.replace("PROCESS_CANCELLED", "PROCESS_INTERRUPTED"))
+        with self.assertRaises(ValueError):
+            module.patch_lifecycle_diagnostics(original.replace("setRequestCancellationBlock", "changedCallback"))
+
+    def test_cleanup_finishes_before_exit_callback(self):
+        self.assertLess(module.CLEANUP.index("unregisterMultitaskContainer"), module.CLEANUP.index("appSceneVCAppDidExit"))
+        self.assertIn("NSThread.isMainThread", module.CLEANUP)
+        self.assertNotIn("_kill", module.CLEANUP)
+        self.assertNotIn("connectedScenes.first", module.DOCK_RESUME)
+        self.assertIn("targetView.window", module.DOCK_RESUME)
+
+    def test_registry_uses_generation_and_own_callback(self):
+        self.assertNotIn("DataManager.shared.model.pidCallback", module.WINDOW_MANAGER)
+        self.assertIn("entry.windowID", module.WINDOW_MANAGER)
+        self.assertLess(module.WINDOW_MANAGER.index("entry.launchCallback = nil"), module.WINDOW_MANAGER.index("callback?("))
+        self.assertNotIn("unregisterMultitaskContainer", module.WINDOW_MANAGER)
+        self.assertNotIn("getpgid", module.WINDOW_MANAGER)
+
+    def test_geometry_executes_for_resize_and_invalid_position(self):
+        compiler = shutil.which("cc")
+        if not compiler: self.skipTest("C compiler unavailable")
+        source = "#include <math.h>\n#include <assert.h>\n" + module.GEOMETRY + r'''
+int main(void) {
+    for (int running = 0; running <= 1; running++) {
+        for (int decorated = 0; decorated <= 1; decorated++) {
+            for (int maximized = 0; maximized <= 1; maximized++) {
+                assert(LCReturnShouldHide(running, decorated, maximized) ==
+                       (!running || (decorated && !maximized)));
+            }
+        }
+    }
+    for (int size = 44; size <= 2000; size += 7) {
+        for (int p = -2; p <= 3; p++) {
+            double center = LCReturnAxisCenter(9, size, p);
+            assert(center - 22 >= 9 && center + 22 <= 9 + size);
+        }
+    }
+    assert(LCReturnAxisCenter(0, 44, 1) == 22);
+    assert(LCReturnAxisCenter(0, 10, 1) == 5);
+    assert(isfinite(LCReturnAxisCenter(0, 300, NAN)));
+    assert(LCReturnAxisCenter(NAN, 300, 0.2) == 0);
+    assert(LCReturnAxisCenter(0, INFINITY, 0.2) == 0);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            src, exe = Path(directory)/"geometry.c", Path(directory)/"geometry"
+            src.write_text(source)
+            subprocess.run([compiler, "-Wall", "-Wextra", "-Werror", str(src), "-lm", "-o", str(exe)], check=True, capture_output=True)
+            subprocess.run([str(exe)], check=True, capture_output=True)
+
+    def test_registry_executes_real_injected_code(self):
+        compiler = shutil.which("swiftc")
+        if not compiler: self.skipTest("Swift compiler unavailable")
+        # Only remove Objective-C exposure for Linux. Registry bodies are the shipped code.
+        source = SWIFT_STUBS + module.WINDOW_MANAGER.replace("@objc ", "") + SWIFT_TESTS
+        with tempfile.TemporaryDirectory() as directory:
+            src, exe = Path(directory)/"Registry.swift", Path(directory)/"registry"
+            src.write_text(source)
+            build = subprocess.run([compiler, "-parse-as-library", "-swift-version", "5", "-O", str(src), "-o", str(exe)], capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(exe)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn("REGISTRY_RUNTIME_TESTS_PASSED", run.stdout)
+
+    def test_pinned_patch_and_idempotence(self):
+        source = Path(os.environ.get("LIVE_CONTAINER_TEST_SOURCE", str(ROOT / ".audit/upstream/LiveContainer")))
+        if not source.is_dir(): self.skipTest("Pinned LiveContainer source unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in module.PATHS:
+                dest = root / name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source / name, dest)
+            module.patch(root)
+            decorated = (root / "MultitaskSupport/DecoratedAppSceneViewController.m").read_text()
+            for state in ("YES", "NO"):
+                self.assertIn(f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];", decorated)
+            # All Guest Return settings injected into this view use the App
+            # Group accessor read by the LiveProcess Objective-C control.
+            patched_settings = (root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text()
+            self.assertIn('store: UserDefaults.lcShared()', patched_settings)
+            self.assertNotIn('store: UserDefaults.lc()', patched_settings)
+            first = {name: (root/name).read_bytes() for name in module.PATHS}
+            module.patch(root)
+            self.assertEqual(first, {name: (root/name).read_bytes() for name in module.PATHS})
+            # An already patched tree must not silently accept stale settings.
+            settings_path = root / 'LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift'
+            settings_bytes = settings_path.read_bytes()
+            settings_path.write_text(settings_path.read_text().replace('LCGuestReturnTintRGB', 'WrongTintKey'))
+            before = {name: (root/name).read_bytes() for name in module.PATHS}
+            with self.assertRaisesRegex(ValueError, 'guest Return settings'):
+                module.patch(root)
+            self.assertEqual(before, {name: (root/name).read_bytes() for name in module.PATHS})
+            settings_path.write_bytes(settings_bytes)
+            compiler = shutil.which("swiftc")
+            if compiler:
+                for name in module.PATHS:
+                    if name.endswith(".swift"):
+                        result = subprocess.run([compiler, "-frontend", "-parse", str(root/name)], text=True, capture_output=True)
+                        self.assertEqual(result.returncode, 0, name + result.stderr)
+            # No partial write when one pinned anchor drifts.
+            broken = root / module.PATHS[0]
+            broken.write_text(broken.read_text().replace("LCReturnControl", "UnexpectedControl"))
+            with self.assertRaises(ValueError): module.patch(root)
+
+if __name__ == "__main__": unittest.main()
