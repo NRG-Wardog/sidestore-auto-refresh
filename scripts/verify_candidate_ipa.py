@@ -602,17 +602,9 @@ REQUIRED_GENERATED_EMBEDDED_SOURCES = {
 
 
 def verify_constructor_diagnostic_binaries(host: bytes, embedded: bytes, support: bytes, maintained: dict | None) -> None:
-    """Require constructor protocol evidence in each actual diagnostic product."""
-    if maintained is None or maintained.get("source_basis") not in {"p0-constructor-diagnostics-v1", "p0-elf-metadata-bounds-v1", "p0-cxx-allocation-v1", "p2-composed-host-v1", "p0-full-login-diagnostics-v1"}:
-        return
-    keys = (b"native_init_kind", b"native_init_reason", b"native_init_engine", b"native_init_library", b"native_init_initializer")
-    for name, code in (("host", host), ("embedded", embedded), ("support", support)):
-        if any(key not in code for key in keys):
-            raise ValueError("compiled constructor diagnostic keys missing in " + name)
-    if b"setupConstructors" not in embedded or b"setupConstructors" not in support:
-        raise ValueError("compiled constructor diagnostic phase missing")
-    if b"Library constructor execution failed [v1;kind=" not in embedded:
-        raise ValueError("compiled native constructor diagnostic producer missing")
+    """Old diagnostic source bases cannot be admitted as baseline products."""
+    if maintained is not None and maintained.get("source_basis") is not None:
+        raise ValueError("unsupported retired source basis")
 
 
 def verify_isolated_anisette_binary(executable: bytes, manifest: dict | None = None) -> None:
@@ -622,15 +614,13 @@ def verify_isolated_anisette_binary(executable: bytes, manifest: dict | None = N
     if (ANISETTE_COMPILED_MARKER not in executable or
             ANISETTE_COMPILED_LITERAL not in executable):
         raise ValueError("embedded SideStore is missing the compiled checked Anisette staging path")
-    if manifest is not None and manifest.get("source_basis") in {"maintained-adi-consumption-v1", "maintained-adi-consumption-v2", "p0-abi-tls-certificate-lifecycle-v1", "p0-constructor-diagnostics-v1", "p0-elf-metadata-bounds-v1", "p0-cxx-allocation-v1", "p2-composed-host-v1", "p0-full-login-diagnostics-v1"}:
-        for item in manifest["required_compiled_evidence"]["literals"]:
-            if item["value"].encode("utf-8") not in executable:
-                raise ValueError("embedded SideStore is missing reviewed ADI consumer evidence")
+    if manifest is not None and manifest.get("source_basis") is not None:
+        raise ValueError("unsupported retired source basis")
 
 
 def verify_isolated_anisette_evidence(evidence_root: Path, binding: dict,
                                      executable: bytes, maintained_pins: dict | None = None) -> None:
-    from maintained_sources import expected_anisette_evidence, anisette_source_hashes, DIAGNOSTIC_BASIS, DIAGNOSTIC_METADATA
+    from maintained_sources import expected_anisette_evidence, anisette_source_hashes
     expected_manifest = expected_anisette_evidence(maintained_pins)
     if (expected_manifest.get("marker") != ANISETTE_COMPILED_MARKER.decode("ascii") or
             expected_manifest.get("compiled_literal") != ANISETTE_COMPILED_LITERAL.decode("ascii")):
@@ -654,9 +644,6 @@ def verify_isolated_anisette_evidence(evidence_root: Path, binding: dict,
     if actual_paths != expected_paths | {ANISETTE_EVIDENCE_MANIFEST}:
         raise ValueError("isolated Anisette OTP evidence inventory mismatch")
     manifest_data = (root / ANISETTE_EVIDENCE_MANIFEST).read_bytes()
-    if expected_manifest.get("source_basis") == DIAGNOSTIC_BASIS:
-        if hashlib.sha256(manifest_data).hexdigest() != DIAGNOSTIC_METADATA["anisette-generated/maintained-source-manifest.json"]:
-            raise ValueError("diagnostic Anisette manifest differs from approved immutable bytes")
     if binding["manifest_sha256"] != hashlib.sha256(manifest_data).hexdigest():
         raise ValueError("isolated Anisette OTP manifest hash mismatch")
     # Derive these exact hashes from the pinned originals and the reviewed

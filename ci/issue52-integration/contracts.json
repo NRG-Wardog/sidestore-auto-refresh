@@ -1672,8 +1672,8 @@
         {
           "owner": "sidestore-auto-refresh",
           "path": "scripts/maintained_sources.py",
-          "interface": "Maintained-source validation",
-          "rationale": "Separate source acquisition and verification from historical patch generation."
+          "interface": "Baseline compatibility fixture validation",
+          "rationale": "Retain baseline product-fixture identity checks; current builds use the independent candidate source graph gate."
         },
         {
           "owner": "sidestore-auto-refresh",

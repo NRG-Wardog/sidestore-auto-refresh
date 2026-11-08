@@ -214,7 +214,7 @@ class RepositoryTests(unittest.TestCase):
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
                     'experiment_local_symbols.py', 'experiment_sidebackup_stabs.py', 'local_symbol_packaging.py', 'macho_local_symbol_guard.py', 'openssl_local_symbol_policy.py', 'optimize_openssl_local_candidate.py', 'optimize_sidebackup_candidate.py', 'optimize_unsigned_widget.py', 'patch_refresh_callback_admission.py', 'widget_local_symbols.py', 'widget_signature_policy.py',
                     "integration_contracts.py", "experiment_strip_stabs.py", "macho_stab_guard.py", "optimize_native_candidate.py",
-                    "check_compiled_localization.py", "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "p0_maintained_sources.py", "p1_maintained_sources.py", "p0_constructor_diagnostics.py", "p0_elf_metadata_bounds.py", "p0_cxx_allocation.py", "p2_composed_host.py", "p0_full_login_diagnostics.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py"},
+                    "check_compiled_localization.py", "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py"},
 
         )
 

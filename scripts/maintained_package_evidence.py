@@ -3,8 +3,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from maintained_sources import (ROOT, DIAGNOSTIC_BASIS, DIAGNOSTIC_METADATA,
-                                contract_basis, diagnostic_receipt_references, git, require, unique_pairs)
+from maintained_sources import (ROOT,
+                                contract_basis, git, require, unique_pairs)
 
 CONTRACT_DIRECTORY = "maintained-source-contracts"
 EVIDENCE_KIND = "maintained-source-contracts-v1"
@@ -30,34 +30,6 @@ def read_regular(root, name):
 
 def contract_files(pins, root=None):
     """Derive the complete metadata inventory from the independently approved hash."""
-    from p0_full_login_diagnostics import BASIS as LOGIN_BASIS
-    if pins.get('source_basis') == LOGIN_BASIS:
-        from p0_full_login_diagnostics import contract_files as login_contract_files
-        return login_contract_files(pins, ROOT, root)
-    from p2_composed_host import BASIS as P2_BASIS
-    if pins.get('source_basis') == P2_BASIS:
-        from p2_composed_host import contract_files as p2_contract_files
-        return p2_contract_files(pins, ROOT, root)
-    from p0_cxx_allocation import BASIS as CXX_BASIS
-    if pins.get('source_basis') == CXX_BASIS:
-        from p0_cxx_allocation import contract_files as cxx_contract_files
-        return cxx_contract_files(pins, ROOT, root)
-    from p0_elf_metadata_bounds import BASIS as BOUNDS_BASIS
-    if pins.get("source_basis") == BOUNDS_BASIS:
-        from p0_elf_metadata_bounds import contract_files as bounds_contract_files
-        return bounds_contract_files(pins, ROOT, root)
-    from p0_constructor_diagnostics import BASIS as CONSTRUCTOR_BASIS
-    if pins.get("source_basis") == CONSTRUCTOR_BASIS:
-        from p0_constructor_diagnostics import contract_files as constructor_contract_files
-        return constructor_contract_files(pins, ROOT, root)
-    from p1_maintained_sources import BASIS as P1_BASIS
-    if pins.get("source_basis") == P1_BASIS:
-        from p1_maintained_sources import contract_files as p1_contract_files
-        return p1_contract_files(pins, ROOT, root)
-    from p0_maintained_sources import BASIS as P0_BASIS
-    if pins.get("source_basis") == P0_BASIS:
-        from p0_maintained_sources import contract_files as p0_contract_files
-        return p0_contract_files(pins, ROOT, root)
     try:
         selected_root, expected_registry = contract_basis(pins, integration_root=ROOT)
     except ValueError as error:
@@ -70,10 +42,6 @@ def contract_files(pins, root=None):
     references = {registry["evidence"]["path"]: registry["evidence"]["sha256"]}
     references.update({item["manifest_path"]: item["manifest_sha256"]
                        for item in registry["owners"].values()})
-    if pins.get("source_basis") == DIAGNOSTIC_BASIS:
-        references.update(DIAGNOSTIC_METADATA)
-        if "diagnostic_dependencies" in pins:
-            references.update(diagnostic_receipt_references(pins))
     files = {registry_name: registry_data}
     for name, expected in references.items():
         data = read_regular(root, name)
