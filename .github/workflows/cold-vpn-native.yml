@@ -1,17 +1,14 @@
-name: Cold VPN stabilization native qualification
+name: Build and package pinned maintained graph (6.0.1 basis)
 on:
   workflow_dispatch:
-  push:
-    branches: ['validation/cold-vpn']
-    paths: ['ci/refresh-direct-native/**', 'ci/refresh-truth/**', 'ci/startup-upgrade/**', 'ci/cold-vpn/**', 'ci/multitask-launch/**', 'ci/language-switch/**', 'ci/issue56-startup/**', 'ci/issues-native/**', '.github/workflows/cold-vpn-native.yml', 'scripts/*strip*.py', 'scripts/macho_stab_guard.py', 'scripts/macho_local_symbol_guard.py', 'scripts/experiment_local_symbols.py', 'scripts/local_symbol_packaging.py', 'scripts/optimize_native_candidate.py', 'tests/test_*strip*.py', 'tests/test_macho_stab_guard.py', 'tests/test_macho_local_symbol_guard.py', 'tests/test_experiment_local_symbols.py', 'tests/test_local_symbol_packaging.py', 'tests/test_native_size_optimization.py']
 permissions:
   contents: read
 concurrency:
-  group: cold-vpn-native-${{ github.ref }}
+  group: maintained-native-package-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   compile:
-    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.ref == 'refs/heads/validation/cold-vpn'
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && github.event_name == 'workflow_dispatch'
     runs-on: macos-26
     timeout-minutes: 100
     env:
@@ -50,6 +47,10 @@ jobs:
           test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
           cp harness/ci/issues-native/candidate-graph.json evidence/requested-candidate.json
           git -C harness rev-parse HEAD HEAD^{tree} > evidence/harness-identity.txt
+      - name: Identify the exact maintained source graph before building
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/current-build/source_selection.py --graph harness/ci/issues-native/candidate-graph.json --output evidence/current-source-selection.json --summary "$GITHUB_STEP_SUMMARY"
       - name: Check sync guards with source-owned synthetic fixtures only
         run: |
           set -euo pipefail
@@ -749,7 +750,7 @@ jobs:
           python3 harness/ci/issues-native/record.py verify-resolved
           python3 harness/ci/issues-native/record.py snapshot after-build
           cmp evidence/compiler-inputs.json evidence/after-build.json
-          python3 harness/ci/issues-native/record.py receipt
+          python3 harness/ci/issues-native/record.py receipt-current
       # Insert after the successful native receipt, before always-uploaded evidence.
       - name: Retain exact unsigned app products for diagnostic packaging
         if: success()

@@ -1,0 +1,22 @@
+name: Check maintained build entry
+on:
+  pull_request:
+    paths: ['.github/workflows/cold-vpn-native.yml', '.github/workflows/current-build-contract.yml', 'ci/current-build/**', 'ci/issues-native/record.py', 'ci/issues-native/candidate-graph.json']
+  push:
+    branches: [main]
+    paths: ['.github/workflows/cold-vpn-native.yml', '.github/workflows/current-build-contract.yml', 'ci/current-build/**', 'ci/issues-native/record.py', 'ci/issues-native/candidate-graph.json']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 -B -m unittest discover -s ci/current-build -p 'test_*.py' -v
+      - run: python3 -B -m unittest discover -s ci/issues-native -p test_workflow_failure_collection.py -v
+      - run: python3 -B -m unittest discover -s ci/cold-vpn -p 'test_*.py' -v
+      - run: python3 -B -m unittest discover -s ci/issue56-startup -p test_same_run_size.py -v

@@ -249,7 +249,8 @@ class RelocationTests(unittest.TestCase):
             self.assertNotIn('if:', linux)
 
     def test_required_linux_job_cannot_be_disabled_or_narrowed(self):
-        for name in relocation.WORKFLOW_LAYOUT_EDITS:
+        for name in ('.github/workflows/maintained-packaging-contract.yml',
+                     '.github/workflows/validation-history-contract.yml'):
             path = self.root/name
             original = path.read_bytes()
             mutations = (
@@ -267,9 +268,25 @@ class RelocationTests(unittest.TestCase):
                         self.verify(name)
                     path.write_bytes(original)
 
+    def test_current_build_gate_or_command_drift_rejected(self):
+        name = '.github/workflows/cold-vpn-native.yml'
+        path = self.root/name
+        original = path.read_bytes()
+        for before, after in (
+                (b'record.py receipt-current', b'record.py receipt'),
+                (b'--same-run-qualified-size', b'--recover-fixed-native'),
+                (b'if: success()', b'if: always()'),
+                (b'contents: read', b'contents: write')):
+            with self.subTest(mutation=before):
+                self.assertIn(before, original)
+                path.write_bytes(original.replace(before, after))
+                with self.assertRaisesRegex(ValueError, 'Relocated source bytes'):
+                    self.verify(name)
+                path.write_bytes(original)
+
     def test_additional_documentation_workflow_bytes_are_exact(self):
         self.assertEqual(set(relocation.REVIEWED_ADDITIONAL_WORKFLOWS),
-                         {'.github/workflows/documentation-contract.yml'})
+                         {'.github/workflows/documentation-contract.yml', '.github/workflows/current-build-contract.yml'})
         path = self.root/'.github/workflows/documentation-contract.yml'
         original = path.read_bytes()
         self.assertIn(b'contents: read', original)
