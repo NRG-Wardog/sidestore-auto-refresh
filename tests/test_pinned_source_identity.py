@@ -51,22 +51,14 @@ class PinnedSourceIdentityTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unexpected commit"):
                     pinned.verify_checkout(directory, "a" * 40)
 
-    def test_current_entries_use_reviewed_immutable_native_source_pipeline(self):
-        # The old in-repository patch build is retired. Source verification now
-        # belongs to the immutable native pipeline, not a local pre-patch step.
-        contract = json.loads((ROOT / 'ci/maintained-build/contract.json').read_text())
-        implementation = contract['implementation_commit']
-        self.assertRegex(implementation, r'^[0-9a-f]{40}$')
-        expected = ('uses: NRG-Wardog/LiveContainer/.github/workflows/'
-                    'native-app-compile.yml@' + implementation)
-        for entry in ('livecontainer-build.yml', 'build-current.yml'):
-            with self.subTest(entry=entry):
-                workflow = (ROOT / '.github/workflows' / entry).read_text()
-                self.assertEqual(workflow.count(expected), 1)
-                self.assertIn('permissions:\n  contents: read', workflow)
-                self.assertNotIn('steps:', workflow)
-                self.assertNotIn('patch_', workflow)
-                self.assertNotIn('verify_pinned_sources.py', workflow)
+    def test_current_entry_uses_explicit_committed_graph_and_receipt_gate(self):
+        workflow = (ROOT / '.github/workflows/cold-vpn-native.yml').read_text()
+        self.assertIn('permissions:\n  contents: read', workflow)
+        self.assertIn('ci/current-build/source_selection.py --graph harness/ci/issues-native/candidate-graph.json', workflow)
+        self.assertIn('verify_candidate_graph.py', workflow)
+        self.assertIn('record.py receipt-current', workflow)
+        self.assertIn('ref: ${{ github.sha }}', workflow)
+        self.assertNotIn('contents: write', workflow)
 
 
 

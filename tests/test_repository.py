@@ -10,7 +10,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "build-current.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "cold-vpn-native.yml"
 SCRIPTS = ROOT / "scripts"
 REQUIRED_SCRIPTS = {
     "patch_coredevice_idevice.py",
@@ -243,16 +243,12 @@ class RepositoryTests(unittest.TestCase):
         )
 
     def test_workflow_references_current_scripts(self):
-        # Active entrypoints must use the maintained immutable implementation,
-        # not retired patch recipes.
-        import json
-        maintained = json.loads((ROOT / "ci/maintained-build/contract.json").read_text())
-        for name in ("livecontainer-build.yml", "build-current.yml"):
-            workflow = (ROOT / ".github/workflows" / name).read_text()
-            self.assertIn("uses: NRG-Wardog/LiveContainer/.github/workflows/native-app-compile.yml@"
-                          + maintained["implementation_commit"], workflow)
-            self.assertNotIn("builder/scripts/", workflow)
-            self.assertNotIn("contents: write", workflow)
+        workflow = WORKFLOW.read_text()
+        self.assertIn('permissions:\n  contents: read', workflow)
+        self.assertIn('record.py receipt-current', workflow)
+        self.assertIn('verify_candidate_graph.py', workflow)
+        self.assertIn('package_candidate.py --same-run-qualified-size', workflow)
+        self.assertNotIn('contents: write', workflow)
         contract = (SCRIPTS / COMBINED_REFRESH_SCRIPT).read_text(encoding="utf-8")
         self.assertIn("from patch_embedded_keychain import patch as patch_shared_keychain", contract)
         self.assertIn("patch_combined_cli(Path(sys.argv[1]))", contract)
