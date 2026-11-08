@@ -1,4 +1,4 @@
-name: Verify maintained 6.0 packaging source
+name: Verify maintained packaging source
 on:
   push:
     branches: [main]
@@ -9,7 +9,7 @@ on:
       - 'tests/test_combined_packaging.py'
       - 'tests/test_dylibify_source_build.py'
       - '.github/workflows/maintained-packaging-contract.yml'
-      - 'ci/validation-history/**'
+      - 'ci/source-integrity/**'
       - 'scripts/packaging_adapters.py'
       - 'scripts/ipa_size_report.py'
       - 'tests/test_packaging_adapters.py'
@@ -18,7 +18,6 @@ on:
       - 'tests/fixtures/upstream-packaging/**'
       - 'ci/packaging/patch-surface.json'
   pull_request:
-    branches: [main]
     paths:
       - 'scripts/package_livecontainer_combined.py'
       - 'scripts/audit_ipa_signing.py'
@@ -26,7 +25,7 @@ on:
       - 'tests/test_combined_packaging.py'
       - 'tests/test_dylibify_source_build.py'
       - '.github/workflows/maintained-packaging-contract.yml'
-      - 'ci/validation-history/**'
+      - 'ci/source-integrity/**'
       - 'scripts/packaging_adapters.py'
       - 'scripts/ipa_size_report.py'
       - 'tests/test_packaging_adapters.py'
@@ -38,8 +37,8 @@ on:
 permissions:
   contents: read
 jobs:
-  historical-semantic:
-    name: Frozen semantic contracts (Linux)
+  source-integrity:
+    name: Reviewed source integrity (Linux)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -47,12 +46,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Run all provenance and immutable historical semantic tests
-        run: python3 -B -m unittest discover -s ci/validation-history -p 'test_*.py' -v
-      - name: Verify historical ancestry and production source boundaries
-        run: python3 -B ci/validation-history/verify.py
+      - name: Reject source drift and malformed manifests
+        run: python3 -B -m unittest discover -s ci/source-integrity -p 'test_*.py' -v
+      - name: Verify reviewed current source boundaries
+        run: python3 -B ci/source-integrity/verify.py
   packaging-contract:
-    needs: historical-semantic
+    needs: source-integrity
     runs-on: macos-26
     timeout-minutes: 10
     steps:
@@ -60,10 +59,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify frozen release history and exact reviewed current packaging source
-        run: python3 -B ci/validation-history/source_contract.py --packaging
-      - name: Reject malformed successor mappings and source drift
-        run: python3 -B -m unittest discover -s ci/validation-history -p 'test_source_contract.py' -v
+      - name: Verify exact reviewed current packaging source
+        run: python3 -B ci/source-integrity/verify.py
+      - name: Reject malformed manifests and source drift
+        run: python3 -B -m unittest discover -s ci/source-integrity -p 'test_integrity.py' -v
       - name: Exercise synthetic packaging and source-built converter contracts
         shell: bash
         run: |

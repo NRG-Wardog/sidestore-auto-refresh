@@ -24,11 +24,7 @@ class NativePresenterContractTests(unittest.TestCase):
         self.assertIn('site: LCNativeErrorSite', module.HELPER)
         self.assertIn('builder_commit=', module.HELPER)
 
-    def test_workflow_and_provenance(self):
-        workflow = (ROOT / 'migration/historical/livecontainer-build-141776ba.yml').read_text()
-        command = 'python3 builder/scripts/patch_native_error_presenters.py work/LiveContainer'
-        self.assertEqual(workflow.count(command), 2)
-        self.assertGreater(workflow.index(command), workflow.rindex('python3 builder/scripts/patch_v3_service.py work/LiveContainer'))
+    def test_native_presenter_provenance_and_dependency_boundary(self):
         evidence = (ROOT / 'scripts/combined_build_evidence.py').read_text()
         self.assertIn('*NATIVE_ERROR_SOURCE_PATHS', evidence)
         self.assertNotIn('CombinedFailure', module.HELPER)  # No SideStore/headless-only dependency.

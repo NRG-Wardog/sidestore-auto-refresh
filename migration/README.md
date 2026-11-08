@@ -1,28 +1,13 @@
-# Maintained-source migration and provenance
+# Remaining source compatibility fixtures
 
-This directory retains the source-migration contracts, historical source snapshots,
-resolver locks, ownership records, replay tests and cutover evidence used by the
-maintained build and its regression checks. It is not a temporary build directory.
+The current application build uses the exact component graph in
+`ci/issues-native/candidate-graph.json`; see `ci/current-build/`.
 
-Start here:
+This directory is not a user-data migration system. Its remaining contracts,
+source fixtures and diagnostic receipts are still consumed by legacy packaging
+and regression helpers. Do not treat them as current build or device evidence.
 
-- [Maintained integration cutover](MAINTAINED_INTEGRATION_CUTOVER.md)
-- [Final pin import](FINAL_PIN_IMPORT.md)
-- [Runtime contracts](contracts/README.md)
-- [Contract coverage](contracts/COVERAGE.md)
-
-Directory roles:
-
-- `contracts/`: machine-readable runtime compatibility and owner contracts.
-- `tests/` and `local_replay_tests/`: migration and replay regressions.
-- `p0-*`, `p1-*`, `p2-*`: versioned migration inputs, source owners and provenance.
-- `diagnostics/`: bounded diagnostic experiments and frozen evidence.
-- `cutover-evidence/`: retained test results and final source-graph receipts.
-- `historical/`: original snapshots for comparison. References inside these files
-  reflect their historical layout and are intentionally not rewritten.
-
-Several scripts import the root `prepare_candidate_inventory.py` module. Paths,
-source hashes and historical Git objects are part of the validation contract;
-preserve them rather than merging these records into the ordinary documentation.
-
-[Documentation and repository map](../docs/README.md)
+Offline candidate finalizers, their private tests and unconsumed cutover reports
+have been retired. The remaining parity report is still hash-referenced by two
+compatibility records. Further removal requires separating those consumers,
+not deleting application regression coverage or changing runtime source pins.

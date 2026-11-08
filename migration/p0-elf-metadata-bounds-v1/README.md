@@ -29,14 +29,6 @@ Guest execution, proprietary-input execution, ADI execution, physical-device
 validation and login success are not established by this lane. No guest fixture
 or proprietary library is executed here.
 
-`migration/finalize_p0_elf_metadata_bounds.py` reads actual downloaded artifact
-ZIPs, raw GitHub run/artifact metadata, sealed approved input bytes, full local
-Git histories for the three changed owners and the validation host, plus both
-historical ZIPs. It checks evidence before writing a fresh candidate directory
-outside the builder. It cannot publish, activate, assign the review anchor,
-change production pins, or grant build eligibility. Its candidate must undergo
-independent review before activation.
-
 ## Reviewed capture identities
 
 - SideSign and metadata-helper phase: [39123382040](https://github.com/NRG-Wardog/LiveContainer/actions/runs/39123382040), attempt 1.

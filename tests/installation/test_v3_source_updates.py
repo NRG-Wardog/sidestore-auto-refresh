@@ -9,9 +9,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
 SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
 RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
-# Frozen patch tests deliberately retain their historical upstream fixture pins.
-WORKFLOW = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text(encoding="utf-8")
-PINNED_SIDESTORE_REF = re.search(r"(?m)^  EMBEDDED_SIDESTORE_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
+# Exact patch-fixture revisions, independent of retired build recipes.
+# These are not the current application source graph.
+PINNED_SIDESTORE_REF = "ff25922e5c13ccfafd83bda5092910d848ebd409"
 
 
 def shell():

@@ -76,12 +76,3 @@ class RenderingCommandBoundsTests(unittest.TestCase):
         self.assertEqual(renderer.capture.__kwdefaults__['timeout'], 300)
         source = (ROOT / 'scripts/run_issue25_rendering.py').read_text()
         self.assertEqual(source.count('wait_for_simulator_boot(device)'), 2)
-
-    def test_historical_workflow_keeps_acceptance_and_saves_timeout_diagnostics(self):
-        workflow = (ROOT / 'migration/historical/ssa-validation/p0-livecontainer-build.yml').read_text()
-        self.assertIn('timeout-minutes: 40', workflow)
-        self.assertIn('timeout-minutes: 120', workflow)
-        self.assertIn('artifacts/layout-evidence/**/*.jsonl', workflow)
-        self.assertIn('artifacts/logs/layout-rendering.log', workflow)
-        self.assertIn('--v3-source work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift', workflow)
-        self.assertNotIn('--skip-v3-native', workflow)

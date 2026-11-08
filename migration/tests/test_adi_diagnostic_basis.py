@@ -89,13 +89,7 @@ class DiagnosticPolicyTests(unittest.TestCase):
             with mock.patch.object(gate,'diagnostic_metadata',side_effect=selected):
                 with self.assertRaises(ValueError):gate.diagnostic_delta(pins)
 
-    def test_ci_uses_acquired_source_and_missing_explicit_source_cannot_skip(self):
-        workflow=(ROOT/'.github/workflows/livecontainer-build.yml').read_text()
-        step=workflow.split('- name: Test maintained acquisition and contract gates',1)[1].split('- name:',1)[0]
-        self.assertIn('ADI_DIAGNOSTIC_ANISETTE_SOURCE: ${{ github.workspace }}/work/LegacyDiagnosticAnisetteKit',step)
-        self.assertIn('--start-directory builder/migration/tests',step)
-        self.assertIn('--start-directory builder/migration/contracts/tests',step)
-        self.assertEqual(step.count('--allowlist builder/scripts/required_test_skip_allowlist.json'),2)
+    def test_missing_explicit_source_cannot_skip(self):
         with tempfile.TemporaryDirectory() as directory:
             env={**os.environ,'ADI_DIAGNOSTIC_ANISETTE_SOURCE':str(Path(directory)/'missing')}
             result=subprocess.run([sys.executable,'-B',str(Path(__file__).resolve()),

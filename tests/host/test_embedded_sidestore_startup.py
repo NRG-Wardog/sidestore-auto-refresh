@@ -14,10 +14,10 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 from patch_embedded_sidestore_startup import MARKER, patch
-# Frozen patch tests deliberately retain their historical upstream fixture pins.
-WORKFLOW = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text(encoding="utf-8")
-LIVE_CONTAINER_REF = re.search(r"(?m)^  LIVE_CONTAINER_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
-EMBEDDED_SIDESTORE_REF = re.search(r"(?m)^  EMBEDDED_SIDESTORE_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
+# Exact patch-fixture revisions, independent of retired build recipes.
+# These are not the current application source graph.
+LIVE_CONTAINER_REF = "12377cf3b91d51739a33f14a302e5f522b238593"
+EMBEDDED_SIDESTORE_REF = "ff25922e5c13ccfafd83bda5092910d848ebd409"
 
 
 def checkout_revision(root: Path) -> Optional[str]:

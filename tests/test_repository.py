@@ -243,8 +243,8 @@ class RepositoryTests(unittest.TestCase):
         )
 
     def test_workflow_references_current_scripts(self):
-        # Historical patch recipes remain inspectable, but active entrypoints
-        # must use the maintained immutable implementation, not those recipes.
+        # Active entrypoints must use the maintained immutable implementation,
+        # not retired patch recipes.
         import json
         maintained = json.loads((ROOT / "ci/maintained-build/contract.json").read_text())
         for name in ("livecontainer-build.yml", "build-current.yml"):
@@ -253,8 +253,6 @@ class RepositoryTests(unittest.TestCase):
                           + maintained["implementation_commit"], workflow)
             self.assertNotIn("builder/scripts/", workflow)
             self.assertNotIn("contents: write", workflow)
-        archived = ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml"
-        self.assertIn("builder/scripts/maintained_sources.py", archived.read_text())
         contract = (SCRIPTS / COMBINED_REFRESH_SCRIPT).read_text(encoding="utf-8")
         self.assertIn("from patch_embedded_keychain import patch as patch_shared_keychain", contract)
         self.assertIn("patch_combined_cli(Path(sys.argv[1]))", contract)

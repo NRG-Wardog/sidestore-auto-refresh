@@ -1869,23 +1869,7 @@ import Foundation
             self.assertLess(sign_in.index("handleSignInResult(.success(silentResult))", start_authentication),
                             sign_in.index("self.provisioningLoop(", start_authentication))
 
-    def test_workflow_verifies_exact_pinned_signin_and_headless_adapter_patches(self):
-        workflow = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text(encoding="utf-8")
-        self.assertIn("python3 builder/scripts/verify_prepared_anisette.py work/EmbeddedSideStore", workflow)
-        self.assertIn("AltStore/Managing Apps/AppManager.swift", workflow)
-        auth_allowlist = workflow[workflow.index("expected_auth=$(printf"):workflow.index('test "$actual_auth" = "$expected_auth"')]
-        self.assertIn("'SideStore/Core/Auth/DeveloperPortalProxy.swift'", auth_allowlist)
-        self.assertIn("'SideStore/Core/Auth/AuthManager.swift'", auth_allowlist)
-        self.assertIn("--verify-headless-ui-adapters", workflow)
-        self.assertIn("--verify-sign-in-operation", workflow)
-        self.assertEqual(workflow.count("--verify-headless-ui-adapters"), 1)
-        self.assertLess(workflow.index("patch_combined_refresh_contract.py work/EmbeddedSideStore"),
-                        workflow.index("--verify-headless-ui-adapters"),
-                        "SignInOperation is complete only after the shared-Keychain contract")
-        self.assertLess(workflow.index("--verify-headless-ui-adapters"),
-                        workflow.index("patch_combined_service_startup.py work/LiveContainer work/EmbeddedSideStore v3"),
-                        "exact headless verification must precede the combined AppDelegate overlay")
-        self.assertIn('"$EMBEDDED_SIDESTORE_REF"', workflow)
+    def test_verifier_requires_exact_pinned_headless_adapter_source(self):
         patcher = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
         self.assertIn('"--verify-headless-ui-adapters"', patcher)
         self.assertIn('git", "-C", str(side), "show", f"{pinned_ref}:{relative}"', patcher)
@@ -2882,12 +2866,11 @@ class GsaPreparedTreeTests(unittest.TestCase):
                 self.skipTest("Pinned SideSign source is unavailable")
             side = nested
 
-        workflow = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text(encoding="utf-8")
-        match = re.search(r"(?m)^  SIDESIGN_REF: ([0-9a-f]{40})$", workflow)
-        self.assertIsNotNone(match, "workflow must pin the SideSign checkout used by CI")
+        # Exact patch-fixture revision, not the current application source graph.
+        fixture_ref = "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d"
         revision = subprocess.check_output(["git", "-C", str(side), "rev-parse", "HEAD"],
                                            text=True).strip()
-        self.assertEqual(revision, match.group(1), "SideSign source must match the workflow pin")
+        self.assertEqual(revision, fixture_ref, "SideSign source must match the fixture pin")
 
         auth = side / "Sources/DeveloperPortal/Authentication.swift"
         self.assertTrue(auth.is_file(), f"pinned SideSign source is missing {auth}")
