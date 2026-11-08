@@ -99,6 +99,8 @@ class RelocationTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
         for name, raw in self.objects.items():
+            if name in relocation.RETIRED_SOURCES:
+                continue
             for prefix, replacement in relocation.PATH_REWRITES.get(name, ()):
                 raw = raw.replace(prefix.encode(), replacement.encode())
             for original, replacement in relocation.WORKFLOW_LAYOUT_EDITS.get(name, ()):
@@ -126,6 +128,8 @@ class RelocationTests(unittest.TestCase):
 
     def test_every_relocated_or_rewritten_file_rejects_tampering(self):
         for name in relocation.BASELINE_SHA256:
+            if name in relocation.RETIRED_SOURCES:
+                continue
             with self.subTest(name=name):
                 path = self.root / relocation.RELOCATED.get(name, name)
                 original = path.read_bytes()
@@ -161,31 +165,31 @@ class RelocationTests(unittest.TestCase):
             relocation.verify_current(self.root, 'unreviewed.py', s.sha(raw), self.object_read)
 
     def test_unlisted_destination_rejected(self):
-        name = '.ci/branch-forwardports/run.py'
+        name = '.ci/maintained-build/test_contract.py'
         path = self.root/relocation.RELOCATED[name]
         path.rename(path.with_name('renamed.py'))
         with self.assertRaisesRegex(ValueError, 'Missing or linked'): self.verify(name)
 
     def test_wrong_baseline_object_rejected(self):
-        name = '.ci/branch-forwardports/run.py'
+        name = '.ci/maintained-build/test_contract.py'
         with self.assertRaisesRegex(ValueError, 'baseline'):
             relocation.verify_current(self.root, name, relocation.BASELINE_SHA256[name],
                                       lambda *args: b'changed baseline')
 
     def test_changed_expected_hash_rejected(self):
-        name = '.ci/branch-forwardports/run.py'
+        name = '.ci/maintained-build/test_contract.py'
         with self.assertRaisesRegex(ValueError, 'baseline'):
             relocation.verify_current(self.root, name, '0'*64, self.object_read)
 
     def test_old_source_copy_rejected(self):
-        name = '.ci/branch-forwardports/run.py'
+        name = '.ci/maintained-build/test_contract.py'
         path = self.root/name
         path.parent.mkdir(parents=True)
         path.write_bytes(self.objects[name])
         with self.assertRaisesRegex(ValueError, 'Obsolete relocation'): self.verify(name)
 
     def test_symlinked_destination_rejected(self):
-        name = '.ci/branch-forwardports/run.py'
+        name = '.ci/maintained-build/test_contract.py'
         path = self.root/relocation.RELOCATED[name]
         target = self.root/'target.py'
         path.rename(target)
@@ -193,7 +197,7 @@ class RelocationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'linked'): self.verify(name)
 
     def test_symlinked_directory_rejected(self):
-        name = '.ci/branch-forwardports/run.py'
+        name = '.ci/maintained-build/test_contract.py'
         path = (self.root/relocation.RELOCATED[name]).parent
         target = self.root/'target'
         path.rename(target)
@@ -205,28 +209,35 @@ class RelocationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Obsolete .ci'):
             relocation.verify_auxiliary(self.root, self.object_read)
 
-    def test_other_repositories_and_historical_api_paths_unchanged(self):
-        name = '.ci/branch-forwardports/run.py'
-        raw = (self.root/relocation.RELOCATED[name]).read_bytes()
-        self.assertIn(b'.ci/iloader-auth-parity/test_source.py', raw)
-        self.assertIn(b'.ci/iloader-auth-parity/generate.py', raw)
-        name = '.ci/release-v6.0.0/promote.py'
-        self.assertEqual((self.root/relocation.RELOCATED[name]).read_bytes(), self.objects[name])
-        self.assertIn(b'.ci/release-v6.0.0/reviewed-inputs.json', self.objects[name])
+    def test_retired_maintenance_is_absent_but_baseline_is_still_bound(self):
+        self.assertEqual(len(relocation.RETIRED_SOURCES), 19)
+        for name in relocation.RETIRED_SOURCES:
+            with self.subTest(name=name):
+                self.verify(name)
+                with self.assertRaisesRegex(ValueError, 'baseline'):
+                    relocation.verify_current(self.root, name, relocation.BASELINE_SHA256[name],
+                                              lambda *args: b'changed historical object')
+                for revived in {name, relocation.RELOCATED[name]}:
+                    path = self.root/revived
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(self.objects[name])
+                    with self.assertRaisesRegex(ValueError, 'Retired maintenance source'):
+                        self.verify(name)
+                    path.unlink()
 
-    def test_completed_mutation_workflows_are_archived_exactly(self):
-        self.assertEqual(s.ARCHIVED_WORKFLOWS,
-                         {'amend-v6.0.0-notes.yml', 'publish-v6.0.0.yml', 'reviewed-branch-cleanup.yml', 'reviewed-branch-semantic-inventory.yml', 'reviewed-branch-forwardports.yml', 'reviewed-branch-classify.yml'})
-        for basename in s.ARCHIVED_WORKFLOWS:
-            name = '.github/workflows/' + basename
-            self.assertNotIn(name, relocation.PATH_REWRITES)
-            self.assertFalse((s.ROOT/name).exists())
-            self.assertEqual((s.ROOT/relocation.RELOCATED[name]).read_bytes(), self.objects[name])
-
-    def test_archived_mutation_workflow_reactivation_rejected(self):
-        name = '.github/workflows/amend-v6.0.0-notes.yml'
-        (self.root/name).write_bytes(self.objects[name])
-        with self.assertRaisesRegex(ValueError, 'Obsolete relocation'): self.verify(name)
+    def test_retired_directory_cannot_be_reintroduced_even_empty_or_linked(self):
+        for name in relocation.RETIRED_DIRECTORIES:
+            with self.subTest(name=name):
+                path = self.root/name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.mkdir()
+                with self.assertRaisesRegex(ValueError, 'Retired maintenance directory'):
+                    relocation.verify_auxiliary(self.root, self.object_read)
+                path.rmdir()
+                path.symlink_to(self.root/'missing', target_is_directory=True)
+                with self.assertRaisesRegex(ValueError, 'Retired maintenance directory'):
+                    relocation.verify_auxiliary(self.root, self.object_read)
+                path.unlink()
 
     def test_real_checkout_and_frozen_manifests_pass(self):
         s.verify_sources()
@@ -294,49 +305,6 @@ class RelocationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Frozen reviewed successor object'):
             s.verify_sources(object_read=objects)
 
-class HistoricalSemanticFixtureTests(unittest.TestCase):
-    def test_missing_or_tampered_inputs_rejected_before_copy(self):
-        import historical_semantic as h
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder).resolve()/'source'
-            for original in h.INPUTS:
-                path = root/relocation.RELOCATED[original]
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes((s.ROOT/relocation.RELOCATED[original]).read_bytes())
-            def objects(root, ref, name): return s.git_read(s.ROOT, ref, name)
-            for original in h.INPUTS:
-                with self.subTest(original=original):
-                    path = root/relocation.RELOCATED[original]
-                    raw = path.read_bytes()
-                    path.write_bytes(raw + b'tampered')
-                    destination = Path(folder).resolve()/'fixture'
-                    with self.assertRaisesRegex(ValueError, 'fixture input differs'):
-                        h.prepare_fixture(root, destination, objects)
-                    self.assertFalse(destination.exists())
-                    path.unlink()
-                    with self.assertRaisesRegex(ValueError, 'Missing or linked'):
-                        h.prepare_fixture(root, destination, objects)
-                    self.assertFalse(destination.exists())
-                    path.write_bytes(raw)
-
-    def test_baseline_mismatch_rejected_before_copy(self):
-        import historical_semantic as h
-        with tempfile.TemporaryDirectory() as folder:
-            destination = Path(folder).resolve()/'fixture'
-            with self.assertRaisesRegex(ValueError, 'fixture baseline differs'):
-                h.prepare_fixture(s.ROOT, destination, lambda *args: b'unreviewed')
-            self.assertFalse(destination.exists())
-
-    def test_suite_failure_propagates(self):
-        import historical_semantic as h
-        import subprocess
-        with patch.object(h, 'prepare_fixture'), patch.object(
-                h.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'test')) as run:
-            with self.assertRaises(subprocess.CalledProcessError): h.run_tests()
-            self.assertEqual(run.call_count, 1)
-            self.assertTrue(run.call_args.kwargs['check'])
-            self.assertEqual(run.call_args.kwargs['timeout'], 120)
-
 class TemporaryRootAliasTests(unittest.TestCase):
     def test_platform_temp_alias_is_resolved_without_accepting_in_tree_links(self):
         # macOS commonly exposes temporary storage through /var -> /private/var.
@@ -352,7 +320,6 @@ class TemporaryRootAliasTests(unittest.TestCase):
                 RelocationTests('test_all_enumerated_relocations_and_path_edits_pass'),
                 RelocationTests('test_symlinked_destination_rejected'),
                 RelocationTests('test_symlinked_directory_rejected'),
-                HistoricalSemanticFixtureTests('test_missing_or_tampered_inputs_rejected_before_copy'),
             ])
             result = unittest.TestResult()
             with patch.object(tempfile, 'tempdir', str(alias)):
@@ -368,7 +335,7 @@ class TemporaryRootAliasTests(unittest.TestCase):
                     (root/'linked').symlink_to(payload)
                     with self.assertRaisesRegex(ValueError, 'Missing or linked'):
                         relocation.read(root/'linked')
-            self.assertEqual(result.testsRun, 5)
+            self.assertEqual(result.testsRun, 4)
             self.assertEqual(result.errors, [])
             self.assertEqual(result.failures, [])
 

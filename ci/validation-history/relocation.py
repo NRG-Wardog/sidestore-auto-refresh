@@ -184,6 +184,16 @@ ARCHIVED_WORKFLOWS = {'amend-v6.0.0-notes.yml',
  'reviewed-branch-forwardports.yml',
  'reviewed-branch-semantic-inventory.yml'}
 
+# Completed one-shot maintenance is retained in Git, not in the live tree.
+# These exact source identities remain bound by the frozen historical manifest.
+RETIRED_SOURCES = {
+    name for name, destination in RELOCATED.items()
+    if destination.startswith(('ci/branch-cleanup/', 'ci/branch-forwardports/',
+                               'ci/branch-semantic-review/', '.github/workflow-archive/'))
+}
+RETIRED_DIRECTORIES = ('.github/workflow-archive', 'ci/branch-cleanup',
+                       'ci/branch-forwardports', 'ci/branch-semantic-review')
+
 def require(ok, message):
     if not ok:
         raise ValueError(message)
@@ -203,6 +213,11 @@ def verify_current(root, name, expected, object_read):
     baseline = object_read(root, BASELINE, name)
     digest = hashlib.sha256(baseline).hexdigest()
     require(digest == BASELINE_SHA256[name] == expected, 'Relocation baseline differs: '+name)
+    if name in RETIRED_SOURCES:
+        for retired in {name, destination}:
+            require(not (root/retired).exists() and not (root/retired).is_symlink(),
+                    'Retired maintenance source exists: '+retired)
+        return
     current = baseline
     for prefix, replacement in PATH_REWRITES.get(name, ()):
         require(prefix.encode() in current, 'Relocation prefix missing')
@@ -215,6 +230,9 @@ def verify_current(root, name, expected, object_read):
         require(not (root/name).exists() and not (root/name).is_symlink(), 'Obsolete relocation source exists: '+name)
 
 def verify_auxiliary(root, object_read):
+    for name in RETIRED_DIRECTORIES:
+        require(not (root/name).exists() and not (root/name).is_symlink(),
+                'Retired maintenance directory exists: '+name)
     # This workflow was outside the original manifest. Bind it explicitly now.
     name = '.github/workflows/validation-history-contract.yml'
     verify_current(root, name, BASELINE_SHA256[name], object_read)
