@@ -647,12 +647,13 @@ def working_app_lock_differs():
     return observed
 
 
-def receipt():
-    if os.environ.get('GITHUB_REF') == 'refs/heads/validation/cold-vpn':
+def receipt(*, current=False):
+    require(type(current) is bool, "Current receipt mode must be explicit boolean")
+    if current or os.environ.get('GITHUB_REF') == 'refs/heads/validation/cold-vpn':
         from preservation_cms_receipt import verify as verify_preservation_cms
         verify_preservation_cms(E / 'preservation-cms-tests.json', S, load_candidate_graph(),
             {k: os.environ[v] for k,v in [('workflow_commit','GITHUB_SHA'),('run_id','GITHUB_RUN_ID'),('run_attempt','GITHUB_RUN_ATTEMPT')]})
-    if os.environ.get('GITHUB_REF') == 'refs/heads/validation/cold-vpn' or (E / 'multitask-launch-tests.json').exists():
+    if current or os.environ.get('GITHUB_REF') == 'refs/heads/validation/cold-vpn' or (E / 'multitask-launch-tests.json').exists():
         from refresh_truth_receipt import verify_local as verify_refresh_truth
         verify_refresh_truth(E / 'refresh-truth-tests.json', S, load_candidate_graph(),
             {k: os.environ[v] for k,v in [('workflow_commit','GITHUB_SHA'),('run_id','GITHUB_RUN_ID'),('run_attempt','GITHUB_RUN_ATTEMPT')]}, compiler_evidence=E)
@@ -734,7 +735,8 @@ if __name__ == '__main__':
         seal_resolution()
     elif action == 'verify-resolved':
         verify_resolved()
-    elif action == 'receipt':
-        receipt()
+    elif action in ('receipt', 'receipt-current'):
+        require(len(sys.argv) == 2, 'Receipt action accepts no unreviewed arguments')
+        receipt(current=action == 'receipt-current')
     else:
         raise ValueError('Unknown action')
