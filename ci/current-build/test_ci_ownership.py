@@ -39,6 +39,14 @@ class CIOwnershipTests(unittest.TestCase):
         self.assertIn('test_integration_contracts.py', command)
         self.assertIn('test_custom_integration_boundaries.py', command)
 
+    def test_certificate_regressions_use_current_owner_without_skips(self):
+        text = (WORKFLOWS/'source-integrity-contract.yml').read_text()
+        self.assertIn('candidate-graph.json', text)
+        self.assertEqual(text.count('--pattern test_lc_certificate_observation.py'), 1)
+        self.assertIn('REQUIRE_LC_CERTIFICATE_NATIVE_TESTS=1', text)
+        self.assertNotIn('LC_CERTIFICATE_OBSERVATION_PATCHER', text)
+        self.assertIn('--allowlist scripts/required_test_skip_allowlist.json', text)
+
     def test_feature_branch_uses_pr_not_duplicate_push(self):
         text = (WORKFLOWS/'custom-integration-contract.yml').read_text()
         self.assertIn('  pull_request:', text)
