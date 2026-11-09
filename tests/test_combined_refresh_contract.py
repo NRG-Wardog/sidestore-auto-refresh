@@ -326,8 +326,26 @@ struct RefreshGroup {
         let legacy: [String: Any] = ["run_id": run, "expected_ids": ["fixture.app"], "results": [
             ["bundle_id": "fixture.app", "success": false, "error_domain": "DeviceGatewayError", "error_code": 84,
              "error": "lc_stage=uniqueDeviceID SECRET_TOKEN", "failure": stale] as [String: Any]]]
-        let safe = CombinedVerification.sanitized(["liveContainerAutoRefreshVerification": legacy], runID: run)
-        let manifest = safe["liveContainerAutoRefreshVerification"] as! [String: Any]
+        // Legacy error-row metadata remains supported inside a complete current
+        // manifest, not as permission to bypass the manifest schema boundary.
+        precondition(CombinedVerification.sanitized(
+            ["liveContainerAutoRefreshVerification": legacy], runID: run).isEmpty,
+            "an unversioned manifest must not enter the verified bridge")
+        var currentManifest = legacy
+        currentManifest["version"] = 2
+        currentManifest["schema"] = "LiveContainerRefreshManifestV2"
+        precondition(CombinedVerification.hasCompleteTerminalResults(currentManifest, runID: run))
+        for missing in ["version", "schema"] {
+            var incomplete = currentManifest
+            incomplete.removeValue(forKey: missing)
+            precondition(CombinedVerification.sanitized(
+                ["liveContainerAutoRefreshVerification": incomplete], runID: run).isEmpty,
+                "each manifest schema field is independently required")
+        }
+        let safe = CombinedVerification.sanitized(["liveContainerAutoRefreshVerification": currentManifest], runID: run)
+        guard let manifest = safe["liveContainerAutoRefreshVerification"] as? [String: Any] else {
+            preconditionFailure("a complete manifest with legacy error-row metadata was rejected")
+        }
         let rows = manifest["results"] as! [[String: Any]]
         let failure = CombinedFailure.decode(rows[0]["failure"] as! [String: Any], expectedID: run)!
         precondition(failure.stage == .uniqueDeviceID && failure.underlyingCode == 84)

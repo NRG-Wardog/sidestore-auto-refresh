@@ -592,7 +592,7 @@ jobs:
           python3 -B - <<'PY_VERIFY_CMS'
           import os, pathlib, sys
           sys.path.insert(0, str(pathlib.Path('harness').resolve()))
-          import preservation_cms_receipt as cms
+          from ci.qualification.native import preservation_cms_receipt as cms
           from ci.build.verify_candidate_graph import load_candidate_graph
           cms.host_build(pathlib.Path('lts-host-build'), pathlib.Path('evidence'))
           cms.verify(pathlib.Path('evidence/preservation-cms-tests.json'), pathlib.Path('sources').resolve(), load_candidate_graph(), {'workflow_commit': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT']})

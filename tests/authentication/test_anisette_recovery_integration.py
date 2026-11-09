@@ -14,6 +14,15 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def integration_source(*, experimental=False):
     source = pair.program().split('@main struct AnisettePairTests', 1)[0]
+    # Observe entry to the actual owner adapters without replacing their body.
+    # A trace-only comparison reads legacy keys but never selects a candidate.
+    for signature, counter in (
+        ('    func observeLegacyAnisetteComparison(_ snapshot: LCEmbeddedAnisetteSnapshot) throws -> LCAnisetteLegacyComparison {', 'diagnosticCalls'),
+        ('    func anisetteRecoveryCandidate(for snapshot: LCEmbeddedAnisetteSnapshot) throws -> LCAnisetteRecoveryCandidate? {', 'candidateCalls')):
+        assert source.count(signature) == 1
+        anchor = signature + '\n        try '
+        assert source.count(anchor) == 1
+        source = source.replace(anchor, signature + '\n        RecoveryIntegrationQueries.' + counter + ' += 1\n        return try ', 1)
     source = source.replace('func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<CFTypeRef?>) -> Int {',
         'func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<CFTypeRef?>) -> Int {\n    RecoveryIntegrationQueries.count += 1', 1)
     source = source.replace('            let value = Store.data[group]?[key]',
@@ -21,7 +30,7 @@ def integration_source(*, experimental=False):
         '                RecoveryIntegrationQueries.cancelOnSnapshotRead = false\n'
         '                withUnsafeCurrentTask { $0?.cancel() }\n'
         '            }\n            let value = Store.data[group]?[key]', 1)
-    source += '\nenum RecoveryIntegrationQueries { static var count = 0; static var cancelOnSnapshotRead = false }\n'  + (ROOT / 'tests/fixtures/anisette_recovery_integration_harness.swift').read_text()
+    source += '\nenum RecoveryIntegrationQueries { static var count = 0; static var diagnosticCalls = 0; static var candidateCalls = 0; static var cancelOnSnapshotRead = false }\n'  + (ROOT / 'tests/fixtures/anisette_recovery_integration_harness.swift').read_text()
     if experimental:
         flag = 'static let automaticRecoveryEnabled = false'
         assert source.count(flag) == 1
@@ -52,7 +61,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
         compiler = shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable; recovery wire harness runs in macOS CI')
-        source = diagnostic_sources() + (ROOT / 'tests/fixtures/anisette_recovery_wire_harness.swift').read_text()
+        source = '\n'.join((diagnostic_sources(), (ROOT / 'tests/fixtures/anisette_recovery_wire_harness.swift').read_text()))
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'main.swift'
             binary = Path(directory) / 'wire'

@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 ROOT=Path(__file__).resolve().parents[3]
@@ -54,3 +55,22 @@ class NativeOwnerEnvironmentTests(unittest.TestCase):
                 with self.subTest(target=target):
                     self.assertEqual(result.returncode==0,target==str(source),result.stdout+result.stderr)
                     self.assertNotIn('ModuleNotFoundError',result.stderr)
+
+    def test_lts_inline_verifier_import_resolves_current_package(self):
+        text = WORKFLOW.read_text()
+        block = text.split("          python3 -B - <<'PY_VERIFY_CMS'\n", 1)[1].split('          PY_VERIFY_CMS', 1)[0]
+        imports = textwrap.dedent(block).split('cms.host_build(', 1)[0]
+        current = 'from ci.qualification.native import preservation_cms_receipt as cms'
+        self.assertIn(current, imports)
+        # Run the actual workflow import preamble, not the host build or verifier.
+        with tempfile.TemporaryDirectory() as name:
+            workspace = Path(name)
+            (workspace/'harness').symlink_to(ROOT, target_is_directory=True)
+            env = dict(os.environ, PYTHONPATH=str(workspace/'harness')+':'+str(workspace/'harness/scripts'))
+            check = "\nassert pathlib.Path(cms.__file__).resolve() == pathlib.Path('harness/ci/qualification/native/preservation_cms_receipt.py').resolve()\n"
+            for script, valid in ((imports, True), (imports.replace(current, 'import preservation_cms_receipt as cms'), False)):
+                result = subprocess.run(['python3', '-B', '-c', script+check], cwd=workspace,
+                                        env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, valid, result.stdout+result.stderr)
+                if not valid:
+                    self.assertIn("No module named 'preservation_cms_receipt'", result.stderr)

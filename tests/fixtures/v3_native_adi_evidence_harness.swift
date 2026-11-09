@@ -110,7 +110,23 @@
                             precondition(rendered.contains("native_code=\(code)") || rendered.contains("native_code"))
                         }
                         let recaptured = v3CaptureAuthFailure(decoded, operation: "signIn", stage: .provisioning, id: id)
-                        precondition(recaptured.signingContext == decoded.signingContext)
+                        var expectedContext = decoded.signingContext
+                        let causeKey = V3ProvisioningCauseDiagnostic.contextKey
+                        let cause = recaptured.signingContext[causeKey]!
+                        // Recapturing a CombinedFailure has no underlying NSError link.
+                        // The owner must emit the finite unknown/unobserved fallback,
+                        // not merely any syntactically valid diagnostic cause.
+                        precondition(cause == "pc1|unobserved|0|1|0|unobserved,unknown,unknown,-,-,-,-,unobserved,unavailable,unavailable,-,-,0")
+                        precondition(V3ProvisioningCauseDiagnostic(encoded: cause) != nil)
+                        precondition(!cause.contains("PRIVATE_") && !cause.contains("/private/"))
+                        expectedContext[causeKey] = cause
+                        precondition(recaptured.signingContext == expectedContext)
+                        precondition(recaptured.operation == decoded.operation && recaptured.stage == decoded.stage)
+                        precondition(recaptured.code == decoded.code && recaptured.sourceStep == decoded.sourceStep)
+                        precondition(recaptured.underlyingDomain == decoded.underlyingDomain && recaptured.underlyingCode == decoded.underlyingCode)
+                        precondition(recaptured.correlationID == decoded.correlationID && recaptured.retryable == decoded.retryable && recaptured.safeCause == decoded.safeCause)
+                        let again = v3CaptureAuthFailure(recaptured, operation: "signIn", stage: .provisioning, id: id)
+                        precondition(again.signingContext == recaptured.signingContext)
                     }
                 }
             }

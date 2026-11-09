@@ -144,8 +144,19 @@ MAIN = r'''
             catch {
                 if scenario != "cancelled" { precondition(error is V3AccountOperationError) }
             }
-            precondition(Store.data == before && auth.passwordCalls == 0,
-                "failure preserves stored state and never replays password auth")
+            // Removing the rolled-back remote-route item leaves an empty service
+            // bucket in this in-memory IO double, not a stored keychain item.
+            if scenario == "writeback_failure" {
+                precondition(Store.data.filter { !$0.value.isEmpty } == before.filter { !$0.value.isEmpty },
+                    "rollback preserves every stored item")
+                precondition(Store.data[group] == before[group], "credentials and readiness restored byte-for-byte")
+            } else {
+                precondition(Store.data == before)
+            }
+            precondition(auth.passwordCalls == 0, "failure never replays password auth")
+            let remoteRoute = try LCEmbeddedSharedKeychain.remoteRouteBytes()
+            precondition(remoteRoute == nil)
+            precondition(Store.data[group]?["LCSharedAuthenticationTransactionV1"] == nil)
         }
         print("PASSED: " + scenario)
     }

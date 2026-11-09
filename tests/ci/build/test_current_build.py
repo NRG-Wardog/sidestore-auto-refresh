@@ -80,7 +80,7 @@ class CurrentBuildTests(unittest.TestCase):
         steps=steps[:start]+steps[end:]
         steps=steps.replace('record.py receipt-current','record.py receipt')
         self.assertEqual(hashlib.sha256(steps.encode()).hexdigest(),
-                         '8595079b5c210070cc985b2857fd432f31a3b0bb3d9ed99d25ba547c94abb6eb')
+                         '08ed1cd77a0420a2efd3f3de488d38ccc13168794a2ddfa0853add20a2db03a9')
 
     def test_current_mode_requires_cms_without_historical_branch(self):
         # Execute the real receipt preamble, stopping before unrelated native

@@ -101,6 +101,15 @@ class IsolatedAnisetteOTPTests(unittest.TestCase):
         self.assertIn('guard enabled, let value,', disabled)
         with self.assertRaises(AssertionError): trace_variant('', False)
 
+    def test_package_parser_uses_complete_pinned_error_model(self):
+        harness = (ROOT / 'tests/fixtures/anisette_native_trace_harness.swift').read_text()
+        self.assertEqual(harness.count('__PRODUCTION_ANISETTE_ERROR__'), 1)
+        self.assertNotIn('enum AnisetteError:', harness)
+        error = source('Sources/AnisetteError.swift')
+        self.assertIn('public enum AnisetteError: LocalizedError, Equatable, Sendable', error)
+        self.assertIn('case httpError(statusCode: Int, message: String)', error)
+        self.assertIn('case invalidArgument', error)
+
     def test_actual_package_swift_error_suffix_and_header_metadata_removal(self):
         compiler = shutil.which('swiftc')
         if not compiler:
@@ -109,7 +118,8 @@ class IsolatedAnisetteOTPTests(unittest.TestCase):
         for enabled in (True, False):
             with self.subTest(enabled=enabled), tempfile.TemporaryDirectory() as directory:
                 swift = trace_variant(source(PATHS[4]), enabled)
-                program = harness.replace('__PRODUCTION_RESPONSE_PARSER__', declaration(swift, '    func parseHeadersResponse('))
+                program = harness.replace('__PRODUCTION_ANISETTE_ERROR__', source('Sources/AnisetteError.swift'))
+                program = program.replace('__PRODUCTION_RESPONSE_PARSER__', declaration(swift, '    func parseHeadersResponse('))
                 program = program.replace('__PRODUCTION_JSON_PARSER__', declaration(swift, '    private func parseJSONString('))
                 program = program.replace('__PRODUCTION_NATIVE_TRACE__', declaration(swift, 'private enum TemporaryAnisetteNativeTrace {'))
                 program = '\n'.join((source('Sources/LoginDiagnosticTrace.swift'),

@@ -2,10 +2,8 @@ import Foundation
 
 typealias CStringPointer = UnsafeMutablePointer<CChar>
 protocol AnisetteDataProvider {}
-enum AnisetteError: Error {
-    case loaderFailed(reason: String)
-    case adiError(code: Int32, description: String)
-}
+__PRODUCTION_ANISETTE_ERROR__
+
 struct AnisetteDataResponse {
     let values: [String: String]
     init(from values: [String: String]) throws { self.values = values }

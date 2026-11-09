@@ -86,7 +86,7 @@ class UNMutableNotificationContent {
     }
 }
 class UNTimeIntervalNotificationTrigger { init(timeInterval: TimeInterval, repeats: Bool) {} }
-class UNNotificationRequest {
+public class UNNotificationRequest {
     let identifier: String; let content: UNMutableNotificationContent; let trigger: UNTimeIntervalNotificationTrigger?
     init(identifier: String, content: UNMutableNotificationContent, trigger: UNTimeIntervalNotificationTrigger?) { self.identifier = identifier; self.content = content; self.trigger = trigger }
 }
