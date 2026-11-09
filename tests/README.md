@@ -87,3 +87,11 @@ for SideStore is not a current headless-product input. Its generator and replay
 tests are retired. Grid/model templates remain because Issue25 rendering uses
 them, and tests require byte equality with the maintained owner. macOS CI requires
 all source checks and Swift syntax checks without skips; this is not visual QA.
+
+SideSign privacy/typed-2FA checks use pinned current owner code rather than
+regenerating historical sources. The three real Swift harnesses remain: typed
+incorrect-code text, SideStore value redaction and non-evaluation of SideSign
+logging autoclosures. Negative controls mutate the production enum/filter/sink,
+not the expected assertions. macOS CI requires all harnesses without skips.
+The complete tracked SideSign Swift inventory is checked for unreviewed direct
+log sinks. This does not claim end-to-end authentication or device validation.
