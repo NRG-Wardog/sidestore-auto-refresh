@@ -94,3 +94,9 @@ jobs:
           MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore" MAINTAINED_SIDESIGN_TEST_SOURCE="$PWD/sources/SideStore/Dependencies/SideSign" \
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_sidesign_privacy.py \
               --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained guest owner pilot and negative runtime controls
+        run: |
+          set -euo pipefail
+          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_guest_owner.py \
+              --allowlist scripts/required_test_skip_allowlist.json
