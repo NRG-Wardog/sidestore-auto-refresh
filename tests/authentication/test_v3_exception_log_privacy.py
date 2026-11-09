@@ -1,4 +1,6 @@
 """Crash-reason privacy at the prepared SideStore AppDelegate source."""
+from tests.support.product_sources import ProductSource
+from tests.owner_source import owner_source
 from pathlib import Path
 import importlib.util
 import re
@@ -9,8 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PATCH_SCRIPT = ROOT / "scripts/patch_v3_service.py"
-PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
+PRIMITIVES = ProductSource('v3_behavioral_primitives.swift')
 HARNESS = ROOT / "tests/fixtures/v3_crash_log_privacy_harness.swift"
 SWIFTC = shutil.which("swiftc")
 
@@ -23,44 +24,11 @@ def production_crash_log_privacy_declaration():
     return match.group(0)
 
 
-def load_patch_module():
-    spec = importlib.util.spec_from_file_location("patch_v3_service_crash_privacy", PATCH_SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-PINNED_HANDLER = '''private extension AppDelegate {
-    func setupCrashHandler() {
-        NSSetUncaughtExceptionHandler { exception in
-            // Clear handler immediately so execution can never recurse under any circumstance
-            NSSetUncaughtExceptionHandler(nil)
-
-            let stackTrace = exception.callStackSymbols.joined(separator: "\\n")
-            let message = """
-            | UNCAUGHT NSEXCEPTION CRASH
-              Name: \\(exception.name.rawValue)
-              Reason: \\(exception.reason ?? "Unknown")
-              Call Stack: \\(stackTrace)
-            """
-
-            debugLog(message)
-            fputs(message, stderr)
-            fflush(stderr)
-            NSLog("%@", message)
-        }
-    }
-}
-'''
-
-
 class V3ExceptionLogPrivacyTests(unittest.TestCase):
     def test_prepared_handler_uses_only_safe_message_for_every_sink(self):
-        module = load_patch_module()
-        prepared = module.patch_crash_log_privacy(PINNED_HANDLER)
-        self.assertEqual(module.patch_crash_log_privacy(prepared), prepared)
+        prepared = owner_source("AltStore/AppDelegate.swift", "SideStore")
 
-        handler = prepared[prepared.index("func setupCrashHandler()"):]
+        handler = prepared[prepared.index("func setupCrashHandler()"):].split("private extension AppDelegate", 1)[0]
         self.assertIn("V3_CRASH_REASON_LOG_PRIVACY_V1", handler)
         self.assertIn("let message = V3CrashLogPrivacy.safeCrashMarker(reason: exception.reason)", handler)
         self.assertIn("debugLog(message)", handler)
@@ -71,8 +39,6 @@ class V3ExceptionLogPrivacyTests(unittest.TestCase):
         self.assertNotIn("exception.name", handler)
         self.assertNotIn("\\(exception.reason", handler)
 
-        integration = PATCH_SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("text = patch_crash_log_privacy(text)", integration)
 
     def test_production_helper_does_not_emit_secret_reason_or_path(self):
         if SWIFTC is None:

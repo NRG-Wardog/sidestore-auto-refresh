@@ -1,0 +1,47 @@
+"""Exact preservation copy successor; normalize cases through unchanged prior coverage."""
+import sys as _native_sys
+from pathlib import Path as _NativePath
+_native_root = next((p for p in _NativePath(__file__).resolve().parents if (p / 'ci/native_paths.py').is_file()), None)
+if _native_root is not None:
+    _native_sys.path.insert(0, str(_native_root))
+import copy
+from ci.qualification.native import direct_host_projection as direct_host
+from ci.qualification.native.refresh_observation_setup_projection import variant as prior_variant
+TAG='preservation_localization_extension'
+INVENTORY_TEST='LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py'
+GENERATOR='LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py'
+HARNESS='LiveContainer/.ci/comprehensive-diagnostics/setup_localization_harness.swift'
+PINS={HARNESS: '57a020935f12faa00d9e586dc84b96bd5d7dbf13a259a7838bae89137c598067', 'LiveContainer/.ci/comprehensive-diagnostics/generate_setup_localization_fixture.py': '154c18a26e69a8be402ff61a563f57c28991f48d1fe690a02252406a70874e36', 'LiveContainer/.ci/comprehensive-diagnostics/test_setup_localization_contract.py': '1222f013816035a0ec590c6557cb7b07e6a37983d0cb77dd5ecf5ca1f0e1b655', 'LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py': '52847863e5a420a9adfecbdcec5d4850b371a024c73bfd0c463b504e3bb8bc0c', 'LiveContainer/SideStoreSupport/SideStore.swift': '8bdbb065c0b9e5eab90a23517cefd35b5ce279ac554ee3e7d2dbcc6f0c6d467e', 'LiveContainer/Resources/Localizable.xcstrings': 'fea8f9f9cb70b3a45f72d0f42c51877fbd1b9a51b09ce251fb5b3179dde8cde4', 'LiveContainer/.ci/refresh-truth/localization_keys.json': '7f6c105a831d0f9bded2ef4c87de972d2337ba4a0e185a554e52097e707624b9', 'LiveContainer/.ci/refresh-observations/localization_keys.json': 'b28ff28aacfde5d5b75c01b586527bc8efa5da388d6f1b0923533db49c91c4ec'}
+REPLACEMENT_KEYS={'The older installed app identity could not be safely matched to the new profiles.': 'The installed app could not be linked to sufficient refresh evidence. This does not mean its signature is invalid. The app has not been replaced.'}
+ADDITIONAL_KEYS=('Refresh stopped because a profile contains unsupported or incomplete authorization data. The installed app was preserved.', 'Refresh stopped because existing profile authorizations are ambiguous or conflicting. The installed app was preserved.', 'Refresh stopped because one profile identifier refers to conflicting profile contents. The installed app was preserved.', 'Refresh stopped because the device profile inventory changed during verification. The installed app was preserved.', 'Refresh stopped because the existing developer account app identity could not be matched without changing it. The installed app was preserved.', 'Refresh stopped because the existing matching profile could not be verified on the device. The installed app was preserved.', 'Refresh stopped because the existing signing certificate is no longer valid. Profile-only renewal cannot extend the certificate. The installed app was preserved.', 'Refresh stopped because the historical app identity and signing certificate could not be linked. The installed app was preserved.', 'Refresh stopped because the new profile does not extend effective validity. The installed app was preserved.', 'Refresh stopped because the new profile would change existing authorization or signing certificates. The installed app was preserved.')
+REPLACEMENTS={prefix+'-'+locale+'-'+old:prefix+'-'+locale+'-'+new for prefix in ('actual-source-copy','baseline-reproduces-missing-owned-copy') for locale in ('en','he','ru','zh-Hans','zh-Hant') for old,new in REPLACEMENT_KEYS.items()}
+EXTRA=sorted(prefix+'-'+locale+'-'+key for prefix in ('actual-source-copy','baseline-reproduces-missing-owned-copy') for locale in ('en','he','ru','zh-Hans','zh-Hant') for key in ADDITIONAL_KEYS)
+PRIOR={'cases':1979,'values':1030,'baseline_missing':454,'keys':206}
+CURRENT={'cases':2079,'values':1080,'baseline_missing':504,'keys':216}
+def require(ok,why):
+ if not ok:raise ValueError(why)
+def descriptor():
+ return {'schema':'reviewed-preservation-localization-successor-v1','inputs':dict(PINS),'replacements':dict(REPLACEMENTS),'additional_cases':list(EXTRA),'counts':dict(CURRENT)}
+def matches(contract):
+ return contract['input_sha256'].get(GENERATOR)==PINS[GENERATOR]
+def bind(contract):
+ contract=direct_host.normalize(contract)
+ require(all(contract['input_sha256'].get(p)==h for p,h in PINS.items()),'Unbound preservation localization source')
+def add(contract):
+ require(TAG not in contract and prior_variant(contract)==PRIOR,'Preservation localization requires exact prior coverage')
+ bind(contract);result=copy.deepcopy(contract);cases=result['case_names']['setup-localization']
+ require(set(REPLACEMENTS)<=set(cases),'Missing historical local identity copy')
+ require(not (set(REPLACEMENTS.values())|set(EXTRA))&set(cases),'Duplicate preservation localization additions')
+ result['case_names']['setup-localization']=sorted([REPLACEMENTS.get(c,c) for c in cases]+EXTRA)
+ result[TAG]=descriptor();require(variant(result)==CURRENT,'Preservation localization projection differs')
+ return result
+def variant(contract):
+ if TAG not in contract:return prior_variant(contract)
+ require(contract[TAG]==descriptor(),'Unknown preservation localization successor');bind(contract)
+ cases=contract['case_names']['setup-localization']
+ require(type(cases) is list and all(type(c) is str for c in cases) and cases==sorted(cases) and len(cases)==len(set(cases))==CURRENT['cases'],'Preservation localization ordered closure differs')
+ require((set(REPLACEMENTS.values())|set(EXTRA))<=set(cases) and not set(REPLACEMENTS)&set(cases),'Preservation localization exact additions/replacements missing')
+ inverse={v:k for k,v in REPLACEMENTS.items()};old=copy.deepcopy(contract);old.pop(TAG)
+ old['case_names']['setup-localization']=sorted(inverse.get(c,c) for c in cases if c not in EXTRA)
+ require(prior_variant(old)==PRIOR,'Preservation localization changed historical coverage')
+ return dict(CURRENT)

@@ -2,6 +2,10 @@
 
 No Apple requests occur. Swift execution is required on the macOS test gate.
 """
+from tests.support.product_sources import ProductSource
+from tests.support.keychain_owner_runtime import keychain_runtime_source
+from tests.owner_source import owner_source
+from tests.support.local_signin_owner_runtime import members as scope_members, dependencies as scope_dependencies
 from pathlib import Path
 import os
 import shutil
@@ -15,14 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def generated_operation():
-    source_root = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE",
-                                 "/workspace/shared/sidestore-review/SideStore")
-    if not Path(source_root, ".git").exists():
-        raise unittest.SkipTest("Pinned SideStore required; supplied in combined macOS CI")
-    original = keychain.read_pinned_source(source_root,
-        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift")
-    service = keychain.service_module.patch_sign_in_operation(original)
-    return keychain.module.patch_sign_in_operation(service)
+    return owner_source("SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift", "SideStore")
 
 
 class ExplicitSignInTests(unittest.TestCase):
@@ -32,7 +29,9 @@ class ExplicitSignInTests(unittest.TestCase):
         self.assertIn("self.v3RequireInteractiveCredentials = v3RequireInteractiveCredentials", source)
         start = declaration(source, "private func startAuthentication(")
         self.assertIn("!self.v3RequireInteractiveCredentials && self.v3ReauthenticateAppleID == nil", start)
-        execute = declaration(source, "override func execute(")
+        wrapper = declaration(source, "override func execute(")
+        self.assertIn("self.executeLoginPipeline(parentProgress: parentProgress)", wrapper)
+        execute = declaration(source, "private func executeLoginPipeline(")
         self.assertIn("!self.v3RequireInteractiveCredentials", execute)
         # Neither route may clear an account or fall back after submitted auth fails.
         loop = declaration(source, "private func authenticationLoop(")
@@ -41,15 +40,13 @@ class ExplicitSignInTests(unittest.TestCase):
         self.assertIn('v3ClassifyAuthError(error)?.rawValue == "anisetteIdentityStateInvalid" { throw error }', loop)
         silent = declaration(source, "private func silentSignIn(")
         self.assertEqual(silent.count("phase.underlying is LCAnisettePairError { throw error }"), 2)
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+        runtime = (ProductSource('v3_headless_runtime.swift')).read_text()
         self.assertEqual(runtime.count("v3RequireInteractiveCredentials:"), 1)
         self.assertIn("v3RequireInteractiveCredentials: sessions[id]?.mode == .interactive", runtime)
-        self.assertEqual(keychain.module.patch_sign_in_operation(source), source)
-        self.assertEqual(keychain.service_module.patch_sign_in_operation(source), source)
 
     def test_production_credentials_retire_before_immediate_two_factor_prompt(self):
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
+        runtime = (ProductSource('v3_headless_runtime.swift')).read_text()
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text()
         helpers = "\n\n".join(declaration(runtime, sig) for sig in (
             "enum V3PromptAnswerDisposition:", "final class V3PromptCenter:",
             "enum V3PromptResponseStatePolicy {", "func v3Prompt(",
@@ -93,21 +90,22 @@ class ExplicitSignInTests(unittest.TestCase):
         methods = "\n\n".join(declaration(source, sig) for sig in (
             "private func startAuthentication(", "private func silentSignIn(",
             "private func authenticationLoop(", "private func signIn(appleID:",
+            "private func performSignIn(appleID:",
             "private func v3ValidateReauthenticationIdentity("))
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
+        methods += "\n" + scope_members()
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text()
         helpers = "\n\n".join(declaration(primitives, sig) for sig in (
             "enum V3ProvisioningResumeExecutionPolicy {", "enum V3TwoFactorRetryPolicy {",
             "enum V3AuthIdentityBindingPolicy {", "enum V3AuthReadStampPolicy {",
             "enum V3ProvisioningReauthenticationIdentityPolicy {"))
-        diagnostics = (ROOT / "scripts/templates/combined_failure.swift").read_text()
-        phase = diagnostics[diagnostics.index("struct V3AuthenticationPhaseError:"):
-                            diagnostics.index("// V3_TYPED_ACCOUNT_DIAGNOSTICS_V1:")]
+        diagnostics = (ProductSource('combined_failure.swift')).read_text()
+        phase = "\n".join(declaration(diagnostics, sig) for sig in (
+            "struct V3AuthenticationPhaseError:", "func v3AuthenticationPhase<T>"))
         doubles = keychain.DOUBLES.replace("\nfinal class Keychain {",
             "\nfinal class Keychain {\n    static var shared: Keychain!", 1)
         fixture = (ROOT / "tests/fixtures/v3_explicit_signin_harness.swift").read_text()
         fixture = fixture.replace("__PRODUCTION_OPERATION_METHODS__", methods)
-        program = swift_source(doubles, keychain.TEMPLATE.read_text(),
-            keychain.module.KEYCHAIN_ACCESS_ADAPTER, helpers, phase, fixture)
+        program = swift_source(doubles, keychain_runtime_source(), helpers, phase, scope_dependencies(), fixture)
         # Assemble/validate extraction even without a native compiler.
         self.assertNotIn("__PRODUCTION_", program)
         swift = shutil.which("swiftc")

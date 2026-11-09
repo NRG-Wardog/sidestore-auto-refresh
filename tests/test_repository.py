@@ -10,46 +10,30 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "cold-vpn-native.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "native-build.yml"
 SCRIPTS = ROOT / "scripts"
-REQUIRED_SCRIPTS = {
-    "patch_sidestore_integration.py",
-    "patch_background_automation.py",
-}
+REQUIRED_SCRIPTS = set()
 LIVE_CONTAINER_SCRIPTS = {
     "ipa_size_report.py",
-    "native_error_evidence.py",
-    "patch_livecontainer_autorefresh.py",
-    "patch_v3_unified_shell.py",
+    "native_error_evidence.py", "headless_artifact_contract.py", "anisette_evidence.py",
     "patch_v3_service.py",
-    "patch_combined_refresh_contract.py",
     "patch_embedded_keychain.py",
-    "patch_combined_refresh_contract.py",
-    "patch_combined_service_startup.py",
     "patch_refresh_result_bridge.py",
-    "patch_combined_service_startup.py",
     "combined_build_evidence.py",
     "run_issue25_rendering.py", "rendering_localization.py",
     "run_p0_signin_rendering.py",
     "p2_localization_contract.py",
     "p2_permission_contract.py",
     "audit_ipa_signing.py",
-    "patch_combined_service_startup.py",
     "patch_refresh_result_bridge.py",
-    "patch_background_automation.py",
-    "patch_combined_refresh_contract.py",
     "patch_v3_service.py",
-    "patch_combined_service_startup.py",
     "combined_build_evidence.py",
     "run_issue25_rendering.py",
     "package_livecontainer_combined.py", "packaging_adapters.py", "rehearse_packaging_integration.py",
     "audit_ipa_signing.py",
     "patch_refresh_result_bridge.py",
 }
-LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
-COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
 EMBEDDED_KEYCHAIN_SCRIPT = "patch_embedded_keychain.py"
-V3_UNIFIED_SHELL_SCRIPT = "patch_v3_unified_shell.py"
 
 _SENSITIVE_ARTIFACT_SUFFIXES = {".p12", ".pfx", ".der", ".pem", ".key"}
 _SENSITIVE_NAMES = re.compile(
@@ -80,6 +64,7 @@ def _is_sensitive_reachable_path(path: str) -> bool:
         is_public_source = (
             len(parts) > 1
             and parts[0].lower() in _PUBLIC_SOURCE_DIRS
+            and not (parts[0].lower() == "tests" and parts[1].lower() == "ci")
             and suffix in _PUBLIC_SOURCE_SUFFIXES
         )
         return not is_public_source
@@ -97,8 +82,12 @@ _REVIEWED_PAIRING_SOURCE_SHA256 = {
     },
     "ci/issues-native/russian_pairing_projection.py": "3b4995b3f99742536c2f4a780f4d08a63f95cc4880b4e1119dee331520ade7e2",
     "ci/issues-native/test_russian_pairing_projection.py": "632bae9b89584615a14e2b61a6c3ddd33a9834f185153f96f5b961e2863f3d80",
+    'ci/diagnostics/preflight_comprehensive_pairing.py': '493ca6ada48af900f4b76a93b96d9f95acf2deda2c0a9676319702c730fe4978',
+    'ci/qualification/native/russian_pairing_projection.py': 'a843c2e79b2e70112ad1a81e69c8822df8341c54f4e6936633c2d943938bbebc',
+    'tests/ci/native/test_russian_pairing_projection.py': '2dcac1bad40ce081d4cdb8a2be557e5ae6d3dd42486ce889e173b7b030e815ac',
 }
-_PUBLIC_PAIRING_MANIFEST_PATH = "ci/issues-native/russian-pairing-extension.json"
+_PUBLIC_PAIRING_MANIFEST_PATH = "ci/qualification/native/russian-pairing-extension.json"
+_PUBLIC_PAIRING_MANIFEST_PATHS = {_PUBLIC_PAIRING_MANIFEST_PATH, "ci/issues-native/russian-pairing-extension.json"}
 _PUBLIC_PAIRING_MANIFEST_INPUTS = {
     "LiveContainer/.ci/comprehensive-diagnostics/generate_pairing_recovery_fixture.py",
     "LiveContainer/.ci/comprehensive-diagnostics/generate_wire_fixture.py",
@@ -137,7 +126,7 @@ def _is_reviewed_public_pairing_blob(path: str, object_type: str, content: bytes
         except (UnicodeError, SyntaxError, ValueError):
             return False
         return True
-    if path != _PUBLIC_PAIRING_MANIFEST_PATH:
+    if path not in _PUBLIC_PAIRING_MANIFEST_PATHS:
         return False
     try:
         value = json.loads(content.decode("utf-8"), object_pairs_hook=_unique_json_object)
@@ -156,9 +145,9 @@ def _is_reviewed_public_pairing_blob(path: str, object_type: str, content: bytes
 
 
 def _reachable_sensitive_objects(rows):
-    """Preserve the all-ref object scan; inspect bytes only for four exact paths."""
+    """Preserve the all-ref object scan; inspect bytes only for exact historical and current paths."""
     rejected = []
-    reviewed_paths = set(_REVIEWED_PAIRING_SOURCE_SHA256) | {_PUBLIC_PAIRING_MANIFEST_PATH}
+    reviewed_paths = set(_REVIEWED_PAIRING_SOURCE_SHA256) | _PUBLIC_PAIRING_MANIFEST_PATHS
     for object_id, path in rows:
         if not _is_sensitive_reachable_path(path):
             continue
@@ -189,28 +178,13 @@ class RepositoryTests(unittest.TestCase):
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
                     'experiment_local_symbols.py', 'experiment_sidebackup_stabs.py', 'local_symbol_packaging.py', 'macho_local_symbol_guard.py', 'openssl_local_symbol_policy.py', 'optimize_openssl_local_candidate.py', 'optimize_sidebackup_candidate.py', 'optimize_unsigned_widget.py', 'patch_refresh_callback_admission.py', 'widget_local_symbols.py', 'widget_signature_policy.py',
                     "integration_contracts.py", "experiment_strip_stabs.py", "macho_stab_guard.py", "optimize_native_candidate.py",
-                    "check_compiled_localization.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py"},
+                    "check_compiled_localization.py", "verify_candidate_ipa.py", "run_required_tests.py", "maintained_sources.py", "maintained_package_evidence.py", "verify_archive_symbols.py"},
 
         )
 
-    def test_patch_scripts_parse_and_contain_guard_markers(self):
-        """Syntax and guard-marker checks; actual repeat-application tests live beside patch fixtures.
-
-        Examples include test_automation, test_app_layout, test_embedded_keychain,
-        test_guest_return, test_sidesign_privacy, and test_v3_unified_shell.
-        """
-        for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT,
-                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_refresh_result_bridge.py", V3_UNIFIED_SHELL_SCRIPT}:
-            path = SCRIPTS / name
+    def test_current_scripts_parse(self):
+        for path in SCRIPTS.glob("*.py"):
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        self.assertIn(
-            "if MARKER in text",
-            (SCRIPTS / "patch_background_automation.py").read_text(encoding="utf-8"),
-        )
-        self.assertIn(
-            "if MARKER in text",
-            (SCRIPTS / "patch_sidestore_integration.py").read_text(encoding="utf-8"),
-        )
 
     def test_workflow_references_current_scripts(self):
         workflow = WORKFLOW.read_text()
@@ -219,28 +193,11 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn('verify_candidate_graph.py', workflow)
         self.assertIn('package_candidate.py --same-run-qualified-size', workflow)
         self.assertNotIn('contents: write', workflow)
-        contract = (SCRIPTS / COMBINED_REFRESH_SCRIPT).read_text(encoding="utf-8")
-        self.assertIn("from patch_embedded_keychain import patch as patch_shared_keychain", contract)
-        self.assertIn("patch_combined_cli(Path(sys.argv[1]))", contract)
-        self.assertIn("patch_shared_keychain(staged)", contract)
-        self.assertLess(contract.index("patch_shared_keychain(staged)"),
-                        contract.index("_patch_verified(staged)", contract.index("patch_shared_keychain(staged)")))
+        # Product assembly now consumes maintained owners, not patch replay.
+        # Binary keychain selection still has its read-only artifact gate.
+        contract = (SCRIPTS / "headless_artifact_contract.py").read_text(encoding="utf-8")
         self.assertIn("[LC_KEYCHAIN] GROUP_SELECTED", contract)
-        self.assertIn("verify_keychain_selection_contract", contract)
-
-    def test_upstream_ipsec_anchor_preserves_original_punctuation(self):
-        source = (SCRIPTS / "patch_sidestore_integration.py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        anchors = [
-            ast.literal_eval(node.value)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Assign)
-            and any(isinstance(target, ast.Name) and target.id == "old_ipsec_requirement"
-                    for target in node.targets)
-        ]
-        self.assertEqual(len(anchors), 1)
-        self.assertIn("interface found \u2014 LocalDevVPN", anchors[0])
-        self.assertNotIn(chr(0x2014), source)
+        self.assertIn("def verify_keychain_selection_contract", contract)
 
     def test_no_sensitive_paths_are_reachable(self):
         # Retain the audit of every reachable ref, including deleted files in
@@ -285,7 +242,7 @@ class RepositoryTests(unittest.TestCase):
         # Its name remains sensitive without the object-level content check.
         self.assertTrue(_is_sensitive_reachable_path(_PUBLIC_PAIRING_MANIFEST_PATH))
         for path in ("ci/other-pairing.json", "private/" + _PUBLIC_PAIRING_MANIFEST_PATH,
-                     _PUBLIC_PAIRING_MANIFEST_PATH + ".pem", "ci/issues-native/pairingFile.json"):
+                     _PUBLIC_PAIRING_MANIFEST_PATH + ".pem", "ci/qualification/native/pairingFile.json"):
             self.assertFalse(_is_reviewed_public_pairing_blob(path, "blob", encoded))
         for kind in ("tree", "commit", "tag"):
             self.assertFalse(_is_reviewed_public_pairing_blob(_PUBLIC_PAIRING_MANIFEST_PATH, kind, encoded))
@@ -318,6 +275,17 @@ class RepositoryTests(unittest.TestCase):
                             b"-----BEGIN PRIVATE KEY-----\nSYNTHETIC\n-----END PRIVATE KEY-----"):
                 self.assertFalse(_is_reviewed_public_pairing_blob(path, "blob", content))
         self.assertFalse(_is_reviewed_public_pairing_blob("ci/new_pairing.py", "blob", b"pass\n"))
+
+    def test_relocated_pairing_sources_are_content_bound(self):
+        for path in ("ci/diagnostics/preflight_comprehensive_pairing.py",
+                     "ci/qualification/native/russian_pairing_projection.py",
+                     "tests/ci/native/test_russian_pairing_projection.py"):
+            with self.subTest(path=path):
+                raw = (ROOT / path).read_bytes()
+                self.assertTrue(_is_sensitive_reachable_path(path))
+                self.assertTrue(_is_reviewed_public_pairing_blob(path, "blob", raw))
+                self.assertFalse(_is_reviewed_public_pairing_blob(path, "blob", raw + b"\n# changed"))
+                self.assertFalse(_is_reviewed_public_pairing_blob("private/" + path, "blob", raw))
 
     def test_pairing_preflight_admits_only_two_reviewed_git_source_objects(self):
         path = "ci/issues-native/preflight_comprehensive_pairing.py"

@@ -51,6 +51,17 @@
     "stagingFailed": "C19"
   },
   "cause": {
+    "databaseLayoutBlocked": "F69",
+    "databaseLayoutConflict": "F70",
+    "databaseAppGroupUnavailable": "F71",
+    "databasePersistenceFailed": "F72",
+    "databaseStartupFailed": "F73",
+    "databaseHostBundleUnavailable": "F74",
+    "databaseHostProfileUnavailable": "F75",
+    "databaseModelUnrecognized": "F76",
+    "databaseMigrationPathUnavailable": "F77",
+    "databaseMigrationFailed": "F78",
+    "databaseSaveFailed": "F79",
     "networkConnectionLost": "F01",
     "networkTimedOut": "F02",
     "networkUnavailable": "F03",
@@ -114,7 +125,11 @@
     "recoveryStorageUnavailable": "F61",
     "recoveryLockUnavailable": "F62",
     "recoveryReadFailure": "F63",
-    "recoveryDeleteFailure": "F64"
+    "recoveryDeleteFailure": "F64",
+    "directRecoveryRecordMissing": "F65",
+    "directRecoveryTargetMismatch": "F66",
+    "directRecoveryModeInvalid": "F67",
+    "directRecoveryPhaseNotEligible": "F68"
   },
   "step": {
     "authenticate": "S01",
@@ -146,7 +161,14 @@
     "sourceValidation": "S27",
     "knownSourcePolicyFetch": "S28",
     "knownSourcePolicyParsing": "S29",
-    "catalogRead": "S30"
+    "catalogRead": "S30",
+    "certificateSelection": "S31",
+    "refreshMetadataCache": "S32",
+    "provisioningProfileInstallation": "S33",
+    "refreshRecordUpdate": "S34",
+    "refreshApplication": "S35",
+    "refreshReadiness": "S36",
+    "refreshPreflight": "S37"
   },
   "typed": {
     "sideSignServerReportedError": "T01",
@@ -180,7 +202,21 @@
     "archiveWriteFailed": "T29",
     "archiveMissingApp": "T30",
     "unknownAccountFailure": "T31",
-    "anisetteIdentityStateInvalid": "T32"
+    "anisetteIdentityStateInvalid": "T32",
+    "anisetteAcquisitionServerListHTTP": "T33",
+    "anisetteAcquisitionMetadataHTTP": "T34",
+    "anisetteAcquisitionArchiveHTTP": "T35",
+    "anisetteAcquisitionChecksumMismatch": "T36",
+    "anisetteAcquisitionMissingMetadata": "T37",
+    "anisetteAcquisitionInvalidPayload": "T38",
+    "anisetteAcquisitionExtractionFailed": "T39",
+    "anisetteAcquisitionMissingLibraries": "T40",
+    "anisetteAcquisitionProviderNotReady": "T41",
+    "anisetteAcquisitionDownloadFailed": "T42",
+    "remoteIdentityInvalidRecord": "T43",
+    "remoteIdentityStorageUnverified": "T44",
+    "remoteIdentityStateChanged": "T45",
+    "remoteIdentityManualSignInRequired": "T46"
   },
   "launch": {
     "hostBundleUnavailable": "L01",

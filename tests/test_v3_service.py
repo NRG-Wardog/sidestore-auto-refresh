@@ -1,6 +1,4 @@
-"""Exercise pinned patch transactions and the actual shipped wire decoder."""
-import importlib.util
-import hashlib
+"""Exercise current owner service boundaries, headless packaging and wire behavior."""
 import json
 import os
 import plistlib
@@ -8,77 +6,38 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
-from unittest.mock import patch as mock
 
+from tests.owner_source import owner_source, owner_root
+from tests.support.product_sources import read_product_source, declaration_end
+from scripts import headless_artifact_contract as contract
 ROOT = Path(__file__).resolve().parents[1]
-# Dynamic patcher imports must resolve sibling helpers exactly as the CLI does.
-SCRIPTS = str(ROOT / "scripts")
-if SCRIPTS not in sys.path:
-    sys.path.insert(0, SCRIPTS)
+
+class OwnerFile:
+    """Read-only path facade: every file is validated against the owner commit."""
+    def __init__(self, owner, path=""): self.owner, self.path = owner, path
+    def __truediv__(self, path): return OwnerFile(self.owner, str(Path(self.path) / path))
+    def read_text(self, **kwargs): return owner_source(self.path, self.owner)
+    def read_bytes(self): return self.read_text().encode("utf-8")
 
 
-def module(name):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / (name + ".py"))
-    value = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(value)
-    return value
+def owner_trees():
+    return OwnerFile("LiveContainer"), OwnerFile("SideStore")
 
 
-def pinned_sidestore_source():
-    for variable in ("EMBEDDED_SIDESTORE_TEST_SOURCE", "SIDESTORE_TEST_SOURCE"):
-        value = os.environ.get(variable)
-        if value and Path(value).is_dir():
-            return Path(value)
-    for ancestor in (ROOT, *ROOT.parents):
-        if (ancestor / ".git").exists():
-            candidate = ancestor / ".audit" / "v3-side-upstream"
-            if candidate.is_dir():
-                return candidate
-    return None
-
-
-service = module("patch_v3_service")
-shell = module("patch_v3_unified_shell")
-refresh = module("patch_livecontainer_autorefresh")
-results = module("patch_refresh_result_bridge")
-embedded_keychain = module("patch_embedded_keychain")
-
-
-class DirectHostRefreshBackendPatchTests(unittest.TestCase):
-    def test_exact_backend_transform_idempotence_and_fail_closed(self):
-        source = service.DIRECT_REFRESH_PERFORM_OLD + service.DIRECT_REFRESH_BACKEND_OLD
-        expected = service.DIRECT_REFRESH_PERFORM_NEW + service.DIRECT_REFRESH_BACKEND_NEW
-        generated = service.headless_direct_refresh_backend(source)
-        self.assertEqual(generated, expected)
-        self.assertEqual(service.headless_direct_refresh_backend(generated), generated)
-        for token in ('validateRefreshExecution(ticket)', 'beginExternalRefreshExecution()',
-                      'endRefreshExecution(ticket)', 'AppManager.shared.backgroundRefresh'):
-            with self.subTest(token=token), self.assertRaises(SystemExit):
-                service.headless_direct_refresh_backend(generated.replace(token, 'invalid'))
-
-
-class ServicePatchTests(unittest.TestCase):
+class ServiceOwnerTests(unittest.TestCase):
     @staticmethod
     def swift_declaration(source, signature):
+        if source.count(signature) != 1:
+            raise AssertionError("Missing or ambiguous production declaration: " + signature)
         start = source.index(signature)
-        opening = source.index("{", start)
-        depth = 0
-        for index in range(opening, len(source)):
-            if source[index] == "{":
-                depth += 1
-            elif source[index] == "}":
-                depth -= 1
-                if depth == 0:
-                    return source[start:index + 1]
-        raise AssertionError(f"unterminated Swift declaration: {signature}")
+        return source[start:declaration_end(source, start)]
 
     def test_connection_config_is_generated_as_backend_code_not_a_view_model(self):
         with tempfile.TemporaryDirectory() as name:
-            roots = self.fixture(Path(name))
-            self.apply(roots)
+            roots = owner_trees()
+
             side = roots[1]
             project = (side / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
             side_anchor = project.index("A8EECF492F4B195000F2436D")
@@ -96,22 +55,17 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("V3_HEADLESS_BACKEND_CONNECTION_CONFIG_V1", backend)
             for ui_symbol in ("SwiftUI", "Combine", "ObservableObject", "@Published", "ActiveState", "formattedTunnel"):
                 self.assertNotIn(ui_symbol, backend)
-            side_source = Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.environ.get("SIDESTORE_TEST_SOURCE"))
-            pinned_model = (side_source / "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift").read_text(encoding="utf-8")
-            pinned_extensions = pinned_model[pinned_model.index("extension UserDefaults {"):].strip()
-            generated_extensions = backend[backend.index("extension UserDefaults {"):].strip()
-            self.assertEqual(generated_extensions, pinned_extensions,
-                             "move the pinned defaults key and port-validation semantics without alteration")
             self.assertIn("get { UserDefaults.standard.useLocalVPN }", backend)
             self.assertIn("getConnectionMode: { config.connectionMode }", wrapper)
+
 
     def test_connection_config_settings_update_is_live_for_captured_minimuxer_binding(self):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; generated connection settings harness runs in macOS CI")
         with tempfile.TemporaryDirectory() as name:
-            roots = self.fixture(Path(name))
-            self.apply(roots)
+            roots = owner_trees()
+
             side = roots[1]
             generated_config = (side / "SideStore/Core/DeviceApi/ConnectionConfig.swift").read_text(encoding="utf-8")
             wrapper = (side / "SideStore/Core/DeviceApi/MinimuxerWrapper.swift").read_text(encoding="utf-8")
@@ -120,25 +74,18 @@ class ServicePatchTests(unittest.TestCase):
             binding_expression = binding_match.group(1)
             self.assertEqual(binding_expression, "config.connectionMode")
 
-            runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+            runtime = read_product_source("v3_headless_runtime.swift")
             declarations_start = runtime.index("    static let boolSettings: Set<String> =")
             declarations_end = runtime.index("    static func settingsGet()", declarations_start)
             settings_declarations = runtime[declarations_start:declarations_end]
             settings_set = self.swift_declaration(runtime, "    static func settingsSet(payload: [String: Any]) throws")
 
-            wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+            wire = read_product_source("v3_wire_contract.swift")
             strict_bool = self.swift_declaration(wire, "    static func strictBool(_ value: Any?) -> Bool?")
             strict_int = self.swift_declaration(wire, "    static func strictInt(_ value: Any?) -> Int?")
             wire_defaults = f"enum V3WireContract {{\n{strict_bool}\n{strict_int}\n}}"
 
-            side_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.environ.get("SIDESTORE_TEST_SOURCE")
-            if not side_source:
-                self.skipTest("pinned SideStore source unavailable")
-            defaults_source = Path(side_source)
-            defaults_file = subprocess.check_output([
-                "git", "-C", str(defaults_source), "show",
-                service.PINS[1] + ":AltStore/Core/Extensions/UserDefaults+AltStore.swift"],
-                text=True, encoding="utf-8")
+            defaults_file = owner_source("AltStore/Core/Extensions/UserDefaults+AltStore.swift", "SideStore")
             local_vpn_default = self.swift_declaration(defaults_file, "    @objc var useLocalVPN: Bool")
 
             config_without_module_import = generated_config.replace("import Minimuxer\n", "")
@@ -152,6 +99,14 @@ enum AppConstants {{
     enum Minimuxer {{ static let remotePairingPort: UInt16 = 62078; static let defaultTCPProbeTimeoutMs = 1000 }}
 }}
 enum V3SideStoreServiceError: Error {{ case invalidRequest }}
+// The extension-choice preference is outside this connection-settings harness.
+enum HarnessExtensionChoice {{ case promptUser, keepAll }}
+extension UserDefaults {{
+    var customizeAppExtensions: HarnessExtensionChoice {{
+        get {{ .promptUser }}
+        set {{ }}
+    }}
+}}
 var remotePairingPortCache: UInt16 = 62078
 var deviceProbeTimeoutCache = 1000
 final class WidgetDataManager {{
@@ -214,111 +169,30 @@ enum V3BackendCommands {{
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3_LIVE_CONNECTION_SETTINGS_PASS", result.stdout)
 
-    def test_legacy_pipeline_bundle_prompt_is_headless_and_idempotent(self):
-        side_source = Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or ROOT / ".audit/v3-side-upstream")
-        source_path = side_source / "SideStore/Handlers/PipelineHandler.swift"
-        if not source_path.is_file():
-            self.skipTest("Pinned SideStore PipelineHandler source unavailable")
-        source = source_path.read_text(encoding="utf-8")
-        patched = service.headless_pipeline_handler(source)
-        self.assertIn("V3_HEADLESS_BUNDLE_ID_PROMPT_V1", patched)
-        self.assertIn("return (initialBundleID, true)", patched)
-        self.assertNotIn("AppExtensionViewHostingController", patched)
-        self.assertNotIn("ReviewPermissionsViewController", patched)
-        component_path = "SideStore/Views/Components/CustomAppIDAlertViewController.swift"
-        self.assertIn(component_path.split("/", 1)[1], service.HEADLESS_SIDESTORE_VIEW_FILES)
-        component_source = subprocess.check_output(
-            ["git", "-C", str(side_source), "show",
-             service.PINS[1] + ":" + component_path], text=True, encoding="utf-8")
-        self.assertIn("class AppendTeamIDCheckboxView", component_source)
-        references = subprocess.check_output(
-            ["git", "-C", str(side_source), "grep", "-n", "-F", "AppendTeamIDCheckboxView",
-             service.PINS[1], "--", "*.swift"], text=True, encoding="utf-8").splitlines()
-        self.assertEqual([line.split(":", 2)[1] for line in references], [
-            "SideStore/Handlers/PipelineHandler.swift",
-            component_path,
-        ])
-        pinned_project = subprocess.check_output(
-            ["git", "-C", str(side_source), "show",
-             service.PINS[1] + ":AltStore.xcodeproj/project.pbxproj"],
-            text=True, encoding="utf-8")
-        synced_group = pinned_project[pinned_project.index("A8EECF2A2F4B195000F2436D"):]
-        self.assertIn("path = SideStore;", synced_group)
-        sidestore_target = pinned_project[pinned_project.index("BFD247692284B9A500981D42 /* SideStore */ = {"):]
-        self.assertIn("A8EECF2A2F4B195000F2436D /* SideStore */", sidestore_target)
-        original_exceptions = pinned_project[pinned_project.index("A8EECF492F4B195000F2436D"):]
-        original_membership = original_exceptions[
-            original_exceptions.index("membershipExceptions = ("):
-            original_exceptions.index(");")]
-        self.assertNotIn('"Views/Components/CustomAppIDAlertViewController.swift"', original_membership)
-        original_override = self.swift_declaration(
-            source, "func resolveBundleIDOverride(initialBundleID: String)")
-        patched_override = self.swift_declaration(
-            patched, "func resolveBundleIDOverride(initialBundleID: String)")
-        self.assertIn("AppendTeamIDCheckboxView", original_override)
-        self.assertNotIn("AppendTeamIDCheckboxView", patched_override)
-        self.assertEqual(service.headless_pipeline_handler(patched), patched)
 
-    def test_app_manager_deactivate_app_limit_wrapper_is_ui_only_and_excluded(self):
-        side_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not side_source:
-            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned source checkout")
-        app_manager_path = "AltStore/Managing Apps/AppManager.swift"
-        my_apps_path = "AltStore/My Apps/MyAppsViewController.swift"
-        caller_matches = subprocess.check_output(
-            ["git", "-C", side_source, "grep", "-n", "-F", "deactivateApps(",
-             service.PINS[1], "--", "*.swift"], text=True, encoding="utf-8").splitlines()
-        matching_paths = [line.split(":", 2)[1] for line in caller_matches]
-        self.assertEqual(matching_paths, [app_manager_path, app_manager_path, my_apps_path])
+    def test_pipeline_bundle_prompt_is_headless(self):
+        source = owner_source("SideStore/Handlers/PipelineHandler.swift", "SideStore")
+        override = self.swift_declaration(source, "func resolveBundleIDOverride(initialBundleID: String)")
+        self.assertIn("return (initialBundleID, true)", override)
+        for removed in ("AppendTeamIDCheckboxView", "AppExtensionViewHostingController", "ReviewPermissionsViewController"):
+            self.assertNotIn(removed, source)
 
-        app_manager = subprocess.check_output(
-            ["git", "-C", side_source, "show", service.PINS[1] + ":" + app_manager_path],
-            text=True, encoding="utf-8")
-        generated_app_manager = service.headless_app_manager_ui(app_manager)
-        self.assertIn("V3_HEADLESS_APP_MANAGER_DEACTIVATE_APPLIMIT_WRAPPER_REMOVED_V1", generated_app_manager)
-        self.assertNotIn("func deactivateApps(for:", generated_app_manager)
-        self.assertNotIn("self.deactivateApps(for:", generated_app_manager)
-        self.assertIn("func deactivate(_ installedApp: InstalledApp", generated_app_manager)
-        self.assertIn("performSingleOperation(.deactivate(installedApp)", generated_app_manager)
-        self.assertIn("func activate(_ installedApp: InstalledApp", generated_app_manager)
-        self.assertIn("performSingleOperation(.activate(installedApp)", generated_app_manager)
-        self.assertEqual(service.headless_app_manager_ui(generated_app_manager), generated_app_manager)
 
-        project = subprocess.check_output(
-            ["git", "-C", side_source, "show", service.PINS[1] + ":AltStore.xcodeproj/project.pbxproj"],
-            text=True, encoding="utf-8")
-        altstore_group = project[project.index("A8EEC8412F4B146A00F2436D"):]
-        self.assertIn("path = AltStore;", altstore_group)
-        sidestore_target = project[project.index("BFD247692284B9A500981D42 /* SideStore */ = {"):]
-        self.assertIn("A8EEC8412F4B146A00F2436D /* AltStore */", sidestore_target)
-        source_exceptions = project[project.index("A8EEC8CB2F4B146B00F2436D"):]
-        source_members = source_exceptions[source_exceptions.index("membershipExceptions = ("):
-                                          source_exceptions.index(");")]
-        self.assertNotIn('"Managing Apps/AppManager.swift"', source_members)
-        self.assertNotIn('"My Apps/MyAppsViewController.swift"', source_members)
+    def test_app_manager_preserves_backend_activation_without_ui_wrapper(self):
+        source = owner_source("AltStore/Managing Apps/AppManager.swift", "SideStore")
+        for removed in ("func deactivateApps(for:", "self.deactivateApps(for:"):
+            self.assertNotIn(removed, source)
+        for retained in ("func deactivate(_ installedApp: InstalledApp", "performSingleOperation(.deactivate(installedApp)",
+                         "func activate(_ installedApp: InstalledApp", "performSingleOperation(.activate(installedApp)"):
+            self.assertIn(retained, source)
+        runtime = read_product_source("v3_headless_runtime.swift")
+        for command in ('case "activate": operation = .activate(app)', 'case "deactivate": operation = .deactivate(app)',
+                        "AppManager.shared.pipelineRunner.performSingleOperation(operation"):
+            self.assertIn(command, runtime)
 
-        generated_project = service.headless_project(project)
-        generated_exception = generated_project[generated_project.index("A8EEC8CB2F4B146B00F2436D"):]
-        generated_members = generated_exception[generated_exception.index("membershipExceptions = ("):
-                                                generated_exception.index(");")]
-        self.assertIn('"My Apps/MyAppsViewController.swift"', generated_members)
-        self.assertNotIn('"Managing Apps/AppManager.swift"', generated_members)
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        self.assertIn('case "activate": operation = .activate(app)', runtime)
-        self.assertIn('case "deactivate": operation = .deactivate(app)', runtime)
-        self.assertIn("AppManager.shared.pipelineRunner.performSingleOperation(operation", runtime)
 
     def test_persisted_side_sign_errors_drop_provider_text_from_core_data_history(self):
-        side_source_value = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not side_source_value:
-            self.skipTest("pinned embedded SideStore source is supplied by macOS CI")
-        side_source = Path(side_source_value)
-        manager_path = "AltStore/Managing Apps/AppManager.swift"
-        manager = subprocess.check_output(
-            ["git", "-C", str(side_source), "show", service.PINS[1] + ":" + manager_path],
-            text=True, encoding="utf-8")
-        generated_manager = service.headless_app_manager_ui(manager)
-        self.assertEqual(service.headless_app_manager_ui(generated_manager), generated_manager)
+        generated_manager = owner_source("AltStore/Managing Apps/AppManager.swift", "SideStore")
         log_method = self.swift_declaration(generated_manager, "func log(_ error: Error")
         self.assertIn("V3PersistedErrorSanitizer.sanitize(error as NSError)", log_method)
         self.assertNotIn("sanitizedForSerialization()", log_method)
@@ -327,29 +201,16 @@ enum V3BackendCommands {{
         self.assertNotIn("source.error = error.sanitizedForSerialization()", generated_manager)
         self.assertNotIn("(mergeError as NSError).sanitizedForSerialization()", generated_manager)
 
-        history_path = "AltStore/Core/Model/RefreshAttempt.swift"
-        history = subprocess.check_output(
-            ["git", "-C", str(side_source), "show", service.PINS[1] + ":" + history_path],
-            text=True, encoding="utf-8")
-        generated_history = service.headless_refresh_attempt_error_privacy(history)
-        self.assertEqual(service.headless_refresh_attempt_error_privacy(generated_history), generated_history)
+        generated_history = owner_source("AltStore/Core/Model/RefreshAttempt.swift", "SideStore")
         self.assertIn("V3PersistedErrorSanitizer.refreshHistoryDescription(for: error)", generated_history)
         self.assertNotIn("error.localizedDescription", generated_history)
 
-        intent_path = "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift"
-        intent_source = subprocess.check_output(
-            ["git", "-C", str(side_source), "show", service.PINS[1] + ":" + intent_path],
-            text=True, encoding="utf-8")
-        generated_intent = service.headless_app_intents(intent_source, "RefreshAllAppsIntent.swift")
-        self.assertEqual(service.headless_app_intents(generated_intent, "RefreshAllAppsIntent.swift"), generated_intent)
+        generated_intent = owner_source("AltStore/Intents/App Intents/RefreshAllAppsIntent.swift", "SideStore")
         intent_error = self.swift_declaration(generated_intent, "class IntentError:")
         self.assertIn("V3PersistedErrorSanitizer.sanitize(error as NSError)", intent_error)
         self.assertIn('return "\\(self.localizedDescription)"', intent_error)
 
-        merge_path = "AltStore/Core/Model/MergePolicies/MergePolicy.swift"
-        merge_policy = subprocess.check_output(
-            ["git", "-C", str(side_source), "show", service.PINS[1] + ":" + merge_path],
-            text=True, encoding="utf-8")
+        merge_policy = owner_source("AltStore/Core/Model/MergePolicies/MergePolicy.swift", "SideStore")
         merge_serializer = self.swift_declaration(merge_policy, "func serialized(withFailure failure: String)")
         self.assertIn("self as NSError).withLocalizedFailure(failure).sanitizedForSerialization()", merge_serializer)
         self.assertIn("throw nsError", merge_policy)
@@ -411,81 +272,38 @@ print("persisted provider error text redacted")
             completed = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
             self.assertIn("persisted provider error text redacted", completed.stdout)
 
+
     def test_pairing_and_sidejit_presenters_are_unreferenced_in_headless_target(self):
-        side_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not side_source:
-            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned source checkout")
-        ref = service.PINS[1]
-
-        def pinned_matches(token):
-            output = subprocess.check_output(
-                ["git", "-C", side_source, "grep", "-n", "-F", token, ref, "--", "*.swift"],
-                text=True, encoding="utf-8")
-            return [line.split(":", 2)[1] for line in output.splitlines()]
-
-        launch = "AltStore/LaunchViewController.swift"
-        boot_path = "SideStore/AppBootManager.swift"
-        jit_path = "SideStore/Core/JIT/SideJITManager.swift"
-        pairing_path = "SideStore/Core/Pairing/PairingFileManager.swift"
-        self.assertEqual(set(pinned_matches("promptForPairing(")), {launch, boot_path})
-        self.assertEqual(set(pinned_matches("needsPairingPrompt")), {launch, boot_path})
-        self.assertEqual(set(pinned_matches("needsSideJITPrompt")), {launch, boot_path})
-        self.assertEqual(set(pinned_matches("presentJITPrompt(")), {launch, jit_path})
-        self.assertEqual(set(pinned_matches("isSideJITServerDetected(")), {boot_path, jit_path})
-        self.assertEqual(set(pinned_matches("presentPairingFileAlert(")), {boot_path, pairing_path})
-        self.assertEqual(set(pinned_matches("showPairingWarningAndProceed(")), {pairing_path})
-        self.assertEqual(set(pinned_matches("importPairingFile(presentingVC:")), {pairing_path})
-
-        def show(path):
-            return subprocess.check_output(["git", "-C", side_source, "show", f"{ref}:{path}"],
-                                           text=True, encoding="utf-8")
-
-        boot_original = show(boot_path)
-        boot_generated = service.headless_app_boot_manager(boot_original)
-        self.assertEqual(service.headless_app_boot_manager(boot_generated), boot_generated)
-        self.assertNotIn("@MainActor", boot_generated)
+        lambda_show = lambda path: owner_source(path, "SideStore")
+        boot_generated = owner_source("SideStore/AppBootManager.swift", "SideStore")
         for removed in ("needsPairingPrompt", "needsSideJITPrompt", "promptForPairing(",
                         "presentPairingFileAlert", "isSideJITServerDetected", "UIViewController", "import UIKit"):
             self.assertNotIn(removed, boot_generated)
-        original_start = self.swift_declaration(boot_original, "public nonisolated func startMinimuxer(")
-        expected_start = "\n".join(
-            line for line in original_start.splitlines() if "self.needsPairingPrompt =" not in line)
-        actual_start = self.swift_declaration(boot_generated, "public nonisolated func startMinimuxer(")
-        self.assertEqual(actual_start, expected_start)
         self.assertIn("public nonisolated func performBootSequence() async", boot_generated)
         self.assertIn("SideJITManager.shared.askForNetwork()", boot_generated)
         self.assertIn("PairingFileManager.shared.fetchPairingFile()", boot_generated)
         self.assertIn("V3_HEADLESS_BOOT_SIDEJIT_DETECTION_REMOVED_V1", boot_generated)
 
-        jit_original = show(jit_path)
-        jit_generated = service.headless_sidejit_manager(jit_original)
-        self.assertEqual(service.headless_sidejit_manager(jit_generated), jit_generated)
+        jit_generated = owner_source("SideStore/Core/JIT/SideJITManager.swift", "SideStore")
         self.assertNotIn("@MainActor", jit_generated)
         for removed in ("presentJITPrompt", "isSideJITServerDetected", "UIAlertController", "UIViewController", "import UIKit"):
             self.assertNotIn(removed, jit_generated)
         for retained in ("public func resolveServerURL() async -> String", "public func askForNetwork() async",
                          "resolveAddressIfNeeded", "inet_pton"):
             self.assertIn(retained, jit_generated)
-        enable_jit = show("SideStore/Core/Operations/StandaloneOperations/EnableJITOperation.swift")
+        enable_jit = lambda_show("SideStore/Core/Operations/StandaloneOperations/EnableJITOperation.swift")
         self.assertIn("SideJITManager.shared.resolveServerURL()", enable_jit)
 
-        pairing_original = show(pairing_path)
-        pairing_generated = service.headless_pairing_file_manager(pairing_original)
-        self.assertEqual(service.headless_pairing_file_manager(pairing_generated), pairing_generated)
-        for removed in ("UIViewController", "UIDocumentPicker", "UIAlertController", "UTType",
-                        "UniformTypeIdentifiers", "import UIKit", "importPairingFile(presentingVC:"):
+        pairing_generated = owner_source("SideStore/Core/Pairing/PairingFileManager.swift", "SideStore")
+        for removed in ("UIViewController", "UIDocumentPicker", "UIAlertController", "import UIKit", "importPairingFile(presentingVC:"):
             self.assertNotIn(removed, pairing_generated)
-        for signature in ("nonisolated var pairingUDID:", "nonisolated func fetchPairingFile()",
-                          "func savePairingFile(contents: String)"):
-            self.assertEqual(self.swift_declaration(pairing_original, signature),
-                             self.swift_declaration(pairing_generated, signature))
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        self.assertIn("PairingFileManager.shared.savePairingFile(contents: contents)", runtime)
+        runtime = read_product_source("v3_headless_runtime.swift")
+        self.assertIn("PairingFileManager.shared.importPairingFile(contents: contents)", runtime)
         self.assertIn("PairingFileManager.shared.fetchPairingFile()", runtime)
-        minimuxer = show("SideStore/Core/DeviceApi/MinimuxerWrapper.swift")
+        minimuxer = lambda_show("SideStore/Core/DeviceApi/MinimuxerWrapper.swift")
         self.assertIn("PairingFileManager.shared.pairingUDID", minimuxer)
 
-        project = show("AltStore.xcodeproj/project.pbxproj")
+        project = lambda_show("AltStore.xcodeproj/project.pbxproj")
         sidestore_group = project[project.index("A8EECF2A2F4B195000F2436D"):]
         self.assertIn("path = SideStore;", sidestore_group)
         side_target = project[project.index("BFD247692284B9A500981D42 /* SideStore */ = {"):]
@@ -495,36 +313,15 @@ print("persisted provider error text redacted")
                                       side_exceptions.index(");")]
         for path in ("AppBootManager.swift", "Core/JIT/SideJITManager.swift", "Core/Pairing/PairingFileManager.swift"):
             self.assertNotIn(f'"{path}"', side_members)
-        generated_project = service.headless_project(project)
+        generated_project = project
         altstore_exceptions = generated_project[generated_project.index("A8EEC8CB2F4B146B00F2436D"):]
         altstore_members = altstore_exceptions[altstore_exceptions.index("membershipExceptions = ("):
                                               altstore_exceptions.index(");")]
         self.assertIn('"LaunchViewController.swift"', altstore_members)
 
-    def test_function_removal_consumes_only_its_actor_attribute(self):
-        source = '''@MainActor
-func removePresenter() { }
-
-@MainActor
-func retainedActorMethod() { }
-'''
-        generated = service.remove_swift_function_with_actor(
-            source, "func removePresenter()", "V3_REMOVED_PRESENTER", "actor removal regression")
-        self.assertEqual(generated.count("@MainActor"), 1)
-        self.assertIn("// V3_REMOVED_PRESENTER", generated)
-        self.assertIn("@MainActor\nfunc retainedActorMethod()", generated)
-
-    def test_log_formatter_patch_replaces_the_complete_final_swift_function(self):
-        source = "import Foundation\npublic func formatLogMessage(_ message: String) -> String { return message }\n"
-        patched = service.headless_safe_log_format(source)
-        self.assertEqual(service.headless_safe_log_format(patched), patched)
-        self.assertEqual(patched.count("V3_SAFE_LOG_FORMAT_V1"), 1)
-        self.assertNotIn("return message", patched)
-        with self.assertRaises(SystemExit):
-            service.headless_safe_log_format(source + "func requiredBackendHelper() {}\n")
 
     def test_headless_service_template_does_not_import_swiftui(self):
-        service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service_template = read_product_source("v3_sidestore_service.swift")
         self.assertNotIn("import SwiftUI", service_template)
         self.assertIn("private enum V3OperationRecoveryJournal", service_template)
 
@@ -533,8 +330,8 @@ func retainedActorMethod() { }
         if not compiler:
             self.skipTest("Swift compiler unavailable; cache cleanup behavior runs in macOS CI")
         with tempfile.TemporaryDirectory() as name:
-            roots = self.fixture(Path(name))
-            self.apply(roots)
+            roots = owner_trees()
+
             clear_source = (roots[1] / "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift").read_text()
             start = clear_source.index("// V3_LEGACY_IMAGE_CACHE_CLEANUP_V1")
             end = clear_source.index("\nstruct BatchError", start)
@@ -573,12 +370,8 @@ import Foundation
                 self.assertIn("V3_LEGACY_IMAGE_CACHE_CLEANUP_PASS", result.stdout)
 
     def test_every_pinned_nuke_import_is_excluded_or_headless_adapted(self):
-        source_value = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.getenv("SIDESTORE_TEST_SOURCE")
-        if not source_value:
-            self.skipTest("pinned SideStore source unavailable")
-        source = Path(source_value)
-        project_text = (source / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
-        generated_project = service.headless_project(project_text)
+        source = owner_root("SideStore")
+        generated_project = owner_source("AltStore.xcodeproj/project.pbxproj", "SideStore")
 
         def excluded_members(anchor):
             anchor_start = generated_project.index(anchor)
@@ -595,7 +388,7 @@ import Foundation
         ):
             root = source / root_name
             for path in root.rglob("*.swift"):
-                if "import Nuke" not in path.read_text(encoding="utf-8"):
+                if "import Nuke" not in owner_source(path.relative_to(source).as_posix(), "SideStore"):
                     continue
                 relative = path.relative_to(root).as_posix()
                 if relative not in excluded and relative not in adapted:
@@ -603,9 +396,10 @@ import Foundation
         self.assertEqual(unaccounted, [],
             "every Nuke import must be removed from the headless target or replaced by a backend adapter")
 
+
     def test_backend_auth_pair_decisions_use_one_keychain_snapshot(self):
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        runtime = read_product_source("v3_headless_runtime.swift")
+        service = read_product_source("v3_sidestore_service.swift")
         availability = runtime[runtime.index("func canResumeProvisioning()"):
             runtime.index("    var sessions: [String: Session]", runtime.index("func canResumeProvisioning()"))]
         self.assertIn("let credentials = auth.authenticationSnapshot", availability)
@@ -625,43 +419,31 @@ import Foundation
         self.assertIn("let authCredentials = AuthManager.shared.authenticationSnapshot", status)
         self.assertNotIn("AuthManager.shared.currentAppleID", status)
 
-    def test_external_url_log_redaction_is_idempotent_and_omits_sensitive_values(self):
-        scene = '\n'.join((
-            'debugLog("[SceneDelegate] scene(_:openURLContexts:) called with URL: \\(context.url)")',
-            'debugLog("[SceneDelegate] open(_:) called with URL: \\(context.url)")',
-            'debugLog(finished)',
-        ))
-        url_handler = '\n'.join((
-            'debugLog("[URLHandler] handle(_:) called with URL: \\(url.absoluteString)")',
-            'debugLog("[URLHandler] Failed to parse URLComponents for \\(url)")',
-            'debugLog("[URLHandler] Matched host: \\(host), path: \\(url.path.lowercased())")',
-        ))
-        for relative, original in (("AltStore/SceneDelegate.swift", scene),
-                                   ("SideStore/DeepLinks/URLHandler.swift", url_handler)):
-            redacted = service.redact_external_url_logs(original, relative)
-            self.assertIn("V3_EXTERNAL_URL_LOG_REDACTION_V1", redacted)
-            self.assertEqual(service.redact_external_url_logs(redacted, relative), redacted)
-            self.assertNotIn("context.url)", redacted)
-            self.assertNotIn("url.absoluteString)", redacted)
-            self.assertNotIn("debugLog(finished)", redacted)
+    def test_external_url_logs_omit_sensitive_values(self):
+        for path in ("AltStore/SceneDelegate.swift", "SideStore/DeepLinks/URLHandler.swift"):
+            source = owner_source(path, "SideStore")
+            logs = "\n".join(line for line in source.splitlines() if "debugLog(" in line)
+            for unsafe in ("context.url)", "url.absoluteString)", "debugLog(finished)"):
+                self.assertNotIn(unsafe, logs)
+
 
     def test_readiness_failure_bridge_has_one_canonical_combined_failure_adapter(self):
-        helper = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        helper = read_product_source("combined_refresh_handler.swift")
         self.assertEqual(helper.count(
             "func combinedFailure(id: String, operation overrideOperation: String? = nil) -> CombinedFailure"), 1)
 
     def test_service_marks_only_database_readiness_not_ready_as_transient(self):
-        service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        policy = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        service_template = read_product_source("v3_sidestore_service.swift")
+        policy = read_product_source("v3_behavioral_primitives.swift")
         self.assertEqual(service_template.count("V3ServiceReadinessRetryPolicy.retryable("), 2)
         self.assertIn('guard typedNotReady, operation == "snapshot", stage == .serviceReadiness', policy)
         self.assertIn("code == .notReady else { return nil }", policy)
         self.assertIn('"payload": ["readinessOnly": true]',
-                      (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8"))
+                      owner_source("SideStoreSupport/SideStore.swift"))
         self.assertIn('return ["ready": DatabaseManager.shared.isStarted]', service_template)
 
     def test_source_remove_and_pairing_import_accept_the_authoritative_response_snapshot(self):
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        host = read_product_source("v3_unified_shell.swift")
         remove = host[host.index("private func confirmRemove(id: String) async"):
                       host.index("struct V3CatalogApp", host.index("private func confirmRemove(id: String) async"))]
         pairing = host[host.index("private func importFile(_ url: URL) async", host.index("struct V3PairingView")):
@@ -679,10 +461,10 @@ import Foundation
         travels in the request that already carries the prompt id, and no
         credential may be written to shared storage on the way.
         """
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
-        shared_keychain = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
+        host = read_product_source("v3_unified_shell.swift")
+        service_template = read_product_source("v3_sidestore_service.swift")
+        handoff = read_product_source("v3_secret_handoff.swift")
+        shared_keychain = read_product_source("embedded_shared_keychain.swift")
 
         for operation in ("authRespond", "opAnswer"):
             self.assertIn(f'operation: "{operation}"', host)
@@ -726,10 +508,10 @@ import Foundation
         is unreadable from the service under any re-signer. They now travel as a
         bounded request field and come back as a bounded reply field.
         """
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        wire = read_product_source("v3_wire_contract.swift")
+        service = read_product_source("v3_sidestore_service.swift")
+        runtime = read_product_source("v3_headless_runtime.swift")
+        host = read_product_source("v3_unified_shell.swift")
         self.assertIn('case "sidesignSet":', wire)
         self.assertIn('Set(payload.keys) == Set(["config"])', wire)
         self.assertIn("V3BackendCommands.sidesignConfigText()", service)
@@ -745,7 +527,7 @@ import Foundation
             self.assertNotIn(stale, host)
 
     def test_anisette_server_selection_reloads_authoritative_active_state(self):
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        host = read_product_source("v3_unified_shell.swift")
         start = host.index("struct V3AnisetteView")
         end = host.index("struct V3SideSignView", start)
         view = host[start:end]
@@ -758,9 +540,9 @@ import Foundation
         self.assertIn("if !store.message.isEmpty", selection)
 
     def test_shared_file_staging_is_purpose_scoped_bounded_and_expiring(self):
-        handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        service_runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        handoff = read_product_source("v3_secret_handoff.swift")
+        host = read_product_source("v3_unified_shell.swift")
+        service_runtime = read_product_source("v3_headless_runtime.swift")
         for purpose in ("pairing", "sidesign", "accountImport"):
             self.assertIn(f'purpose: "{purpose}"', host)
             self.assertIn(f'purpose: "{purpose}"', service_runtime)
@@ -777,7 +559,7 @@ import Foundation
         self.assertNotIn("V3SharedFile.", host + service_runtime)
 
     def test_transport_log_templates_keep_dynamic_errors_paths_and_endpoints_out_of_logs(self):
-        gateway = (ROOT / "scripts/patch_sidestore_integration.py").read_text(encoding="utf-8")
+        gateway = owner_source("DeviceGateway/idevice/IdeviceGateway.swift", "SideStore/Dependencies/minimuxer")
         for unsafe_log in (
             'TRANSPORT_CREATE_FAIL code=\\(code) subcode=\\(subCode) error=\\(message)',
             'selected_transport=FAILED_NO_VALID_TRANSPORT reason=\\(error.localizedDescription)',
@@ -792,109 +574,45 @@ import Foundation
         self.assertIn('IPA install failed: \\(message)', gateway)
 
     def test_headless_app_delegate_removes_unowned_ipa_and_source_deep_link_lifecycle(self):
-        side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        source = (Path(side) if side else ROOT / ".audit/v3-side-upstream") / "AltStore/AppDelegate.swift"
-        if not source.is_file():
-            self.skipTest("Pinned SideStore AppDelegate source unavailable")
-        original = source.read_text(encoding="utf-8")
-        patched = service.headless_app_open(original)
+        patched = owner_source("AltStore/AppDelegate.swift", "SideStore")
         self.assertNotIn("pendingImportIPAURL", patched)
         self.assertNotIn("importAppDeepLinkNotification", patched)
         self.assertNotIn("addSourceDeepLinkNotification", patched)
         self.assertNotIn("    var window: UIWindow?", patched)
         self.assertNotIn("self.window?.tintColor", patched)
         self.assertIn("appBackupDidFinish", patched)
-        self.assertEqual(service.headless_app_open(patched), patched)
-        generated_app = service.headless_sidestore_app_ui(original)
+
+        generated_app = patched
         self.assertNotIn("UIStackView.appearance(whenContainedInInstancesOf:", generated_app)
         self.assertNotIn("stackViewAppearance.spacing", generated_app)
         self.assertNotIn("openPatreonSettingsDeepLinkNotification", generated_app)
         self.assertNotIn("setTintColor()", generated_app)
-        self.assertEqual(service.headless_sidestore_app_ui(generated_app), generated_app)
-        scene = (Path(side) if side else ROOT / ".audit/v3-side-upstream") / "AltStore/SceneDelegate.swift"
-        scene_patched = service.headless_scene_open(scene.read_text(encoding="utf-8"))
+
+        scene_patched = owner_source("AltStore/SceneDelegate.swift", "SideStore")
         self.assertNotIn("pendingImportIPAURL", scene_patched)
         self.assertNotIn("    var window: UIWindow?", scene_patched)
         self.assertNotIn("exportPairingFile", scene_patched)
-        self.assertEqual(service.headless_scene_open(scene_patched), scene_patched)
 
-    def test_dead_livecontainer_url_helpers_are_removed_after_unified_routing(self):
-        live = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
-        live_source = Path(live) if live else ROOT.parent / "v3-live"
-        tab_path = live_source / "LiveContainerSwiftUI/Views/LCTabView.swift"
-        utils_path = live_source / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift"
-        if not tab_path.is_file() or not utils_path.is_file():
-            self.skipTest("Pinned LiveContainer source unavailable")
 
-        tab = service.headless_lc_tab_view(tab_path.read_text(encoding="utf-8"))
-        self.assertNotIn("dispatchURL", tab)
-        self.assertIn("V3_HEADLESS_LC_TAB_ROUTING_REMOVED_V1: URL routing belongs to V3UnifiedShell", tab)
-        self.assertEqual(service.headless_lc_tab_view(tab), tab)
+    def test_host_url_routing_has_no_legacy_helpers(self):
+        for path in ("LiveContainerSwiftUI/Views/LCTabView.swift", "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift",
+                     "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift"):
+            source = owner_source(path)
+            self.assertNotIn("LCUtils.openSideStore(", source)
+            self.assertNotIn("static func openSideStore(", source)
+            self.assertNotIn("func dispatchURL(url: URL)", source)
 
-        utils = service.headless_open_sidestore_helper(utils_path.read_text(encoding="utf-8"))
-        self.assertNotIn("static func openSideStore(", utils)
-        self.assertIn("V3_HEADLESS_OPEN_SIDESTORE_HELPER_REMOVED_V1", utils)
-        self.assertEqual(service.headless_open_sidestore_helper(utils), utils)
-
-        refs = subprocess.check_output([
-            "git", "-C", str(live_source), "grep", "-n", "-F", "LCUtils.openSideStore(",
-            service.PINS[0], "--", "*.swift"], text=True, encoding="utf-8").splitlines()
-        self.assertEqual(len(refs), 3, "all pinned callers are patched by the service builder")
-        if os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE"):
-            with tempfile.TemporaryDirectory() as name:
-                roots = self.fixture(Path(name))
-                self.apply(roots)
-                app_list = (roots[0] / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text(encoding="utf-8")
-                multi_lc = (roots[0] / "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift").read_text(encoding="utf-8")
-                generated_utils = (roots[0] / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift").read_text(encoding="utf-8")
-                self.assertNotIn("LCUtils.openSideStore(", app_list + multi_lc + generated_utils)
-                self.assertNotIn("func dispatchURL(url: URL)",
-                                 (roots[0] / "LiveContainerSwiftUI/Views/LCTabView.swift").read_text(encoding="utf-8"))
 
     def test_app_manager_pipeline_factory_drops_presenter_closure(self):
-        source = pinned_sidestore_source()
-        if source is None:
-            self.skipTest("Pinned SideStore source unavailable")
-        app_manager = subprocess.check_output([
-            "git", "-C", str(source), "show",
-            service.PINS[1] + ":AltStore/Managing Apps/AppManager.swift"],
-            text=True, encoding="utf-8")
-        generated = service.headless_app_manager_ui(app_manager)
+        generated = owner_source("AltStore/Managing Apps/AppManager.swift", "SideStore")
         self.assertIn("return PipelineHandler()", generated)
         self.assertNotIn("presenterProvider:", generated)
         self.assertNotIn("isResignActive:", generated)
         self.assertNotIn("ResignAltStoreViewController", generated)
-        self.assertEqual(service.headless_app_manager_ui(generated), generated)
 
-    def test_headless_removal_emits_clean_pinned_source_diff(self):
-        side = pinned_sidestore_source()
-        if side is None:
-            self.skipTest("Pinned SideStore source unavailable")
-        adapters = (
-            ("AltStore/AppDelegate.swift", service.headless_sidestore_app_delegate),
-            ("SideStore/Core/Pairing/PairingFileManager.swift", service.headless_pairing_file_manager),
-        )
-        with tempfile.TemporaryDirectory() as name:
-            for index, (relative, transform) in enumerate(adapters):
-                original = subprocess.check_output(
-                    ["git", "-C", str(side), "show", f"{service.PINS[1]}:{relative}"],
-                    text=True, encoding="utf-8")
-                generated = transform(original)
-                before = Path(name) / f"before-{index}.swift"
-                after = Path(name) / f"after-{index}.swift"
-                before.write_text(original, encoding="utf-8")
-                after.write_text(generated, encoding="utf-8")
-                checked = subprocess.run(
-                    ["git", "diff", "--no-index", "--check", "--", str(before), str(after)],
-                    capture_output=True, text=True)
-                self.assertIn(checked.returncode, (0, 1), checked.stderr)
-                self.assertEqual(checked.stdout + checked.stderr, "", relative)
-                if relative.endswith("PairingFileManager.swift"):
-                    self.assertTrue(generated.endswith("backend-owned.\n"))
-                    self.assertEqual(transform(generated), generated)
 
     def test_shared_secret_handoff_uses_public_keychain_group_probe(self):
-        handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+        handoff = read_product_source("v3_secret_handoff.swift")
         self.assertNotIn("SecTaskCreateFromSelf", handoff)
         self.assertNotIn("SecTaskCopyValueForEntitlement", handoff)
         self.assertIn("SecItemAdd(item as CFDictionary, &result)", handoff)
@@ -905,9 +623,9 @@ import Foundation
         self.assertIn("kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly", probe)
 
     def test_generated_service_uses_current_team_policy_and_pairing_module(self):
-        service_source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        service_source = read_product_source("v3_sidestore_service.swift")
+        runtime = read_product_source("v3_headless_runtime.swift")
+        primitives = read_product_source("v3_behavioral_primitives.swift")
         self.assertIn("storedTeamOwners: [], activeTeamIdentifier: storedTeam?.identifier", service_source)
         self.assertIn("requestedTeamIdentifier: candidate.identifier", service_source)
         self.assertNotIn("activeTeamMatches: true", service_source)
@@ -917,13 +635,8 @@ import Foundation
         self.assertIn("import MinimuxerCommon", runtime)
 
     def test_generated_log_formatter_redacts_urls_identifiers_and_provider_bodies(self):
-        side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        source = (Path(side) if side else ROOT / ".audit/v3-side-upstream") / "SideStore/Core/Logging/SideStoreLogging.swift"
-        if not source.is_file():
-            self.skipTest("Pinned SideStore logging source unavailable")
-        patched = service.headless_safe_log_format(source.read_text(encoding="utf-8"))
-        self.assertEqual(service.headless_safe_log_format(patched), patched)
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        patched = owner_source("SideStore/Core/Logging/SideStoreLogging.swift", "SideStore")
+        runtime = read_product_source("v3_headless_runtime.swift")
         self.assertIn("return [\"tail\": formatLogMessage(rawTail)]", runtime)
         compiler = shutil.which("swiftc")
         if not compiler:
@@ -941,10 +654,9 @@ import Foundation
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3_LOG_PRIVACY_PASS", result.stdout)
 
+
     def test_generated_log_formatter_redacts_quoted_privacy_aliases(self):
-        source = "public func formatLogMessage(_ message: String) -> String { return message }\n"
-        generated = service.headless_safe_log_format(source)
-        self.assertEqual(service.headless_safe_log_format(generated), generated)
+        generated = owner_source("SideStore/Core/Logging/SideStoreLogging.swift", "SideStore")
         self.assertIn("session(?:_id)?", generated)
         self.assertIn("request_id", generated)
         self.assertIn("correlationID", generated)
@@ -968,8 +680,9 @@ import Foundation
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3_LOG_PRIVACY_PASS", result.stdout)
 
+
     def test_missing_auth_poll_session_is_typed_as_session_unavailable(self):
-        source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_sidestore_service.swift")
         poll = source[source.index('case "authPoll":'):source.index('case "authRespond":')]
         self.assertIn("safeCause: .authSessionUnavailable", poll)
         self.assertIn("operation: \"signIn\"", poll)
@@ -977,29 +690,29 @@ import Foundation
         self.assertIn("retryable: false", poll)
 
     def test_typed_service_failure_is_correlated_to_reply_request_id(self):
-        source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_sidestore_service.swift")
         receive = source[source.index("private func receive("):source.index("private func invalidRequestReply")]
         self.assertIn("structuredFailure.correlating(to: id).wire", receive)
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        failure = read_product_source("combined_failure.swift")
         self.assertIn("public func correlating(to id: String)", failure)
 
     def test_prompt_session_history_has_no_removed_single_identifier_reference(self):
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = read_product_source("v3_headless_runtime.swift")
         self.assertIsNone(re.search(r"\bsession\.acceptedPromptID\b", runtime))
         self.assertGreaterEqual(runtime.count("session.acceptedPromptIDs"), 4)
 
     def test_service_admission_uses_typed_busy_cause_policy(self):
-        source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_sidestore_service.swift")
         self.assertIn("V3ServiceMutationBusyCausePolicy.safeCause", source)
         self.assertIn("authenticationActive: authenticationActive", source)
         self.assertIn("safeCause: .operationInProgress", source)
         self.assertIn("guard !V3HeadlessRuntime.shared.auth.hasActiveSession else { throw ServiceError.busy }", source)
         self.assertIn("responseCapacityAvailable: responseCapacityAvailable", source)
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        primitives = read_product_source("v3_behavioral_primitives.swift")
         self.assertIn("case CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue:", primitives)
 
     def test_successful_service_replies_are_not_reparsed_for_fallback_logs(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service = read_product_source("v3_sidestore_service.swift")
         encode = service[service.index("private func encode(_ value:"):]
         encode = encode[:encode.index("private func run(")]
         self.assertIn("V3ResponseEncoder.encodeDetailed", encode)
@@ -1010,111 +723,22 @@ import Foundation
         self.assertIn("detailedFailure.fallbackToken", harness)
 
     def test_inflight_request_id_replay_never_claims_operation_was_not_dispatched(self):
-        service_source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service_source = read_product_source("v3_sidestore_service.swift")
         replay = service_source[service_source.index("guard tasks[id] == nil else {"):]
-        replay = replay[:replay.index("let mutation =")]
+        replay = self.swift_declaration(replay, "guard tasks[id] == nil else")
         self.assertNotIn('"operationNotDispatched"', replay)
         admission = service_source[service_source.index("guard V3ServiceMutationAdmissionPolicy.admits"):]
         admission = admission[:admission.index("if mutation { mutationID = id }")]
         self.assertIn('response["operationNotDispatched"] = true', admission)
 
-    def fixture(self, directory):
-        live_source = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
-        side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not live_source or not side_source:
-            self.skipTest("Set pinned source environment variables")
-        roots = (directory / "live", directory / "side")
-        files = (
-            ["SideStoreSupport/" + name for name in ("XPCServer.h", "XPCServer.m", "XPCClient.m", "SideStore.swift", "SideStoreClient.swift")] +
-            ["LiveContainerSwiftUI/" + name for name in ("Views/LCTabView.swift", "Views/AppList/LCAppListView.swift",
-             "Views/Settings/LCSettingsView.swift", "Views/Settings/LCMultiLCManagementView.swift",
-             "Utilities/Shared.swift", "Utilities/LCUtilsExtensions.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
-            ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")] +
-            # The host patch excludes a retired view from the production target
-            # through the project file, so the fixture has to carry it.
-            ["LiveContainer.xcodeproj/project.pbxproj"] +
-            ["LiveContainer/LCBootstrap.m", "LiveContainer/LCSharedUtils.m", "LiveProcess/main.m",
-             "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
-            ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
-             "AltStore/Managing Apps/AppManager.swift",
-             "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
-             "AltStore/Core/Components/Keychain.swift",
-             "SideStore/AppBootManager.swift",
-             "SideStore/Core/JIT/SideJITManager.swift",
-             "SideStore/Core/Pairing/PairingFileManager.swift",
-             "SideStore/Handlers/PipelineHandler.swift",
-             "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
-             "AltStore/Settings/AnisetteServerList.swift",
-             "SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
-             "AltStore/Authentication/AuthenticationViewController.swift",
-             "AltStore/Authentication/InstructionsViewController.swift",
-             "AltStore/Authentication/ResignAltStoreViewController.swift",
-             "AltStore/Authentication/SelectTeamViewController.swift",
-             "SideStore/DeepLinks/URLHandler.swift",
-             "SideStore/Core/Auth/AuthManager.swift", "SideStore/Handlers/SignInFlowHandler.swift",
-             "SideStore/Core/Operations/PipelineExecutor.swift",
-             "SideStore/Core/Operations/PipelineRunner.swift",
-             "SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift",
-             "SideBackup/SideBackupApp.swift",
-             "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
-             "SideStore/Core/Auth/DeveloperPortalProxy.swift",
-             "SideStore/Core/Certificates/CertificateManager.swift",
-             *embedded_keychain.ANISETTE_PATHS,
-             "SideStore/Core/Certificates/CodeSignValidator.swift",
-             "SideStore/Core/Certificates/OCSPValidator.swift",
-             "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
-             "SideStore/Core/Operations/PipelineOperations/VerifyCertificateOperation.swift",
-             "SideStore/Core/Operations/PipelineOperations/UpdateAppCertificateOperation.swift",
-             "SideStore/Core/Operations/OperationStepDefinition.swift",
-             "SideStore/Core/Operations/PipelineOperations/VerifyAppOperation.swift",
-             "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
-             "AltStore/Core/Model/RefreshAttempt.swift",
-             "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
-             "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
-             "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
-             "SideStore/Utils/importexport/ImportExport.swift",
-             "SideStore/Core/Logging/SideStoreLogging.swift",
-             "AltStore/My Apps/MyAppsViewController.swift",
-             "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
-             "AltStore/Intents/App Intents/AppShortcuts.swift",
-             "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
-             "AltStore/Info.plist", "AltStore.xcodeproj/project.pbxproj",
-             "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"])
-        for source, root, pin, names in zip((live_source, side_source), roots, service.PINS, files):
-            for name in names:
-                path = root / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(subprocess.check_output(["git", "-C", source, "show", pin + ":" + name]))
-        refresh.patch_support(roots[0])
-        refresh.patch_host_delegate(roots[0])
-        refresh.patch_settings(roots[0])
-        results.patch(roots[0])
-        shell.patch(*roots)
-        return roots
-
-    def apply(self, roots):
-        def revision(args, **kwargs):
-            return service.PINS[0 if str(roots[0]) == args[2] else 1]
-        with mock.object(service.subprocess, "check_output", side_effect=revision):
-            service.patch(*roots)
-
-    def snapshot(self, directory):
-        return {str(p.relative_to(directory)): p.read_bytes() for p in directory.rglob("*") if p.is_file()}
 
     def test_featured_sort_startup_skip_matches_exact_pin_and_keeps_backend_startup(self):
-        side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.getenv("SIDESTORE_TEST_SOURCE")
-        if not side_source:
-            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned SideStore checkout")
-        relative = "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift"
-        source = subprocess.check_output(
-            ["git", "-C", side_source, "show", service.PINS[1] + ":" + relative],
-            text=True, encoding="utf-8")
-        patched = service.headless_featured_sort_startup(source)
-        self.assertEqual(service.headless_featured_sort_startup(patched), patched)
+        patched = owner_source("AltStore/Core/Model/DatabaseManager/DatabaseManager.swift", "SideStore")
         self.assertEqual(patched.count("V3_HEADLESS_FEATURED_SORT_SKIP_V1"), 1)
 
         boot = self.swift_declaration(patched, "private func performStart() async throws")
-        self.assertIn("try await self.migrateDatabaseToAppGroupIfNeeded()", boot)
+        self.assertIn("try MaintenanceManager.shared.preparePersistentStoreURLs(in: self.persistentContainer)", boot)
+        self.assertLess(boot.index("preparePersistentStoreURLs"), boot.index("loadPersistentStores"))
         self.assertIn("try await self.persistentContainer.loadPersistentStores()", boot)
         self.assertIn("try await self.prepareDatabase()", boot)
         preparation = self.swift_declaration(patched, "private func prepareDatabase() async throws")
@@ -1128,26 +752,15 @@ import Foundation
         self.assertEqual(updater.count("try context.save()"), 2)
         self.assertEqual(updater.count("UUID().uuidString"), 2)
 
+
         # Startup migration is now checked against maintained owner sources in
         # test_embedded_sidestore_startup, not replayed through a retired generator.
 
-    def test_featured_sort_anchor_failure_writes_nothing(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            database = roots[1] / "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift"
-            database.write_text(database.read_text(encoding="utf-8").replace(
-                "await self.updateFeaturedSortIDs()", "await self.updateLegacySortIDs()"), encoding="utf-8")
-            before = self.snapshot(directory)
-            with self.assertRaises(SystemExit):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory),
-                             "pinned updater anchor drift must fail before any patch writes")
 
     def test_pipeline_ui_extraction_preserves_no_presenter_safety_and_refresh_routing(self):
         with tempfile.TemporaryDirectory() as name:
-            roots = self.fixture(Path(name))
-            self.apply(roots)
+            roots = owner_trees()
+
             side = roots[1]
             pipeline = (side / "SideStore/Handlers/PipelineHandler.swift").read_text(encoding="utf-8")
             for controller in ("AppExtensionViewHostingController", "ReviewPermissionsViewController"):
@@ -1170,21 +783,15 @@ import Foundation
             self.assertIn("suspension is controlled by the host lifecycle", pipeline)
             self.assertIn("func suspendToHomeScreen() async", pipeline)
             self.assertIn("func isAppInForeground() async -> Bool", pipeline)
-            self.assertEqual(service.headless_pipeline_handler(pipeline), pipeline)
 
-            pipeline_protocol = subprocess.check_output([
-                "git", "-C", os.environ["EMBEDDED_SIDESTORE_TEST_SOURCE"], "show",
-                service.PINS[1] + ":SideStore/Core/Operations/PipelineExecutionHandler.swift"],
-                text=True, encoding="utf-8")
-            pipeline_runner = subprocess.check_output([
-                "git", "-C", os.environ["EMBEDDED_SIDESTORE_TEST_SOURCE"], "show",
-                service.PINS[1] + ":SideStore/Core/Operations/PipelineRunner.swift"],
-                text=True, encoding="utf-8")
+
+            pipeline_protocol = owner_source("SideStore/Core/Operations/PipelineExecutionHandler.swift", "SideStore")
+            pipeline_runner = owner_source("SideStore/Core/Operations/PipelineRunner.swift", "SideStore")
             self.assertIn("var isResignActive: Bool { get }", pipeline_protocol)
             self.assertIn("handler.preflightChecksHandler.isResignActive == true", pipeline_runner)
             # PresenterProvider is declared in SideStore/Handlers, so it can only
             # be excluded through the SideStore target's own exception set.
-            self.assertIn("Handlers/PresenterProvider.swift", service.HEADLESS_SIDESTORE_HANDLER_UI_FILES)
+            self.assertIn("Handlers/PresenterProvider.swift", contract.HEADLESS_SIDESTORE_HANDLER_UI_FILES)
 
             step_source = (side / "SideStore/Core/Operations/OperationStepDefinition.swift").read_text(encoding="utf-8")
             refresh_steps = step_source[step_source.index("static let refresh:"):
@@ -1193,10 +800,11 @@ import Foundation
                 ("updateAppCertificate", "5"),
                 ("verifyCertificate", "10"),
                 ("fetchProvisioningProfiles", "45"),
-                ("refreshApp", "40"),
+                ("cacheResignedMetadata", "1"),
+                ("refreshApp", "39"),
             ])
             runner = (side / "SideStore/Core/Operations/PipelineRunner.swift").read_text(encoding="utf-8")
-            permission_mode = runner[runner.index("let permissionReviewMode:"):runner.index("let operationProgress =")]
+            permission_mode = runner[runner.index("let permissionReviewMode:"):runner.index("let permissionsMode =")]
             self.assertRegex(permission_mode, r"default:\s*permissionReviewMode\s*=\s*\.none")
             self.assertNotIn("case .refresh:", permission_mode)
             self.assertNotIn(".verifyApp", refresh_steps)
@@ -1210,13 +818,13 @@ import Foundation
             member_start = side_store_target_exception.index("membershipExceptions = (")
             member_end = side_store_target_exception.index(");", member_start)
             membership = side_store_target_exception[member_start:member_end]
-            for path in service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES:
+            for path in contract.HEADLESS_SIDESTORE_PIPELINE_UI_FILES:
                 self.assertIn(f'"{path}"', membership)
             side_store_module_exception = project[project.index("A8EECF492F4B195000F2436D"):]
             handler_start = side_store_module_exception.index("membershipExceptions = (")
             handler_end = side_store_module_exception.index(");", handler_start)
             handler_membership = side_store_module_exception[handler_start:handler_end]
-            for path in service.HEADLESS_SIDESTORE_HANDLER_UI_FILES:
+            for path in contract.HEADLESS_SIDESTORE_HANDLER_UI_FILES:
                 self.assertIn(f'"{path}"', handler_membership)
 
             intent = (side / "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift").read_text(encoding="utf-8")
@@ -1224,266 +832,18 @@ import Foundation
             self.assertIn("V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1", intent)
             self.assertIn("AppManager.shared.backgroundRefresh", intent)
             self.assertIn("RefreshAllAppsIntent(presentsNotifications: true)", widget)
-            runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+            runtime = read_product_source("v3_headless_runtime.swift")
             self.assertIn('ask(kind: "bundleIDOverride"', runtime)
             self.assertIn('ask(kind: "appGroupMismatch"', runtime)
 
-    def test_v31_generated_tree_fails_closed_without_mutation(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
-            manifest = roots[0] / ".v3-command-patch.json"
-            prior = json.loads(manifest.read_text(encoding="utf-8"))
-            prior["patchVersion"] = 31
-            manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
-            before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, f"prepared patch version 31 cannot be migrated safely to v{service.PATCH_VERSION}"):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory))
-
-    def test_v32_generated_tree_fails_closed_without_mutation(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
-            manifest = roots[0] / ".v3-command-patch.json"
-            prior = json.loads(manifest.read_text(encoding="utf-8"))
-            prior["patchVersion"] = 32
-            manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
-            before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, f"prepared patch version 32 cannot be migrated safely to v{service.PATCH_VERSION}"):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory))
-
-    def test_v33_generated_tree_fails_closed_without_mutation(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
-            manifest = roots[0] / ".v3-command-patch.json"
-            prior = json.loads(manifest.read_text(encoding="utf-8"))
-            prior["patchVersion"] = 33
-            manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
-            before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, f"prepared patch version 33 cannot be migrated safely to v{service.PATCH_VERSION}"):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory))
-
-    def test_v34_generated_tree_fails_closed_without_mutation(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
-            manifest = roots[0] / ".v3-command-patch.json"
-            prior = json.loads(manifest.read_text(encoding="utf-8"))
-            prior["patchVersion"] = 34
-            manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
-            before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, f"prepared patch version 34 cannot be migrated safely to v{service.PATCH_VERSION}"):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory))
-
-    def test_pinned_patch_replay_and_tamper(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
-            first = self.snapshot(directory)
-            project = (roots[1] / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
-            exception_anchor = project.index("A8EEC8CB2F4B146B00F2436D")
-            member_start = project.index("membershipExceptions = (", exception_anchor)
-            member_end = project.index(");", member_start)
-            self.assertIn('"My Apps/MyAppsViewController.swift"', project[member_start:member_end])
-            self.assertIn('"Components/HeaderContentViewController.swift"', project[member_start:member_end])
-            self.assertIn('"Components/NavigationBar.swift"', project[member_start:member_end])
-            self.assertIn('"Extensions/INInteraction+AltStore.swift"', project[member_start:member_end])
-            manager = (roots[1] / "AltStore/Managing Apps/AppManager.swift").read_text(encoding="utf-8")
-            self.assertIn("return PipelineHandler()", manager)
-            self.assertNotIn("presenterProvider:", manager)
-            self.assertNotIn("isResignActive:", manager)
-            self.apply(roots)
-            self.assertEqual(first, self.snapshot(directory))
-            path = roots[0] / "SideStoreSupport/XPCClient.m"
-            path.write_text(path.read_text() + "\n// unexpected drift\n")
-            with self.assertRaises(SystemExit):
-                self.apply(roots)
-            self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text())
-            self.assertIn(".downloadAlert", (roots[0] / "LiveContainerSwiftUI/Views/LCTabView.swift").read_text())
-            self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift").read_text(encoding="utf-8"))
-
-    def test_v30_manifest_fails_closed_without_mutation(self):
-        side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not side_source:
-            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned SideStore checkout")
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
-            side = roots[1]
-            model_relative = service.HEADLESS_ANISETTE_MODELS_SOURCE
-            model_path = side / model_relative
-            self.assertTrue(model_path.is_file())
-            model_path.unlink()
-            project_path = side / "AltStore.xcodeproj/project.pbxproj"
-            current_project = project_path.read_text(encoding="utf-8")
-            exclusion = '"Settings/AnisetteServerList.swift"'
-            exclusion_lines = [line for line in current_project.splitlines(keepends=True) if exclusion in line]
-            self.assertEqual(len(exclusion_lines), 1)
-            v30_project = current_project.replace(exclusion_lines[0], "", 1)
-            project_path.write_bytes(v30_project.encode("utf-8"))
-
-            manifest_path = roots[0] / ".v3-command-patch.json"
-            v30_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual(v30_manifest["patchVersion"], service.PATCH_VERSION)
-            v30_manifest["patchVersion"] = 30
-            v30_manifest["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
-            v30_manifest["files"] = [record for record in v30_manifest["files"] if record[1] != model_relative]
-            project_records = [record for record in v30_manifest["files"]
-                               if record[0] == 1 and record[1] == "AltStore.xcodeproj/project.pbxproj"]
-            self.assertEqual(len(project_records), 1)
-            project_records[0][2] = hashlib.sha256(v30_project.encode("utf-8")).hexdigest()
-            manifest_path.write_text(json.dumps(v30_manifest, indent=2) + "\n", encoding="utf-8")
-
-            before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, f"prepared patch version 30 cannot be migrated safely to v{service.PATCH_VERSION}"):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory),
-                             "the real v30 output shape must fail closed without partial migration")
-
-    def test_v29_manifest_fails_closed_with_clean_checkout_recovery(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
-            manifest_path = roots[0] / ".v3-command-patch.json"
-            legacy = json.loads(manifest_path.read_text(encoding="utf-8"))
-            legacy["patchVersion"] = 29
-            legacy["templates"].pop(service.BACKEND_CONNECTION_CONFIG_MANIFEST_KEY)
-            legacy["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
-            manifest_path.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
-            before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, f"prepared patch version 29 cannot be migrated safely to v{service.PATCH_VERSION}.*discard generated work directories"):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory), "unsupported v29 manifests must fail without mutation")
-
-    def test_unknown_patch_manifest_version_fails_closed_without_mutation(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
-            manifest_path = roots[0] / ".v3-command-patch.json"
-            unknown = json.loads(manifest_path.read_text(encoding="utf-8"))
-            unknown["patchVersion"] = 999
-            manifest_path.write_text(json.dumps(unknown, indent=2) + "\n", encoding="utf-8")
-            before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, f"prepared patch version 999 cannot be migrated safely to v{service.PATCH_VERSION}"):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory), "unknown patch versions must fail without mutation")
-
-    def test_v35_manifest_fails_closed_without_mutation(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
-            manifest_path = roots[0] / ".v3-command-patch.json"
-            prior = json.loads(manifest_path.read_text(encoding="utf-8"))
-            prior["patchVersion"] = 35
-            manifest_path.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
-            before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, f"prepared patch version 35 cannot be migrated safely to v{service.PATCH_VERSION}"):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory),
-                             "v35 generated trees must be discarded without partial migration")
-
-    def test_v37_manifest_fails_closed_without_mutation(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
-            manifest_path = roots[0] / ".v3-command-patch.json"
-            prior = json.loads(manifest_path.read_text(encoding="utf-8"))
-            prior["patchVersion"] = 37
-            manifest_path.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
-            before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit,
-                                        f"prepared patch version 37 cannot be migrated safely to v{service.PATCH_VERSION}"):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory),
-                             "v37 generated trees must be discarded without partial migration")
-
-    def test_pinned_generated_sign_in_passes_diff_check_after_patch_composition(self):
-        with tempfile.TemporaryDirectory() as name:
-            live, side = self.fixture(Path(name))
-            relative = "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
-            # Preserve the exact pinned baseline in Git's index. Upstream has
-            # whitespace-only separators, so checking the entire generated file
-            # would conflate inherited lines with newly introduced whitespace.
-            subprocess.run(["git", "init", "-q", str(side)], check=True)
-            subprocess.run(["git", "-C", str(side), "add", "--", relative], check=True)
-            for checkout, target, pin, extra in (
-                (os.environ["LIVE_CONTAINER_TEST_SOURCE"], live, service.PINS[0],
-                 "SideStoreSupport/SideStoreHooks.m"),
-                (os.environ["EMBEDDED_SIDESTORE_TEST_SOURCE"], side, service.PINS[1],
-                 "SideStore/Core/Logging/OperationLogging.swift"),
-            ):
-                (target / extra).write_bytes(subprocess.check_output(
-                    ["git", "-C", checkout, "show", pin + ":" + extra]))
-            self.apply((live, side))
-            self.apply((live, side))
-            module("patch_background_automation").patch_background_operation(side)
-            contract = module("patch_combined_refresh_contract")
-            # This temporary indexed fixture has no HEAD; every source input
-            # above came from git show at the workflow's exact source pins.
-            with mock.object(contract, "verify_pin", return_value=None), \
-                 mock.dict("sys.modules", {"patch_embedded_keychain": embedded_keychain}):
-                contract.patch_combined_cli(side)
-                contract.patch_combined_cli(side)
-            checked = subprocess.run(["git", "-C", str(side), "diff", "--check", "--", relative],
-                                     capture_output=True, text=True)
-            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
-
-    def test_pinned_headless_ui_adapter_verifier_rejects_drift(self):
-        side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not side_source:
-            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned source checkout")
-        real_check_output = service.subprocess.check_output
-
-        def read_pinned_source(arguments, **kwargs):
-            # The production verifier uses `git show` and `git grep` against
-            # the pinned worktree. Tests run it over a temporary patched copy,
-            # so redirect only Git's repository root while preserving the
-            # exact pinned command and revision.
-            if len(arguments) > 4 and arguments[3] == "show":
-                return real_check_output(["git", "-C", side_source, *arguments[3:]],
-                                         text=True, encoding="utf-8")
-            if len(arguments) > 3 and arguments[3] == "grep":
-                return real_check_output(["git", "-C", side_source, *arguments[3:]],
-                                         text=True, encoding="utf-8")
-            return real_check_output(arguments, **kwargs)
-
-        with tempfile.TemporaryDirectory() as name:
-            roots = self.fixture(Path(name))
-            self.apply(roots)
-            module("patch_background_automation").patch_background_operation(roots[1])
-            embedded_keychain.patch(roots[1])
-            with mock.object(service.subprocess, "check_output", side_effect=read_pinned_source):
-                service.verify_headless_ui_adapters(roots[1], service.PINS[1])
-                service.verify_sign_in_operation(roots[1], service.PINS[1])
-                manager = roots[1] / "AltStore/Managing Apps/AppManager.swift"
-                manager.write_text(manager.read_text(encoding="utf-8") + "\n// drift\n", encoding="utf-8")
-                with self.assertRaises(SystemExit):
-                    service.verify_headless_ui_adapters(roots[1], service.PINS[1])
 
     def test_prepared_sidestore_has_no_automatic_storyboard_root_or_unused_starscream(self):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
-            roots = self.fixture(directory)
-            self.apply(roots)
+            roots = owner_trees()
+
             side = roots[1]
             sign_in_path = side / "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
-            sign_in_path.write_text(embedded_keychain.patch_sign_in_operation(sign_in_path.read_text(encoding="utf-8")),
-                                    encoding="utf-8")
             info = plistlib.loads((side / "AltStore/Info.plist").read_bytes())
             self.assertNotIn("UIMainStoryboardFile", info)
             self.assertNotIn("UIBackgroundModes", info)
@@ -1621,7 +981,7 @@ import Foundation
             side_member_start = project.index("membershipExceptions = (", side_exception_anchor)
             side_member_end = project.index(");", side_member_start)
             side_membership = project[side_member_start:side_member_end]
-            for path in service.HEADLESS_SIDESTORE_VIEW_FILES + service.HEADLESS_SIDESTORE_AUX_UI_FILES:
+            for path in contract.HEADLESS_SIDESTORE_VIEW_FILES + contract.HEADLESS_SIDESTORE_AUX_UI_FILES:
                 self.assertIn(f'"{path}"', side_membership)
             self.assertIn('"Views/Settings/Advanced/Connection/ConnectionConfig.swift"', side_membership)
             for excluded_presentation in (
@@ -1634,7 +994,7 @@ import Foundation
             self.assertIn("V3_HEADLESS_BUNDLE_ID_PROMPT_V1", pipeline_handler)
             self.assertNotIn("AppendTeamIDCheckboxView", pipeline_handler)
             self.assertIn("return (initialBundleID, true)", pipeline_handler)
-            host_pipeline_handler = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+            host_pipeline_handler = read_product_source("v3_headless_runtime.swift")
             self.assertIn('ask(kind: "bundleIDOverride"', host_pipeline_handler)
             self.assertIn('"key": "appendTeamID"', host_pipeline_handler)
             self.assertIn('answer["appendTeamID"] != "false"', host_pipeline_handler)
@@ -1663,8 +1023,9 @@ import Foundation
             self.assertIn("V3HeadlessPairingFailure.tagIfInvalidPairing", app_delegate)
             auth_manager = (side / "SideStore/Core/Auth/AuthManager.swift").read_text()
             self.assertNotIn("SignInFlowHandler", auth_manager)
-            self.assertNotIn("UIViewController", auth_manager)
-            self.assertNotIn("import UIKit", auth_manager)
+            blocked_ui_entry = self.swift_declaration(auth_manager, "func signIn(\n        presentingViewController:")
+            self.assertIn('throw OperationError.invalidParameters("Sign in through LiveContainer', blocked_ui_entry)
+            self.assertNotIn(".present(", blocked_ui_entry)
             app_manager = (side / "AltStore/Managing Apps/AppManager.swift").read_text(encoding="utf-8")
             self.assertNotIn("func signIn(presentingViewController:", app_manager)
             self.assertNotIn("import Intents", app_manager)
@@ -1687,14 +1048,14 @@ import Foundation
             self.assertIn("public func askForNetwork() async", sidejit_manager)
             self.assertNotIn("presentJITPrompt", sidejit_manager)
             pairing_manager = (side / "SideStore/Core/Pairing/PairingFileManager.swift").read_text(encoding="utf-8")
-            self.assertIn("V3_HEADLESS_PAIRING_FILE_UI_REMOVED_V1", pairing_manager)
+            self.assertIn("func importPairingFile(contents: String, preferred:", pairing_manager)
             self.assertIn("nonisolated var pairingUDID:", pairing_manager)
-            self.assertIn("nonisolated func fetchPairingFile()", pairing_manager)
-            self.assertIn("func savePairingFile(contents: String)", pairing_manager)
+            self.assertIn("nonisolated func fetchPairingFile(preferred: PairingProtocol? = nil)", pairing_manager)
+            self.assertIn("func savePairingFile(contents: String, preferred:", pairing_manager)
             self.assertNotIn("UIDocumentPicker", pairing_manager)
             self.assertIn("V3_TYPED_PAIRING_FAILURE_PROPAGATION_V1", app_manager)
             self.assertIn("V3HeadlessPairingFailure.tagIfInvalidPairing(error)", app_manager)
-            service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+            service_template = read_product_source("v3_sidestore_service.swift")
             self.assertIn("V3HeadlessPairingFailure.tagIfInvalidPairing(error)", service_template)
             minimuxer_wrapper = (side / "SideStore/Core/DeviceApi/MinimuxerWrapper.swift").read_text(encoding="utf-8")
             self.assertIn("case .invalidPairing(_, let reason)", minimuxer_wrapper)
@@ -1720,7 +1081,7 @@ import Foundation
             self.assertIn("ProgressReportingIntent", refresh_intent_source)
             self.assertIn("operationActor", refresh_intent_source)
             self.assertNotIn('Notification.Name("LiveContainerAutoRefreshRunNow")', refresh_intent_source)
-            shortcut_request_policy = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+            shortcut_request_policy = read_product_source("v3_behavioral_primitives.swift")
             self.assertIn('origin: "manualUnknown"', shortcut_request_policy)
             self.assertIn("static var openAppWhenRun = true", refresh_intent_source)
             widget_intent_source = (side / "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift").read_text(encoding="utf-8")
@@ -1743,7 +1104,7 @@ import Foundation
             self.assertNotIn('debugLog("Failed to refresh apps via widget. \\(error)")', widget_intent_source)
             self.assertIn('[V3_WIDGET_REFRESH] failed', widget_intent_source)
             self.assertIn("throw error", widget_intent_source)
-            pairing_view = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+            pairing_view = read_product_source("v3_unified_shell.swift")
             pairing_view = pairing_view[pairing_view.index("struct V3PairingView:"):pairing_view.index("@MainActor\nfinal class V3SettingsStore")]
             self.assertIn("failure.recovery", pairing_view)
             self.assertIn("Text(failure.technicalDetails)", pairing_view)
@@ -1783,7 +1144,7 @@ import Foundation
             shared_utils = (roots[0] / "LiveContainer/LCSharedUtils.m").read_text(encoding="utf-8")
             self.assertLess(shared_utils.index('objectForKey:@"LCInheritedAppGroupID"'),
                             shared_utils.index("NSArray* possibleAppGroups"))
-            self.assertTrue((roots[0] / "LiveContainer/LCAppGroupSelectionPolicy.h").exists())
+            self.assertIn("LCAppGroupIdentityRules.h", (roots[0] / "LiveContainer/LCAppGroupSelectionPolicy.h").read_text())
             self.assertIn("!isLiveProcess && sideStoreExist", (roots[0] / "LiveContainer/LCBootstrap.m").read_text(encoding="utf-8"))
             for name in ("ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"):
                 self.assertNotIn('set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")', (roots[0] / name).read_text(encoding="utf-8"))
@@ -1800,9 +1161,11 @@ import Foundation
                             credential_transaction.index("writeAuthenticationCredentials"))
             self.assertLess(credential_transaction.index("writeAuthenticationCredentials"),
                             credential_transaction.index("AuthManager.shared.session = session"))
-            self.assertIn("defer { AuthManager.shared.v3CompleteIdentityTransition() }",
-                          credential_transaction)
-            self.assertIn("Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)", sign_in)
+            completion = self.swift_declaration(credential_transaction, "defer {")
+            self.assertIn("AuthManager.shared.v3CompleteIdentityTransition()", completion)
+            self.assertIn("AuthManager.shared.v3CompleteOwnedODAIdentityTransition(reserved)", completion)
+            self.assertIn("AuthManager.shared.v3CompleteIdentityTransitionReturningStamp()", completion)
+            self.assertIn("Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken,", sign_in)
             self.assertNotIn("AuthManager.shared.adsid = session.dsid", sign_in)
             self.assertNotIn("AuthManager.shared.xcodeToken = session.authToken", sign_in)
             self.assertNotIn("AuthManager.shared.currentAppleID = appleID", sign_in)
@@ -1838,26 +1201,9 @@ import Foundation
             self.assertLess(sign_in.index("handleSignInResult(.success(silentResult))", start_authentication),
                             sign_in.index("self.provisioningLoop(", start_authentication))
 
-    def test_verifier_requires_exact_pinned_headless_adapter_source(self):
-        patcher = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
-        self.assertIn('"--verify-headless-ui-adapters"', patcher)
-        self.assertIn('git", "-C", str(side), "show", f"{pinned_ref}:{relative}"', patcher)
-        self.assertIn("actual != expected", patcher)
 
     def test_generated_developer_portal_proxy_binds_session_and_team_owner(self):
-        source_tree = pinned_sidestore_source()
-        if source_tree is None:
-            self.skipTest("Pinned SideStore source unavailable")
-        revision = subprocess.check_output(["git", "-C", str(source_tree), "rev-parse", "HEAD"],
-                                           text=True).strip()
-        self.assertEqual(revision, service.PINS[1])
-        source = subprocess.check_output(["git", "-C", str(source_tree), "show",
-            f"{revision}:SideStore/Core/Auth/DeveloperPortalProxy.swift"], text=True, encoding="utf-8")
-        generated = service.patch_developer_portal_proxy(source)
-        bootstrap_marker = "class DeveloperPortalProxyWithAuth: DeveloperPortalProxy {"
-        self.assertEqual(generated.split(bootstrap_marker, 1)[1],
-                         source.split(bootstrap_marker, 1)[1],
-                         "auth bootstrap has no bound session and must not inherit team-scoped wrapping")
+        generated = owner_source("SideStore/Core/Auth/DeveloperPortalProxy.swift", "SideStore")
         self.assertEqual(generated.count("{"), generated.count("}"),
                          "generated pinned DeveloperPortalProxy must remain brace balanced")
         self.assertEqual(generated.count("V3_AUTH_IDENTITY_BOUND_DEVELOPER_PORTAL_V1"), 1)
@@ -1916,40 +1262,21 @@ import Foundation
             if "fetchTeams(for account:" in method:
                 self.assertLess(method.index("mayFetchTeams("), method.index("ALTAppleAPI.shared."))
                 self.assertIn("session: context.session", method)
+            elif "reconcilePendingCertificateCreation(" in method:
+                self.assertLess(method.index("context.session.dsid == retained.ownerDSID"), method.index("ALTAppleAPI.shared."))
+                self.assertLess(method.index("team.identifier == retained.teamID"), method.index("ALTAppleAPI.shared.fetchCertificates"))
+                self.assertIn("session: context.session", method)
             else:
                 self.assertLess(method.index("getBoundTeam(team, context: context)"),
                                 method.index("ALTAppleAPI.shared."), method[:100])
-                self.assertIn("let session = context.session", method)
+                self.assertTrue("let session = context.session" in method or "session: context.session" in method, method[:100])
             bound_calls += method.count("ALTAppleAPI.shared.")
         self.assertGreaterEqual(bound_calls, 20, "every pinned team-scoped portal call must use a bound context")
         self.assertNotIn("debugLog", generated)
         self.assertNotIn("technicalDetails", generated)
         self.assertNotIn("appleIDEmailAddress)\n            debugLog", generated)
 
-        auth_path = source_tree / "SideStore/Core/Auth/AuthManager.swift"
-        if source_tree.is_dir():
-            auth_source = subprocess.check_output(["git", "-C", str(source_tree), "show",
-                f"{service.PINS[1]}:SideStore/Core/Auth/AuthManager.swift"], text=True, encoding="utf-8")
-            updated_auth = service.patch_auth_identity_generation(
-                service.apply_embedded_credential_snapshot_patch(
-                    service.headless_auth_manager(auth_source), "patch_auth_manager"))
-        else:
-            updated_auth = service.patch_auth_identity_generation(
-                "    private init() {}\n"
-                "    var currentAppleID: String? { set { Keychain.shared.appleIDEmailAddress = newValue } }\n"
-                "    var password: String? { set { Keychain.shared.appleIDPassword = newValue } }\n"
-                "    var adsid: String? { set { Keychain.shared.appleIDAdsid = newValue } }\n"
-                "    var xcodeToken: String? { set { Keychain.shared.appleIDXcodeToken = newValue } }\n"
-                "    public func signOut(keepCertificate: Bool = false) {\n        self.session = nil\n    }\n"
-                "    public func getAuthenticatedSession() async throws -> ALTAppleAPISession {\n"
-                "        return try await TaskChainCoalescer.shared.coalesce(key: \"apple_auth_session\") {\n"
-                "            let credentialSnapshot: LCEmbeddedAuthenticationSnapshot? = nil\n"
-                "            let adsid = credentialSnapshot?.appleIDAdsid\n"
-                "            let xcodeToken = credentialSnapshot?.appleIDXcodeToken\n"
-                "            let anisetteData = try await AnisetteProvider.fetch()\n"
-                "            let xcodeVersion = await AnisetteConfigManager.shared.resolvedXcodeVersion()\n"
-                "            let session = ALTAppleAPISession(dsid: adsid, authToken: xcodeToken, anisetteData: anisetteData, xcodeVersion: xcodeVersion)\n"
-                "            self.session = session\n            return session\n        }\n    }\n")
+        updated_auth = owner_source("SideStore/Core/Auth/AuthManager.swift", "SideStore")
         self.assertIn("var v3IdentityGeneration: UInt64", updated_auth)
         self.assertIn("func v3BeginIdentityTransition()", updated_auth)
         self.assertIn("func v3CompleteIdentityTransition()", updated_auth)
@@ -1964,29 +1291,9 @@ import Foundation
                           updated_auth)
         self.assertIn("defer { self.v3CompleteIdentityTransition() }", updated_auth)
 
-    def test_pinned_fixture_stages_developer_portal_proxy_for_generation(self):
-        live_source = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
-        side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not live_source or not side_source:
-            self.skipTest("Set pinned source environment variables")
-        revision = subprocess.check_output(["git", "-C", side_source, "rev-parse", "HEAD"],
-                                           text=True).strip()
-        self.assertEqual(revision, service.PINS[1])
-        relative = "SideStore/Core/Auth/DeveloperPortalProxy.swift"
-        expected = subprocess.check_output(
-            ["git", "-C", side_source, "show", f"{revision}:{relative}"])
-        with tempfile.TemporaryDirectory() as name:
-            roots = self.fixture(Path(name))
-            staged = roots[1] / relative
-            self.assertTrue(staged.is_file(), f"pinned fixture omitted {relative}")
-            self.assertEqual(staged.read_bytes(), expected,
-                             "generated patch input must match the exact pinned source blob")
-            generated = service.patch_developer_portal_proxy(
-                staged.read_text(encoding="utf-8"))
-            self.assertEqual(generated.count("V3_AUTH_IDENTITY_BOUND_DEVELOPER_PORTAL_V1"), 1)
 
     def test_snapshot_separates_stored_credentials_from_bound_authenticated_state(self):
-        source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_sidestore_service.swift")
         start = source.index("    private func snapshot() throws -> [String: Any] {")
         end = source.index("\n    }", source.index('"settings": [', start))
         snapshot = source[start:end]
@@ -2006,7 +1313,7 @@ import Foundation
         self.assertIn("mayProjectIdentity", snapshot)
 
     def test_standalone_refresh_run_does_not_reuse_stale_scheduler_identity(self):
-        refresh = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        refresh = read_product_source("combined_refresh_handler.swift")
         self.assertIn("V3RefreshRunIdentitySelection.select(", refresh)
         self.assertIn("schedulerRunID: schedulerRunID", refresh)
         self.assertIn('forKey: "liveContainerAutoRefreshActiveRunID"', refresh)
@@ -2030,19 +1337,19 @@ import Foundation
         admission = perform.index('operation: "refreshAdmissionBegin"')
         renewal = perform.index("sharedDefaults.set([\"run_id\": directClaimID", admission)
         self.assertLess(admission, renewal)
-        startup = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
-        self.assertIn('handler = handler.replace("/*REFRESH_READINESS*/", "")', startup)
+        startup = owner_source("SideStoreSupport/SideStore.swift")
+        self.assertNotIn("/*REFRESH_READINESS*/", startup)
         self.assertNotIn('let status = try await V3ServiceBridge.shared.request(operation: "snapshot")', refresh)
         self.assertIn("V3RefreshAdmissionLease.lifetime + 60", perform)
-        bridge = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
+        bridge = owner_source("SideStoreSupport/SideStore.swift")
         self.assertIn("startScheduledRefresh(", bridge)
         self.assertIn("runID: runID.uuidString", bridge)
-        scheduler = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text(encoding="utf-8")
+        scheduler = read_product_source("livecontainer_refresh_scheduler.swift")
         self.assertIn("LiveContainerRefreshBridge.refreshAllApps(runID: runID)", scheduler)
         self.assertIn("V3DirectRefreshRunClaimPolicy.isActive", scheduler)
 
     def test_refresh_terminal_intent_recovers_crash_after_active_release(self):
-        scheduler = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text(encoding="utf-8")
+        scheduler = read_product_source("livecontainer_refresh_scheduler.swift")
         verified = scheduler[scheduler.index("private static func markVerified"):scheduler.index("private static func markFailed")]
         failed = scheduler[scheduler.index("private static func markFailed"):scheduler.index("private static func verifyPendingHostHandoff")]
         self.assertLess(verified.index('runRecord["terminal_intent"] = "verified"'), verified.index("endRun("))
@@ -2061,43 +1368,10 @@ import Foundation
         self.assertIn('result: "host_refresh_failed"', host_handoff)
         self.assertIn("markFailed(runID: runID", host_handoff)
 
-    def test_service_and_startup_adapters_compose_on_pinned_sources(self):
-        startup = module("patch_combined_service_startup")
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name); roots = self.fixture(directory); self.apply(roots)
-            with mock.object(startup.subprocess, "check_output", side_effect=lambda args, **kw: service.PINS[0 if args[2] == str(roots[0]) else 1]):
-                startup.patch(*roots, "v3")
-                first = self.snapshot(directory); startup.patch(*roots, "v3")
-                self.assertEqual(first, self.snapshot(directory))
-            source = (roots[0] / "SideStoreSupport/SideStore.swift").read_text(encoding="utf-8")
-            self.assertNotIn("__v3_connect", source)
-            self.assertNotIn("bookmarkForURL(sideStoreHomeURL)!", source)
-            client = (roots[0] / "SideStoreSupport/SideStoreClient.swift").read_text(encoding="utf-8")
-            self.assertIn("CombinedVerification.sanitized(payload", client)
-            self.assertNotIn("reportRefreshResult(error.localizedDescription", client)
-
-    def test_anchor_failure_writes_nothing(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            path = roots[1] / "AltStore/SceneDelegate.swift"
-            path.write_text(path.read_text().replace("guard let _ = (scene as? UIWindowScene)", "guard let changed = (scene as? UIWindowScene)"))
-            before = self.snapshot(directory)
-            with self.assertRaises(SystemExit):
-                self.apply(roots)
-            self.assertEqual(before, self.snapshot(directory))
-
-    def test_wrong_revision_writes_nothing(self):
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            with mock.object(service.subprocess, "check_output", return_value="unknown"):
-                with self.assertRaises(SystemExit):
-                    service.patch(directory, directory)
-            self.assertEqual({}, self.snapshot(directory))
 
     def test_owner_boundary(self):
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        host = read_product_source("v3_unified_shell.swift")
+        bridge = read_product_source("v3_service_bridge.swift")
         for token in ("CoreData", "NSManagedObject", "appleIDXcodeToken"):
             self.assertNotIn(token, host + bridge)
         self.assertIn("V3JITLessStatusReader", host)
@@ -2110,9 +1384,9 @@ import Foundation
         self.assertIn("CombinedFailure.uuidCorrelationMatches(responseID, expectedID: id)", bridge)
 
     def test_status_reply_freshness_is_bridge_owned_and_pre_dispatch(self):
-        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        bridge = read_product_source("v3_service_bridge.swift")
+        host = read_product_source("v3_unified_shell.swift")
+        primitives = read_product_source("v3_behavioral_primitives.swift")
         request = bridge[bridge.index("public func request(operation:"):
                         bridge.index("public func disconnected()")]
         acquisition = bridge[bridge.index("private func acquireStatusLease"):
@@ -2152,8 +1426,8 @@ import Foundation
         self.assertIn('"sidesignReset"', primitives)
 
     def test_status_authority_write_inventory_matches_wire_and_documents_file_exemptions(self):
-        contract = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        contract = read_product_source("v3_wire_contract.swift")
+        primitives = read_product_source("v3_behavioral_primitives.swift")
         operation_block = contract[contract.index("static let operations"):
             contract.index("static let readOperations")]
         direct_writes = ("signOut", "accountImport", "syncAppIDs", "clearCache", "refreshSources", "jit",
@@ -2170,8 +1444,8 @@ import Foundation
             self.assertIn(exempt, primitives[primitives.index("static func directWriteOwnerID"):])
 
     def test_headless_service_has_no_presentation(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        service = read_product_source("v3_sidestore_service.swift")
+        runtime = read_product_source("v3_headless_runtime.swift")
         for token in ("Self.presenter", "presentingViewController:", "UIHostingController",
                       "UINavigationController(rootViewController", "CertificatesView(",
                       "DeveloperServicesView(", "importPairingFile(presentingVC",
@@ -2183,7 +1457,7 @@ import Foundation
         self.assertNotIn("dismiss(", service + runtime)
 
     def test_source_remove_preserves_busy_and_service_readiness_causes(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service = read_product_source("v3_sidestore_service.swift")
         receive = service[service.index("private func receive("):service.index("private func invalidRequestReply")]
         self.assertIn("safeCause: .sourceRemoveBusy", receive)
         self.assertIn("case .notReady = serviceError", receive)
@@ -2192,8 +1466,8 @@ import Foundation
         self.assertIn("safeCause: .sourceRemoveFailed", receive)
 
     def test_headless_operation_inventory(self):
-        contract = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        contract = read_product_source("v3_wire_contract.swift")
+        service = read_product_source("v3_sidestore_service.swift")
         operations = contract[contract.index("static let operations"):
                               contract.index("static let readOperations")]
         for removed in ("panel", "signIn", "install", "refreshApp", "addSource",
@@ -2216,27 +1490,27 @@ import Foundation
         self.assertIn('"payload"', contract)
 
     def test_prompt_kinds_are_closed_set(self):
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        runtime = read_product_source("v3_headless_runtime.swift")
+        host = read_product_source("v3_unified_shell.swift")
         kinds = set(re.findall(r'kind: "([a-zA-Z]+)"', runtime))
         expected = {"credentials", "twoFactor", "team", "accountRepair", "provisioningError",
                     "postAuth", "revocation", "resign", "anisetteOutdated", "bundleIDMismatch",
                     "permissions", "extensions", "unsupportedVersion", "bundleIDOverride",
-                    "appGroupMismatch"}
+                    "appGroupMismatch", "extensionSigningFallback"}
         self.assertEqual(kinds, expected)
         self.assertIn("V3PromptSection", host)
         self.assertIn("V3SignInView", host)
 
 
-class RefreshAdmissionTemplateTests(unittest.TestCase):
+class RefreshAdmissionOwnerTests(unittest.TestCase):
     def test_native_refresh_contention_has_typed_busy_guidance(self):
-        refresh = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        refresh = read_product_source("combined_refresh_handler.swift")
         perform = refresh[refresh.index("func performRefresh(identifier:"):]
         perform = perform[:perform.index("func releaseRefreshAdmission")]
         self.assertGreaterEqual(perform.count("safeCause: .operationInProgress"), 3)
 
     def test_operation_prompt_does_not_use_auth_only_revision_state(self):
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = read_product_source("v3_headless_runtime.swift")
         auth = runtime[runtime.index("final class V3HeadlessAuthHandler:"):
                        runtime.index("final class V3HeadlessPipelineHandler:")]
         operation = runtime[runtime.index("final class V3HeadlessPipelineHandler:"):
@@ -2247,9 +1521,9 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertNotIn(".revision", operation_prompt)
 
     def test_refresh_owner_brackets_direct_refresh_and_confirms_release(self):
-        refresh = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
-        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        refresh = read_product_source("combined_refresh_handler.swift")
+        bridge = read_product_source("v3_service_bridge.swift")
+        service = read_product_source("v3_sidestore_service.swift")
         begin = refresh.index('operation: "refreshAdmissionBegin"')
         dispatch = refresh.index("client.refreshAllApps(", begin)
         release = refresh.index("await releaseRefreshAdmission(run,", dispatch)
@@ -2280,8 +1554,8 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn("V3RequestRetirementPolicy", bridge)
 
     def test_auth_begin_request_expiry_cancels_its_reserved_session(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        service = read_product_source("v3_sidestore_service.swift")
+        runtime = read_product_source("v3_headless_runtime.swift")
         self.assertIn("pendingAuthStartSessions[id] = session", service)
         self.assertIn("pendingAuthStartSessions[id] = nil", service)
         self.assertIn("auth.cancelBeforeBegin(id: session)", service)
@@ -2299,8 +1573,8 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn("requestCancelled: requestExpired", begin)
 
     def test_terminal_reply_cache_reserves_capacity_for_user_continuations(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        budget = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        service = read_product_source("v3_sidestore_service.swift")
+        budget = read_product_source("v3_wire_contract.swift")
         self.assertIn("V3MutationReplyCacheBudget.isControlReply(operation: operation)", service)
         self.assertIn("V3MutationReplyCacheBudget.shouldCacheResponse(operation: operation)", service)
         self.assertIn("if mutation && cacheResponse", service)
@@ -2311,9 +1585,9 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn('!["authRespond", "opAnswer", "certExportActive"].contains(operation)', budget)
 
     def test_active_certificate_export_uses_upstream_active_material_without_keychain_cache(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        shell_patch = (ROOT / "scripts/patch_v3_unified_shell.py").read_text(encoding="utf-8")
+        service = read_product_source("v3_sidestore_service.swift")
+        wire = read_product_source("v3_wire_contract.swift")
+        shell_patch = owner_source("LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift")
         self.assertIn('case "certExportActive":', service)
         self.assertIn("CertificateManager.shared.activeCertificate", service)
         self.assertIn("active.p12Data", service)
@@ -2334,7 +1608,7 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn('"certExportActive"', wire[wire.index("static let readOperations"):])
 
     def test_request_deadline_task_is_cancelled_when_operation_settles(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service = read_product_source("v3_sidestore_service.swift")
         self.assertIn("private var deadlineTasks: [String: Task<Void, Never>]", service)
         self.assertIn("deadlineTasks.removeValue(forKey: id)?.cancel()", service)
         self.assertIn("deadlineTasks[id] = Task { @MainActor in", service)
@@ -2342,7 +1616,7 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
 
 class WireExecutionTests(unittest.TestCase):
     def test_active_certificate_export_adapter_crosses_service_owned_group_boundary(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service = read_product_source("v3_sidestore_service.swift")
         start = service.index("enum V3ActiveCertificateExportAdapter {")
         end = service.index("\n}\n", start) + 2
         adapter = service[start:end]
@@ -2399,7 +1673,7 @@ print("ACTIVE_CERTIFICATE_EXPORT_BOUNDARY_PASS")
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             program = directory / "main.swift"
-            program.write_text((ROOT / "scripts/templates/v3_wire_contract.swift").read_text() + r'''
+            program.write_text(read_product_source("v3_wire_contract.swift") + r'''
 let now = Date(timeIntervalSince1970: 100000)
 let storeID = UUID().uuidString
 let installed = "x-coredata://\(storeID)/InstalledApp/p1"
@@ -2472,7 +1746,7 @@ print("V3 request identity and Core Data target policies PASS")
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable")
-        source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
+        source = read_product_source("v3_sidestore_service.swift")
         gate = source[source.index("final class V3ServiceCallbackGate:"):
                       source.index("// V3_NATIVE_CALLBACK_GATE_END")]
         callback_start = source.index("    private func callback(")
@@ -2538,7 +1812,7 @@ enum Failure: Error { case native }
             self.assertIn("V3 native callback exactly-once PASS", result.stdout)
 
     def test_explicit_session_retirement_releases_only_its_status_owner(self):
-        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        bridge = read_product_source("v3_service_bridge.swift")
         confirm = bridge[bridge.index("public func confirmUncertainOperationAfterDeviceCheck"):
                          bridge.index("public func retireReconciledRefreshService")]
         self.assertIn('reconcileStatusOwnerAfterAuthoritativeEvidence("operation:\\(sessionID)")', confirm)
@@ -2560,11 +1834,11 @@ enum Failure: Error { case native }
             directory = Path(name)
             program = directory / "main.swift"
             program.write_text((ROOT / "tests/fixtures/v3_bridge_harness.swift").read_text() +
-                               (ROOT / "scripts/templates/combined_failure.swift").read_text() +
-                               (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text() +
-                               (ROOT / "scripts/templates/combined_service_connection.swift").read_text() +
-                               (ROOT / "scripts/templates/v3_wire_contract.swift").read_text() +
-                               (ROOT / "scripts/templates/v3_service_bridge.swift").read_text())
+                               read_product_source("combined_failure.swift") +
+                               read_product_source("v3_behavioral_primitives.swift") +
+                               read_product_source("combined_service_connection.swift") +
+                               read_product_source("v3_wire_contract.swift") +
+                               read_product_source("v3_service_bridge.swift"))
             executable = directory / "bridge-tests"
             compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)], capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
@@ -2579,7 +1853,7 @@ enum Failure: Error { case native }
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             program = directory / "main.swift"
-            program.write_text((ROOT / "scripts/templates/v3_wire_contract.swift").read_text() + r'''
+            program.write_text(read_product_source("v3_wire_contract.swift") + r'''
 let now = Date(timeIntervalSince1970: 100000)
 let valid: [String: Any] = ["version": 1, "id": UUID().uuidString, "operation": "snapshot",
                           "target": "", "deadline": now.addingTimeInterval(30)]
@@ -2645,7 +1919,7 @@ print("V3 wire contract PASS")
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             program = directory / "main.swift"
-            program.write_text((ROOT / "scripts/templates/v3_wire_contract.swift").read_text() + r'''
+            program.write_text(read_product_source("v3_wire_contract.swift") + r'''
 let now = Date(timeIntervalSince1970: 100000)
 func encode(_ value: [String: Any]) -> Data {
     try! PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
@@ -2779,7 +2053,7 @@ print("V3 headless wire contract PASS")
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable")
-        source = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+        source = read_product_source("v3_headless_runtime.swift")
         gate = source[source.index("enum V3PromptAnswerDisposition:"):]
         gate = gate[:gate.index("\n@MainActor\nfinal class V3HeadlessRuntime")]
         program = "import Foundation\n" + gate + r'''
@@ -2823,27 +2097,9 @@ print("V3 headless wire contract PASS")
             self.assertIn("V3 prompt gate PASS", result.stdout)
 
 
-class GsaPreparedTreeTests(unittest.TestCase):
+class GsaOwnerTests(unittest.TestCase):
     def test_gsa_connection_close_in_prepared_tree(self):
-        side_sign = os.getenv("SIDESIGN_TEST_SOURCE")
-        if side_sign:
-            side = Path(side_sign)
-        else:
-            embedded = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-            nested = Path(embedded) / "Dependencies/SideSign" if embedded else None
-            if nested is None or not nested.is_dir():
-                self.skipTest("Pinned SideSign source is unavailable")
-            side = nested
-
-        # Exact patch-fixture revision, not the current application source graph.
-        fixture_ref = "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d"
-        revision = subprocess.check_output(["git", "-C", str(side), "rev-parse", "HEAD"],
-                                           text=True).strip()
-        self.assertEqual(revision, fixture_ref, "SideSign source must match the fixture pin")
-
-        auth = side / "Sources/DeveloperPortal/Authentication.swift"
-        self.assertTrue(auth.is_file(), f"pinned SideSign source is missing {auth}")
-        text = auth.read_text(encoding="utf-8")
+        text = owner_source("Sources/DeveloperPortal/Authentication.swift", "SideStore/Dependencies/SideSign")
         hits = [m.start() for m in re.finditer(r'"Connection": "close"', text)]
         self.assertEqual(len(hits), 2)
         enclosing = []
@@ -2851,7 +2107,7 @@ class GsaPreparedTreeTests(unittest.TestCase):
             before = text[:position]
             found = [m.group(1) for m in re.finditer(r"func\s+(\w+)\s*\(", before)][-1]
             enclosing.append(found)
-        self.assertEqual(enclosing, ["sendAuthenticationRequest", "makeTwoFactorAuthRequest"])
+        self.assertEqual(enclosing, ["sendObservedAuthenticationRequest", "makeTwoFactorAuthRequest"])
         self.assertEqual(len(re.findall(r"URLRequest\(", text)), 2)
 
     def test_no_builder_patch_modifies_sidesign_auth(self):
@@ -2863,7 +2119,7 @@ class GsaPreparedTreeTests(unittest.TestCase):
         # Its source-preservation behavior is exercised by the collector harness.
 
     def test_auth_is_single_flight_without_retry_loops(self):
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = read_product_source("v3_headless_runtime.swift")
         self.assertIn("let previousID = activeID", runtime)
         self.assertIn("mayLaunchCreatedSession", runtime)
         self.assertIn("if let oldTask { await oldTask.value }", runtime)
@@ -2877,7 +2133,7 @@ class GsaPreparedTreeTests(unittest.TestCase):
             self.assertIn(marker, runtime)
 
     def test_host_starts_auth_only_from_user_flow(self):
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        host = read_product_source("v3_unified_shell.swift")
         self.assertEqual(host.count('"authBegin"'), 1)
 
     def test_shipped_failure_preservation(self):
@@ -2887,7 +2143,7 @@ class GsaPreparedTreeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             program = directory / "main.swift"
-            program.write_text((ROOT / "scripts/templates/combined_failure.swift").read_text() + "\n"
+            program.write_text(read_product_source("combined_failure.swift") + "\n"
                                + 'let id = UUID().uuidString\nlet known = CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .timedOut, id: id, retryable: true)\nlet kept = CombinedFailure.preserving(known, operation: "connect", stage: .serviceReadiness, id: id)\nprecondition(kept.stage == .serviceReadiness && kept.code == .timedOut)\nprecondition(kept.correlationID == id && kept.retryable == true)\nlet invalid = CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .invalidResponse, id: id)\nlet keptInvalid = CombinedFailure.preserving(invalid, operation: "connect", stage: .command, id: UUID().uuidString)\nprecondition(keptInvalid.stage == .serviceReadiness && keptInvalid.code == .invalidResponse)\nprecondition(keptInvalid.correlationID == id)\nlet plain = NSError(domain: NSCocoaErrorDomain, code: 42)\nlet wrapped = CombinedFailure.preserving(plain, operation: "connect", stage: .serviceReadiness, code: .failed, id: id)\nprecondition(wrapped.stage == .serviceReadiness && wrapped.code == .failed)\nprecondition(wrapped.correlationID == id && wrapped.underlyingCode == 42)\nlet cancelled = CombinedFailure.preserving(CancellationError(), operation: "connect", stage: .serviceReadiness, id: id)\nprecondition(cancelled.code == .failed)\nprint("V3 failure preservation PASS")')
             executable = directory / "preserve-tests"
             compiled = subprocess.run([compiler, str(program), "-o", str(executable)], capture_output=True, text=True)

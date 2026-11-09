@@ -196,10 +196,10 @@ def collect_isolated_anisette_evidence(source: Path, manifest: Path,
     # The build's exact DerivedData checkout must still be at the pinned commit
     # and contain only the allowed native transformation. Never patch at collect.
     if maintained_pins is None:
-        command = [sys.executable, str(Path(__file__).with_name("patch_anisette_isolated_otp.py")),
-                   str(source), "--verify"]
+        command = [sys.executable, str(Path(__file__).with_name("anisette_evidence.py")),
+                   str(source)]
     else:
-        command = [sys.executable, str(Path(__file__).with_name("maintained_sources.py")),
+        command = [sys.executable, str((Path(__file__).parent / "maintained_sources.py")),
                    "anisette", "--pins", str(maintained_pins), "--anisette-source", str(source)]
     subprocess.run(command, check=True, capture_output=True, text=True)
     pins = load_pins(maintained_pins) if maintained_pins is not None else None

@@ -25,7 +25,6 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "7d8ae12905f8baa6e0ecc4dbdd3f25e2aa0e43fa"
 GRID = "scripts/templates/livecontainer_grid_app_cell.swift"
-V3_BASELINE = "9d1eed7992694aa0fb9a18742255c21c95b0e697"
 
 
 COMMAND_LOG: Path | None = None
@@ -177,12 +176,10 @@ def build_app(output: Path, live: Path, baseline: bool, fallback: bool = False) 
 def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, str, dict]:
     build = output / "v3-native"
     build.mkdir(parents=True, exist_ok=True)
-    if source is None:
-        candidate = ROOT / "scripts/templates/v3_unified_shell.swift"
-        text = candidate.read_text() if candidate.exists() else capture(
-            "git", "-C", str(ROOT), "show", V3_BASELINE + ":scripts/templates/v3_unified_shell.swift").decode()
-    else:
-        text = source.read_text()
+    # The current host owns both the UI and its semantic models. Never fill
+    # missing declarations from a different historical generated template.
+    source = source or live / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift"
+    text = source.read_text()
     start = text.index("struct V3InstalledAppsSection: View {")
     end = text.index("struct V3AppActions: View {", start)
     section = text[start:end]
@@ -211,7 +208,7 @@ def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, s
     # into the generated shell, so both sources are tried.
     severity_model = ""
     tint_model = ""
-    for candidate in (text, (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")):
+    for candidate in (text,):
         if "enum V3StatusSeverity: String, Equatable, CaseIterable {" not in candidate:
             continue
         severity_start = candidate.index("enum V3StatusSeverity: String, Equatable, CaseIterable {")
@@ -219,7 +216,7 @@ def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, s
             "static func connectionState(", severity_start)) + len("\n}\n")
         severity_model = candidate[severity_start:severity_end]
         break
-    for candidate in (text, (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")):
+    for candidate in (text,):
         if "extension V3StatusPresentation {" not in candidate:
             continue
         tint_start = candidate.index("extension V3StatusPresentation {")

@@ -1,4 +1,5 @@
 """Exercise the generated ODA catch/recovery path with only native OTP doubled."""
+from tests.support.product_sources import ProductSource
 from pathlib import Path
 import shutil
 import subprocess
@@ -33,7 +34,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
         compiler = shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable; owned temporary probe harness runs in macOS CI')
-        support = (ROOT / 'scripts/templates/anisette_legacy_recovery.swift').read_text()
+        support = (ProductSource('anisette_legacy_recovery.swift')).read_text()
         source = (ROOT / 'tests/fixtures/anisette_recovery_temporary_harness.swift').read_text().replace(
             '__PRODUCTION_TEMPORARY_PROBE__', declaration(support, 'private enum LCAnisetteIsolatedProbe {'))
         with tempfile.TemporaryDirectory() as directory:
@@ -120,7 +121,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
                     self.assertIn('NORMAL_ANISETTE_STAGING_PASS ' + mode, result.stdout)
 
     def test_isolated_probe_keeps_existing_data_and_cleans_owned_root(self):
-        source = (ROOT / 'scripts/templates/anisette_legacy_recovery.swift').read_text()
+        source = (ProductSource('anisette_legacy_recovery.swift')).read_text()
         self.assertIn('mkdtemp(pointer)', source)
         self.assertEqual(source.count('IsolatedAnisetteOTPProvider.getExistingHeaders('), 1)
         self.assertEqual(source.count('FileManager.default.removeItem(at: root)'), 1)

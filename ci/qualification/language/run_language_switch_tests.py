@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""Run source-owned transition controls and a real same-session simulator fixture.
+No app credentials, pairing data, network or downloaded simulator runtime.
+"""
+import sys as _native_sys
+from pathlib import Path as _NativePath
+_native_root = next((p for p in _NativePath(__file__).resolve().parents if (p / 'ci/native_paths.py').is_file()), None)
+if _native_root is not None:
+    _native_sys.path.insert(0, str(_native_root))
+import argparse,hashlib,json,os,platform,plistlib,re,shutil,subprocess,sys,time
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+sys.path.insert(0,str(((HERE.parent/'native'))))
+from ci.build.verify_candidate_graph import load_candidate_graph
+from cleanup_evidence import cleanup as cleanup_owned_simulator, verify as verify_cleanup
+from boot_evidence import validate_boot, verify_language_boot, runtime_number, available_device, selection_evidence, verify_selection
+
+def require(ok,message):
+ if not ok:raise ValueError(message)
+def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+def strict(pairs):
+ d={}
+ for k,v in pairs:
+  require(k not in d,'Duplicate JSON key');d[k]=v
+ return d
+def read(path):return json.loads(path.read_text(),object_pairs_hook=strict)
+def command(args,*,cwd=None,timeout=120):
+ try:return subprocess.check_output([str(x) for x in args],cwd=cwd,text=True,stderr=subprocess.STDOUT,timeout=timeout)
+ except subprocess.SubprocessError as error:
+  detail=getattr(error,'output','') or ''
+  if isinstance(detail,bytes):detail=detail.decode('utf-8','replace')
+  if detail:print(detail,file=sys.stderr,flush=True)
+  raise
+def wait_owned_simulator_boot(udid,work,*,clock=None,run=None):
+ # Only continue a timed-out readiness observation of this invocation's already
+ # created simulator. Never retry creation, app launch, assertions, or boot itself.
+ require(re.fullmatch('[A-Fa-f0-9-]{36}',udid),'Invalid owned simulator identity')
+ clock=time.monotonic if clock is None else clock
+ run=subprocess.check_output if run is None else run
+ started=clock();deadline=started+360.0
+ receipt=work/'boot-readiness.json';require(not receipt.exists(),'Fresh boot evidence required')
+ report={'schema':'owned-simulator-boot-readiness-v1','udid':udid,'budget_seconds':360,'maximum_attempts':2,'attempts':[],'status':'FAILED'}
+ for attempt in (1,2):
+  remaining=deadline-clock();require(remaining>0,'Owned simulator boot readiness budget exhausted')
+  timeout=min(180.0,remaining);output='';state='command_error';code=None;error_detail=None
+  args=['xcrun','simctl','bootstatus',udid,'-b']
+  try:
+   output=run(args,text=True,stderr=subprocess.STDOUT,timeout=timeout)
+   if clock()>deadline:
+    state='budget_exhausted';raise ValueError('Owned simulator boot completed outside readiness budget')
+   state='ready';code=0
+  except subprocess.TimeoutExpired as error:
+   output=error.output or '';state='timeout';error_detail={'type':type(error).__name__,'message':str(error)}
+   if attempt==2:raise
+  except subprocess.CalledProcessError as error:
+   output=error.output or '';code=error.returncode;error_detail={'type':type(error).__name__,'message':str(error)};raise
+  except OSError as error:
+   error_detail={'type':type(error).__name__,'message':str(error)};raise
+  finally:
+   if isinstance(output,bytes):output=output.decode('utf-8','replace')
+   log=work/('bootstatus-attempt-'+str(attempt)+'.log')
+   with log.open('x') as stream:stream.write(output)
+   report['attempts'].append({'attempt':attempt,'timeout_seconds':timeout,'status':state,'exit_code':code,'output_sha256':sha(log),'error':error_detail})
+   report['status']='READY' if state=='ready' else 'FAILED'
+   report['elapsed_seconds']=max(0,clock()-started)
+   receipt.write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+   if state!='ready':print('OWNED_SIMULATOR_BOOT_'+state.upper()+' attempt='+str(attempt)+'\n'+output[-16000:],file=sys.stderr,flush=True)
+  if state=='ready':return report
+ # Both timeout paths must remain failures, not successful fixture execution.
+ raise ValueError('Owned simulator boot readiness not established')
+
+def verify_boot_readiness(path,udid):
+ require(path.is_file() and not path.is_symlink(),'Missing/linked boot readiness receipt')
+ data=read(path);rows=data['attempts'];require(type(rows) is list and 1<=len(rows)<=2,'Boot attempt count differs')
+ logs={}
+ # Paths derive only from bounded indices, never receipt-controlled strings.
+ for index in range(1,len(rows)+1):
+  log=path.parent/('bootstatus-attempt-'+str(index)+'.log')
+  require(log.is_file() and not log.is_symlink(),'Missing/linked boot attempt output');logs[log.name]=log.read_text()
+ return validate_boot(path.read_text(),logs,udid,sha(path))
+
+def source_test_result(result,log,label):
+ if result.returncode!=0:
+  # These source-owned synthetic fixtures use no account, pairing or signing
+  # material. Bound the failure tail; preserve full log in private CI evidence.
+  print('SOURCE_FIXTURE_FAILURE '+label+'\n'+log.read_text()[-16000:],file=sys.stderr,flush=True)
+ require(result.returncode==0,'Source-owned '+label+' tests failed')
+
+def extract(text,start,end):
+ require(text.count(start)==1 and text.count(end)==1,'Production marker closure differs')
+ section=text.split(start,1)[1].split(end,1)[0]
+ require(section.strip(),'Empty production section');return section
+
+def identity():
+ d={k:os.environ[v] for k,v in [('workflow_commit','GITHUB_SHA'),('run_id','GITHUB_RUN_ID'),('run_attempt','GITHUB_RUN_ATTEMPT')]}
+ require(re.fullmatch('[0-9a-f]{40}',d['workflow_commit']),'Invalid workflow SHA')
+ require(all(re.fullmatch('[1-9][0-9]*',d[k]) for k in ('run_id','run_attempt')),'Invalid run identity');return d
+
+# These paths are source-owned controls, not arbitrary test programs supplied externally.
+SOURCES=('LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift',
+ 'LiveContainerSwiftUI/Utilities/V3Localization.swift',
+ 'LiveContainerSwiftUI/Views/V3UnifiedShell.swift',
+ 'Resources/Localizable.xcstrings', 'tests/test_live_language_state.py', 'tests/fixtures/live_language_state.swift', 'tests/test_live_language_root.py', 'tests/test_live_language_availability.py',
+ 'MultitaskSupport/AppSceneViewController.h', 'MultitaskSupport/DecoratedAppSceneViewController.h', 'MultitaskSupport/VirtualWindowsHostView.h')
+
+def source_hashes(root):
+ result={}
+ for name in SOURCES:
+  path=root/name
+  require(path.is_file() and not path.is_symlink() and path.resolve(strict=True).is_relative_to(root),'Missing/linked source '+name)
+  result[name]=sha(path)
+ return result
+
+def recovery_hashes(sources):
+ result={}
+ for owner,name in [('LiveContainer','SideStoreSupport/SideStore.swift'),('SideStore','AltStore/AppDelegate.swift'),('SideStore','tests/refresh_recovery/test_ownerless_snapshot.py')]:
+  root=(sources/owner).resolve(strict=True);path=root/name
+  require(path.is_file() and not path.is_symlink() and path.resolve(strict=True).is_relative_to(root),'Missing/linked refresh recovery source')
+  result[owner+'/'+name]=sha(path)
+ return result
+
+
+TRANSITIONS=['he','en','he','ru','he','zh-Hans','he','zh-Hant','en','he','ru','en']
+def validate_runtime_result(data,root):
+ require(type(data) is dict and data.get('status')=='PASS','Simulator transition fixture failed: '+str(data.get('failure','unknown')))
+ for key in ('same_hosting_controller','same_state_owner','guest_window_unchanged','presented_guest_wrapper_unchanged','rapid_switch_converged','later_navigation_pass'):
+  require(data.get(key) is True,'Missing same-session boundary: '+key)
+ require(data.get('physical_device_execution') is False,'Incorrect runtime scope')
+ require(type(data.get('transition_count')) is int and data['transition_count']==len(TRANSITIONS),'Wrong transition count')
+ require(type(data.get('presented_sheet_transitions')) is int and data['presented_sheet_transitions']==4,'Missing presented sheet transitions')
+ records=data.get('records');require(type(records) is list and len(records)==len(TRANSITIONS),'Missing live records')
+ catalog=read(root/'Resources/Localizable.xcstrings')['strings']['Checking']['localizations']
+ for language,row in zip(TRANSITIONS,records):
+  require(type(row) is dict and set(row)=={'language','visible_string','direction','chrome_count'},'Invalid live record closure')
+  require(row['language']==language and row['visible_string']==catalog[language]['stringUnit']['value'],'Stale or wrong live string')
+  require(row['direction']==('rtl' if language=='he' else 'ltr'),'Wrong recorded native direction')
+  require(type(row['chrome_count']) is int and row['chrome_count']>=3,'Missing native chrome')
+
+def run(sources,output):
+ sources=sources.resolve(strict=True);root=(sources/'LiveContainer').resolve(strict=True)
+ require(output.is_dir() and not output.is_symlink(),'Owned evidence directory required');output=output.resolve(strict=True)
+ work=output/'language-switch';require(not work.exists(),'Fresh language evidence required');work.mkdir()
+ graph=load_candidate_graph();require(command(['git','-C',root,'rev-parse','HEAD']).strip()==graph['owners']['LiveContainer'][1],'Wrong LC source owner')
+ before=source_hashes(root);recovery_before=recovery_hashes(sources)
+ report={'schema':'live-language-switch-v1','status':'FAILED','run_identity':identity(),'source_graph':graph['owners'],'source_sha256':before,'refresh_recovery_source_sha256':recovery_before,'physical_device_execution':False,'simulator_execution':False}
+ receipt=output/'language-switch-tests.json'
+ udid=None
+ try:
+  require(platform.system()=='Darwin','Actual Apple UIKit/SwiftUI runtime requires macOS with installed iOS Simulator')
+  availability_log=work/'availability-tests.log'
+  with availability_log.open('x') as stream:
+   available=subprocess.run([sys.executable,'-B',root/'tests/test_live_language_availability.py'],cwd=work,env={**os.environ,'REQUIRE_IOS_AVAILABILITY_TESTS':'1'},stdout=stream,stderr=subprocess.STDOUT,timeout=420)
+  source_test_result(available,availability_log,'iOS15 language availability')
+  availability_text=availability_log.read_text();require(re.search(r'^OK\s*$',availability_text,re.M) is not None and re.search(r'^(?:FAILED|OK \()',availability_text,re.M) is None,'Language availability tests skipped or failed')
+  report['source_availability_test_log_sha256']=sha(availability_log)
+  recovery_log=work/'refresh-recovery-tests.log'
+  with recovery_log.open('x') as stream:
+   recovered=subprocess.run([sys.executable,'-B',sources/'SideStore/tests/refresh_recovery/test_ownerless_snapshot.py'],cwd=work,env={**os.environ,'REQUIRE_SWIFT_REFRESH_RECOVERY_TESTS':'1','LIVE_CONTAINER_SOURCE_ROOT':str(root)},stdout=stream,stderr=subprocess.STDOUT,timeout=180)
+  source_test_result(recovered,recovery_log,'refresh recovery')
+  recovery_text=recovery_log.read_text();require(re.search(r'^OK\s*$',recovery_text,re.M) is not None and re.search(r'^(?:FAILED|OK \()',recovery_text,re.M) is None,'Refresh recovery tests skipped or failed')
+  report['refresh_recovery_test_log_sha256']=sha(recovery_log)
+  root_log=work/'root-tests.log'
+  with root_log.open('x') as stream:
+   rooted=subprocess.run([sys.executable,'-B',root/'tests/test_live_language_root.py'],cwd=work,stdout=stream,stderr=subprocess.STDOUT,timeout=180)
+  source_test_result(rooted,root_log,'language root')
+  root_text=root_log.read_text();require(re.search(r'^OK\s*$',root_text,re.M) is not None and re.search(r'^(?:FAILED|OK \()',root_text,re.M) is None,'Language root tests skipped or failed')
+  report['source_root_test_log_sha256']=sha(root_log)
+  state_log=work/'state-tests.log'
+  with state_log.open('x') as stream:
+   tested=subprocess.run([sys.executable,'-B',root/'tests/test_live_language_state.py'],cwd=work,stdout=stream,stderr=subprocess.STDOUT,timeout=180)
+  source_test_result(tested,state_log,'language state')
+  state_text=state_log.read_text();require(re.search(r'^OK\s*$',state_text,re.M) is not None and re.search(r'^(?:FAILED|OK \()',state_text,re.M) is None,'Language state tests skipped or failed')
+  report['source_state_test_log_sha256']=sha(state_log)
+  settings=(root/SOURCES[0]).read_text();localization=(root/SOURCES[1]).read_text()
+  require('// V3_LIVE_HOST_LANGUAGE_BEGIN' in settings,'Missing reviewed live state/bridge')
+  generated=localization+'\n'+settings+'\n'+(HERE/'SimulatorFixture.swift').read_text()
+  source=work/'main.swift';source.write_text(generated)
+  inventory_text=command(['xcrun','simctl','list','-j'])
+  (work/'simulator-inventory.json').write_text(inventory_text)
+  catalog=json.loads(inventory_text,object_pairs_hook=strict)
+  sdk_version=command(['xcrun','--sdk','iphonesimulator','--show-sdk-version']).strip()
+  sdk=command(['xcrun','--sdk','iphonesimulator','--show-sdk-path']).strip()
+  runtime,device=available_device(catalog,sdk_version)
+  report['simulator_selection']=selection_evidence(inventory_text,sdk_version,sdk,runtime,device)
+  architecture=platform.machine();require(architecture in ('arm64','x86_64'),'Unsupported simulator host architecture')
+  app=work/'LanguageSwitchFixture.app';app.mkdir()
+  bundle='org.nrg.language-switch-fixture'
+  (app/'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':bundle,'CFBundleName':'LanguageSwitchFixture','CFBundleExecutable':'LanguageSwitchFixture','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'1.0','MinimumOSVersion':'16.0','LSRequiresIPhoneOS':True,'UIDeviceFamily':[1],'UILaunchScreen':{}}))
+  catalog_strings=read(root/'Resources/Localizable.xcstrings')['strings']
+  for language_code in ('en','he','ru','zh-Hans','zh-Hant'):
+   directory=app/(language_code+'.lproj');directory.mkdir()
+   strings={key:row['localizations'][language_code]['stringUnit']['value'] for key,row in catalog_strings.items() if 'stringUnit' in row['localizations'][language_code]}
+   (directory/'Localizable.strings').write_bytes(plistlib.dumps(strings))
+
+  compile_args=['xcrun','--sdk','iphonesimulator','swiftc','-parse-as-library','-sdk',sdk,'-target',architecture+'-apple-ios16.0-simulator',source,'-o',app/'LanguageSwitchFixture']
+  (work/'compile.log').write_text(command(compile_args,timeout=180))
+  # Ad-hoc signing is scoped to this synthetic fixture; production IPA untouched.
+  (work/'codesign.log').write_text(command(['/usr/bin/codesign','--force','--sign','-',app]))
+  udid=command(['xcrun','simctl','create','NRG-LanguageSwitch-'+os.environ['GITHUB_RUN_ID'],device['identifier'],runtime['identifier']]).strip()
+  require(re.fullmatch('[A-Fa-f0-9-]{36}',udid),'Invalid created simulator identity')
+  command(['xcrun','simctl','boot',udid])
+  wait_owned_simulator_boot(udid,work)
+  report['boot_readiness_sha256']=sha(work/'boot-readiness.json')
+  report['boot_readiness_json']=(work/'boot-readiness.json').read_text()
+  boot_data=verify_boot_readiness(work/'boot-readiness.json',udid)
+  report['boot_attempt_logs']={('bootstatus-attempt-'+str(i)+'.log'):(work/('bootstatus-attempt-'+str(i)+'.log')).read_text() for i in range(1,len(boot_data['attempts'])+1)}
+  command(['xcrun','simctl','install',udid,app])
+  container=Path(command(['xcrun','simctl','get_app_container',udid,bundle,'data']).strip()).resolve(strict=True)
+  def launch_result(arguments,filename,timeout):
+   result=container/'Documents'/filename
+   require(not result.exists() and not result.is_symlink(),'Fresh simulator result required')
+   launch=command(['xcrun','simctl','launch','--terminate-running-process',udid,bundle,*arguments])
+   (work/(filename+'.launch.log')).write_text(launch)
+   deadline=time.monotonic()+timeout
+   while not result.is_file() and time.monotonic()<deadline:time.sleep(.2)
+   require(result.is_file() and not result.is_symlink(),'Simulator fixture did not complete: '+filename)
+   return result
+  # Same compiled production helpers + exact initially failing fixture boundary.
+  # Counterfactual observations do not qualify or waive the default assertions.
+  report['counterfactual_sha256']={}
+  for mode,label in [('--counterfactual-no-bridge','without'),('--counterfactual-with-bridge','with')]:
+   result=launch_result([mode],'counterfactual-'+label+'-bridge.json',45)
+   (work/result.name).write_bytes(result.read_bytes())
+   observation=read(result)
+   require(observation.get('status')=='OBSERVED_COUNTERFACTUAL_NOT_QUALIFICATION','Missing counterfactual observation')
+   require(observation.get('bridge_enabled') is (label=='with'),'Counterfactual bridge mode differs')
+   report['counterfactual_sha256'][result.name]=sha(work/result.name)
+  result=launch_result([],'language-switch-result.json',120)
+  payload=result.read_bytes();(work/'simulator-result.json').write_bytes(payload)
+  data=json.loads(payload,object_pairs_hook=strict)
+  validate_runtime_result(data,root)
+  report.update(status='PASS_SAME_SESSION_IOS_SIMULATOR_NOT_PHYSICAL_DEVICE',simulator_execution=True,simulator={'runtime':runtime,'device_type':device,'udid':udid,'sdk':sdk},fixture_result_sha256=sha(work/'simulator-result.json'),generated_source_sha256=sha(source),fixture_source_sha256=sha(HERE/'SimulatorFixture.swift'),transition_count=data['transition_count'])
+  require(source_hashes(root)==before and recovery_hashes(sources)==recovery_before,'Source changed during runtime test')
+ finally:
+  if udid:
+   # Cleanup command errors remain evidence; only observed absence of this
+   # invocation's exact created UUID can establish a completed lifecycle.
+   cleanup=cleanup_owned_simulator(udid,work)
+   report['cleanup_evidence_json']=(work/'cleanup-evidence.json').read_text()
+   report['cleanup_evidence_sha256']=sha(work/'cleanup-evidence.json')
+   if cleanup['status']!='VERIFIED_ABSENT':report['status']='FAILED_SIMULATOR_CLEANUP'
+  receipt.write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+ verify_receipt(receipt,sources,report['run_identity'])
+
+def verify_receipt(path,sources,native_identity):
+ require(path.is_file() and not path.is_symlink(),'Language receipt missing/linked');d=read(path)
+ require(d['schema']=='live-language-switch-v1' and d['status']=='PASS_SAME_SESSION_IOS_SIMULATOR_NOT_PHYSICAL_DEVICE','Language tests did not pass')
+ require(d['run_identity']==native_identity,'Language test run identity differs')
+ require(d['source_graph']==load_candidate_graph()['owners'],'Language source graph differs')
+ root=(sources/'LiveContainer').resolve(strict=True)
+ require(d['source_sha256']==source_hashes(root),'Language source hashes differ')
+ result=path.parent/'language-switch/simulator-result.json'
+ require(result.is_file() and not result.is_symlink() and sha(result)==d['fixture_result_sha256'],'Simulator evidence differs')
+ require(d['simulator_execution'] is True and d['physical_device_execution'] is False,'Incorrect runtime scope')
+ cleanup=path.parent/'language-switch/cleanup-evidence.json'
+ require(cleanup.is_file() and not cleanup.is_symlink() and sha(cleanup)==d['cleanup_evidence_sha256'],'Cleanup evidence differs')
+ require(cleanup.read_text()==d['cleanup_evidence_json'],'Embedded cleanup evidence differs')
+ verify_cleanup(cleanup.read_text(),d['simulator']['udid'])
+ require(d['fixture_source_sha256']==sha(HERE/'SimulatorFixture.swift'),'Fixture source differs')
+ boot=path.parent/'language-switch/boot-readiness.json'
+ require(boot.is_file() and not boot.is_symlink() and sha(boot)==d['boot_readiness_sha256'],'Boot readiness evidence differs')
+ verify_boot_readiness(boot,d['simulator']['udid'])
+ verify_language_boot(d)
+ inventory=path.parent/'language-switch/simulator-inventory.json'
+ require(inventory.is_file() and not inventory.is_symlink() and inventory.read_text()==d['simulator_selection']['inventory_json'],'Simulator inventory evidence differs')
+ require(d['boot_readiness_json']==boot.read_text(),'Embedded boot receipt differs')
+ for name,text in d['boot_attempt_logs'].items():require(text==(boot.parent/name).read_text(),'Embedded boot output differs')
+ require(d['source_state_test_log_sha256']==sha(path.parent/'language-switch/state-tests.log'),'Language source test log differs')
+ require(d['source_root_test_log_sha256']==sha(path.parent/'language-switch/root-tests.log'),'Language root test log differs')
+ require(d['source_availability_test_log_sha256']==sha(path.parent/'language-switch/availability-tests.log'),'Language availability test log differs')
+ require(d['refresh_recovery_source_sha256']==recovery_hashes(sources),'Refresh recovery source differs')
+ require(d['refresh_recovery_test_log_sha256']==sha(path.parent/'language-switch/refresh-recovery-tests.log'),'Refresh recovery test log differs')
+ validate_runtime_result(read(result),root)
+ require(set(d['counterfactual_sha256'])=={'counterfactual-without-bridge.json','counterfactual-with-bridge.json'},'Counterfactual receipt closure differs')
+ for name,digest in d['counterfactual_sha256'].items():
+  observation=path.parent/'language-switch'/name
+  require(observation.is_file() and not observation.is_symlink() and sha(observation)==digest,'Counterfactual bytes differ')
+  data=read(observation)
+  require(data.get('status')=='OBSERVED_COUNTERFACTUAL_NOT_QUALIFICATION' and data.get('bridge_enabled') is (name=='counterfactual-with-bridge.json'),'Counterfactual scope differs')
+ return d
+
+if __name__=='__main__':
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--sources',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();run(a.sources,a.output)

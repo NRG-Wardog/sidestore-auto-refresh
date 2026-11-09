@@ -1,4 +1,5 @@
 """Executable regression for conservative typed authentication error mapping."""
+from tests.support.product_sources import ProductSource
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,12 +16,12 @@ class AuthErrorNuanceTests(unittest.TestCase):
         if not SWIFTC:
             self.skipTest("Swift compiler unavailable; executable auth harness runs in macOS CI")
 
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = (ProductSource('v3_headless_runtime.swift')).read_text(encoding="utf-8")
         classifier_start = runtime.index("enum V3AuthFailureKind:")
         classifier_end = runtime.index("// MARK: - Provisioning failure guidance", classifier_start)
         classifier = runtime[classifier_start:classifier_end]
 
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = (ProductSource('v3_unified_shell.swift')).read_text(encoding="utf-8")
         message_start = shell.index("    static func failureMessage(from failure: [String: Any]) -> String {")
         message_end = shell.index("\n    static func failureDetails(", message_start)
         host_message = shell[message_start:message_end].replace(
@@ -28,11 +29,11 @@ class AuthErrorNuanceTests(unittest.TestCase):
 
         source = "\n".join((
             "import Foundation",
-            (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8"),
-            (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8"),
+            (ProductSource('v3_wire_contract.swift')).read_text(encoding="utf-8"),
+            (ProductSource('combined_failure.swift')).read_text(encoding="utf-8"),
             classifier,
             host_message,
-            (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"),
+            (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8"),
             (ROOT / "tests/fixtures/v3_auth_error_nuance_harness.swift").read_text(encoding="utf-8"),
         ))
 

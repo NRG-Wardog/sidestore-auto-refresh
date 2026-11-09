@@ -1,6 +1,8 @@
+from tests.owner_source import owner_source
+from tests.support.product_sources import ProductSource
 """Settings storage, upstream defaults, transport caches and async ownership.
 
-These regressions exercise the retained patch templates. Swift and pinned-source
+These regressions exercise the verified maintained source owners. Swift and pinned-source
 prerequisites remain explicit; source assertions do not claim native execution.
 """
 import os
@@ -15,22 +17,28 @@ ROOT = Path(__file__).resolve().parents[2]
 import sys
 sys.path.insert(0, str(ROOT / "tests"))
 from guest_owner_parts import implementations, block
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
+RUNTIME = ProductSource('v3_headless_runtime.swift')
+
+from tests.support.product_sources import declaration_end
 
 def declaration(source, signature):
+    if source.count(signature) != 1:
+        raise AssertionError(f"Expected one owner declaration: {signature}")
     start = source.index(signature)
-    opening = source.index("{", start)
-    depth = 0
-    for end in range(opening, len(source)):
-        depth += (source[end] == "{") - (source[end] == "}")
-        if depth == 0:
-            return source[start:end + 1]
-    raise AssertionError(signature)
+    return source[start:declaration_end(source, start)]
+
+
+def extension_preferences():
+    policy = owner_source("SideStore/Core/Operations/PipelineOperations/RemoveAppExtensionsOperation.swift", "SideStore")
+    handler = owner_source("SideStore/Core/Operations/PipelineExecutionHandler.swift", "SideStore")
+    return ("struct ALTApplication: Hashable, Sendable {}\n" +
+            declaration(handler, "enum ExtensionRemovalDecision:") + "\n" +
+            declaration(policy, "public enum AppExtensionCustomization:"))
 
 class SettingsPersistenceTests(unittest.TestCase):
 
     def test_v3_templates_use_app_group_store(self):
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = (ProductSource('v3_unified_shell.swift')).read_text(encoding="utf-8")
         for key in ("LCGridSize.storageKey", '"LCShowAppLabels"'):
             self.assertIn(key, shell)
         self.assertIn("store: LCUtils.appGroupUserDefault", shell)
@@ -45,7 +53,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertNotIn("LCSelectedLanguage", text)
 
     def test_no_cross_container_key_sharing(self):
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = (ProductSource('v3_unified_shell.swift')).read_text(encoding="utf-8")
         # Host UI keys and guest container paths must stay separate.
         self.assertNotIn("Library/Preferences", shell)
 
@@ -61,7 +69,7 @@ class SettingsPersistenceTests(unittest.TestCase):
 
     def test_no_standard_userdefaults_for_lc_settings(self):
         # LC settings must use LCUtils.appGroupUserDefault, not standard UserDefaults
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = (ProductSource('v3_unified_shell.swift')).read_text(encoding="utf-8")
         for key in ("LCGridSize", "LCShowAppLabels", "LCHideCollapsedDock"):
             # Ensure they don't use UserDefaults.standard
             self.assertNotIn(f"UserDefaults.standard.{key}", shell)
@@ -78,21 +86,15 @@ class EffectiveDefaultsTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; effective-defaults harness runs in macOS CI")
-        source_root = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.environ.get("SIDESTORE_TEST_SOURCE")
-        if not source_root:
-            self.skipTest("Pinned SideStore source unavailable")
-        upstream = subprocess.check_output([
-            "git", "-C", source_root, "show",
-            "ff25922e5c13ccfafd83bda5092910d848ebd409:AltStore/Core/Extensions/UserDefaults+AltStore.swift"
-        ], text=True)
+        upstream = owner_source("AltStore/Core/Extensions/UserDefaults+AltStore.swift", "SideStore")
         properties = "\n".join(declaration(upstream, signature) for signature in (
-            "    var customizeAppExtensions: Bool", "    @objc(customizeAppExtensions) private var _customizeAppExtensions: Bool",
+            "    var customizeAppExtensions: AppExtensionCustomization", "    @objc(customizeAppExtensions) private var _customizeAppExtensions: String?",
             "    var autoFixAppGroupIDs: Bool", "    @objc(autoFixAppGroupIDs) private var _autoFixAppGroupIDs: Bool"))
         runtime = RUNTIME.read_text()
         start = runtime.index("    static let boolSettings:")
         end = runtime.index("    static func settingsGet()", start)
         projection = runtime[start:end] + declaration(runtime, "    static func settingsGet()")
-        harness = '''import Foundation
+        harness = 'import Foundation\nimport CoreFoundation\n' + extension_preferences() + '''
 enum TeamType { case free, individual }
 struct Team { let type: TeamType }
 final class DatabaseManager {
@@ -119,19 +121,28 @@ enum V3BackendCommands {
             let values = V3BackendCommands.settingsGet()["bools"] as! [String: Bool]
             precondition(values["customizeAppExtensions"] == extensions)
             precondition(values["autoFixAppGroupIDs"] == groups)
-            precondition(values["customizeAppExtensions"] == defaults.customizeAppExtensions)
+            precondition(values["customizeAppExtensions"] == (defaults.customizeAppExtensions == .promptUser))
             precondition(values["autoFixAppGroupIDs"] == defaults.autoFixAppGroupIDs)
         }
         verify(true, true)
         DatabaseManager.shared.team = Team(type: .free)
         verify(true, true)
         DatabaseManager.shared.team = Team(type: .individual)
-        verify(false, true)
-        defaults.customizeAppExtensions = true
+        verify(true, true)
+        defaults.customizeAppExtensions = .promptUser
         defaults.autoFixAppGroupIDs = false
         verify(true, false)
         DatabaseManager.shared.team = Team(type: .free)
-        defaults.customizeAppExtensions = false
+        defaults.customizeAppExtensions = .keepAll
+        verify(false, false)
+        for option in AppExtensionCustomization.allCases {
+            defaults.customizeAppExtensions = option
+            verify(option == .promptUser, false)
+            precondition(defaults.customizeAppExtensions == option, "reads cannot rewrite automatic policies")
+        }
+        defaults.set(true, forKey: "customizeAppExtensions")
+        verify(true, false)
+        defaults.set(false, forKey: "customizeAppExtensions")
         verify(false, false)
         print("V3_EFFECTIVE_SETTINGS_DEFAULTS_PASS")
     }
@@ -148,7 +159,7 @@ enum V3BackendCommands {
 
 class TransportSettingParityTests(unittest.TestCase):
     def test_integer_writes_validate_then_refresh_upstream_caches(self):
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+        runtime = (ProductSource('v3_headless_runtime.swift')).read_text()
         setter = declaration(runtime, "    static func settingsSet(")
         integer = setter[setter.index("} else if intSettings.contains(key)"):]
         self.assertLess(integer.index("guard value >= 0"), integer.index("UserDefaults.standard.set"))
@@ -163,26 +174,23 @@ class TransportSettingParityTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; transport-settings harness runs in macOS CI")
-        source_root = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.environ.get("SIDESTORE_TEST_SOURCE")
-        if not source_root:
-            self.skipTest("Pinned SideStore source unavailable")
         def upstream(path):
-            return subprocess.check_output(["git", "-C", source_root, "show",
-                "ff25922e5c13ccfafd83bda5092910d848ebd409:" + path], text=True)
+            return owner_source(path, "SideStore")
         defaults = upstream("AltStore/Core/Extensions/UserDefaults+AltStore.swift")
         properties = "\n".join(declaration(defaults, "    @objc var " + signature) for signature in (
             "remotePairingPortOverride: Int", "deviceProbeTimeoutOverride: Int", "minimuxerGatewayBackend: String"))
+        properties += "\n" + declaration(defaults, "    var customizeAppExtensions:")
+        properties += "\n" + declaration(defaults, "    @objc(customizeAppExtensions) private var _customizeAppExtensions:")
         wrapper = upstream("SideStore/Core/DeviceApi/MinimuxerWrapper.swift")
         cache_start = wrapper.index("public var selectedGatewayBackendCache")
         cache_end = wrapper.index("var minimuxer: any MinimuxerFacade")
         caches = wrapper[cache_start:cache_end]
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+        runtime = (ProductSource('v3_headless_runtime.swift')).read_text()
         arrays = runtime[runtime.index("    static let boolSettings:"):runtime.index("    static func settingsGet()")]
         setter = declaration(runtime, "    static func settingsSet(")
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text()
+        wire = (ProductSource('v3_wire_contract.swift')).read_text()
         strict = "\n".join(declaration(wire, "    static func " + name) for name in ("strictBool(", "strictInt("))
-        text = '''import Foundation
-import CoreFoundation
+        text = 'import Foundation\nimport CoreFoundation\n' + extension_preferences() + '''
 public enum GatewayBackend: String { case idevice, libimobiledevice }
 public enum AppConstants {
     public enum Minimuxer { public static let remotePairingPort: UInt16 = 62078; public static let defaultTCPProbeTimeoutMs = 1000 }
@@ -421,7 +429,7 @@ extension V3SettingsStore {
 
 class SettingsLoadRaceTests(unittest.TestCase):
     def test_store_captures_write_generations_before_bulk_read(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text()
+        source = (ProductSource('v3_unified_shell.swift')).read_text()
         store = declaration(source, "final class V3SettingsStore:")
         load = declaration(store, "    func load() async")
         self.assertLess(load.index("let capturedWrites = writeGenerations"), load.index('request(operation: "settingsGet")'))
@@ -430,15 +438,15 @@ class SettingsLoadRaceTests(unittest.TestCase):
         self.assertEqual(store.count("defer { finishWrite(generation, key: key, type:"), 3)
         self.assertIn("pendingWriteReconciliation.insert(key)", store)
         self.assertIn("!writeGenerations.hasPendingWrites(for: key)", store)
-        policy = declaration((ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(), "struct V3SettingsWriteGeneration {")
+        policy = declaration((ProductSource('v3_behavioral_primitives.swift')).read_text(), "struct V3SettingsWriteGeneration {")
         self.assertIn("pending[key] == nil && captured.pending[key] == nil", policy)
 
     def test_production_store_preserves_writes_and_merges_untouched_keys(self):
         compiler = shutil.which("swiftc")
         if sys.platform != "darwin" or not compiler:
             self.skipTest("Production settings store harness requires macOS Swift and Combine")
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text()
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
+        shell = (ProductSource('v3_unified_shell.swift')).read_text()
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text()
         production = declaration(primitives, "struct V3SettingsWriteGeneration {") + "\n@MainActor\n" + declaration(shell, "final class V3SettingsStore:")
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)
@@ -493,18 +501,27 @@ enum ProbeError: Error { case failed }
     func failWrite(_ id: Int) { writes.removeValue(forKey: id)!.resume(throwing: ProbeError.failed) }
 }
 
+// Fixture-only observation doubles, not a replacement state machine.
+protocol ObservableObject {}
+@propertyWrapper struct Published<Value> {
+    var wrappedValue: Value
+    init(wrappedValue: Value) { self.wrappedValue = wrappedValue }
+}
+typealias V3SideStoreStatusStore = ProbeStatus
+// STATE_OWNER
 // GENERATIONS
 
 @MainActor final class RowProbe {
     let status = ProbeStatus()
     let key = "flag"
-    var value = false
-    var loaded = false
-    var loadingRequest = false
-    var writeGenerations = V3SettingsWriteGeneration()
-    var confirmedValue: Bool?
-    var pendingWriteReconciliation = false
-    func beginLoad() async { await load() }
+    let state = V3BoolSettingState()
+    var value: Bool { get { state.value } set { state.value = newValue } }
+    var loaded: Bool { state.loaded }
+    var loadingRequest: Bool { state.loadingRequest }
+    var writeGenerations: V3SettingsWriteGeneration { state.writeGenerations }
+    var confirmedValue: Bool? { state.confirmedValue }
+    var pendingWriteReconciliation: Bool { state.pendingWriteReconciliation }
+    func beginLoad() async { await state.load(key: key, status: status) }
     @discardableResult func choose(_ next: Bool) -> UInt64 {
         value = next; save(next); return writeGenerations.current(for: key)
     }
@@ -635,33 +652,35 @@ enum ProbeError: Error { case failed }
 
 class BoolSettingRowRaceTests(unittest.TestCase):
     def test_row_guards_late_reads_and_balances_write_ownership(self):
-        row = declaration((ROOT / "scripts/templates/v3_unified_shell.swift").read_text(), "struct V3BoolSettingRow: View {")
-        load = declaration(row, "    private func load() async")
+        row = declaration((ProductSource('v3_unified_shell.swift')).read_text(), "struct V3BoolSettingRow: View {")
+        state = declaration((ProductSource('v3_unified_shell.swift')).read_text(), "@MainActor final class V3BoolSettingState:")
+        load = declaration(state, "    func load(key: String, status: V3SideStoreStatusStore) async")
         save = declaration(row, "    private func save(_ newValue: Bool)")
         self.assertLess(load.index("let capturedWrites = writeGenerations"), load.index('request(operation: "settingsGet")'))
         self.assertEqual(load.count("isUnchanged(since: capturedWrites)"), 2)
         self.assertIn("defer { finishWrite(generation) }", save)
         self.assertEqual(save.count("status.finishDirectMutation(ticket: mutationTicket, requestReload: true)"), 2)
-        self.assertEqual(save.count("guard writeGenerations.isCurrent(generation, for: key)"), 2)
+        self.assertEqual(save.count("guard state.writeGenerations.isCurrent(generation, for: key)"), 2)
         finish = declaration(row, "    private func finishWrite(_ generation: UInt64)")
         self.assertIn("writeGenerations.finish(generation, for: key)", finish)
-        self.assertIn("!writeGenerations.hasPendingWrites(for: key)", finish)
+        self.assertIn("!state.writeGenerations.hasPendingWrites(for: key)", finish)
 
     def test_production_row_methods_preserve_latest_values_and_reconcile_overlap(self):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; row-method harness runs in macOS CI")
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text()
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
+        shell = (ProductSource('v3_unified_shell.swift')).read_text()
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text()
         row = declaration(shell, "struct V3BoolSettingRow: View {")
         methods = "\n".join(declaration(row, signature) for signature in (
-            "    private func load() async", "    private func save(_ newValue: Bool)",
+            "    private func save(_ newValue: Bool)",
             "    private func finishWrite(_ generation: UInt64)",
             "    private func reloadAuthoritative(generation: UInt64) async -> Bool"))
         generations = declaration(primitives, "struct V3SettingsWriteGeneration {")
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)
-            source = BOOL_ROW_HARNESS.replace("// GENERATIONS", generations).replace("// ROW_METHODS", methods)
+            state = declaration(shell, "@MainActor final class V3BoolSettingState:")
+            source = BOOL_ROW_HARNESS.replace("// GENERATIONS", generations).replace("// ROW_METHODS", methods).replace("// STATE_OWNER", state)
             (path / "main.swift").write_text(source)
             compiled = subprocess.run([compiler, "-parse-as-library", str(path / "main.swift"), "-o", str(path / "probe")], capture_output=True, text=True, timeout=120)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)

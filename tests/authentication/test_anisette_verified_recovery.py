@@ -1,4 +1,6 @@
 """Production-extracted, in-memory-only Anisette legacy recovery transactions."""
+from tests.support.product_sources import ProductSource
+from tests.support.keychain_owner_runtime import keychain_runtime_source
 from pathlib import Path
 import hashlib
 import json
@@ -27,7 +29,7 @@ def recovery_sources(*, experimental=False):
     let visible = Array(Set([Store.processGroup, Store.keychainGroup] + Array(Store.data.keys)))''')
     doubles = doubles.replace('    if rows.isEmpty { return errSecItemNotFound }',
         '    if Store.malformedLegacyRow && query[kSecAttrAccount] != nil { rows.append([kSecAttrAccount: "identifier"]) }\n    if rows.isEmpty { return errSecItemNotFound }')
-    source = '\n'.join((doubles, (ROOT / 'scripts/templates/embedded_shared_keychain.swift').read_text(), keychain.module.KEYCHAIN_ACCESS_ADAPTER, ''))
+    source = '\n'.join((doubles, keychain_runtime_source(), ''))
     if experimental:
         flag = 'static let automaticRecoveryEnabled = false'
         assert source.count(flag) == 1
@@ -74,7 +76,7 @@ class AnisetteVerifiedRecoveryTests(unittest.TestCase):
                 self.assertIn('VERIFIED_ANISETTE_RECOVERY_PASS' if experimental else 'AUTOMATIC_ANISETTE_RECOVERY_DISABLED_PASS', result.stdout)
 
     def test_production_boundary_is_scoped_and_proof_only(self):
-        source = (ROOT / 'scripts/templates/embedded_shared_keychain.swift').read_text()
+        source = (ProductSource('embedded_shared_keychain.swift')).read_text()
         self.assertEqual(source.count('static let automaticRecoveryEnabled = false'), 1)
         candidate = declaration(source, '    static func anisetteRecoveryCandidate(')
         self.assertNotIn('.set(', candidate)

@@ -1,5 +1,6 @@
 """Refuse direct Apple certificate changes while durable local state is unknown."""
 from pathlib import Path
+from tests.support.product_sources import ProductSource
 import shutil
 import subprocess
 import tempfile
@@ -10,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def template(name):
-    return (ROOT / 'scripts/templates' / name).read_text()
+    return ProductSource(name).read_text()
 
 
 class CertificateStorageAdmissionTests(unittest.TestCase):

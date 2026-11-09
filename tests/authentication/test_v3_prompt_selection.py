@@ -1,4 +1,5 @@
 """Exercise production decoding of host-selected prompt option IDs."""
+from tests.support.product_sources import ProductSource
 from pathlib import Path
 import shutil
 import subprocess
@@ -8,7 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SWIFTC = shutil.which("swiftc")
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
+RUNTIME = ProductSource('v3_headless_runtime.swift')
 
 
 HARNESS = r'''

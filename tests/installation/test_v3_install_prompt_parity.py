@@ -1,3 +1,5 @@
+from tests.support.product_sources import ProductSource
+from tests.support.product_sources import read_product_source
 """Execute the production install customization adapter with headless prompts."""
 from pathlib import Path
 import shutil
@@ -6,7 +8,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
+RUNTIME = ProductSource('v3_headless_runtime.swift')
 
 
 def customization_adapter():
@@ -35,7 +37,7 @@ def extension_policies():
     start = source.index("enum V3PromptSelectionPolicy {")
     end = source.index("// MARK: - Authentication failure classification", start)
     policies = source[start:end]
-    source = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+    source = read_product_source('v3_behavioral_primitives.swift')
     start = source.index("enum V3ExtensionRemovalPromptPolicy {")
     end = source.index("enum V3RefreshAllPhase:", start)
     return policies + source[start:end]

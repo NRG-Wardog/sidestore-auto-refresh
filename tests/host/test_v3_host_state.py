@@ -1,3 +1,4 @@
+from tests.support.product_sources import read_product_source
 """Execute production host state helpers for cancellation and stale-result races."""
 from pathlib import Path
 import shutil
@@ -11,7 +12,7 @@ SWIFTC = shutil.which("swiftc")
 
 class V3HostStateTests(unittest.TestCase):
     def test_auth_readiness_events_are_consumed_by_long_lived_root_owner(self):
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = read_product_source('v3_unified_shell.swift')
         root = shell[shell.index("struct V3UnifiedTabs: View"):
                      shell.index("final class V3SideStoreStatusStore")]
         self.assertIn(".onReceive(NotificationCenter.default.publisher(for: V3AuthReadinessRefreshEvent.notificationName))", root)
@@ -40,7 +41,7 @@ class V3HostStateTests(unittest.TestCase):
                       "canonical LiveContainer setup routing must remain in place")
 
     def test_health_and_setup_consume_one_shared_jitless_fact(self):
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = read_product_source('v3_unified_shell.swift')
         setup_store_start = shell.index("final class V3SetupStore")
         setup_store_end = shell.index("\nstruct V3SetupAssistantView", setup_store_start)
         setup_store = shell[setup_store_start:setup_store_end]
@@ -53,7 +54,7 @@ class V3HostStateTests(unittest.TestCase):
         self.assertIn('request(operation: "healthSnapshot")', recalculate)
         self.assertIn("status.jitlessActiveCertificateAvailable", recalculate)
 
-        setup_view = shell[setup_store_end:shell.index("// V3_UNIFIED_SHELL_V1_END")]
+        setup_view = shell[setup_store_end:]
         self.assertIn(".onChange(of: status.jitlessReadiness)", setup_view)
         self.assertIn("guard readiness != nil else { return }", setup_view)
         self.assertIn("Task { await setup.recalculate(status: status) }", setup_view)
@@ -74,7 +75,7 @@ class V3HostStateTests(unittest.TestCase):
         self.assertIn("status.recordJITLessReadiness(readiness.readiness", health)
 
     def test_auth_terminal_posts_once_and_retry_refresh_does_not_duplicate_account_reload(self):
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = read_product_source('v3_unified_shell.swift')
         start = shell.index("struct V3SignInView: View")
         end = shell.index("\nstruct V3CertificateRow", start)
         sign_in = shell[start:end]
@@ -137,7 +138,7 @@ class V3HostStateTests(unittest.TestCase):
         self.assertIn('(reply["session"] as? String) != requestedSession', retry_start)
 
     def test_sign_in_disappearance_leaves_certificate_invalidation_to_root_event_owner(self):
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = read_product_source('v3_unified_shell.swift')
         start = shell.index("struct V3SignInView: View")
         end = shell.index("private var statusText", start)
         sign_in_lifecycle = shell[start:end]
@@ -150,14 +151,14 @@ class V3HostStateTests(unittest.TestCase):
         self.assertIn("status.refreshSetupFactsAfterAuthentication(sessionID: sessionID,", shell)
 
     def test_unreadable_recovery_journal_is_visible_and_blocks_new_work(self):
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = read_product_source('v3_unified_shell.swift')
         self.assertIn("unresolvedRecoveryJournalUnreadable", shell)
         self.assertIn('operation: "recoveryDiscardUnreadable"', shell)
         self.assertIn("I checked; no SideStore operation is running", shell)
         self.assertIn("guard unresolvedOperationRecovery != nil || unresolvedRefreshRecoveryRunID != nil ||", shell)
 
     def test_certificate_mutations_invalidate_cached_jitless_readiness(self):
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = read_product_source('v3_unified_shell.swift')
         start = shell.index("private func runConfirmed(action: String, serial: String) async {")
         end = shell.index("\n}\n\nstruct V3DeveloperServicesView", start)
         mutation = shell[start:end]
@@ -167,9 +168,9 @@ class V3HostStateTests(unittest.TestCase):
     def test_waiter_cancellation_and_health_reload_races_execute(self):
         if not SWIFTC:
             self.skipTest("Swift compiler unavailable; host state harness runs in macOS CI")
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        helpers = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = read_product_source('combined_failure.swift')
+        wire = read_product_source('v3_wire_contract.swift')
+        helpers = read_product_source('v3_behavioral_primitives.swift')
         harness = (ROOT / "tests/fixtures/v3_host_state_harness.swift").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
@@ -183,7 +184,7 @@ class V3HostStateTests(unittest.TestCase):
             self.assertIn("V3_HOST_STATE_PASS", result.stdout)
 
     def test_shell_uses_cancellation_safe_waiters_and_health_rerun_queue(self):
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = read_product_source('v3_unified_shell.swift')
         self.assertIn("withTaskCancellationHandler", shell)
         self.assertIn("cancelSnapshotWaiter(waiterID)", shell)
         self.assertIn("snapshotWaiterRegistry.takeAll()", shell)

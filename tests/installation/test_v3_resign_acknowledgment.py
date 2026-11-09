@@ -1,3 +1,4 @@
+from tests.support.product_sources import ProductSource
 """The auth prompt must never claim an unperformed host re-sign succeeded."""
 from pathlib import Path
 import shutil
@@ -6,7 +7,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
+RUNTIME = ProductSource('v3_headless_runtime.swift')
 
 
 def adapter():

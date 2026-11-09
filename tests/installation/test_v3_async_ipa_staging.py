@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES = ROOT / "scripts/templates"
+from tests.support.product_sources import read_product_source
 from tests.host.test_combined_service_startup import _matching_swift_brace
 
 
@@ -23,8 +23,8 @@ def declaration(source, signature):
 
 class AsyncIPAStagingTests(unittest.TestCase):
     def setUp(self):
-        self.host = (TEMPLATES / "v3_unified_shell.swift").read_text()
-        self.staging = (TEMPLATES / "v3_ipa_staging.swift").read_text()
+        self.host = read_product_source("v3_unified_shell.swift")
+        self.staging = read_product_source("v3_ipa_staging.swift")
 
     def compile_run(self, source, marker):
         compiler = shutil.which("swiftc")
@@ -102,7 +102,7 @@ class AsyncIPAStagingTests(unittest.TestCase):
         self.compile_run(fixture.replace("$LEASE_METHODS$", "\n".join(methods)), "V3_IPA_COPY_LEASE_PASS")
 
     def test_actual_host_methods_reject_late_results_and_preserve_new_attempt(self):
-        model = (TEMPLATES / "v3_behavioral_primitives.swift").read_text()
+        model = read_product_source("v3_behavioral_primitives.swift")
         declarations = [declaration(model, "struct V3InstallPresentationRequest:"),
                         declaration(model, "struct V3InstallAttemptState {")]
         methods = [declaration(self.host, signature) for signature in (

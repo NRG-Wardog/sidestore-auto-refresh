@@ -1,4 +1,5 @@
 """Cross-process regression coverage for shared Keychain handoff admission."""
+from tests.support.product_sources import ProductSource
 from pathlib import Path
 import shutil
 import subprocess
@@ -9,8 +10,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE = ROOT / "scripts/templates/v3_secret_handoff.swift"
-SHARED = ROOT / "scripts/templates/v3_shared_app_group.swift"
+TEMPLATE = ProductSource('v3_secret_handoff.swift')
+SHARED = ProductSource('v3_shared_app_group.swift')
 
 
 def extract_type(source: str, declaration: str) -> str:

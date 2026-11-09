@@ -1,26 +1,38 @@
 # Build and validation
 
-Application source lives in the component repositories. The supported entry is
-**Build and package pinned maintained graph (6.0.1 basis)**,
-[`cold-vpn-native.yml`](../.github/workflows/cold-vpn-native.yml).
-Run it manually on the reviewed branch. It records the exact builder and component
-revisions and produces an experimental same-run IPA, not an automatic release.
-See [build details](current-build/README.md).
+Run **Build and package pinned maintained graph** through
+[`native-build.yml`](../.github/workflows/native-build.yml) on the reviewed branch.
+It records exact component revisions and produces an experimental IPA with
+same-run qualification evidence. It does not publish a release automatically.
+See [build details](build/contracts/README.md).
 
-The old unsigned 6.0.0 wrappers and their automatic release-branch dispatcher have
-been retired. A release branch push no longer dispatches that obsolete graph.
+## Layout
 
-## Checks and packaging
+- `build/`: source acquisition, pinned graph, compiler and build receipts.
+- `qualification/`: native runtime, language, database, VPN and other product checks.
+- `packaging/`: IPA admission, size analysis and exact-input recompression.
+- `contracts/`: source integrity and component integration inventories.
+- `diagnostics/`: error classification and presentation coverage.
+- `artifacts/`: authenticated, bounded artifact retrieval.
+- [`../tests/ci/`](../tests/ci/): synthetic controls for these tools.
 
-- `current-build/`: supported entry and mandatory receipt controls.
-- `source-integrity/`: reviewed current source and workflow hashes.
-- `issues-native/`: component identity, native tests and same-run packaging.
-- `packaging/`: packaging compatibility contract.
-- `issue52-integration/`: component integration inventory and regression checks.
-- `diagnostics/`: structured error and presentation coverage.
+## Product regression gate
 
-Candidate-specific directories still support exact-input qualification and
-packaging. Do not substitute the newest artifact into an old manifest. Zopfli
-recompression is separate from native packaging and requires matching evidence.
-Passing fixtures is not device qualification. Keep credentials, pairing records,
-private keys and personal logs out of this repository.
+The repository contract workflow acquires the exact component graph before
+running every module in `contracts/product-tests.json` on macOS through the
+required-test runner. No skips are allowed. It retains test timings and failure
+logs. This source and native-fixture gate does not replace the full IPA build.
+
+## Focused checks
+
+`focused-diagnostics.yml` runs language, multitasking, VPN, database startup and
+refresh-truth checks independently. Select one suite or `all`. Pull requests
+changing this dispatcher or its scoped reader run all five jobs. Each retains
+failure evidence; none packages an app or replaces full native qualification.
+
+`package-optimization.yml` is a separate exact-input Zopfli experiment. Its sealed
+manifests and reviewed source snapshots are evidence, not current build inputs.
+Never substitute a newer artifact or rewrite historical hashes to make it pass.
+
+Passing synthetic fixtures is not device qualification. Keep credentials,
+pairing records, private keys and personal logs out of the repository.

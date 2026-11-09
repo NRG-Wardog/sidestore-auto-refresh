@@ -1,0 +1,592 @@
+name: Focused runtime diagnostics
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/focused-diagnostics.yml"
+      - "ci/workflow_jobs.py"
+      - "tests/ci/build/test_workflow_jobs.py"
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Exact diagnostic suite to run (no app packaging)
+        required: true
+        default: language
+        type: choice
+        options: [language, multitask, cold_vpn, startup_upgrade, refresh_truth, all]
+permissions:
+  contents: read
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+  RUSTUP_TOOLCHAIN: '1.98.1'
+  GIT_TERMINAL_PROMPT: '0'
+  GIT_CONFIG_NOSYSTEM: '1'
+  GIT_CONFIG_GLOBAL: /dev/null
+  GIT_ALLOW_PROTOCOL: https
+  GIT_NO_REPLACE_OBJECTS: 1
+  PYTHONDONTWRITEBYTECODE: '1'
+defaults:
+  run:
+    shell: bash
+jobs:
+  language:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'language' || inputs.suite == 'all')))
+    runs-on: macos-26
+    timeout-minutes: 20
+    concurrency:
+      group: focused-diagnostics-${{ github.ref }}-language
+      cancel-in-progress: false
+    steps:
+      - name: Initialize bounded evidence
+        id: initialized
+        run: mkdir -p evidence sources
+      - name: Checkout exact harness only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/sidestore-auto-refresh
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Require source-owned fixture controls
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s harness/tests/ci/language -p 'test_*.py' -v 2>&1 | tee evidence/controls.log
+      - name: Acquire and verify same immutable candidate source graph
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/build/record.py acquire 2>&1 | tee evidence/acquisition.log
+          python3 -B harness/ci/build/verify_candidate_graph.py 2>&1 | tee evidence/source-graph.log
+          { xcodebuild -version; swift --version; xcrun --sdk iphonesimulator --show-sdk-version; } > evidence/toolchain.log
+          xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Counterfactual observations and mandatory same-session simulator qualification
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/qualification/language/run_language_switch_tests.py --sources sources --output evidence \
+            2>&1 | tee evidence/language-switch-driver.log
+      - name: Preserve observations and runtime failure evidence only
+        if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: language-ui-runtime-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/*.log
+            evidence/*.json
+            evidence/language-switch/*.log
+            evidence/language-switch/*.json
+          if-no-files-found: error
+          retention-days: 14
+  multitask:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'multitask' || inputs.suite == 'all')))
+    runs-on: macos-26
+    timeout-minutes: 22
+    concurrency:
+      group: focused-diagnostics-${{ github.ref }}-multitask
+      cancel-in-progress: false
+    steps:
+      - name: Initialize bounded synthetic evidence
+        id: initialized
+        run: mkdir -p evidence sources
+      - name: Checkout exact harness only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/sidestore-auto-refresh
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Source-owned portable controls
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s harness/tests/ci/multitask -p 'test_*.py' -v 2>&1 | tee evidence/controls.log
+      - name: Acquire exact LC owner without submodules or hooks
+        id: source_gate
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/qualification/multitask/acquire.py --output sources/LiveContainer --evidence evidence/source.json
+          { xcodebuild -version; xcrun --sdk iphonesimulator --show-sdk-version; } > evidence/toolchain.log
+          xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Actual Objective-C launch completion boundary
+        id: completion
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/qualification/multitask/run_completion.py --source sources/LiveContainer --output evidence 2>&1 | tee evidence/completion.log
+      - name: Actual bounded diagnostic recorder and offline copy policy
+        id: diagnostics
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/qualification/multitask/run_diagnostics.py --source sources/LiveContainer --output evidence 2>&1 | tee evidence/diagnostics.log
+      - name: Qualify actual UIKit attachment and host ownership without guest execution
+        id: attachment
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/qualification/multitask/run_attachment.py --source sources/LiveContainer --output evidence 2>&1 | tee evidence/attachment.log
+      - name: Require every focused stage
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          test '${{ steps.completion.outcome }}' = success
+          test '${{ steps.attachment.outcome }}' = success
+          test '${{ steps.diagnostics.outcome }}' = success
+          python3 -B harness/ci/qualification/multitask/verify.py --source sources/LiveContainer --evidence evidence
+      - name: Preserve synthetic diagnostics on success or failure
+        if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: multitask-launch-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            evidence/**/*.json
+            evidence/**/*.log
+            evidence/multitask-attachment/*.png
+  cold_vpn:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'cold_vpn' || inputs.suite == 'all')))
+    runs-on: macos-26
+    timeout-minutes: 27
+    concurrency:
+      group: focused-diagnostics-${{ github.ref }}-cold_vpn
+      cancel-in-progress: false
+    steps:
+      - name: Initialize bounded evidence
+        id: initialized
+        run: mkdir -p evidence sources
+      - name: Checkout exact harness only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/sidestore-auto-refresh
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Require source-owned fixture controls
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s harness/tests/ci/vpn -p 'test_*.py' -v 2>&1 | tee evidence/controls.log
+      - name: Acquire and verify same immutable candidate source graph
+        id: source_gate
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/build/record.py acquire 2>&1 | tee evidence/acquisition.log
+          python3 -B harness/ci/build/verify_candidate_graph.py 2>&1 | tee evidence/source-graph.log
+          python3 -B harness/tests/ci/native/test_upstream_candidate_projection.py
+          python3 -B harness/tests/ci/native/test_cold_vpn_cache_projection.py
+          python3 -B harness/tests/ci/native/test_current_vpn_guard_projection.py
+          python3 -B harness/tests/ci/native/test_grace_recovery_projection.py
+          python3 -B harness/tests/ci/native/test_local_wifi_fixture_projection.py
+          python3 -B harness/tests/ci/native/test_early_readiness_projection.py
+          python3 -B harness/tests/ci/native/test_early_progress_fixture_projection.py
+          python3 -B harness/tests/ci/native/test_initial_provider_rejection_projection.py
+          python3 -B harness/ci/qualification/native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
+          python3 -B harness/tests/ci/native/test_preservation_localization_projection.py
+          python3 -B harness/tests/ci/native/test_observed_constraints_localization_projection.py
+          python3 -B harness/tests/ci/native/test_profile_transaction_cache_projection.py
+          python3 -B harness/tests/ci/native/test_progress_owner_cache_projection.py
+          python3 -B harness/tests/ci/native/test_preservation_native_qualification.py
+          python3 -B sources/LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py
+          python3 -B harness/ci/build/project_candidate_contracts.py
+          python3 -B harness/ci/diagnostics/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
+          { xcodebuild -version; swift --version; xcrun --sdk iphonesimulator --show-sdk-version; } > evidence/toolchain.log
+          xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Mandatory cold VPN source execution and iOS deployment-target typecheck
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/qualification/vpn/run_cold_vpn_tests.py --sources sources --output evidence \
+            2>&1 | tee evidence/cold-vpn-driver.log
+      - name: Compile and execute complete setup recovery suite against delivered baseline
+        id: setup_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 -B harness/tests/ci/native/test_setup_state_recovery_contract.py
+          python3 -B harness/ci/diagnostics/verify_setup_state_recovery.py run \
+            --sources sources --swiftc "$(command -v swiftc)" --output evidence/setup-state-recovery --contract evidence/candidate-contracts/setup-state-recovery-contract.json \
+            2>&1 | tee evidence/setup-state-recovery.log
+          printf '0\n' > evidence/setup-state-recovery.exit-code.txt
+      - name: Preserve complete owned setup failure evidence, not app products
+        if: ${{ !cancelled() && steps.setup_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: focused-setup-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/setup-state-recovery.log
+            evidence/setup-state-recovery/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Execute same-session language simulator and iOS deployment-target checks
+        id: language_switch_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s harness/tests/ci/language -p 'test_*.py' -v
+          python3 -B harness/ci/qualification/language/run_language_switch_tests.py --sources sources --output evidence \
+            2>&1 | tee evidence/language-switch-driver.log
+      - name: Preserve observations and runtime failure evidence only
+        if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cold-vpn-preflight-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/*.log
+            evidence/*.json
+            evidence/cold-vpn/*.log
+            evidence/cold-vpn/*.json
+            evidence/candidate-contracts/*.json
+            evidence/setup-state-recovery/
+            evidence/language-switch/*.log
+            evidence/language-switch/*.json
+          if-no-files-found: error
+          retention-days: 14
+  startup_upgrade:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'startup_upgrade' || inputs.suite == 'all')))
+    runs-on: macos-26
+    timeout-minutes: 25
+    concurrency:
+      group: focused-diagnostics-${{ github.ref }}-startup_upgrade
+      cancel-in-progress: false
+    steps:
+      - name: Initialize synthetic evidence outside source checkouts
+        id: initialized
+        run: mkdir -p evidence sources
+      - name: Checkout exact qualification harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/sidestore-auto-refresh
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Acquire only exact LC and SideStore source owners
+        id: source_gate
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(pwd -P)" != "$(cd harness && pwd -P)"
+          python3 -B harness/ci/qualification/database/acquire.py acquire --sources sources --evidence evidence/acquisition.json 2>&1 | tee evidence/acquisition.log
+          { xcodebuild -version; xcrun swiftc --version; } > evidence/toolchain.log
+          xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Require portable acquisition and fixture controls against acquired sources
+        id: controls
+        run: |
+          set -euo pipefail
+          SIDESTORE_SOURCE="$PWD/sources/SideStore" python3 -B -m unittest discover -s harness/tests/ci/database -p 'test_*.py' -v 2>&1 | tee evidence/controls.log
+      - name: Execute source-owned startup diagnosis suites
+        id: startup
+        if: ${{ !cancelled() && steps.controls.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/qualification/startup/run.py --sources sources --output evidence 2>&1 | tee evidence/startup-driver.log
+      - name: Execute real Core Data models and framework discovery independently
+        id: schema
+        if: ${{ !cancelled() && steps.controls.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          test "$(pwd -P)" != "$(cd harness && pwd -P)"
+          python3 -B harness/ci/qualification/database/run.py --source "$PWD/sources/SideStore" --output "$RUNNER_TEMP/startup-upgrade-schema" --acquisition "$PWD/evidence/acquisition.json" 2>&1 | tee evidence/schema-driver.log
+      - name: Verify acquired source owners and harness stayed unchanged
+        id: immutable
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/qualification/database/acquire.py verify --sources sources --evidence evidence/acquisition.json --output evidence/source-immutability.json 2>&1 | tee evidence/source-immutability.log
+      - name: Require all independent focused stages
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          test '${{ steps.controls.outcome }}' = success
+          test '${{ steps.startup.outcome }}' = success
+          test '${{ steps.schema.outcome }}' = success
+          test '${{ steps.immutable.outcome }}' = success
+      - name: Preserve bounded synthetic diagnostics without app products
+        if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: startup-upgrade-preflight-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/*.json
+            evidence/*.log
+            ${{ runner.temp }}/startup-upgrade-schema/*.json
+            ${{ runner.temp }}/startup-upgrade-schema/*.log
+          if-no-files-found: error
+          retention-days: 14
+  refresh_truth:
+    if: github.repository == 'NRG-Wardog/sidestore-auto-refresh' && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'refresh_truth' || inputs.suite == 'all')))
+    runs-on: macos-26
+    timeout-minutes: 30
+    concurrency:
+      group: focused-diagnostics-${{ github.ref }}-refresh_truth
+      cancel-in-progress: false
+    steps:
+      - name: Initialize evidence outside source owners
+        id: initialized
+        run: mkdir -p evidence
+      - name: Checkout exact harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: NRG-Wardog/sidestore-auto-refresh
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+          set-safe-directory: false
+          submodules: false
+          lfs: false
+      - name: Acquire and verify exact reviewed source graph
+        id: source_gate
+        run: |
+          set -euo pipefail
+          test "$(git -C harness rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B harness/ci/build/record.py acquire 2>&1 | tee evidence/acquisition.log
+          python3 -B harness/ci/build/record.py snapshot acquired
+          python3 -B harness/ci/build/verify_candidate_graph.py
+          python3 -B harness/tests/ci/native/test_profile_static_closure_projection.py
+          python3 -B harness/tests/ci/native/test_early_progress_fixture_projection.py
+          python3 -B harness/tests/ci/native/test_initial_provider_rejection_projection.py
+          python3 -B harness/tests/ci/native/test_preservation_upstream_tests_projection.py
+          python3 -B harness/tests/ci/native/test_database_recovery_upstream_projection.py
+          python3 -B harness/tests/ci/native/test_database_recovery_receipt.py
+          python3 -B harness/tests/ci/startup/test_runner.py
+          python3 -B sources/SideStore/tests/startup_outcome/test_contract.py --source-only 2>&1 | tee evidence/startup-source-controls.log
+          python3 -B harness/tests/ci/native/test_current_bindings.py
+          python3 -B harness/tests/ci/native/test_anisette_dependency_pins.py
+          python3 -B harness/tests/ci/native/test_preservation_cms_receipt.py
+          python3 -B harness/tests/ci/native/test_owned_oda_contract.py
+          python3 -B harness/tests/ci/native/test_workflow_failure_collection.py
+          python3 -B harness/tests/ci/native/test_refresh_observation_setup_projection.py
+          python3 -B harness/tests/ci/native/test_refresh_observation_vpn_projection.py
+          python3 -B harness/tests/ci/native/test_transport_observation_cache_projection.py
+          python3 -B harness/tests/ci/native/test_legacy_replacement_cache_projection.py
+          python3 -B harness/tests/ci/native/test_legacy_replacement_host_projection.py
+          python3 -B harness/tests/ci/native/test_preservation_successor_projection.py
+          python3 -B harness/tests/ci/native/test_refresh_truth_setup_projection.py
+          python3 -B harness/tests/ci/native/test_refresh_truth_host_bundle_projection.py
+          python3 -B harness/tests/ci/native/test_refresh_truth_flow_projection.py
+          python3 -B sources/LiveContainer/.ci/vpn-refresh-recovery/test_classifier_dependency.py
+          python3 -B harness/tests/ci/native/test_cold_vpn_cache_projection.py
+          python3 -B harness/ci/build/verify_current_bindings.py --sources sources --output evidence/current-source-bindings.json
+          python3 -B harness/tests/ci/native/test_upstream_candidate_projection.py
+          python3 -B harness/ci/qualification/native/upstream_candidate_projection.py --sources sources --output evidence/upstream-runtime-projection-preflight.json
+          python3 -B harness/tests/ci/native/test_preservation_localization_projection.py
+          python3 -B harness/tests/ci/native/test_observed_constraints_localization_projection.py
+          python3 -B harness/tests/ci/native/test_profile_transaction_cache_projection.py
+          python3 -B harness/tests/ci/native/test_progress_owner_cache_projection.py
+          python3 -B harness/tests/ci/native/test_preservation_native_qualification.py
+          python3 -B harness/tests/ci/native/test_issue_receipt.py
+          python3 -B sources/LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py
+          python3 -B harness/ci/build/project_candidate_contracts.py
+          python3 -B harness/ci/diagnostics/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
+          python3 -B harness/tests/ci/native/test_refresh_truth_receipt.py
+          python3 -B harness/tests/ci/native/test_refresh_truth_generated_lifecycle.py
+          python3 -B harness/tests/ci/native/test_refresh_truth_orchestration.py
+          python3 -B harness/tests/ci/native/test_russian_localization.py
+          python3 -B -m unittest discover -s harness/tests/ci/vpn -p 'test_*.py' -v
+          xcodebuild -version | grep -Fx 'Xcode 26.4.1'
+      - name: Execute actual Swift policy and owned-memory fixtures
+        id: swift_tests
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/qualification/refresh/run.py swift --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-swift-driver.log
+      - name: Retain immediate Swift failure diagnostics before independent Rust tests
+        id: swift_failure_diagnostics
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.swift_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-swift-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/refresh-truth*.json
+            evidence/refresh-truth*.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Execute existing cold VPN source-owned regression and deployment typecheck
+        id: cold_vpn_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/build/record.py snapshot before-cold-fixtures
+          cmp evidence/acquired.json evidence/before-cold-fixtures.json
+          python3 -B harness/ci/qualification/vpn/run_cold_vpn_tests.py --sources sources --output evidence 2>&1 | tee evidence/cold-vpn-driver.log
+      - name: Retain immediate cold VPN failure diagnostics
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.cold_vpn_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-cold-vpn-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/cold-vpn-driver.log
+            evidence/cold-vpn/*.log
+            evidence/cold-vpn/*.json
+            evidence/cold-vpn-tests.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Execute existing comprehensive auth and IPC fixtures
+        id: comprehensive_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/build/record.py snapshot before-comprehensive_tests
+          cmp evidence/acquired.json evidence/before-comprehensive_tests.json
+          python3 -B harness/ci/diagnostics/verify_comprehensive_diagnostics.py --sources sources --swiftc "$(command -v swiftc)" --output evidence/comprehensive-diagnostics --contract evidence/candidate-contracts/comprehensive-diagnostics-contract.json 2>&1 | tee evidence/comprehensive_tests-driver.log
+      - name: Retain immediate comprehensive_tests failure evidence
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.comprehensive_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-comprehensive_tests-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/comprehensive_tests-driver.log
+            evidence/comprehensive-diagnostics/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Execute existing full setup recovery fixtures
+        id: setup_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/build/record.py snapshot before-setup_tests
+          cmp evidence/acquired.json evidence/before-setup_tests.json
+          python3 -B harness/ci/diagnostics/verify_setup_state_recovery.py run --sources sources --swiftc "$(command -v swiftc)" --output evidence/setup-state-recovery --contract evidence/candidate-contracts/setup-state-recovery-contract.json 2>&1 | tee evidence/setup_tests-driver.log
+      - name: Retain immediate setup_tests failure evidence
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.setup_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-setup_tests-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/setup_tests-driver.log
+            evidence/setup-state-recovery/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Execute compiled Russian resources and production renderer
+        id: russian_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/build/record.py snapshot before-russian_tests
+          cmp evidence/acquired.json evidence/before-russian_tests.json
+          python3 -B harness/ci/diagnostics/verify_russian_localization.py --live sources/LiveContainer --output evidence/russian-localization 2>&1 | tee evidence/russian_tests-driver.log
+      - name: Retain immediate russian_tests failure evidence
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.russian_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-russian_tests-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/russian_tests-driver.log
+            evidence/russian-localization/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Run issue regression suite without skips
+        id: issue_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/build/record.py snapshot before-issue_tests
+          cmp evidence/acquired.json evidence/before-issue_tests.json
+          python3 -B harness/ci/qualification/native/run_issue_tests.py 2>&1 | tee evidence/issue-tests.log
+      - name: Check all SideStore source-owned upstream regressions without skips
+        id: upstream_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/build/record.py snapshot before-upstream_tests
+          cmp evidence/acquired.json evidence/before-upstream_tests.json
+          python3 -B harness/tests/ci/native/test_preservation_upstream_tests_projection.py
+          python3 -B harness/tests/ci/native/test_database_recovery_upstream_projection.py
+          python3 -B harness/ci/build/verify_upstream_sync.py sidestore-tests \
+            --output evidence/SideStore-upstream-sync-tests.json 2>&1 | tee evidence/SideStore-upstream-sync-tests.log
+          python3 -B harness/ci/qualification/native/database_recovery_upstream_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json
+          # Run the committed AK logging policy/fake-output suite once, never vendor/guest fixtures.
+          python3 -B sources/AnisetteKit/.ci/native-logging/test_native_logging_contract.py \
+            2>&1 | tee evidence/AnisetteKit-native-logging-contract.log
+          printf '0\n' > evidence/AnisetteKit-native-logging-contract.exit-code.txt
+      - name: Check minimuxer extracted-production Swift with fake dependencies only
+        id: minimuxer_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/build/record.py snapshot before-minimuxer_tests
+          cmp evidence/acquired.json evidence/before-minimuxer_tests.json
+          python3 -B harness/ci/build/verify_upstream_sync.py minimuxer-tests \
+            --swiftc "$(command -v swiftc)" --output evidence/minimuxer-upstream-sync-tests.json
+      - name: Check VPN transport recovery source and runtime matrix without skips
+        id: vpn_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/build/record.py snapshot before-vpn_tests
+          cmp evidence/acquired.json evidence/before-vpn_tests.json
+          VPN_TRANSPORT_SOURCE_ROOT="$GITHUB_WORKSPACE/sources" \
+          REQUIRE_SWIFT_VPN_TRANSPORT_TESTS=1 \
+          VPN_TRANSPORT_EVIDENCE_OUTPUT="$GITHUB_WORKSPACE/evidence/vpn-transport-recovery" \
+          python3 -B sources/SideStore/tests/vpn_transport_recovery/test_contract.py \
+            2>&1 | tee evidence/vpn-transport-recovery.log
+          printf '0\n' > evidence/vpn-transport-recovery.exit-code.txt
+      - name: Retain immediate pipeline dependency failure evidence
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && (steps.issue_tests.outcome == 'failure' || steps.upstream_tests.outcome == 'failure' || steps.minimuxer_tests.outcome == 'failure' || steps.vpn_tests.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-pipeline-dependencies-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/*.json
+            evidence/*.log
+            evidence/vpn-transport-recovery/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Select exact previously qualified Rust compiler
+        id: rust_tools
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          test "$(cargo +1.98.1 --version)" = 'cargo 1.98.1 (797e8a9bc 2026-08-05)'
+      - name: Execute actual Rust response parser and owned-deadline FFI fixtures
+        id: rust_tests
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' && steps.rust_tools.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -B harness/ci/qualification/refresh/run.py rust --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-rust-driver.log
+      - name: Require every native fixture and unchanged tested source
+        id: sealed
+        if: ${{ !cancelled() && steps.source_gate.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          test '${{ steps.swift_tests.outcome }}' = success
+          test '${{ steps.rust_tests.outcome }}' = success
+          test '${{ steps.cold_vpn_tests.outcome }}' = success
+          test '${{ steps.comprehensive_tests.outcome }}' = success
+          test '${{ steps.setup_tests.outcome }}' = success
+          test '${{ steps.russian_tests.outcome }}' = success
+          test '${{ steps.issue_tests.outcome }}' = success
+          test '${{ steps.upstream_tests.outcome }}' = success
+          test '${{ steps.minimuxer_tests.outcome }}' = success
+          test '${{ steps.vpn_tests.outcome }}' = success
+          python3 -B harness/ci/qualification/refresh/run.py seal --sources sources --output evidence
+          python3 -B harness/ci/build/record.py snapshot after-fixtures
+          cmp evidence/acquired.json evidence/after-fixtures.json
+      - name: Retain bounded synthetic diagnostics and qualification receipt
+        if: ${{ !cancelled() && steps.initialized.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: refresh-truth-preflight-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/*.json
+            evidence/*.log
+            evidence/comprehensive-diagnostics/
+            evidence/setup-state-recovery/
+            evidence/russian-localization/
+            evidence/cold-vpn/*.log
+            evidence/cold-vpn/*.json
+            evidence/vpn-transport-recovery/
+          if-no-files-found: error
+          retention-days: 14

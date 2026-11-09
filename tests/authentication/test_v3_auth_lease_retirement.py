@@ -1,3 +1,4 @@
+from tests.support.product_sources import ProductSource
 import shutil
 import re
 import subprocess
@@ -12,9 +13,9 @@ ROOT = Path(__file__).resolve().parents[2]
 class AuthLeaseRetirementTests(unittest.TestCase):
     def test_auth_unavailable_policy_stays_in_host_bridge_layer(self):
         policy_name = "V3AuthSessionUnavailableReplyPolicy"
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8")
+        wire = (ProductSource('v3_wire_contract.swift')).read_text(encoding="utf-8")
+        bridge = (ProductSource('v3_service_bridge.swift')).read_text(encoding="utf-8")
         self.assertNotIn(policy_name, primitives)
         self.assertNotIn("V3WireContract", re.sub(r"//[^\n]*", "", primitives))
         self.assertNotIn("CombinedFailure", wire)
@@ -23,16 +24,9 @@ class AuthLeaseRetirementTests(unittest.TestCase):
         self.assertIn("CombinedFailure.decode(rawFailure, expectedID: requestID)", bridge)
         self.assertIn("V3WireContract.strictInt(envelope[\"version\"]) == 1", bridge)
 
-        # The pinned generator appends the bridge only after its two shared
-        # dependencies, matching the executable fixture assembly below.
-        generator = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
-        start = generator.rindex("def host(s):")
-        generated_host = generator[start:generator.index("edit(live,", start)]
-        wire_at = generated_host.index('"v3_wire_contract.swift"')
-        primitives_at = generated_host.index('"v3_behavioral_primitives.swift"')
-        bridge_at = generated_host.index('"v3_service_bridge.swift"')
-        self.assertLess(wire_at, primitives_at)
-        self.assertLess(primitives_at, bridge_at)
+        # Swift declarations resolve across their owner module. Source order was
+        # a generator implementation detail; actual dependency closure is compiled
+        # by test_shipped_bridge_reconciles_retired_auth_status_owner below.
 
     def test_shipped_bridge_reconciles_retired_auth_status_owner(self):
         compiler = shutil.which("swiftc")
@@ -43,11 +37,11 @@ class AuthLeaseRetirementTests(unittest.TestCase):
             program = directory / "main.swift"
             program.write_text(
                 (ROOT / "tests/fixtures/v3_auth_lease_retirement_harness.swift").read_text()
-                + (ROOT / "scripts/templates/combined_failure.swift").read_text()
-                + (ROOT / "scripts/templates/v3_wire_contract.swift").read_text()
-                + (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
-                + (ROOT / "scripts/templates/combined_service_connection.swift").read_text()
-                + (ROOT / "scripts/templates/v3_service_bridge.swift").read_text()
+                + (ProductSource('combined_failure.swift')).read_text()
+                + (ProductSource('v3_wire_contract.swift')).read_text()
+                + (ProductSource('v3_behavioral_primitives.swift')).read_text()
+                + (ProductSource('combined_service_connection.swift')).read_text()
+                + (ProductSource('v3_service_bridge.swift')).read_text()
             )
             executable = directory / "auth-lease-retirement-tests"
             compiled = subprocess.run(

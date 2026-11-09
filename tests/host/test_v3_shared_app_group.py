@@ -4,8 +4,7 @@ The combined build has three processes that must agree on one App Group: the
 LiveContainer app, the SideStoreSupport framework inside it, and the embedded
 SideStore service running in LiveProcess. Each process compiles its own copy of
 the resolver, so the rules exist twice: as plain C in
-``scripts/templates/LCAppGroupIdentityRules.h`` and as Swift in
-``scripts/templates/v3_shared_app_group.swift``.
+the current owner’s LCAppGroupIdentityRules.h and V3SharedAppGroup.swift.
 
 The C half is executed here for real. The Swift half cannot be executed without
 a Swift toolchain, so it is pinned to the C half by rule identifier and by the
@@ -25,19 +24,21 @@ import sys
 sys.path.insert(0, str(ROOT / "tests"))
 from guest_owner_parts import implementations, block
 from owner_source import owner_source
-TEMPLATES = ROOT / "scripts" / "templates"
-RULES = TEMPLATES / "LCAppGroupIdentityRules.h"
-SELECTION = TEMPLATES / "LCAppGroupSelectionPolicy.h"
-SHARED = TEMPLATES / "v3_shared_app_group.swift"
-STAGING = TEMPLATES / "v3_ipa_staging.swift"
-HANDOFF = TEMPLATES / "v3_secret_handoff.swift"
-KEYCHAIN = TEMPLATES / "embedded_shared_keychain.swift"
-HANDLER = TEMPLATES / "combined_refresh_handler.swift"
-SERVICE = TEMPLATES / "v3_sidestore_service.swift"
-SCHEDULER = TEMPLATES / "livecontainer_refresh_scheduler.swift"
-SETTINGS = TEMPLATES / "livecontainer_refresh_settings.swift"
-HANDLER = TEMPLATES / "combined_refresh_handler.swift"
-SHELL = TEMPLATES / "v3_unified_shell.swift"
+from tests.support.product_sources import ProductSource, read_product_source, SOURCES
+from tests.test_refresh_result_bridge import declaration
+from tests.test_v3_service import OwnerFile
+RULES = ProductSource("LCAppGroupIdentityRules.h")
+SELECTION = ProductSource("LCAppGroupSelectionPolicy.h")
+SHARED = ProductSource("v3_shared_app_group.swift")
+STAGING = ProductSource("v3_ipa_staging.swift")
+HANDOFF = ProductSource("v3_secret_handoff.swift")
+KEYCHAIN = ProductSource("embedded_shared_keychain.swift")
+HANDLER = ProductSource("combined_refresh_handler.swift")
+SERVICE = ProductSource("v3_sidestore_service.swift")
+SCHEDULER = ProductSource("livecontainer_refresh_scheduler.swift")
+SETTINGS = ProductSource("livecontainer_refresh_settings.swift")
+HANDLER = ProductSource("combined_refresh_handler.swift")
+SHELL = ProductSource("v3_unified_shell.swift")
 C_HARNESS = ROOT / "tests" / "fixtures" / "v3_app_group_identity_rules_harness.c"
 
 RULE_IDENTIFIERS = (
@@ -166,7 +167,7 @@ class DedicatedEmbeddedSideStoreLaunchTests(unittest.TestCase):
                              "the payload builder must not resolve a group by itself")
 
     def test_the_guest_and_dedicated_launches_use_the_same_key(self):
-        service = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
+        service = owner_source("LiveProcess/main.m") + owner_source("MultitaskSupport/AppSceneViewController.m")
         self.assertIn('@"lcAppGroupID"', service,
                       "LiveProcess still reads the key the host sends")
         self.assertIn('forKey:@"lcAppGroupID"', service,
@@ -317,7 +318,7 @@ class AppGroupRuleParityTests(unittest.TestCase):
         self.assertIn('raise ValueError("host-selectable App Groups differ from LiveProcess service entitlements")',
                       verifier)
         # The host publishes before any shared state is read.
-        autorefresh = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
+        autorefresh = owner_source("LiveContainerSwiftUI/App/AppDelegate.swift")
         self.assertLess(autorefresh.index("V3SharedAppGroup.publishRuntimeGroup("),
                         autorefresh.index("LiveContainerAutoRefreshScheduler.register()"))
 
@@ -341,7 +342,7 @@ class CrossProcessParityTests(unittest.TestCase):
         allowed = {"v3_shared_app_group.swift", "package_livecontainer_combined.py",
                    "verify_candidate_ipa.py", "livecontainer_refresh_policy.swift"}
         offenders = []
-        for path in sorted(TEMPLATES.glob("*.swift")):
+        for path in [ProductSource(name) for name in SOURCES if name.endswith(".swift")]:
             if path.name in allowed:
                 continue
             text = path.read_text(encoding="utf-8")
@@ -388,14 +389,11 @@ class SharedRefreshStoreTests(unittest.TestCase):
                              f"{path.name} still opens a fixed App Group suite")
             self.assertNotIn("?? .standard", text,
                              f"{path.name} still falls back to UserDefaults.standard for shared state")
-        for path in (ROOT / "scripts/patch_background_automation.py",
-                     ROOT / "scripts/patch_refresh_result_bridge.py",
-                     ROOT / "scripts/patch_combined_service_startup.py"):
-            text = path.read_text(encoding="utf-8")
-            self.assertNotIn('UserDefaults(suiteName: "group.com.SideStore.SideStore")', text,
-                             f"{path.name} still opens a fixed App Group suite")
-            self.assertNotIn('initWithSuiteName:@"group.com.SideStore.SideStore"', text,
-                             f"{path.name} still opens a fixed App Group suite")
+        for path in (OwnerFile("SideStore") / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
+                     OwnerFile("LiveContainer") / "SideStoreSupport/XPCClient.m"):
+            text = path.read_text()
+            self.assertNotIn('UserDefaults(suiteName: "group.com.SideStore.SideStore")', text)
+            self.assertNotIn('initWithSuiteName:@"group.com.SideStore.SideStore"', text)
 
     def test_scheduler_refuses_cross_process_work_without_a_shared_store(self):
         scheduler = SCHEDULER.read_text(encoding="utf-8")
@@ -439,7 +437,7 @@ class SharedRefreshStoreTests(unittest.TestCase):
             self.assertIn(use, claimed)
 
     def test_service_verification_store_is_resolved_once_and_fails_the_run(self):
-        script = (ROOT / "scripts/patch_background_automation.py").read_text(encoding="utf-8")
+        script = owner_source("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift", "SideStore")
         self.assertIn("private func automaticRefreshDefaults() throws -> UserDefaults {", script)
         self.assertIn("try V3SharedAppGroup.requireSharedUserDefaults()", script)
         self.assertIn('debugLog("[AUTO_REFRESH] HOST_HANDOFF_UNAVAILABLE reason=shared_store_unavailable")', script)
@@ -452,29 +450,22 @@ class SharedRefreshStoreTests(unittest.TestCase):
         self.assertNotIn('let refreshDefaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")', script)
 
     def test_refresh_result_bridge_correlates_through_the_runtime_group(self):
-        script = (ROOT / "scripts/patch_refresh_result_bridge.py").read_text(encoding="utf-8")
-        self.assertIn("RUNTIME_APP_GROUP_ENV_KEY = runtime_app_group_environment_key()", script)
-        # The Objective-C side must prove the container is openable before
-        # opening the suite: +initWithSuiteName: accepts any name and writes the
-        # process's own domain when the suite is not an entitled group, which
-        # would stamp the run contract where the service cannot read it.
-        self.assertIn("containerURLForSecurityApplicationGroupIdentifier:runtimeAppGroupID] != nil", script)
-        self.assertIn("[[NSUserDefaults alloc] initWithSuiteName:runtimeAppGroupID] : nil;", script)
-        self.assertIn("RESULT_STORE_UNAVAILABLE reason=runtime_app_group_unresolved", script)
+        script = owner_source("SideStoreSupport/SideStore.swift")
         self.assertIn("V3SharedAppGroup.sharedUserDefaults()", script)
-        # The run ID, the manifest and the handoff record stay one contract.
-        for key in ("liveContainerAutoRefreshExpectedRunID",
-                    "liveContainerAutoRefreshVerification",
+        for key in ("liveContainerAutoRefreshExpectedRunID", "liveContainerAutoRefreshVerification",
                     "liveContainerAutoRefreshHostHandoffRunID"):
             self.assertIn(key, script)
+        client = owner_source("SideStoreSupport/XPCClient.m")
+        self.assertNotIn("initWithSuiteName", client)
+        self.assertIn("admissionID:dispatchAdmissionID", client)
 
     def test_host_publishes_its_own_selection_before_shared_state_is_touched(self):
-        script = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
+        script = owner_source("LiveContainerSwiftUI/App/AppDelegate.swift")
         self.assertIn("V3SharedAppGroup.publishRuntimeGroup(LCSharedUtils.appGroupID())", script)
         self.assertLess(script.index("V3SharedAppGroup.publishRuntimeGroup("),
                         script.index("LiveContainerAutoRefreshScheduler.register()"),
                         "the runtime group must be published before the scheduler reads shared state")
-        self.assertIn("SHARED_APP_GROUP_FILE", script)
+        self.assertIn("enum V3SharedAppGroup", owner_source("LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift"))
 
 
 class AppGroupSweepClassificationTests(unittest.TestCase):
@@ -485,12 +476,12 @@ class AppGroupSweepClassificationTests(unittest.TestCase):
     here, so the classification cannot silently go stale.
     """
 
-    HOST = ROOT / "scripts/templates/v3_unified_shell.swift"
-    SETTINGS = ROOT / "scripts/templates/livecontainer_refresh_settings.swift"
-    HANDLER = ROOT / "scripts/templates/combined_refresh_handler.swift"
-    RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
-    SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
-    AUTOMATION = ROOT / "scripts/patch_background_automation.py"
+    HOST = ProductSource("v3_unified_shell.swift")
+    SETTINGS = ProductSource("livecontainer_refresh_settings.swift")
+    HANDLER = ProductSource("combined_refresh_handler.swift")
+    RUNTIME = ProductSource("v3_headless_runtime.swift")
+    SERVICE = ProductSource("v3_sidestore_service.swift")
+    AUTOMATION = OwnerFile("SideStore") / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
 
     SAFE_PROCESS_LOCAL = [
         (HOST, ["V3NotificationsPromptShown"]),
@@ -542,7 +533,7 @@ class AppGroupSweepClassificationTests(unittest.TestCase):
 
     def test_app_storage_declarations_name_their_intended_store(self):
         # Every @AppStorage in the live host templates binds an explicit store.
-        for path in (self.HOST, self.SETTINGS, ROOT / "scripts/templates/livecontainer_grid_app_cell.swift"):
+        for path in (self.HOST, self.SETTINGS, ProductSource("livecontainer_grid_app_cell.swift")):
             for line in path.read_text(encoding="utf-8").splitlines():
                 if "@AppStorage" not in line:
                     continue
@@ -567,68 +558,25 @@ class AppGroupSweepClassificationTests(unittest.TestCase):
         self.assertIn("LCUtils.appGroupUserDefault", self.HOST.read_text(encoding="utf-8"))
 
 
-class TemplateInstallationTests(unittest.TestCase):
+class OwnerInstallationTests(unittest.TestCase):
     def test_the_shared_identity_reaches_every_process_exactly_once(self):
-        service = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
-        startup = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
-        autorefresh = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
-        # Service: concatenated into the embedded SideStore AppDelegate.
-        self.assertIn('(TEMPLATES / "v3_shared_app_group.swift").read_text(encoding="utf-8")', service)
-        # Host framework: concatenated ahead of the refresh handler that uses it.
-        self.assertIn('template("v3_shared_app_group.swift") + template("combined_service_connection.swift")', startup)
-        # Host app: its own generated file, because the module may declare it once.
-        self.assertIn('SHARED_APP_GROUP_FILE = "LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift"', autorefresh)
-        self.assertIn('template("v3_shared_app_group.swift")', autorefresh)
-        # The unified shell shares the host app module, so it must not re-declare.
-        shell_patch = (ROOT / "scripts/patch_v3_unified_shell.py").read_text(encoding="utf-8")
-        self.assertNotIn("v3_shared_app_group", shell_patch)
+        for owner, path in (("SideStore", "AltStore/AppDelegate.swift"),
+                            ("LiveContainer", "SideStoreSupport/SideStore.swift"),
+                            ("LiveContainer", "LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift")):
+            self.assertEqual(owner_source(path, owner).count("enum V3SharedAppGroup {"), 1)
+        self.assertNotIn("enum V3SharedAppGroup {", SHELL.read_text())
 
     def test_the_c_rule_set_is_installed_next_to_the_selection_policy(self):
-        service = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
-        self.assertIn('changes[live / "LiveContainer/LCAppGroupIdentityRules.h"]', service)
-        self.assertIn('template_hashes[group_rules_template.name]', service)
-        self.assertIn('#import "LCAppGroupIdentityRules.h"', SELECTION.read_text(encoding="utf-8"))
+        self.assertIn('#import "LCAppGroupIdentityRules.h"', SELECTION.read_text())
+        self.assertIn("LC_RULE_GROUP_VISIBLE_ASCII", RULES.read_text())
 
-    def test_the_environment_key_has_one_source_of_truth(self):
-        # Generated Objective-C cannot see the Swift constant, so the name is
-        # repeated in two emitters. Both derive it from the authoritative
-        # template, so a rename cannot leave half the contract on the old key,
-        # and the derived value must actually reach the emitted source rather
-        # than the Python name that produced it.
-        key = re.search(r'static let runtimeGroupEnvironmentKey = "([A-Za-z0-9_]+)"',
-                        SHARED.read_text(encoding="utf-8")).group(1)
-        for script in ("patch_v3_service.py", "patch_refresh_result_bridge.py"):
-            source = (ROOT / "scripts" / script).read_text(encoding="utf-8")
-            self.assertIn("def runtime_app_group_environment_key()", source, script)
-            self.assertIn("RUNTIME_APP_GROUP_ENV_KEY = runtime_app_group_environment_key()", source, script)
-            self.assertNotIn(f'"{key}"', source, script)
-        # Nothing else may hardcode it.
-        for path in sorted((ROOT / "scripts").glob("*.py")):
-            self.assertNotIn(f'"{key}"', path.read_text(encoding="utf-8"),
-                             f"{path.name} hardcodes the runtime App Group environment key")
-        # The service Keychain lock and the recovery journal read the same key
-        # through the one Swift constant, never a literal.
-        for template in (KEYCHAIN, SERVICE):
-            self.assertNotIn(f'"{key}"', template.read_text(encoding="utf-8"))
-        # The emitted Objective-C must carry the key as a string literal. An
-        # f-string that forgot to interpolate would leave the Python identifier
-        # in the generated source, which compiles as an undeclared identifier.
-        import importlib.util
-
-        for script, expected in (("patch_refresh_result_bridge.py", f'getenv("{key}")'),
-                                 ("patch_v3_service.py", f'unsetenv("{key}")')):
-            spec = importlib.util.spec_from_file_location(
-                "emitter_" + script[:-3], ROOT / "scripts" / script)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            self.assertEqual(module.RUNTIME_APP_GROUP_ENV_KEY, key, script)
-        bridge = (ROOT / "scripts/patch_refresh_result_bridge.py").read_text(encoding="utf-8")
-        self.assertIn(f'getenv("{{RUNTIME_APP_GROUP_ENV_KEY}}")', bridge,
-                      "the bridge must interpolate the derived key into the emitted getenv call")
-        service = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
-        self.assertIn("f'    unsetenv(\"{RUNTIME_APP_GROUP_ENV_KEY}\");\\n'", service)
-        self.assertIn("f'        setenv(\"{RUNTIME_APP_GROUP_ENV_KEY}\", inheritedGroupID.UTF8String, 1);\\n'",
-                      service)
+    def test_the_environment_key_is_shared_by_current_process_boundaries(self):
+        key = re.search(r'static let runtimeGroupEnvironmentKey = "([A-Za-z0-9_]+)"', SHARED.read_text()).group(1)
+        for path in (KEYCHAIN, SERVICE):
+            self.assertNotIn(f'"{key}"', path.read_text())
+        bootstrap = owner_source("LiveProcess/main.m")
+        self.assertIn(f'unsetenv("{key}")', bootstrap)
+        self.assertIn(f'setenv("{key}", inheritedGroupID.UTF8String, 1)', bootstrap)
 
     def test_typed_recoverable_failure_exists_for_the_shared_store(self):
         shared = SHARED.read_text(encoding="utf-8")
@@ -648,7 +596,7 @@ class TemplateInstallationTests(unittest.TestCase):
         self.assertIn('throw CombinedFailure(operation: "refresh", stage: .persistence,', handler)
         self.assertIn("code: .unavailable, id: schedulerRunID ?? UUID().uuidString,", handler)
         self.assertIn("retryable: true, safeCause: .sharedStoreUnavailable)", handler)
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        failure = (ProductSource("combined_failure.swift")).read_text(encoding="utf-8")
         self.assertIn("case sharedStoreUnavailable", failure)
         for handler_text in (
             "case .sharedStoreUnavailable:\n                return true",
@@ -659,12 +607,12 @@ class TemplateInstallationTests(unittest.TestCase):
                           "the new safe cause needs a retryability, a message and a recovery line")
         # The service side keeps an honest cause in the log and rethrows rather
         # than substituting a private store.
-        script = (ROOT / "scripts/patch_background_automation.py").read_text(encoding="utf-8")
+        script = owner_source("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift", "SideStore")
         self.assertIn('self.debugLog("[AUTO_REFRESH] SHARED_STORE_UNAVAILABLE failure_category=sharedStoreUnavailable")',
                       script)
         self.assertIn("refreshDefaults = try automaticRefreshDefaults()\n            } catch {", script)
         # The combined contract composes on top of the throwing helper.
-        contract = (ROOT / "scripts/patch_combined_refresh_contract.py").read_text(encoding="utf-8")
+        contract = owner_source("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift", "SideStore")
         self.assertIn("(try? automaticRefreshDefaults())?.string(forKey:", contract)
 
 

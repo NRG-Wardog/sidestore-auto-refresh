@@ -20,7 +20,7 @@ import zipfile
 from audit_ipa_signing import inventory
 from package_livecontainer_combined import (verify_shared_secret_handoff_group,
                                             verify_auth_answer_transport)
-from patch_v3_service import (HEADLESS_BACKEND_CONNECTION_CONFIG,
+from headless_artifact_contract import (HEADLESS_BACKEND_CONNECTION_CONFIG,
                               HEADLESS_SIDESTORE_AUX_UI_FILES,
                               HEADLESS_SIDESTORE_HANDLER_UI_FILES,
                               HEADLESS_SIDESTORE_PIPELINE_UI_FILES,

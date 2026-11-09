@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 from tests.refresh.test_combined_transport import SourceFixture, function
 
+from tests.support.product_sources import read_product_source
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -62,7 +64,7 @@ struct Adapter: Sendable { let gateway = Gateway(); let activeProtocol = Pairing
         query = query[query.index('            var plistVal:'):query.index('            return udid') + len('            return udid')]
         self.assertIn('lc_native_code=\\(code)', query,
                       'native Lockdown query codes must reach CombinedFailure classification')
-        common = (ROOT / 'scripts/templates/combined_failure.swift').read_text(encoding='utf-8')
+        common = read_product_source('combined_failure.swift')
         native = self.read('DeviceGateway/DeviceGatewayError.swift')
         idevice_source = self.read('DeviceGateway/idevice/IdeviceGateway.swift')
         subclass_start = idevice_source.index('internal final class IdeviceGatewayError:')
@@ -117,7 +119,7 @@ func query() throws -> String {
  ''')
 
     def test_capture_preserves_honest_domains_and_classifies_ppq(self):
-        common = (ROOT / 'scripts/templates/combined_failure.swift').read_text(encoding='utf-8')
+        common = read_product_source('combined_failure.swift')
         self.execute(common + '''
 func debugLog(_ value: String) {}
 @main struct Tests {

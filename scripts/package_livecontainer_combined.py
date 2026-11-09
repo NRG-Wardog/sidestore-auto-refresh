@@ -402,7 +402,7 @@ def package(root, host, side, output):
     result = verify(ipa, side)
     result['size_optimization'] = size_result
     result['upstream_packaging_sha256'] = hashlib.sha256(upstream.encode()).hexdigest()
-    result['packaging_adapter_sha256'] = hashlib.sha256(Path(__file__).with_name('packaging_adapters.py').read_bytes()).hexdigest()
+    result['packaging_adapter_sha256'] = hashlib.sha256((Path(__file__).parent / 'packaging_adapters.py').read_bytes()).hexdigest()
     result['packaging_adapter_rules'] = patch_surface(COMBINED_PACKAGING_RULES)
     result['dylibify'] = converter_evidence
     output.parent.mkdir(parents=True, exist_ok=True)

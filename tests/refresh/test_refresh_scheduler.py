@@ -1,4 +1,4 @@
-"""Scheduler and VPN ownership regressions for the retained refresh templates.
+"""Scheduler and VPN ownership regressions for the maintained refresh owners.
 
 Compiled helpers use OS doubles; passing these tests is not device proof.
 """
@@ -9,6 +9,9 @@ import tempfile
 import unittest
 
 
+from tests.support.product_sources import read_product_source
+from tests.owner_source import owner_source
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -17,12 +20,13 @@ class LiveContainerRuntimeTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("swiftc unavailable")
-        paths = ["scripts/templates/combined_failure.swift", "scripts/templates/v3_wire_contract.swift",
-                 "scripts/templates/v3_behavioral_primitives.swift", "tests/fixtures/livecontainer_scheduler_stubs.swift",
-                 "scripts/templates/v3_shared_app_group.swift",
-                 "scripts/templates/livecontainer_refresh_policy.swift",
-                 "scripts/templates/livecontainer_refresh_scheduler.swift", "tests/fixtures/livecontainer_scheduler_harness.swift"]
-        source = "\n".join((ROOT / p).read_text() for p in paths)
+        roles = ["combined_failure.swift", "v3_wire_contract.swift", "v3_behavioral_primitives.swift"]
+        source = "\n".join(read_product_source(role) for role in roles)
+        source += "\n" + (ROOT / "tests/fixtures/livecontainer_scheduler_stubs.swift").read_text()
+        source += "\n" + "\n".join(read_product_source(role) for role in (
+            "v3_shared_app_group.swift", "livecontainer_refresh_policy.swift",
+            "livecontainer_vpn_recovery.swift", "livecontainer_refresh_scheduler.swift"))
+        source += "\n" + (ROOT / "tests/fixtures/livecontainer_scheduler_harness.swift").read_text()
         with tempfile.TemporaryDirectory() as directory:
             file = Path(directory) / "Test.swift"
             exe = Path(directory) / "scheduler-test"
@@ -40,7 +44,7 @@ class LiveContainerRuntimeTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("swiftc unavailable")
-        source = (ROOT / "scripts/templates/livecontainer_refresh_policy.swift").read_text() + r'''
+        source = read_product_source('livecontainer_refresh_policy.swift') + r'''
 let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: directory) }
@@ -68,10 +72,10 @@ print("INSTALLED_PROFILE_TESTS_PASSED")
             self.assertIn("INSTALLED_PROFILE_TESTS_PASSED", result.stdout)
 
 
-NETWORK_PATH = ROOT / "scripts/templates/livecontainer_network_preflight.swift"
+NETWORK_PATH = 'livecontainer_network_preflight.swift'
 
 
-SCHEDULER_PATH = ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift"
+SCHEDULER_PATH = 'livecontainer_refresh_scheduler.swift'
 
 
 HARNESS_PATH = ROOT / "tests/fixtures/livecontainer_vpn_handoff_harness.swift"
@@ -85,7 +89,7 @@ END = "// V3_VPN_HANDOFF_OWNER_END"
 
 class LiveContainerVPNHandoffTests(unittest.TestCase):
     def production_helper(self):
-        source = NETWORK_PATH.read_text(encoding="utf-8")
+        source = owner_source("LiveContainerSwiftUI/App/AppDelegate.swift")
         self.assertEqual(source.count(BEGIN), 1)
         self.assertEqual(source.count(END), 1)
         return source.split(BEGIN, 1)[1].split(END, 1)[0]
@@ -107,17 +111,17 @@ class LiveContainerVPNHandoffTests(unittest.TestCase):
             self.assertIn("LiveContainer VPN handoff ownership PASS", result.stdout)
 
     def test_scheduler_passes_the_active_run_as_preflight_owner(self):
-        scheduler = SCHEDULER_PATH.read_text(encoding="utf-8")
-        call = scheduler[scheduler.index("try await LiveContainerNetworkPreflight.check"):]
-        check_call = call.split("try await performRefresh(runID: runID)", 1)[0]
+        scheduler = read_product_source(SCHEDULER_PATH)
+        call = scheduler[scheduler.index("try await LiveContainerNetworkPreflight.check"): ]
+        check_call = call.split("try await performRefreshWithVPNRecovery(runID: runID", 1)[0]
         self.assertIn("runID: runID.uuidString", check_call)
         self.assertLess(call.index("LiveContainerNetworkPreflight.check"),
-                        call.index("try await performRefresh(runID: runID)"))
+                        call.index("try await performRefreshWithVPNRecovery(runID: runID"))
         self.assertIn("guard activeRun == nil else { return }", scheduler[
             scheduler.index("static func recoverAfterLaunchOrResume"):])
 
     def test_marker_format_is_run_scoped_with_legacy_date_migration(self):
-        network = NETWORK_PATH.read_text(encoding="utf-8")
+        network = read_product_source(NETWORK_PATH)
         self.assertIn('["run_id": runID, "requested_at": requestedAt]', network)
         self.assertIn("LiveContainerVPNReturnMarkerPolicy.isOwned", network)
         self.assertIn("value as? Date", network)
@@ -125,10 +129,11 @@ class LiveContainerVPNHandoffTests(unittest.TestCase):
         self.assertIn("waiter.settle(.cancelled)", network)
 
 
-NETWORK = (ROOT / "scripts/templates/livecontainer_network_preflight.swift").read_text()
+def setUpModule():
+    global NETWORK, SCHEDULER
+    NETWORK = read_product_source('livecontainer_network_preflight.swift')
+    SCHEDULER = read_product_source('livecontainer_refresh_scheduler.swift')
 
-
-SCHEDULER = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text()
 
 
 class NetworkPreflightTests(unittest.TestCase):
@@ -136,12 +141,14 @@ class NetworkPreflightTests(unittest.TestCase):
         self.assertIn("NWPathMonitor(requiredInterfaceType: .wifi)", NETWORK)
         self.assertIn("path.status == .satisfied", NETWORK)
         self.assertIn("monitor.cancel()", NETWORK)
-        for forbidden in ("CNCopyCurrentNetworkInfo", "CLLocationManager", "Timer.scheduledTimer", "Task.sleep"):
+        wifi = NETWORK[NETWORK.index("static func wifiAvailable()"):NETWORK.index("static func hasTunnelInterface()") ]
+        self.assertNotIn("Task.sleep", wifi)
+        for forbidden in ("CNCopyCurrentNetworkInfo", "CLLocationManager", "Timer.scheduledTimer"):
             self.assertNotIn(forbidden, NETWORK)
 
     def test_no_transport_until_preflight_passes(self):
         self.assertLess(SCHEDULER.index("try await LiveContainerNetworkPreflight.check"),
-                        SCHEDULER.index("try await performRefresh(runID: runID)"))
+                        SCHEDULER.index("try await performRefreshWithVPNRecovery(runID: runID"))
         check = NETWORK[NETWORK.index("static func check("):]
         self.assertLess(check.index("guard await wifiAvailable()"), check.index("hasTunnelInterface()"))
         self.assertIn("WIFI_UNAVAILABLE", SCHEDULER)
@@ -154,7 +161,9 @@ class NetworkPreflightTests(unittest.TestCase):
 
     def test_return_is_rechecked_not_assumed_ready(self):
         self.assertIn('URLQueryItem(name: "scheme", value: scheme)', NETWORK)
-        self.assertIn("wifi_lost_during_activation", NETWORK)
+        self.assertIn("try await settleAfterActivation(ownsRun: ownsRun)", NETWORK)
+        self.assertIn("guard ownsRun() else { throw CancellationError() }", NETWORK)
+        self.assertIn("case .wifiUnavailable:", NETWORK)
         self.assertIn("no_utun_interface", NETWORK)
         self.assertIn("readiness=requires_coredevice_verification", NETWORK)
         self.assertIn("guard !completed else", NETWORK)
@@ -169,7 +178,7 @@ class NetworkPreflightTests(unittest.TestCase):
 
 class VerificationMessagesTests(unittest.TestCase):
     def test_missing_mismatched_and_empty_results_are_distinct(self):
-        source = (Path(__file__).resolve().parents[2] / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text()
+        source = read_product_source('livecontainer_refresh_scheduler.swift')
         self.assertNotIn("verification_manifest_missing_or_wrong_run", source)
         for code in ("manifest_missing", "run_mismatch", "results_empty"):
             self.assertIn("VERIFICATION_FAILED reason=" + code, source)

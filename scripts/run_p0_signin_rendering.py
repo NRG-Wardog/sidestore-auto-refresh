@@ -162,18 +162,21 @@ def member(source: str, signature: str) -> str:
     return source[start:end] + "\n"
 
 
-def extract_sources(source: Path, templates: Path) -> tuple[dict[str, str], dict]:
+def extract_sources(source: Path, templates: Path | None = None) -> tuple[dict[str, str], dict]:
     """Only production code owns control layout and diagnostic rendering.
 
-    The shell contains its behavioral primitives. Prepared hosts supply exact
-    maintained support; standalone historical generation uses its own templates.
+    The shell contains its behavioral primitives. Only the maintained source
+    tree supplies support and localization. The optional second argument is
+    retained for existing callers but is never read as a template directory.
     """
     source_text = source.read_text()
     # Maintained hosts own their support implementation. Never silently replace
     # it with a historical generator template when exercising the actual host.
     maintained = source.parent.parts[-2:] == ("LiveContainerSwiftUI", "Views")
-    support = source.parents[2] / "SideStoreSupport/SideStore.swift" if maintained else None
-    support_text = support.read_text() if support else None
+    if not maintained:
+        raise ValueError("Sign-in rendering requires its actual maintained source tree")
+    support = source.parents[2] / "SideStoreSupport/SideStore.swift"
+    support_text = support.read_text()
     if support_text is None and any(name in source_text for name in (
             "V3TemporaryADIConsumption", "V3LoginDiagnosticSnapshot")):
         raise ValueError("Maintained diagnostic policy requires its actual SideStore.swift support source")
@@ -210,69 +213,57 @@ def extract_sources(source: Path, templates: Path) -> tuple[dict[str, str], dict
         ("V3WireContract", "v3_wire_contract.swift", ("static func strictBool", "static func strictInt")),
         ("V3ServiceBridge", "v3_service_bridge.swift", ("public static func strictBool", "public static func strictInt")),
     ):
-        if support_text is not None:
-            signature = "enum V3WireContract" if typename == "V3WireContract" else "public final class V3ServiceBridge"
-            text = declaration(support_text, signature)
-        else:
-            text = (templates / filename).read_text()
-            hashes["production-template/" + filename] = digest(templates / filename)
+        signature = "enum V3WireContract" if typename == "V3WireContract" else "public final class V3ServiceBridge"
+        text = declaration(support_text, signature)
         extracted[typename + ".swift"] = imports + "enum " + typename + " {\n" + "\n".join(
             retain(typename + "." + item, member(text, item)) for item in signatures) + "}\n"
-    if support_text is not None:
-        first = declaration(support_text, "public struct CombinedRefreshTargetPlan")
-        last = declaration(support_text, "public enum V3DiagnosticPresentation")
-        start = support_text.index(first)
-        end = support_text.index(last) + len(last)
-        if end <= start:
-            raise ValueError("Maintained combined failure support anchors are out of order")
-        combined_text = support_text[start:end]
-        # Validate the new policy dependency explicitly, even before compilation.
-        if "V3TemporaryADIConsumption" in source_text:
-            consumption = declaration(support_text, "public struct V3TemporaryADIConsumption")
-            if consumption not in combined_text:
-                raise ValueError("Maintained ADI consumption lies outside the diagnostic support region")
-        trace = declaration(support_text, "public struct V3TemporaryAnisetteTrace")
-        if trace not in combined_text:
-            raise ValueError("Maintained Anisette trace lies outside the diagnostic support region")
-        # CombinedFailure validates the login trace and the shell renders it.
-        # Keep the genuine parser/bounds/encoding implementation in the same
-        # compiled support unit. A missing, duplicate, or relocated declaration
-        # must fail here, never fall back to a historical diagnostic stub.
-        if "V3LoginDiagnosticSnapshot" in source_text + combined_text:
-            snapshot = declaration(support_text, "public struct V3LoginDiagnosticSnapshot")
-            if snapshot not in combined_text:
-                raise ValueError("Maintained login snapshot lies outside the diagnostic support region")
-            retain("V3LoginDiagnosticSnapshot", snapshot)
-        hashes["maintained-source/SideStoreSupport/SideStore.swift"] = digest(support)
-        extracted["CombinedFailure.swift"] = "import Foundation\nimport CoreFoundation\n\n" + retain(
-            "maintained-combined-failure", combined_text)
-    else:
-        combined = templates / "combined_failure.swift"
-        extracted["CombinedFailure.swift"] = combined.read_text()
-        hashes["production-template/combined_failure.swift"] = digest(combined)
-    if maintained:
-        host = source.parents[2]
-        try:
-            helpers = localization.localization_sources(host, [source])
-        except RuntimeError as error:
+    first = declaration(support_text, "public struct CombinedRefreshTargetPlan")
+    last = declaration(support_text, "public enum V3DiagnosticPresentation")
+    start = support_text.index(first)
+    end = support_text.index(last) + len(last)
+    if end <= start:
+        raise ValueError("Maintained combined failure support anchors are out of order")
+    combined_text = support_text[start:end]
+    # Validate the new policy dependency explicitly, even before compilation.
+    if "V3TemporaryADIConsumption" in source_text:
+        consumption = declaration(support_text, "public struct V3TemporaryADIConsumption")
+        if consumption not in combined_text:
+            raise ValueError("Maintained ADI consumption lies outside the diagnostic support region")
+    trace = declaration(support_text, "public struct V3TemporaryAnisetteTrace")
+    if trace not in combined_text:
+        raise ValueError("Maintained Anisette trace lies outside the diagnostic support region")
+    # CombinedFailure validates the login trace and the shell renders it.
+    # Keep the genuine parser/bounds/encoding implementation in the same
+    # compiled support unit. A missing, duplicate, or relocated declaration
+    # must fail here, never fall back to a historical diagnostic stub.
+    if "V3LoginDiagnosticSnapshot" in source_text + combined_text:
+        snapshot = declaration(support_text, "public struct V3LoginDiagnosticSnapshot")
+        if snapshot not in combined_text:
+            raise ValueError("Maintained login snapshot lies outside the diagnostic support region")
+        retain("V3LoginDiagnosticSnapshot", snapshot)
+    hashes["maintained-source/SideStoreSupport/SideStore.swift"] = digest(support)
+    extracted["CombinedFailure.swift"] = "import Foundation\nimport CoreFoundation\n\n" + retain(
+        "maintained-combined-failure", combined_text)
+    host = source.parents[2]
+    try:
+        helpers = localization.localization_sources(host, [source])
+    except RuntimeError as error:
+        raise LocalizationDependencyError(
+            "P2 fixture requires exact maintained helpers, Shared.swift and catalog: " + str(error)) from error
+    if helpers:
+        catalog = host / localization.LOCALIZATION_CATALOG
+        shared = host / "LiveContainerSwiftUI/Utilities/Shared.swift"
+        if shared.is_symlink() or not shared.is_file():
             raise LocalizationDependencyError(
-                "P2 fixture requires exact maintained helpers, Shared.swift and catalog: " + str(error)) from error
-        if helpers:
-            catalog = host / localization.LOCALIZATION_CATALOG
-            shared = host / "LiveContainerSwiftUI/Utilities/Shared.swift"
-            if shared.is_symlink() or not shared.is_file():
-                raise LocalizationDependencyError(
-                    "P2 fixture requires exact maintained helpers, Shared.swift and catalog: "
-                    "Production localization dependency missing or linked: " + str(shared))
-            for path in [*helpers, catalog, shared]:
-                hashes["maintained-source/" + str(path.relative_to(host))] = digest(path)
-                hashes["maintained-localization/" + path.name] = digest(path)
-            for path in [*helpers, catalog]:
-                extracted[path.name] = path.read_text()
-            text = shared.read_text()
-            extracted["LocalizedStringFormatting.swift"] = "import Foundation\n\nextension String {\n" + member(text, "var loc: String") + member(text, "func localizeWithFormat") + "}\n"
-    elif re.search(r"\bV3(?:AppLanguage|Localization|LocalizedText|LocalizedLabel)\b", "\n".join(extracted.values())):
-        raise ValueError("Localized sign-in declarations require their actual maintained source tree")
+                "P2 fixture requires exact maintained helpers, Shared.swift and catalog: "
+                "Production localization dependency missing or linked: " + str(shared))
+        for path in [*helpers, catalog, shared]:
+            hashes["maintained-source/" + str(path.relative_to(host))] = digest(path)
+            hashes["maintained-localization/" + path.name] = digest(path)
+        for path in [*helpers, catalog]:
+            extracted[path.name] = path.read_text()
+        text = shared.read_text()
+        extracted["LocalizedStringFormatting.swift"] = "import Foundation\n\nextension String {\n" + member(text, "var loc: String") + member(text, "func localizeWithFormat") + "}\n"
     return extracted, hashes
 
 
@@ -339,7 +330,7 @@ def prepare(output: Path, source: Path, command) -> dict:
     build.mkdir()
     sources = build / "Sources"
     sources.mkdir()
-    extracted, hashes = extract_sources(source, ROOT / "scripts/templates")
+    extracted, hashes = extract_sources(source)
     for filename, content in extracted.items():
         path = sources / filename
         path.write_text(content)

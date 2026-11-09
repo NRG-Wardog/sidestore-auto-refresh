@@ -1,4 +1,5 @@
 """Run both production flock helpers from competing macOS processes."""
+from tests.support.product_sources import ProductSource
 from pathlib import Path
 import shutil
 import subprocess
@@ -32,9 +33,9 @@ class ProductionProcessLockTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             raise unittest.SkipTest("swiftc unavailable")
-        keychain = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
-        handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
-        shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
+        keychain = (ProductSource('embedded_shared_keychain.swift')).read_text(encoding="utf-8")
+        handoff = (ProductSource('v3_secret_handoff.swift')).read_text(encoding="utf-8")
+        shared = (ProductSource('v3_shared_app_group.swift')).read_text(encoding="utf-8")
         embedded_lock = extract_type(keychain, "private enum LCSharedKeychainFileLock {")
         # Both production lock helpers resolve the same shared identity, so the
         # harness compiles the real resolver rather than a stand-in.

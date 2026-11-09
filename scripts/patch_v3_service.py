@@ -9,8 +9,19 @@ import re
 import subprocess
 import sys
 
+# Legacy fixture loaders import this file by absolute path, without sys.path edits.
+_artifact_spec = importlib.util.spec_from_file_location(
+    "headless_artifact_contract", Path(__file__).with_name("headless_artifact_contract.py"))
+_artifact_contract = importlib.util.module_from_spec(_artifact_spec)
+_artifact_spec.loader.exec_module(_artifact_contract)
+HEADLESS_BACKEND_CONNECTION_CONFIG = _artifact_contract.HEADLESS_BACKEND_CONNECTION_CONFIG
+HEADLESS_SIDESTORE_AUX_UI_FILES = _artifact_contract.HEADLESS_SIDESTORE_AUX_UI_FILES
+HEADLESS_SIDESTORE_HANDLER_UI_FILES = _artifact_contract.HEADLESS_SIDESTORE_HANDLER_UI_FILES
+HEADLESS_SIDESTORE_PIPELINE_UI_FILES = _artifact_contract.HEADLESS_SIDESTORE_PIPELINE_UI_FILES
+HEADLESS_SIDESTORE_VIEW_FILES = _artifact_contract.HEADLESS_SIDESTORE_VIEW_FILES
+PINS = _artifact_contract.PINS
+
 TEMPLATES = Path(__file__).with_name("templates")
-PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
 PATCH_VERSION = 50
 
@@ -38,176 +49,11 @@ HEADLESS_SIDESTORE_APP_UI_FILES = (
     "Components/AppBannerView.swift",
     "Components/AppBannerCollectionViewCell.swift",
 )
-HEADLESS_SIDESTORE_VIEW_FILES = (
-    "Views/Components/AppInfoView.swift",
-    "Views/Components/BundleResourceBrowserView.swift",
-    "Views/Components/CodeResourcesViewer.swift",
-    "Views/Components/CustomAppIDAlertViewController.swift",
-    "Views/Components/InfoPlistContainerView.swift",
-    "Views/Components/MachOResourceViewer.swift",
-    "Views/Components/UIKit/CollapsingMarkdownView.swift",
-    "Views/MyApps/DeleteAppAlertViewController.swift",
-    "Views/Settings/Advanced/Anisette/AnisetteDataView.swift",
-    "Views/Settings/Advanced/BackupRestore/BackupAndRestoreView.swift",
-    "Views/Settings/Advanced/Certificates/ActiveCertSectionView.swift",
-    "Views/Settings/Advanced/Certificates/CertificateDetailView.swift",
-    "Views/Settings/Advanced/Certificates/CertificateExporter.swift",
-    "Views/Settings/Advanced/Certificates/CertificateRowView.swift",
-    "Views/Settings/Advanced/Certificates/CertificateTypes.swift",
-    "Views/Settings/Advanced/Certificates/CertificatesListView.swift",
-    "Views/Settings/Advanced/Certificates/CertificatesView.swift",
-    "Views/Settings/Advanced/Certificates/CertificatesViewModel.swift",
-    "Views/Settings/Advanced/Certificates/PrivateKeyTextEditor.swift",
-    "Views/Settings/Advanced/Certificates/PrivateKeyTextInputView.swift",
-    "Views/Settings/Advanced/Certificates/RevokeAlertViewController.swift",
-    "Views/Settings/Advanced/Certificates/SetCertificateAlertViewController.swift",
-    "Views/Settings/Advanced/Certificates/SignableCertificatesListViewController.swift",
-    "Views/Settings/Advanced/Connection/ConnectionConfigView.swift",
-    "Views/Settings/Advanced/DeveloperServices/AppGroups/AppGroupsListView.swift",
-    "Views/Settings/Advanced/DeveloperServices/AppIDs/AppIDDetailView.swift",
-    "Views/Settings/Advanced/DeveloperServices/AppIDs/AppIDsListView.swift",
-    "Views/Settings/Advanced/DeveloperServices/Certificates/CertificatePortalDetailView.swift",
-    "Views/Settings/Advanced/DeveloperServices/Certificates/CertificatesPortalListView.swift",
-    "Views/Settings/Advanced/DeveloperServices/DeveloperServicesView.swift",
-    "Views/Settings/Advanced/DeveloperServices/DeveloperServicesViewModel.swift",
-    "Views/Settings/Advanced/DeveloperServices/Devices/DevicesListView.swift",
-    "Views/Settings/Advanced/DeveloperServices/Profiles/CreateManualProfileView.swift",
-    "Views/Settings/Advanced/DeveloperServices/Profiles/ProfilePortalDetailView.swift",
-    "Views/Settings/Advanced/DeveloperServices/Profiles/ProfilesListView.swift",
-    "Views/Settings/Advanced/JIT/SideJITServerConfigView.swift",
-    "Views/Settings/Advanced/NetworkDiscovery/BonjourDiscoveryView.swift",
-    "Views/Settings/Advanced/NetworkDiscovery/BonjourDiscoveryViewModel.swift",
-    "Views/Settings/Advanced/SideSign/SideSignConfigurationView.swift",
-    "Views/Settings/Advanced/UserCustomizations/ThemePickerView.swift",
-    "Views/Settings/Advanced/UserCustomizations/UserCustomizationsView.swift",
-    "Views/Settings/Advanced/WirelessPair/WirelessPairTargetDialog.swift",
-    "Views/Settings/Advanced/WirelessPair/WirelessPairView.swift",
-    "Views/Settings/Advanced/WirelessPair/WirelessPairViewModel.swift",
-    "Views/Settings/Auth/ExportAccountAlertViewController.swift",
-    "Views/Settings/Auth/ImportAccountAlertController.swift",
-    "Views/Settings/Auth/ResetAdiAlertViewController.swift",
-    "Views/Settings/Auth/RevokeCertificatesAlertViewController.swift",
-    "Views/Settings/Auth/SignOutAlertViewController.swift",
-    "Views/Settings/Diagnostics/DeveloperOptionsView.swift",
-    "Views/Settings/Diagnostics/ExperimentalFeaturesView.swift",
-    "Views/Settings/Diagnostics/OperationsLoggingControlView.swift",
-    "Views/Settings/TechyThings/ErrorLog/ConsoleLogView.swift",
-    "Views/Settings/TechyThings/HealthCheck/HealthCheckView.swift",
-    "Views/Settings/TechyThings/HealthCheck/HealthCheckViewModel.swift",
-    "Views/Settings/TechyThings/StorageExplorer/DirectoryExplorerView.swift",
-    "Views/Settings/TechyThings/StorageExplorer/StorageExplorerView.swift",
-    "Views/Settings/TechyThings/StorageExplorer/StorageExplorerViewModel.swift",
-    "Views/SplashView.swift",
-)
-HEADLESS_SIDESTORE_AUX_UI_FILES = (
-    "DeepLinks/ExportCertificateDialog.swift",
-    "DeepLinks/InstallAppDialog.swift",
-    "Views/Settings/Advanced/CacheMgmt/CacheManagementView.swift",
-    "Views/Settings/Advanced/CacheMgmt/CacheViewModel.swift",
-    "Views/Settings/Advanced/Connection/ConnectionConfig.swift",
-)
-HEADLESS_SIDESTORE_PIPELINE_UI_FILES = (
-    "Managing Apps/AppExtensionView.swift",
-    "Permissions/ReviewPermissionsViewController.swift",
-)
 # These live in the SideStore module, not AltStore, so they are excluded through
 # the SideStore target's membership exceptions. PresenterProvider is a typealias
 # in SideStore/Handlers used only by the PipelineHandler this patch rewrites, so
 # excluding its declaration leaves the headless target with no dangling use.
-HEADLESS_SIDESTORE_HANDLER_UI_FILES = (
-    "Handlers/PresenterProvider.swift",
-)
 
-HEADLESS_BACKEND_CONNECTION_CONFIG = '''// V3_HEADLESS_BACKEND_CONNECTION_CONFIG_V1: backend-owned transport configuration.
-import Foundation
-import Minimuxer
-
-final class ConnectionConfig {
-    static let shared = ConnectionConfig()
-
-    private static var defaultOverrideIP: String { "" }
-    private static var defaultRemoteServerIP: String { AppConstants.Connection.defaultRemoteServerIP }
-    private static var defaultWireGuardServerHost: String { AppConstants.Proxy.address }
-    private static var defaultWireGuardServerPort: UInt16 { AppConstants.Proxy.defaultPort }
-
-    var tunnelIfaceIp: String?
-    var tunnelIfaceSubnetMask: String?
-    var tunnelPeerIp: String?
-    var tunnelPeerSubnetMask: String?
-    var tunnelPeerReachable = false
-    var overrideTunnelPeerReachable = false
-    var remotePeerIp: String?
-    var remoteReachable = false
-
-    // Read persisted settings on every access. LiveContainer writes these keys
-    // directly through settingsSet, so a cached value would leave the already-
-    // bound Minimuxer connection-mode callback stale for the process lifetime.
-    var overrideTunnelPeerIp: String {
-        get { UserDefaults.standard.tunnelOverridePeerIp ?? Self.defaultOverrideIP }
-        set { UserDefaults.standard.tunnelOverridePeerIp = newValue }
-    }
-
-    var remoteServerIp: String {
-        get { UserDefaults.standard.remoteServerIp ?? Self.defaultRemoteServerIP }
-        set { UserDefaults.standard.remoteServerIp = newValue }
-    }
-
-    var useLocalVPN: Bool {
-        get { UserDefaults.standard.useLocalVPN }
-        set { UserDefaults.standard.useLocalVPN = newValue }
-    }
-
-    var wireguardServerHost: String {
-        get { UserDefaults.standard.wireGuardServerHost ?? Self.defaultWireGuardServerHost }
-        set { UserDefaults.standard.wireGuardServerHost = newValue }
-    }
-
-    var wireguardServerPort: UInt16 {
-        get { UserDefaults.standard.wireGuardServerPort ?? Self.defaultWireGuardServerPort }
-        set { UserDefaults.standard.wireGuardServerPort = newValue }
-    }
-
-    var connectionMode: DeviceConnectionMode {
-        useLocalVPN ? .localVPN : .remoteServer
-    }
-}
-
-extension UserDefaults {
-    @objc var tunnelOverridePeerIp: String? {
-        get { self.string(forKey: "TunnelOverridePeerIp") }
-        set { self.set(newValue, forKey: "TunnelOverridePeerIp") }
-    }
-
-    @objc var remoteServerIp: String? {
-        get { self.string(forKey: "RemoteServerIp") }
-        set { self.set(newValue, forKey: "RemoteServerIp") }
-    }
-
-    @objc var wireGuardServerHost: String? {
-        get { self.string(forKey: "WireGuardServerHost") }
-        set { self.set(newValue, forKey: "WireGuardServerHost") }
-    }
-
-    var wireGuardServerPort: UInt16? {
-        get {
-            guard self.object(forKey: "WireGuardServerPort") != nil else { return nil }
-            let val = self._wireGuardServerPort
-            return (val > 0 && val <= 65535) ? UInt16(val) : nil
-        }
-        set {
-            if let newValue {
-                self._wireGuardServerPort = Int(newValue)
-            } else {
-                self.removeObject(forKey: "WireGuardServerPort")
-            }
-        }
-    }
-
-    @objc(wireGuardServerPort) private var _wireGuardServerPort: Int {
-        get { self.integer(forKey: "WireGuardServerPort") }
-        set { self.set(newValue, forKey: "WireGuardServerPort") }
-    }
-}'''
 
 
 def remove_pbx_object(text, object_marker):
@@ -2175,7 +2021,7 @@ def headless_direct_refresh_backend(text):
 
 
 def direct_refresh_bridge_transform(text, function):
-    path = Path(__file__).with_name("patch_refresh_result_bridge.py")
+    path = (Path(__file__).parent / "patch_refresh_result_bridge.py")
     spec = importlib.util.spec_from_file_location("v3_direct_refresh_bridge", path)
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     return getattr(module, function)(text)
@@ -2360,7 +2206,7 @@ def replace(text, old, new):
 
 
 def apply_embedded_credential_snapshot_patch(text, transform_name):
-    script = Path(__file__).with_name("patch_embedded_keychain.py")
+    script = (Path(__file__).parent / "patch_embedded_keychain.py")
     spec = importlib.util.spec_from_file_location("v3_embedded_keychain_patch", script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

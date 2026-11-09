@@ -1686,7 +1686,7 @@
   "current_scope": "See ERROR_DIAGNOSTICS.md for implemented structured/local coverage and explicit privacy/system-message residuals. The notes below describe pre-change audit observations, not unresolved implementation status.",
   "native_implementation": {
     "owner": "LiveContainer",
-    "owner_graph": "ci/issues-native/candidate-graph.json",
+    "owner_graph": "ci/build/candidate-graph.json",
     "repository": "NRG-Wardog/LiveContainer",
     "pin": "5d2498d4dfffa14c031ca1481ab9f3417bfccc3f",
     "evidence_inventory": "scripts/native_error_evidence.py",
@@ -1711,7 +1711,7 @@
   },
   "guest_implementation": {
     "owner": "LiveContainer",
-    "owner_graph": "ci/issues-native/candidate-graph.json",
+    "owner_graph": "ci/build/candidate-graph.json",
     "source_checks": [
       "tests/host/test_guest_return.py",
       "tests/host/test_guest_launch_completion.py",

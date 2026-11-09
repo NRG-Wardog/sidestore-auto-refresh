@@ -3,6 +3,9 @@
 macOS CI supplies Swift and the pinned source. Linux still verifies extraction,
 required evidence and the bounded patch contract; a skip is not a native pass.
 """
+from tests.support.product_sources import ProductSource
+from tests.support.keychain_owner_runtime import keychain_runtime_source
+from tests.owner_source import owner_source, owner_root
 from pathlib import Path
 import importlib.util
 import os
@@ -29,19 +32,21 @@ def declaration(source, anchor):
     raise AssertionError(anchor)
 
 
-def pinned_sources():
-    root = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-    if not root:
-        raise unittest.SkipTest("Pinned SideStore input required; supplied by combined CI")
-    return [existing.read_pinned_source(root, p) for p in existing.module.ANISETTE_PATHS]
+ANISETTE_PATHS = (
+    "SideStore/Core/Anisette/AnisetteConfigManager.swift",
+    "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+    "SideStore/Core/Anisette/AnisetteProvider.swift",
+)
+
+def pinned_sources(*, baseline=False):
+    # Historical input is a named counterfactual only, not the positive product.
+    if baseline:
+        return [existing.read_pinned_source(owner_root("SideStore"), p) for p in ANISETTE_PATHS]
+    return [owner_source(p, "SideStore") for p in ANISETTE_PATHS]
 
 
 def program(*, baseline=False, old_fallback=False):
-    config, oda, remote = pinned_sources()
-    if not baseline:
-        config = existing.module.patch_anisette_config(config)
-        oda = existing.module.patch_anisette_provider(oda, on_device=True)
-        remote = existing.module.patch_anisette_provider(remote, on_device=False)
+    config, oda, remote = pinned_sources(baseline=baseline)
     methods = [declaration(config, "    public func resolveDeviceIdentifier(")]
     if not baseline:
         methods += [declaration(config, "    func resolveAnisetteSnapshot("),
@@ -50,9 +55,14 @@ def program(*, baseline=False, old_fallback=False):
     fixture = fixture.replace("__PRODUCTION_CONFIG_METHODS__", "\n".join(methods))
     fixture = fixture.replace("__PRODUCTION_ODA_METHOD__", declaration(oda, "    public func fetchAnisetteData("))
     fixture = fixture.replace("__PRODUCTION_REMOTE_PROVIDER__", declaration(remote, "enum AnisetteProvider {"))
+    # Updated external provider APIs. The same capture/failure injection remains.
+    fixture = fixture.replace("enum AnisetteMode { case remoteODA", "enum AnisetteMode { case verifiedAppleMusic; case remoteODA")
+    fixture = fixture.replace("headers: AnisetteRequestHeaders) async throws", "headers: AnisetteRequestHeaders, diagnosticClientInfoSource: String = \"fixture\") async throws")
+    fixture = fixture.replace("existingAdiBlob: Data?, headers: AnisetteRequestHeaders,", "existingAdiBlob: Data?, headers: AnisetteRequestHeaders, diagnosticClientInfoSource: String = \"fixture\",")
+    fixture = fixture.replace("    func makeRequestHeaders()", "    func makeRequestHeaderSelection(forOnDeviceAndroid: Bool = false) -> (headers: AnisetteRequestHeaders, clientInfoSource: String) { (AnisetteRequestHeaders(), \"fixture\") }\n    func makeRequestHeaders()")
     if not baseline:
-        common = (ROOT / "scripts/templates/combined_failure.swift").read_text()
-        support = (ROOT / "scripts/templates/anisette_legacy_recovery.swift").read_text()
+        common = (ProductSource('combined_failure.swift')).read_text()
+        support = (ProductSource('anisette_legacy_recovery.swift')).read_text()
         extra = "\n".join(declaration(common, signature) for signature in (
             "public struct V3TemporaryAnisetteTrace:",
             "struct V3AnisetteAttemptContext {", "struct V3AnisetteAttemptError:",
@@ -68,24 +78,52 @@ def program(*, baseline=False, old_fallback=False):
     doubles = doubles.replace('        func getData(_ key: String) throws -> Data? {',
         '        func getData(_ key: String) throws -> Data? {\n'
         '            if PairTest.requireLockedReads && ["identifier", "adiPb"].contains(key) { precondition(PairTest.lockDepth == 1) }', 1)
-    template = existing.TEMPLATE.read_text()
+    template = keychain_runtime_source()
     if old_fallback:
         # The exact pre-33f6694 fallback condition, with all other shipped
         # adapter behavior unchanged. Only used to demonstrate upgrade input.
         template = template.replace("if data == nil && !ready && LCSharedKeychainMigration.supportsLegacyCertificateFallback(key) {",
                                     "if data == nil && !ready {", 1)
-    return doubles + template + existing.module.KEYCHAIN_ACCESS_ADAPTER + fixture
+    return doubles + template + OWNER_IO_DOUBLES + fixture
+
+
+# Diagnostics are an observation sink, not a provider or keychain decision.
+# The external SideSign/AnisetteKit contexts fail loudly if a test accidentally
+# selects a different route. These scenarios target the ordinary ODA/server pair.
+OWNER_IO_DOUBLES = r'''
+enum FixtureStage { case keychainRead, pairValidation, blobPresence, primaryProvider, recovery, freshBlobCommit, recoveryLegacyRead, recoveryCurrentProbe, recoveryLegacyProbe, recoveryCommit }
+enum FixtureOutcome { case succeeded, failed }
+enum FixtureReason { case fresh, cached, stateChanged, rejected, notRequired, disabled }
+final class FixtureSpan {
+    func finish(_ outcome: FixtureOutcome, reason: FixtureReason? = nil, error: Error? = nil) {}
+}
+final class LoginDiagnosticTrace {
+    static let current: LoginDiagnosticTrace? = nil
+    func begin(_ stage: FixtureStage) -> FixtureSpan { FixtureSpan() }
+    func skip(_ stage: FixtureStage, reason: FixtureReason) {}
+}
+final class AuthenticationDiagnosticTrace {
+    enum Observation { case selectedBranch(onDevice: Bool) }
+    static let current: AuthenticationDiagnosticTrace? = nil
+    func beginProviderObservation(_ observation: Observation) -> Int { 0 }
+}
+func v3LoginStage<T>(_ stage: FixtureStage, perform: () async throws -> T) async rethrows -> T { try await perform() }
+func v3LoginStageSync<T>(_ stage: FixtureStage, perform: () throws -> T) rethrows -> T { try perform() }
+enum FixtureProvider { case onDevice, remoteServer }
+enum V3DiagnosticProviderRoute { static let current: FixtureProvider? = nil }
+final class ExternalAttemptContext {
+    func fetch() async throws -> ALTAnisetteData { fatalError("unexpected external attempt in pair fixture") }
+}
+enum ILoaderRemoteAuthentication { static let current: ExternalAttemptContext? = nil }
+enum OwnedODAAuthentication { static let current: ExternalAttemptContext? = nil }
+enum OwnedODAAuthenticationError: Error { case conflictingRoutes }
+'''
 
 
 class AnisettePairPreconditionTests(unittest.TestCase):
-    def test_generated_provider_contract_and_idempotence(self):
+    def test_current_provider_contract_and_source_assembly(self):
         config, oda, remote = pinned_sources()
-        generated = [existing.module.patch_anisette_config(config),
-                     existing.module.patch_anisette_provider(oda, on_device=True),
-                     existing.module.patch_anisette_provider(remote, on_device=False)]
-        self.assertEqual(generated[0], existing.module.patch_anisette_config(generated[0]))
-        for source, on_device in zip(generated[1:], (True, False)):
-            self.assertEqual(source, existing.module.patch_anisette_provider(source, on_device=on_device))
+        for source in (oda, remote):
             self.assertIn("let anisetteSnapshot = try await AnisetteConfigManager.shared.resolveAnisetteSnapshot()", source)
             self.assertNotIn("AnisetteConfigManager.shared.anisetteAdiBlob", source)
             self.assertNotIn("AnisetteConfigManager.shared.resolveDeviceIdentifier()", source)
@@ -108,12 +146,12 @@ class AnisettePairPreconditionTests(unittest.TestCase):
         self.assertLess(commit.index("blob == existing"), commit.index('writeOne("adiPb"'))
         migration = source.split("    static func prepare(group:", 1)[1].split("// LC_SHARED_MIGRATION_POLICY_END", 1)[0]
         self.assertLess(migration.index("LCAnisetteStoredPair.validateMigration"), migration.index("for key in source.keys.sorted()"))
-        for path in existing.module.ANISETTE_PATHS:
+        for path in ANISETTE_PATHS:
             self.assertIn(path, (ROOT / "scripts/combined_build_evidence.py").read_text())
             self.assertIn(path, (ROOT / "scripts/verify_candidate_ipa.py").read_text())
-        self.assertIn("if error is LCAnisettePairError { return error }", existing.module.KEYCHAIN_ACCESS_ADAPTER)
-        service = (ROOT / "scripts/patch_v3_service.py").read_text()
-        self.assertIn('v3ClassifyAuthError(error)?.rawValue == \\"anisetteIdentityStateInvalid\\" { throw error }', service)
+        self.assertIn("if error is LCAnisettePairError { return error }", keychain_runtime_source())
+        service = owner_source("SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift", "SideStore")
+        self.assertIn('v3ClassifyAuthError(error)?.rawValue == "anisetteIdentityStateInvalid" { throw error }', service)
 
     def test_exact_production_continuations(self):
         sources = {"guarded": program(), "baseline": program(baseline=True),

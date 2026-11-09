@@ -1,3 +1,5 @@
+from tests.support.product_sources import ProductSource
+from tests.support.product_sources import read_product_source
 """Regression coverage for the v3 Install / Sideload App reliability task.
 
 New bug (NOT #27, which only added the missing UI action): the v3 install
@@ -25,10 +27,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
-SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
-FAILURE = ROOT / "scripts/templates/combined_failure.swift"
+SHELL = ProductSource('v3_unified_shell.swift')
+RUNTIME = ProductSource('v3_headless_runtime.swift')
+SERVICE = ProductSource('v3_sidestore_service.swift')
+FAILURE = ProductSource('combined_failure.swift')
 
 
 def shell():
@@ -54,8 +56,8 @@ class InstallFirstAttemptTests(unittest.TestCase):
     def test_host_and_service_stage_local_ipas_in_the_same_runtime_group(self):
         host = shell()
         runtime_source = runtime()
-        staging = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
-        shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
+        staging = read_product_source('v3_ipa_staging.swift')
+        shared = read_product_source('v3_shared_app_group.swift')
         self.assertIn("static func sideStoreContainerRoot", staging)
         self.assertIn("static func sharedIdentity", staging)
         self.assertIn("V3SharedAppGroup.identity(selectedGroup: selectedGroup", staging)
@@ -139,7 +141,7 @@ class InstallFirstAttemptTests(unittest.TestCase):
                         startup.index("await status.cleanupOrphanedStagedIPAs()"))
         service_source = service()
         runtime_source = runtime()
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        wire = read_product_source('v3_wire_contract.swift')
         self.assertIn('case "ipaActiveTokens"', service_source)
         self.assertIn("activeStagedIPATokens()", runtime_source)
         self.assertIn("V3StagedIPALeasePolicy.isLeased", runtime_source)
@@ -217,7 +219,7 @@ class InstallFirstAttemptTests(unittest.TestCase):
 
     def test_file_preparation_failures_are_not_installation_proxy_failures(self):
         text = runtime()
-        staging = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
+        staging = read_product_source('v3_ipa_staging.swift')
         self.assertIn("CombinedIPAFileError(.missingFile)", staging)
         self.assertIn("CombinedIPAFileError(.emptyFile)", staging)
         self.assertIn("CombinedIPAFileError(.invalidPackage)", staging)
@@ -261,7 +263,7 @@ class InstallStructuredFailureTests(unittest.TestCase):
         sheet = operation_sheet()
         self.assertIn('CombinedFailure(operation: request.operation,', sheet)
         self.assertIn("The operation could not start, so the app pipeline did not run.",
-                      (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+                      read_product_source('v3_behavioral_primitives.swift'))
         self.assertIn("exact underlying cause could not be safely identified",
                       FAILURE.read_text(encoding="utf-8"))
 
@@ -344,7 +346,7 @@ class InstallPrivacyAndSafetyTests(unittest.TestCase):
 
     def test_single_flight_mutation_gates_intact(self):
         self.assertIn("mutationID", service())
-        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        bridge = read_product_source('v3_service_bridge.swift')
         self.assertIn("activeMutation", bridge)
 
     def test_successful_install_reloads_authoritative_state(self):

@@ -16,20 +16,22 @@ Rules enforced here:
 import unittest
 from pathlib import Path
 
+from tests.support.product_sources import read_product_source
+
 ROOT = Path(__file__).resolve().parents[2]
-PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-SETTINGS = ROOT / "scripts/templates/livecontainer_refresh_settings.swift"
+PRIMITIVES = 'v3_behavioral_primitives.swift'
+SHELL = 'v3_unified_shell.swift'
+SETTINGS = 'livecontainer_refresh_settings.swift'
 
 RUN_NOW = 'NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow")'
 
 
 def primitives():
-    return PRIMITIVES.read_text(encoding="utf-8")
+    return read_product_source(PRIMITIVES)
 
 
 def shell():
-    return SHELL.read_text(encoding="utf-8")
+    return read_product_source(SHELL)
 
 
 def test_refresh() -> str:
@@ -40,7 +42,7 @@ def test_refresh() -> str:
 
 
 def manual_refresh() -> str:
-    text = SETTINGS.read_text(encoding="utf-8")
+    text = read_product_source(SETTINGS)
     start = text.index("private func notifyManualRefresh()")
     return text[start:start + 900]
 
@@ -48,7 +50,7 @@ def manual_refresh() -> str:
 def targeted_refresh() -> str:
     text = shell()
     start = text.index("struct V3TargetedRefreshSection")
-    return text[start:start + 2200]
+    return text[start:text.index("\nstruct ", start + 1)]
 
 
 class SharedPolicyTests(unittest.TestCase):
@@ -62,7 +64,7 @@ class SharedPolicyTests(unittest.TestCase):
         self.assertIn('case "Pairing file required", "Pairing file invalid": return .pairingRequired', text)
         self.assertIn("default: return .unknown", text)
         # No call site may re-derive the rule.
-        for view in (shell(), SETTINGS.read_text(encoding="utf-8")):
+        for view in (shell(), read_product_source(SETTINGS)):
             self.assertNotIn('status.pairing == "Pairing file required"', view)
             self.assertNotIn('status.pairing == "Pairing file available"', view)
 
@@ -71,7 +73,7 @@ class SharedPolicyTests(unittest.TestCase):
         self.assertIn("safeCause: .pairingRequired", text)
         self.assertIn('operation: "refresh", stage: .pairing, code: .notReady', text)
         self.assertIn("retryable: false, safeCause: .pairingRequired", text)
-        for view in (shell(), SETTINGS.read_text(encoding="utf-8")):
+        for view in (shell(), read_product_source(SETTINGS)):
             self.assertNotIn("safeCause: .pairingRequired", view,
                              "the pairing failure identity must be minted by the policy only")
 
@@ -95,7 +97,7 @@ class SharedPolicyTests(unittest.TestCase):
         self.assertIn('"Place or import a valid pairing file, then try again."', text)
         self.assertIn('"Place or import a valid pairing file, then try again."', text)
         # The visible "what happened" line is the failure message vocabulary.
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        failure = read_product_source('combined_failure.swift')
         self.assertIn("A pairing file is required before this device can be refreshed.", failure)
 
 
@@ -167,7 +169,7 @@ class EveryEntryPointUsesThePolicyTests(unittest.TestCase):
         self.assertLess(body.index("V3RefreshPrerequisite.evaluate"), body.index(RUN_NOW))
 
     def test_manual_refresh_in_the_refresh_manager(self):
-        view = SETTINGS.read_text(encoding="utf-8")
+        view = read_product_source(SETTINGS)
         # The decision is evaluated once in a computed property, then enforced
         # both by disabling the control and by guarding the mutation.
         self.assertIn("private var manualRefreshBlocked: Bool {", view)
@@ -181,7 +183,7 @@ class EveryEntryPointUsesThePolicyTests(unittest.TestCase):
         self.assertIn(".disabled(manualRefreshBlocked)", view)
 
     def test_manual_scheduler_admits_before_any_notification_permission_prompt(self):
-        scheduler = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text(encoding="utf-8")
+        scheduler = read_product_source('livecontainer_refresh_scheduler.swift')
         start = scheduler.index("static func runNow(")
         end = scheduler.index("\n    static func recoverAfterLaunchOrResume()", start)
         run_now = scheduler[start:end]
@@ -195,7 +197,7 @@ class EveryEntryPointUsesThePolicyTests(unittest.TestCase):
         self.assertIn('Button("Show Pairing Setup")', body)
         self.assertIn("status.pairingPresented = true", body)
         # The mutation call must be disabled, not merely intercepted.
-        action = body[body.index('Label("Refresh " + app.name'):]
+        action = body[body.index('Label(V3Localization.format("Refresh %@", app.name'):]
         self.assertIn(".disabled(V3RefreshPrerequisite.evaluate", action)
 
     def test_setup_rows_and_diagnostics_use_the_policy(self):
@@ -247,6 +249,7 @@ class PairingGuidanceTests(unittest.TestCase):
             "Choose Place for this app.",
             "Wait for the tool to confirm success.",
             "Return to LC+SS.",
+            "Choose Use Placed Pairing File to validate and activate the placed file. This explicitly re-enables pairing after a reset.",
         ])
         # A static member of a View cannot be referenced bare from an instance
         # body, so the call site must be qualified.
@@ -267,10 +270,12 @@ class PairingGuidanceTests(unittest.TestCase):
         start = text.index("struct V3PairingView")
         end = text.index("struct V3ToggleRow", start)
         view = text[start:end]
-        self.assertIn('Label("Re-check Pairing"', view)
-        self.assertIn("private func recheck()", view)
-        recheck = view[view.index("private func recheck()"):]
-        self.assertIn("status.reload()", recheck[:recheck.index("\n    }")])
+        self.assertIn('Label("Use Placed Pairing File"', view)
+        self.assertIn("private func usePlacedPairing()", view)
+        recheck = view[view.index("private func usePlacedPairing()"):view.index("private func importFile(")]
+        self.assertIn('request(operation: "pairingUsePlaced")', recheck)
+        self.assertIn("status.reloadAndWait()", recheck)
+        self.assertIn("requestReload: true", recheck)
         quick = text[text.index("struct V3SetupAssistantView"):]
         self.assertIn('Label("Re-check Pairing"', quick)
         self.assertIn('Label("Show Pairing Setup"', quick)
@@ -297,13 +302,13 @@ class PairingGuidanceTests(unittest.TestCase):
         # validates only supported record shapes before persisting it.
         text = shell()
         self.assertEqual(text.count('request(operation: "pairingImportData"'), 1)
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service = read_product_source('v3_sidestore_service.swift')
         self.assertIn("V3BackendCommands.pairingFileStatus()", service)
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = read_product_source('v3_headless_runtime.swift')
         self.assertIn("PairingFileParser.parse(content: contents)", runtime)
-        self.assertIn("PairingFileManager.shared.savePairingFile(contents: contents)", runtime)
+        self.assertIn("PairingFileManager.shared.importPairingFile(contents: contents)", runtime)
         self.assertNotIn("V3PairingRecordPolicy", runtime)
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        wire = read_product_source('v3_wire_contract.swift')
         self.assertIn('"pairingImportData"', wire)
 
 

@@ -1,4 +1,4 @@
-"""Executable failure behavior plus pinned, transactional adapter regression."""
+"""Executable startup behavior and current-owner adapter contracts."""
 import importlib.util
 import json
 import os
@@ -12,8 +12,9 @@ from unittest.mock import patch as mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
-import patch_combined_service_startup as startup
-import patch_v3_service as service_patch
+from tests.owner_source import owner_source
+from tests.support.product_sources import read_product_source
+from tests.test_refresh_result_bridge import declaration
 
 
 def _matching_swift_brace(text, open_brace):
@@ -58,9 +59,9 @@ class ExecutableStartupTests(unittest.TestCase):
     def test_actual_native_launch_callback_ignores_settled_old_attempt(self):
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
-        source = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text()
+        source = read_product_source("combined_refresh_handler.swift")
         body = source[source.index("        LCLaunchServiceExtension(ext, item) {"):source.index("    fileprivate func accepted(")]
-        swift = (ROOT / "scripts/templates/combined_failure.swift").read_text() + '''
+        swift = read_product_source("combined_failure.swift") + "\n" + declaration(source, "public struct V3StartupDiagnosticLog {") + '''
 import Foundation
 @MainActor var callbacks: [(UUID?, Error?) -> Void] = []
 @MainActor final class ExtensionStub {
@@ -81,6 +82,7 @@ import Foundation
     var launchPIDObserved: Bool?
     var failureContext: CombinedFailure.LaunchContext?
     var signals = 0; var failures = 0
+    var startupDiagnostics = V3StartupDiagnosticLog()
     var service: Owner { self }
     enum Signal { case launched }
     func signal(_ signal: Signal, attempt: UUID) { signals += 1 }
@@ -152,9 +154,9 @@ import Foundation
     def test_actual_refresh_adapter_rejects_incomplete_and_stale_completion(self):
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
-        adapter = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text()
+        adapter = read_product_source("combined_refresh_handler.swift")
         method = adapter[adapter.index("    fileprivate func completedRefresh("):adapter.index("    fileprivate func legacyCompletion(")]
-        source = (ROOT / "scripts/templates/combined_failure.swift").read_text() + '''
+        source = read_product_source("combined_failure.swift") + "\n" + declaration(adapter, "enum V3RefreshCallbackIdentityPolicy {") + "\n" + declaration(adapter, "enum V3RefreshTerminalFailurePolicy {") + '''
 let testSuite = "CombinedCompletionTest." + UUID().uuidString
 // The completion path reads the one runtime App Group the host published. The
 // harness stands in for that resolver so the executable test stays isolated
@@ -165,6 +167,7 @@ enum V3SharedAppGroup {
 @MainActor final class Probe {
     var launchID: UUID? = UUID()
     var refreshRunID: String?
+    var refreshAdmissionID: String?
     var v3RefreshTerminalCallbackRunID: String?
     var refreshContinuation: Int? = 1
     var completions: [Result<Void, Error>] = []
@@ -177,9 +180,11 @@ enum V3SharedAppGroup {
         defer { defaults.removePersistentDomain(forName: testSuite) }
         let run = UUID().uuidString, newer = UUID().uuidString
         let key = CombinedVerification.uncertainMutationKey
+        let renewed: [String: Any] = ["version": 1, "mutationDispatched": true,
+            "installAcknowledged": true, "profileStore": "matched", "renewal": "extended", "certificate": "valid"]
         let valid: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": run,
             "expected_ids": ["a", "b"], "host_handoff": false,
-            "results": [["bundle_id": "a", "success": true], ["bundle_id": "b", "success": true]]]
+            "results": [["bundle_id": "a", "success": true, "verification": renewed], ["bundle_id": "b", "success": true, "verification": renewed]]]
         func receive(_ manifest: [String: Any], marker: String? = nil,
                      handoffRunID: Any? = nil, outerHandoff: Any? = nil,
                      includeOuterHandoff: Bool = false, error: String? = nil) throws -> Probe {
@@ -218,7 +223,11 @@ enum V3SharedAppGroup {
         let complete = try receive(valid)
         guard case .success = complete.completions[0] else { preconditionFailure("complete terminal results rejected") }
         precondition(defaults.string(forKey: key) == nil)
-        var failed = valid; failed["results"] = [["bundle_id": "a", "success": true], ["bundle_id": "b", "success": false]]
+        var noEvidence = valid; noEvidence["results"] = [["bundle_id": "a", "success": true], ["bundle_id": "b", "success": true]]
+        _ = try receive(noEvidence)
+        precondition(defaults.string(forKey: key) == run, "unverified success cannot release uncertainty")
+        var failed = valid; failed["results"] = [["bundle_id": "a", "success": true, "verification": renewed],
+            ["bundle_id": "b", "success": false, "failure": CombinedFailure(operation: "refresh", stage: .authentication, id: run).wire]]
         _ = try receive(failed)
         precondition(defaults.string(forKey: key) == nil, "known terminal failure should allow policy evaluation")
         // The real producer persists true and this run ID before the manifest
@@ -307,9 +316,9 @@ enum V3SharedAppGroup {
     def test_actual_adapter_duplicate_readiness_is_idempotent(self):
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
-        adapter = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text()
+        adapter = read_product_source("combined_refresh_handler.swift")
         method = adapter[adapter.index("    fileprivate func applicationReady("):adapter.index("    private func awaitServiceReady(")]
-        source = (ROOT / "scripts/templates/combined_failure.swift").read_text() + '''
+        source = read_product_source("combined_failure.swift") + "\n" + declaration(adapter, "public struct V3StartupDiagnosticLog {") + '''
 import Foundation
 @MainActor final class Probe {
     var launchID: UUID? = UUID()
@@ -318,6 +327,7 @@ import Foundation
     var readinessError: Error?
     var failureStep: CombinedFailure.LaunchContext.Step?
     var probes = 0; var failures = 0; var signals = 0
+    var startupDiagnostics = V3StartupDiagnosticLog()
     var service: Probe { self }
     enum Signal { case ready }
     func signal(_ signal: Signal, attempt: UUID) { signals += 1 }
@@ -372,9 +382,9 @@ import Foundation
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "main.swift"
-            source.write_text("\n".join((ROOT / name).read_text(encoding="utf-8") for name in (
-                "scripts/templates/combined_failure.swift", "scripts/templates/combined_service_connection.swift",
-                "tests/fixtures/combined_startup_harness.swift")), encoding="utf-8")
+            source.write_text(read_product_source("combined_failure.swift") + "\n" +
+                              read_product_source("combined_service_connection.swift") + "\n" +
+                              (ROOT / "tests/fixtures/combined_startup_harness.swift").read_text(), encoding="utf-8")
             exe = root / "startup-tests"
             result = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(exe)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -387,7 +397,7 @@ import Foundation
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "storage.m"
-            source.write_text("#include <assert.h>\n#include <stdio.h>\n" + (ROOT / "scripts/templates/combined_container_storage.h").read_text() + r'''
+            source.write_text("#include <assert.h>\n#include <stdio.h>\n" + read_product_source("combined_container_storage.h") + r'''
 int main(int argc, char **argv) { @autoreleasepool {
     NSString *root = [NSString stringWithUTF8String:argv[1]];
     NSFileManager *fm = NSFileManager.defaultManager;
@@ -422,88 +432,37 @@ int main(int argc, char **argv) { @autoreleasepool {
             self.assertLess(result.returncode, 0, "the baseline force unwrap must trap")
 
 
-class StartupPatchTests(unittest.TestCase):
+class StartupOwnerTests(unittest.TestCase):
     def test_automatic_host_handoff_persists_run_before_manifest_copies_flag(self):
-        source = (ROOT / "scripts/patch_background_automation.py").read_text(encoding="utf-8")
+        source = owner_source("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift", "SideStore")
         persist = source[source.index("    private func persistAutomaticHostHandoff()"):source.index("    private func persistAutomaticRefreshVerification(")]
-        manifest = source[source.index("private func persistAutomaticRefreshVerification"):source.rindex("VERIFICATION_MANIFEST_V1")]
+        manifest = source[source.index("private func persistAutomaticRefreshVerification"):source.index("    private func startListeningForRunningApps()")]
         self.assertLess(persist.index('defaults.set(true, forKey: "liveContainerAutoRefreshHostHandoff")'),
-                        persist.index('defaults.set(refreshIdentifier, forKey: "liveContainerAutoRefreshHostHandoffRunID")'))
+                        persist.index('forKey: "liveContainerAutoRefreshHostHandoffRunID")'))
         self.assertIn('"host_handoff": defaults.bool(forKey: "liveContainerAutoRefreshHostHandoff")', manifest)
         self.assertLess(source.index("self?.persistAutomaticHostHandoff()"),
                         source.index("self.persistAutomaticRefreshVerification(results: results"))
 
-    def fixture(self, directory):
-        live_source = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
-        side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not live_source or not side_source: self.skipTest("pinned upstream checkouts required")
-        import patch_livecontainer_autorefresh as refresh
-        import patch_refresh_result_bridge as results
-        roots = (directory / "live", directory / "side")
-        paths = (["SideStoreSupport/" + name for name in ("SideStore.swift", "SideStoreClient.swift", "XPCServer.m", "XPCServer.h", "XPCClient.m")] +
-                 ["LiveContainer/LCBootstrap.m", "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"],
-                 ["AltStore/AppDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
-                  "SideStore/Core/Operations/PipelineRunner.swift"])
-        for source, root, pin, files in zip((live_source, side_source), roots, startup.PINS, paths):
-            for name in files:
-                path = root / name; path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(subprocess.check_output(["git", "-C", source, "show", pin + ":" + name]))
-        refresh.patch_support(roots[0]); results.patch(roots[0])
-        return roots
-    def apply(self, roots):
-        with mock.object(startup.subprocess, "check_output", side_effect=lambda args, **kw: startup.PINS[0 if args[2] == str(roots[0]) else 1]):
-            startup.patch(*roots, "v2")
-    def snapshot(self, root):
-        return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
-    def test_pinned_replay_and_no_refresh_sentinel(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp); roots = self.fixture(root)
-            self.apply(roots); first = self.snapshot(root); self.apply(roots)
-            self.assertEqual(first, self.snapshot(root))
-            source = (roots[0] / "SideStoreSupport/SideStore.swift").read_text()
-            self.assertNotIn("__v3_connect", source)
-            self.assertNotIn("bookmarkForURL(sideStoreHomeURL)!", source)
-            self.assertIn("func ensureServiceConnected()", source)
-            self.assertIn("func performRefresh(", source)
-    def test_anchor_failure_is_transactional(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp); roots = self.fixture(root)
-            path = roots[0] / "LiveContainer/LCBootstrap.m"
-            path.write_text(path.read_text(encoding="utf-8").replace("NSArray *dirList =", "NSArray *changed ="), encoding="utf-8")
-            before = self.snapshot(root)
-            with self.assertRaises(SystemExit): self.apply(roots)
-            self.assertEqual(before, self.snapshot(root))
-
-    def test_replay_rejects_missing_output_and_patch_revision(self):
-        for change in ("missing-output", "patch-revision", "source-pin"):
-            with self.subTest(change=change), tempfile.TemporaryDirectory() as temp:
-                root = Path(temp); roots = self.fixture(root)
-                self.apply(roots)
-                manifest = roots[0] / ".combined-service-startup.json"
-                data = json.loads(manifest.read_text())
-                if change == "missing-output": data["files"].pop()
-                elif change == "source-pin": data["pins"][0] = "0" * 40
-                else: data["templates"]["patch_combined_service_startup.py"] = "0" * 64
-                manifest.write_text(json.dumps(data))
-                before = self.snapshot(root)
-                with self.assertRaises(SystemExit): self.apply(roots)
-                self.assertEqual(before, self.snapshot(root))
+    def test_current_startup_has_no_refresh_sentinel(self):
+        source = owner_source("SideStoreSupport/SideStore.swift")
+        self.assertNotIn("__v3_connect", source)
+        self.assertNotIn("bookmarkForURL(sideStoreHomeURL)!", source)
+        self.assertIn("func ensureServiceConnected()", source)
+        self.assertIn("func performRefresh(", source)
 
 
 class ReadinessRegressionTests(unittest.TestCase):
     def test_startup_probe_uses_bounded_backoff_and_terminal_policy(self):
-        patcher = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
-        probe = patcher[patcher.index('handler = handler.replace("/*SERVICE_PROBE*/",'):]
-        probe = probe[:probe.index("''' if product == \"v3\" else")]
+        probe = declaration(owner_source("SideStoreSupport/SideStore.swift"), "private func awaitServiceReady(")
         self.assertIn("while true", probe)
         self.assertIn("V3ServiceReadinessProbeState.resolve", probe)
         self.assertIn("backoff.nextDelay(remaining:", probe)
         self.assertNotIn("lastSnapshotError", probe)
 
     def test_direct_refresh_rechecks_after_connection_and_uses_service_admission(self):
-        generator = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
-        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
-        self.assertIn('handler = handler.replace("/*REFRESH_READINESS*/", "")', generator)
+        generator = owner_source("SideStoreSupport/SideStore.swift")
+        handler = read_product_source("combined_refresh_handler.swift")
+        self.assertNotIn("/*REFRESH_READINESS*/", generator)
         perform = handler[handler.index("private func performRefresh(identifier:"):]
         perform = perform[:perform.index("private func releaseRefreshAdmission")]
         preflights = [index for index in range(len(perform))
@@ -517,56 +476,43 @@ class ReadinessRegressionTests(unittest.TestCase):
         self.assertLess(preflights[1], token)
         self.assertLess(token, perform.index('operation: "refreshAdmissionBegin"'))
 
-    def test_pipeline_phase_hook_is_v3_only(self):
-        source = """        do {
-            switch step {
-            default: break
-            }
-            result = error
-            throw error"""
-        generated_v2 = startup.patch_pipeline_executor(source, product="v2")
-        generated_v3 = startup.patch_pipeline_executor(source, product="v3")
-        self.assertNotIn("V3_PIPELINE_PHASE_REPORTING_V1", generated_v2)
-        self.assertIn("V3_PIPELINE_PHASE_REPORTING_V1", generated_v3)
-        self.assertIn("await headlessHandler.recordPipelinePhase(step,", generated_v3)
-        self.assertIn("downloadUsesNetwork: downloadingApp.url?.isFileURL == false", generated_v3)
+    def test_current_pipeline_reports_phase_without_replay(self):
+        source = owner_source("SideStore/Core/Operations/PipelineExecutor.swift", "SideStore")
+        self.assertIn("V3_PIPELINE_PHASE_REPORTING_V1", source)
+        self.assertIn("await headlessHandler.recordPipelinePhase(step,", source)
+        self.assertIn("downloadUsesNetwork: downloadingApp.url?.isFileURL == false", source)
 
     def test_generated_pinned_portal_failures_preserve_request_owned_signing_context(self):
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
-        side_sign = os.getenv("SIDESIGN_TEST_SOURCE")
-        embedded = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not side_sign or not embedded:
-            self.skipTest("pinned SideSign and SideStore sources are supplied by macOS CI")
-        side_sign_ref = subprocess.check_output(["git", "-C", side_sign, "rev-parse", "HEAD"], text=True).strip()
-        self.assertEqual(side_sign_ref, "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d")
-        side_store_ref = subprocess.check_output(["git", "-C", embedded, "rev-parse", "HEAD"], text=True).strip()
-        self.assertEqual(side_store_ref, startup.PINS[1])
-
-        errors_text = (Path(side_sign) / "Sources/Models/Errors.swift").read_text(encoding="utf-8")
+        errors_text = owner_source("Sources/Models/Errors.swift", "SideStore/Dependencies/SideSign")
         error_start = errors_text.index("public enum DeveloperPortalError")
         error_end = errors_text.index("public enum SignerError", error_start)
         actual_side_sign_errors = errors_text[error_start:error_end]
 
-        response_text = (Path(side_sign) / "Sources/Models/DeveloperPortalResponses.swift").read_text(encoding="utf-8")
+        response_text = owner_source("Sources/Models/DeveloperPortalResponses.swift", "SideStore/Dependencies/SideSign")
         status_start = response_text.index("struct DeveloperPortalStatusResponse:")
         status_open = response_text.index("{", status_start)
         status_end = _matching_swift_brace(response_text, status_open)
         actual_status_response = response_text[status_start:status_end]
 
-        constants_text = (Path(side_sign) / "Sources/Constants.swift").read_text(encoding="utf-8")
+        constants_text = owner_source("Sources/Constants.swift", "SideStore/Dependencies/SideSign")
         codes_start = constants_text.index("public enum DeveloperPortalResultCodes {")
         codes_open = constants_text.index("{", codes_start)
         actual_result_codes = constants_text[codes_start:_matching_swift_brace(constants_text, codes_open)]
 
-        app_ids_text = (Path(side_sign) / "Sources/DeveloperPortal/AppIDs.swift").read_text(encoding="utf-8")
-        app_ids_text = startup.patch_sidesign_app_id_limit(app_ids_text)
-        self.assertEqual(startup.patch_sidesign_app_id_limit(app_ids_text), app_ids_text)
+        app_ids_text = owner_source("Sources/DeveloperPortal/AppIDs.swift", "SideStore/Dependencies/SideSign")
         handler_open = app_ids_text.index("{", app_ids_text.index("resultCodeHandler: {"))
         actual_app_id_result_handler = app_ids_text[handler_open:_matching_swift_brace(app_ids_text, handler_open)]
 
-        api_text = (Path(side_sign) / "Sources/DeveloperPortal/DeveloperPortalAPI.swift").read_text(encoding="utf-8")
-        patched_api = startup.patch_sidesign_portal_observer(api_text)
+        api_text = owner_source("Sources/DeveloperPortal/DeveloperPortalAPI.swift", "SideStore/Dependencies/SideSign")
+        patched_api = api_text
+        portal_observer = declaration(api_text, "public enum SideSignPortalDiagnostics {")
+        pipeline = owner_source("SideStore/Core/Operations/PipelineExecutor.swift", "SideStore")
+        signing_helper_source = declaration(owner_source("SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift", "SideStore"), "struct V3RefreshSelectionFailure:") + "\n" + pipeline[pipeline.index("enum V3RefreshFailureBoundary:"):]
+        catch_start = pipeline.index("            result = error")
+        catch_end = pipeline.index("\n        }\n    }", catch_start)
+        pipeline_failure_handler = pipeline[catch_start:catch_end]
         status_parser = "if let status = (try? PropertyListDecoder().decode(DeveloperPortalStatusResponse.self, from: data))"
         parser_position = patched_api.index(status_parser)
         response_position = patched_api.rfind("let httpResponse = response as? HTTPURLResponse", 0, parser_position)
@@ -577,28 +523,25 @@ class ReadinessRegressionTests(unittest.TestCase):
         actual_status_decoder = patched_api[parser_position:_matching_swift_brace(patched_api, parser_open)]
         self.assertIn("SideSignPortalDiagnostics.responseObserver?(httpResponse?.statusCode, nil)", actual_http_observer)
         self.assertIn("SideSignPortalDiagnostics.safeProviderCode(firstError.code)", actual_status_decoder)
-        self.assertIn('"ENTITY_ERROR.ATTRIBUTE.INVALID"', startup.SIDESIGN_PORTAL_OBSERVER)
-        self.assertIn("guard let value, known.contains(value) else { return nil }", startup.SIDESIGN_PORTAL_OBSERVER)
+        self.assertIn('"ENTITY_ERROR.ATTRIBUTE.INVALID"', portal_observer)
+        self.assertIn("guard let value, known.contains(value) else { return nil }", portal_observer)
         self.assertIn("ServerError.underlyingError(code: -1, message: detail)", actual_status_decoder)
         self.assertIn("ServerError.underlyingError(code: code, message: message)", actual_status_decoder)
-        self.assertIn("lcSafeSigningCause(error, portalResponse: portalResponse)", startup.SIGNING_CAUSE_HELPER)
+        self.assertIn("lcSafeSigningCause(error, portalResponse: portalResponse)", signing_helper_source)
 
-        original_proxy = subprocess.check_output([
-            "git", "-C", embedded, "show",
-            startup.PINS[1] + ":SideStore/Core/Auth/DeveloperPortalProxy.swift"], text=True)
-        generated_proxy = service_patch.patch_developer_portal_proxy(original_proxy)
+        generated_proxy = owner_source("SideStore/Core/Auth/DeveloperPortalProxy.swift", "SideStore")
         method_start = generated_proxy.index("public func addAppID(name:")
         method_open = generated_proxy.index("{", method_start)
         actual_add_app_id = generated_proxy[method_start:_matching_swift_brace(generated_proxy, method_open)]
         self.assertIn('sourceStep: "appIDRegistration"', actual_add_app_id)
         self.assertIn("ALTAppleAPI.shared.addAppID", actual_add_app_id)
 
-        failure_model = _without_imports((ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8"))
-        behavioral_model = _without_imports((ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+        failure_model = _without_imports(read_product_source("combined_failure.swift"))
+        behavioral_model = _without_imports(read_product_source("v3_behavioral_primitives.swift"))
         template = (ROOT / "tests/fixtures/v3_portal_failure_harness.swift").read_text(encoding="utf-8")
 
         def build_source(*, mutate_server_code=False, mutate_source_step=False, mutate_quota=False, mutate_portal_type=False, mutate_9120=False):
-            signing_helper = startup.SIGNING_CAUSE_HELPER
+            signing_helper = signing_helper_source
             if mutate_portal_type:
                 original = 'if error is DeveloperPortalError { context["typed_error"] = "sideSignDeveloperPortalError" }'
                 self.assertEqual(signing_helper.count(original), 1)
@@ -625,20 +568,20 @@ class ReadinessRegressionTests(unittest.TestCase):
                 "$SIDESIGN_ERROR_TYPES$": actual_side_sign_errors,
                 "$DEVELOPER_PORTAL_STATUS_RESPONSE$": actual_status_response,
                 "$DEVELOPER_PORTAL_RESULT_CODES$": actual_result_codes,
-                "$PORTAL_OBSERVER$": startup.SIDESIGN_PORTAL_OBSERVER,
+                "$PORTAL_OBSERVER$": portal_observer,
                 "$ACTUAL_APP_ID_RESULT_HANDLER$": app_id_handler,
                 "$COMBINED_FAILURE$": failure_model,
                 "$BEHAVIORAL_POLICIES$": behavioral_model,
                 "$SIGNING_CAUSE_HELPER$": signing_helper,
                 "$ACTUAL_HTTP_OBSERVER_AND_STATUS_DECODER$": actual_http_observer + actual_status_decoder,
                 "$ACTUAL_PATCHED_ADD_APP_ID_METHOD$": generated_method,
-                "$ACTUAL_PIPELINE_FAILURE_HANDLER$": startup.PIPELINE_FAILURE_HANDLER,
+                "$ACTUAL_PIPELINE_FAILURE_HANDLER$": pipeline_failure_handler,
             }
             result = template
             for marker, value in replacements.items():
                 self.assertEqual(result.count(marker), 1, f"fixture placeholder drift: {marker}")
                 result = result.replace(marker, value, 1)
-            wire_model = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+            wire_model = read_product_source("v3_wire_contract.swift")
             return wire_model + "\n" + result
 
         with tempfile.TemporaryDirectory() as directory:
@@ -667,13 +610,13 @@ class ReadinessRegressionTests(unittest.TestCase):
             execute("portal-failure-no-9120", build_source(mutate_9120=True), False)
 
     def test_structured_failures_are_preserved_not_rewrapped(self):
-        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        handler = read_product_source("combined_refresh_handler.swift")
         self.assertIn("CombinedFailure.preserving(underlying", handler)
         self.assertIn("Never double-wrap", handler)
 
     def test_startup_markers_carry_correlation(self):
-        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
-        startup = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
+        handler = read_product_source("combined_refresh_handler.swift")
+        startup = owner_source("SideStoreSupport/SideStore.swift")
         for marker in ("PROCESS_LAUNCH_BEGIN", "PROCESS_LAUNCHED", "XPC_CONNECTED",
                        "APPLICATION_READY", "PROCESS_EXITED", "START_FAILED",
                        "SNAPSHOT_READY", "READINESS_TIMEOUT", "READINESS_INVALID_RESPONSE"):
@@ -683,8 +626,8 @@ class ReadinessRegressionTests(unittest.TestCase):
         self.assertNotIn('result["ok"] as? Bool', startup)
 
     def test_reconnect_and_mutation_safety_invariants(self):
-        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
-        connection = (ROOT / "scripts/templates/combined_service_connection.swift").read_text(encoding="utf-8")
+        handler = read_product_source("combined_refresh_handler.swift")
+        connection = read_product_source("combined_service_connection.swift")
         self.assertIn("if attemptID == nil { begin() }", connection)
         self.assertGreaterEqual(handler.count("launchID == id"), 4)
         self.assertIn("attemptID == id", connection)

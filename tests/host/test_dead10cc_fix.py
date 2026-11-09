@@ -71,7 +71,7 @@ __PRODUCTION_PROBE__
 
 class OwnerSourceAdmissionTests(unittest.TestCase):
     def test_wrong_pin_and_modified_blob_are_rejected(self):
-        expected = json.loads((ROOT/'ci/issues-native/candidate-graph.json').read_text())['owners']['LiveContainer'][1]
+        expected = json.loads(((ROOT/'ci/build/candidate-graph.json')).read_text())['owners']['LiveContainer'][1]
         with tempfile.TemporaryDirectory() as name:
             path = Path(name)/SOURCE_PATH
             path.parent.mkdir(parents=True)

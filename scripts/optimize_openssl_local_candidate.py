@@ -3,6 +3,12 @@
 Caller must supply authenticated prior receipt/seal and actual transformed-host
 qualification. Does not edit source/native products or claim iOS runtime proof.
 """
+import sys as _native_sys
+from pathlib import Path as _NativePath
+_native_root = next((p for p in _NativePath(__file__).resolve().parents if (p / 'ci/native_paths.py').is_file()), None)
+if _native_root is not None:
+    _native_sys.path.insert(0, str(_native_root))
+from pathlib import Path as _CIPath
 import copy
 import json
 import os
@@ -11,11 +17,11 @@ import subprocess
 import zipfile
 import sys
 import importlib.util
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'ci/issues-native'))
+sys.path.insert(0,str((_CIPath(__file__).resolve().parents[1]/'ci/qualification/native')))
 from experiment_strip_stabs import digest, unique_zip, write
 from experiment_sidebackup_stabs import replace_one
 from macho_stab_guard import require, sha, verify
-from native_transfer_seal import verify as verify_seal
+from ci.packaging.native.native_transfer_seal import verify as verify_seal
 from optimize_native_candidate import retained_inventory, admitted_packaging_identity, verify_persisted_json_receipt
 from openssl_local_symbol_policy import verify_openssl_owner_pair
 from package_livecontainer_combined import verify as verify_package
@@ -35,10 +41,10 @@ def verify_host_qualification(path, expected_sha, packaging_identity, native_ide
     require(path.is_file() and not path.is_symlink() and digest(path)==expected_sha,'host qualification receipt SHA differs')
     schema=json.loads(path.read_text()).get('schema')
     if schema=='openssl-true-local-same-run-host-qualification-v1':
-        module_path=Path(__file__).resolve().parents[1]/'ci/issue56-startup/qualify_host.py'
+        module_path=(_CIPath(__file__).resolve().parents[1]/'ci/qualification/size/qualify_host.py')
     else:
         require(schema=='openssl-true-local-host-qualification-v1','unknown host qualification schema')
-        module_path=Path(__file__).resolve().parents[1]/'ci/issue55-openssl-local/qualify_host.py'
+        module_path=(_CIPath(__file__).resolve().parents[1]/'ci/packaging/openssl_symbols/qualify_host.py')
     spec=importlib.util.spec_from_file_location('reviewed_openssl_host_qualification',module_path)
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     return module.verify_host_local_qualification(path,expected_sha256=expected_sha,

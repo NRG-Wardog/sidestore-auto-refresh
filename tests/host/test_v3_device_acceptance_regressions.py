@@ -6,18 +6,21 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES = ROOT / "scripts/templates"
+from tests.owner_source import owner_source
+from tests.support.product_sources import read_product_source
 
 
 class DeviceAcceptanceBehaviorTests(unittest.TestCase):
     def test_shortcut_refresh_is_forwarded_to_host_scheduler(self):
-        runtime = (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8")
-        intent = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
-        host_patch = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
+        runtime = read_product_source("v3_behavioral_primitives.swift")
+        intent = owner_source("AltStore/Intents/App Intents/RefreshAllAppsIntent.swift", "SideStore")
+        host_patch = owner_source("LiveContainerSwiftUI/App/AppDelegate.swift")
         self.assertIn("struct V3ShortcutRefreshRequest", runtime)
         self.assertIn('Notification.Name("LiveContainerAutoRefreshRunNow")', host_patch)
-        self.assertIn("V3ShortcutRefreshRequest.make()", host_patch)
-        self.assertIn('mangledName: "9SideStore20RefreshAllAppsIntentV"', host_patch)
+        support = owner_source("SideStoreSupport/SideStore.swift")
+        self.assertIn("V3ShortcutRefreshRequest.make()", support)
+        self.assertIn("V3ShortcutRefreshRequest(userInfo: notification.userInfo)", host_patch)
+        self.assertIn('mangledName: "9SideStore20RefreshAllAppsIntentV"', support)
         self.assertIn("V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1", intent)
         self.assertIn('origin: "manualUnknown"', runtime)
 
@@ -26,9 +29,9 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         if not compiler:
             self.skipTest("Swift compiler unavailable")
         program = "\n".join([
-            (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8"),
-            (TEMPLATES / "combined_failure.swift").read_text(encoding="utf-8"),
-            (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8"),
+            read_product_source("v3_wire_contract.swift"),
+            read_product_source("combined_failure.swift"),
+            read_product_source("v3_behavioral_primitives.swift"),
             (ROOT / "tests/fixtures/v3_device_acceptance_regressions_harness.swift").read_text(encoding="utf-8"),
         ])
         with tempfile.TemporaryDirectory() as directory:
@@ -43,7 +46,7 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
             self.assertIn("V3 DEVICE ACCEPTANCE REGRESSION BEHAVIOR PASS", result.stdout)
 
     def test_local_ipa_and_url_converge_only_after_resolution(self):
-        runtime = (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = read_product_source("v3_headless_runtime.swift")
         start = runtime.index("private func makeDriver")
         end = runtime.index("private func resolveInstallTarget", start)
         driver = runtime[start:end]
@@ -62,7 +65,7 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         self.assertIn("return .app(AnyApp", resolver)
 
     def test_picker_is_presented_directly_from_the_root_uikit_anchor(self):
-        shell = (TEMPLATES / "v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = read_product_source("v3_unified_shell.swift")
         self.assertNotIn("selectedInstallToken", shell)
         self.assertIn("V3InstallPickerPresenter(status: status)", shell)
         self.assertIn("anchor.present(documentPicker, animated: true)", shell)
@@ -72,7 +75,7 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         self.assertNotIn("V3FullScreenCoverHost", shell)
         self.assertIn("V3InstallPickerPresentationCoordinator", shell)
         self.assertIn("final class V3InstallPickerPresentationCoordinator",
-                      (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+                      read_product_source("v3_behavioral_primitives.swift"))
         self.assertIn("presentation.didPresent(attemptID: attemptID)", shell)
         self.assertIn("status?.installPickerDidDisappear(attemptID: attemptID)", shell)
         self.assertIn("func resetInstallUI(attemptID: UUID", shell)
@@ -93,14 +96,14 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         self.assertNotIn("asyncAfter", shell)
 
     def test_install_menu_action_has_icon_and_side_store_context(self):
-        shell = (TEMPLATES / "v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = read_product_source("v3_unified_shell.swift")
         button = shell[shell.index("struct V3InstallButton:"):shell.index("struct V3OperationRequest:")]
         self.assertIn('Button("Install with SideStore", systemImage: "arrow.down.app")', button)
         self.assertIn("Install / Sideload App with SideStore", button)
         self.assertIn("Choose an IPA", button)
 
     def test_delete_has_backend_evidence_and_authoritative_reconciliation(self):
-        runtime = (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = read_product_source("v3_headless_runtime.swift")
         center = runtime[runtime.index("private func deleteAndReconcile"):runtime.index("private func authoritativeLibraryContains")]
         self.assertIn("V3DeleteNativeSuccessRegistry.shared.contains(sessionID: id)", center)
         self.assertIn("authoritativeLibraryContains(bundleIdentifier: bundleIdentifier)", center)
@@ -110,8 +113,8 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         self.assertIn("AppOperation.install($0)", runtime)
 
     def test_setup_and_home_use_same_manual_scheduler_request_path(self):
-        shell = (TEMPLATES / "v3_unified_shell.swift").read_text(encoding="utf-8")
-        scheduler = (TEMPLATES / "livecontainer_refresh_scheduler.swift").read_text(encoding="utf-8")
+        shell = read_product_source("v3_unified_shell.swift")
+        scheduler = read_product_source("livecontainer_refresh_scheduler.swift")
         self.assertIn('"origin": "home"', shell)
         self.assertIn('"origin": "setupAssistant"', shell)
         self.assertIn('await execute(source: "manual", manualRequestID: requestID, manualOrigin: origin)', scheduler)
@@ -140,9 +143,9 @@ struct AnisetteNetworkGuidanceHarness {
     }
 }'''
         program = "\n".join([
-            (TEMPLATES / "combined_failure.swift").read_text(encoding="utf-8"),
-            (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8"),
-            (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8"),
+            read_product_source("combined_failure.swift"),
+            read_product_source("v3_wire_contract.swift"),
+            read_product_source("v3_behavioral_primitives.swift"),
             harness,
         ])
         with tempfile.TemporaryDirectory() as directory:

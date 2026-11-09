@@ -1,3 +1,4 @@
+from tests.support.product_sources import ProductSource
 """Current installed-host compatibility stays distinct from successful history."""
 import importlib.util
 import os
@@ -8,9 +9,9 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
-PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
+RUNTIME = ProductSource('v3_headless_runtime.swift')
+PRIMITIVES = ProductSource('v3_behavioral_primitives.swift')
+SHELL = ProductSource('v3_unified_shell.swift')
 
 
 def declaration(source, signature):
@@ -27,28 +28,18 @@ def declaration(source, signature):
     raise AssertionError("Unterminated declaration: " + signature)
 
 
-def transformer():
-    spec = importlib.util.spec_from_file_location("host_signing_service", ROOT / "scripts/patch_v3_service.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from tests.owner_source import owner_source
+from tests.support.certificate_log_privacy import swift_log_call_ranges
 
 
 def pinned_validator(test):
-    for key in ("EMBEDDED_SIDESTORE_TEST_SOURCE", "SIDESTORE_TEST_SOURCE"):
-        folder = os.environ.get(key)
-        if folder:
-            if Path(folder).is_dir():
-                return subprocess.check_output(["git", "-C", folder, "show",
-                    "ff25922e5c13ccfafd83bda5092910d848ebd409:SideStore/Core/Certificates/CodeSignValidator.swift"],
-                    text=True, encoding="utf-8")
-    test.skipTest("Pinned SideStore source unavailable")
+    return owner_source("SideStore/Core/Certificates/CodeSignValidator.swift", "SideStore")
 
 
 class HostSigningReadinessTests(unittest.TestCase):
     def test_local_only_health_is_allowlisted_and_does_not_use_network(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text()
+        service = (ProductSource('v3_sidestore_service.swift')).read_text()
+        wire = (ProductSource('v3_wire_contract.swift')).read_text()
         runtime = RUNTIME.read_text()
         command = service[service.index('        case "healthSnapshot":'):service.index('        case "accountExport":')]
         self.assertIn('if target == "hostSigningOnly"', command)
@@ -84,7 +75,7 @@ class HostSigningReadinessTests(unittest.TestCase):
         self.assertIn("invalidateSetupFacts()", disconnect[:150])
 
     def test_readiness_only_does_not_replace_full_identity_and_full_reload_repairs(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
+        service = (ProductSource('v3_sidestore_service.swift')).read_text()
         shell = SHELL.read_text()
         snapshot_dispatch = service[service.index('        case "snapshot":'):service.index('        case "directRecoveryInspect":')]
         self.assertIn('return ["ready": DatabaseManager.shared.isStarted]', snapshot_dispatch)
@@ -122,7 +113,7 @@ class HostSigningReadinessTests(unittest.TestCase):
         shell = SHELL.read_text()
         self.assertEqual(shell.count("installedHostSigningCompatible: status.installedHostSigningState == .compatible"), 2)
         self.assertIn('setup.verification.state != "complete" || status.installedHostSigningState != .compatible', shell)
-        self.assertIn('title: "Installed Host Signing"', shell)
+        self.assertIn('result.append(("Installed Host Signing", status.installedHostSigningState.detail))', shell)
         self.assertIn('.onChange(of: setup.testRunning) { running in', shell)
         post_test = shell[shell.index('.onChange(of: setup.testRunning)'):]
         post_test = post_test[:post_test.index('.onChange(of: status.jitlessReadiness)')]
@@ -139,25 +130,15 @@ class HostSigningReadinessTests(unittest.TestCase):
                          "runningCertificate.expiryDate", "profile.expirationDate"):
             self.assertIn(expected, observation)
 
-    def test_retained_validator_is_quiet_idempotent_and_still_owns_decisions(self):
+    def test_current_validator_is_quiet_and_owns_observed_certificate_decisions(self):
         source = pinned_validator(self)
-        patcher = transformer()
-        patched = patcher.headless_code_sign_validator_privacy(source)
-        self.assertEqual(patcher.headless_code_sign_validator_privacy(patched), patched)
-        self.assertEqual(patcher._swift_log_call_ranges(patched), [])
-        self.assertIn("observedRunningCertificate: ALTX509Certificate? = nil", patched)
-        self.assertIn("observedRunningCertificate ?? CertificateManager.shared.getSigningCertificate", patched)
-        # Aside from omitted logs and the injected already-observed leaf, every
-        # upstream decision remains byte-for-byte, not independently reimplemented.
-        expected = source
-        for start, end, _ in reversed(patcher._swift_log_call_ranges(source)):
-            expected = expected[:start] + "/* Local signing details are intentionally not logged. */" + expected[end:]
-        expected = expected.replace("        runningProfile: ALTProvisioningProfile?,\n", "        runningProfile: ALTProvisioningProfile?,\n        observedRunningCertificate: ALTX509Certificate? = nil,\n")
-        expected = expected.replace("let runningCert = CertificateManager.shared.getSigningCertificate", "let runningCert = observedRunningCertificate ?? CertificateManager.shared.getSigningCertificate")
-        self.assertEqual(patched, "// V3_HOST_SIGNING_VALIDATOR_QUIET_V1\n" + expected)
+        self.assertEqual(swift_log_call_ranges(source), [])
+        self.assertIn("observedRunningCertificate: ALTX509Certificate? = nil", source)
+        self.assertIn("observedRunningCertificate ?? CertificateManager.shared.getSigningCertificate", source)
+        self.assertTrue(swift_log_call_ranges(source + '\ndebugLog("private signing detail")\n'))
 
     def test_production_validator_cache_observation_and_completion_execute(self):
-        validator = transformer().headless_code_sign_validator_privacy(pinned_validator(self))
+        validator = pinned_validator(self)
         validator = validator.replace("import SideSign", "")
         runtime, primitives, shell = RUNTIME.read_text(), PRIMITIVES.read_text(), SHELL.read_text()
         declarations = "\n\n".join([
@@ -189,7 +170,7 @@ class HostSigningReadinessTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; local health wire harness requires macOS CI")
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text()
+        wire = (ProductSource('v3_wire_contract.swift')).read_text()
         harness = r'''
 let now = Date()
 for target in ["", "hostSigningOnly", "unexpected", "HOSTSIGNINGONLY"] {

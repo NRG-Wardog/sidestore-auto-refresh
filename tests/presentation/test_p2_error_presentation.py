@@ -55,9 +55,11 @@ class ErrorPresentationTests(unittest.TestCase):
   self.assertIn('if state.detailIsOpaque { Text(state.detail) }',shell)
   self.assertIn('if accountPresent == true { opaqueHealthRows.insert("Account") }',shell)
   self.assertIn('if teamPresent == true { opaqueHealthRows.insert("Team") }',shell)
-  runtime=(ROOT/'scripts/templates/v3_headless_runtime.swift').read_text()
+  from tests.support.product_sources import read_product_source
+  runtime=read_product_source('v3_headless_runtime.swift')
   health=runtime.split('static func health()',1)[1].split('static func ',1)[0]
-  self.assertIn('"activeAccountPresent": activeAccount != nil, "activeTeamPresent": team != nil',health)
+  self.assertIn('"activeAccountPresent": activeAccount != nil',health)
+  self.assertIn('"activeTeamPresent": team != nil',health)
   self.assertIn('"account": account, "team": team?.name ?? "No active team"',health)
  def test_historical_compiled_translations_are_preserved_by_current_source(self):
   import sys

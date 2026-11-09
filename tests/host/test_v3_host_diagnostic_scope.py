@@ -9,13 +9,13 @@ import unittest
 from unittest.mock import patch as mock
 
 from tests.host import test_combined_service_startup as startup_tests
-from tests import test_v3_service as service_tests
+from tests.owner_source import owner_source, owner_root, owner_pin
+from tests.support.product_sources import read_product_source, ProductSource
 
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES = ROOT / "scripts/templates"
 SHARED_DIAGNOSTICS = ("LCAnisettePairError", "V3DiagnosticBuild", "V3DiagnosticCopy",
                       "V3DiagnosticPresentation")
-HOST_TEMPLATES = ("v3_unified_shell.swift", "v3_behavioral_primitives.swift",
+HOST_TEMPLATES = ("v3_unified_shell.swift", "host_behavioral_primitives.swift",
                   "livecontainer_refresh_scheduler.swift", "livecontainer_refresh_settings.swift",
                   "v3_ipa_staging.swift", "v3_secret_handoff.swift", "v3_setup_intent.swift")
 
@@ -43,18 +43,8 @@ def diagnostic_references(source):
 
 
 def generated_sources(directory):
-    # Read exact pinned Git blobs and run the same shell/service/startup adapters
-    # as the workflow. Do not give the app a copy of combined_failure.swift: that
-    # masks internal-vs-public errors even though a single-module test compiles.
-    fixture = service_tests.ServicePatchTests()
-    live, side = fixture.fixture(directory)
-    fixture.apply((live, side))
-    startup = service_tests.module("patch_combined_service_startup")
-    with mock.object(startup.subprocess, "check_output", side_effect=lambda args, **kw:
-                     startup.PINS[0 if args[2] == str(live) else 1]):
-        startup.patch(live, side, "v3")
-    support = (live / "SideStoreSupport/SideStore.swift").read_text(encoding="utf-8")
-    shell = (live / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift").read_text(encoding="utf-8")
+    support = owner_source("SideStoreSupport/SideStore.swift")
+    shell = owner_source("LiveContainerSwiftUI/Views/V3UnifiedShell.swift")
     # Retain whole generated Foundation-only units, including their real access
     # modifiers and dependency closure, while excluding platform UI/XPC glue.
     common_start = support.index("import Foundation\nimport CoreFoundation\n\npublic struct CombinedRefreshTargetPlan:")
@@ -63,19 +53,21 @@ def generated_sources(directory):
     wire_end = support.index("import Foundation\n\nenum V3SetupSnapshotOutcome:", wire_start)
     primitive_end = shell.index("import Foundation\nimport Security")
     consumers = {}
-    for path in live.rglob("*.swift"):
-        if "SideStoreSupport" in path.relative_to(live).parts:
+    matches = subprocess.check_output([
+        'git', '-C', str(owner_root()), 'grep', '-l', '-E', '|'.join(SHARED_DIAGNOSTICS),
+        owner_pin(), '--', '*.swift'], text=True).splitlines()
+    for match in matches:
+        relative = match.split(':', 1)[1]
+        if 'SideStoreSupport' in Path(relative).parts or Path(relative).parts[0] in (".ci", "tests"):
             continue
-        source = path.read_text(encoding="utf-8")
-        if diagnostic_references(source):
-            consumers[path.relative_to(live).as_posix()] = source
+        consumers[relative] = owner_source(relative)
     return support, shell, support[common_start:common_end] + support[wire_start:wire_end], shell[:primitive_end], consumers
 
 
 class HostDiagnosticScopeTests(unittest.TestCase):
     def test_host_consumed_common_types_are_exported(self):
-        common = (TEMPLATES / "combined_failure.swift").read_text(encoding="utf-8")
-        host = "\n".join((TEMPLATES / name).read_text(encoding="utf-8") for name in HOST_TEMPLATES)
+        common = read_product_source("combined_failure.swift")
+        host = "\n".join(read_product_source(name) for name in HOST_TEMPLATES)
         missing = []
         for access, name in re.findall(r"^(?:(public|private|fileprivate) )?(?:struct|enum|class|func) (\w+)", common, re.M):
             if access != "public" and re.search(r"\b" + name + r"\b", host):
@@ -100,8 +92,9 @@ class HostDiagnosticScopeTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertRegex(source, r"(?m)^import SideStoreSupport$",
                                  "every Swift file must import the module it consumes")
-        self.assertTrue(framework.startswith((TEMPLATES / "combined_failure.swift").read_text(encoding="utf-8")))
-        self.assertEqual(primitives, (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + "\n")
+        self.assertIn(read_product_source("combined_failure.swift").strip(), framework)
+        self.assertIn("enum V3SetupSnapshotOutcome:", primitives)
+        self.assertIn("struct V3SettingsWriteGeneration", primitives)
         for name in SHARED_DIAGNOSTICS:
             self.assertEqual(len(re.findall(r"^public enum " + name + r"\b", support, re.M)), 1)
             self.assertNotRegex(shell, r"\benum " + name + r"\b")

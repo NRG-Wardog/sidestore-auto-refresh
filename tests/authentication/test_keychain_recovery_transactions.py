@@ -2,6 +2,7 @@
 
 Security.framework and Apple are doubles. A native/device pass is still needed.
 """
+from tests.support.keychain_owner_runtime import keychain_runtime_source
 from pathlib import Path
 import os
 import shutil
@@ -291,7 +292,7 @@ class KeychainRecoveryTransactionTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(prefix="lc-keychain-recovery-")
         cls.addClassCleanup(cls.temp.cleanup)
         source = Path(cls.temp.name) / "Recovery.swift"
-        source.write_text(DOUBLES + existing.TEMPLATE.read_text() + existing.module.KEYCHAIN_ACCESS_ADAPTER + HARNESS)
+        source.write_text(DOUBLES + keychain_runtime_source() + "\n" + HARNESS)
         cls.executable = Path(cls.temp.name) / "recovery"
         result = subprocess.run([compiler, "-swift-version", "5", "-parse-as-library", str(source), "-o", str(cls.executable)], capture_output=True, text=True)
         if result.returncode:
@@ -305,19 +306,9 @@ class KeychainRecoveryTransactionTests(unittest.TestCase):
                 self.assertIn("PASSED: " + scenario, result.stdout)
 
 
-class GeneratedCertificatePersistenceTests(unittest.TestCase):
-    def test_exact_pinned_certificate_patch_orders_commit_before_activation(self):
-        source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not source:
-            self.skipTest("pinned SideStore source unavailable; required in combined CI")
-        original = existing.read_pinned_source(source, "SideStore/Core/Certificates/CertificateManager.swift")
-        # This is the only prior CertificateManager transformation in the
-        # combined build. Confirm the audited risk before applying the fix.
-        prepared = existing.service_module.headless_certificate_serial_log_redaction(original, "CertificateManager")
-        self.assertIn("Keychain.shared.signingCertificate = p12Data", prepared)
-        self.assertIn("Keychain.shared.signingCertificatePassword = password", prepared)
-        fixed = existing.module.patch_certificate_manager(prepared)
-        self.assertEqual(existing.module.patch_certificate_manager(fixed), fixed)
+class MaintainedCertificatePersistenceTests(unittest.TestCase):
+    def test_owner_certificate_write_precedes_activation(self):
+        fixed = existing.sidestore_source("SideStore/Core/Certificates/CertificateManager.swift")
         start = fixed.index("public func setActiveCertificate(")
         end = fixed.index("public func clearActiveCertificate(", start)
         active = fixed[start:end]
@@ -328,14 +319,8 @@ class GeneratedCertificatePersistenceTests(unittest.TestCase):
         self.assertNotIn("Keychain.shared.signingCertificate =", active)
         self.assertIn("native.code == 1010", active)
 
-    def test_generated_token_recovery_preserves_identity_and_errors(self):
-        source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not source:
-            self.skipTest("pinned SideStore source unavailable; required in combined CI")
-        original = existing.read_pinned_source(source, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift")
-        prepared = existing.service_module.patch_sign_in_operation(original)
-        fixed = existing.module.patch_sign_in_operation(prepared)
-        self.assertEqual(existing.module.patch_sign_in_operation(fixed), fixed)
+    def test_owner_token_recovery_preserves_identity_and_errors(self):
+        fixed = existing.sidestore_source("SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift")
         start = fixed.index("private func silentSignIn()")
         end = fixed.index("private func authenticationLoop()", start)
         silent = fixed[start:end]

@@ -1,4 +1,5 @@
 """Exercise SideSign editor ownership and bind the policy to the real view."""
+from tests.support.product_sources import ProductSource
 import shutil
 import subprocess
 import sys
@@ -8,8 +9,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
+PRIMITIVES = ProductSource('v3_behavioral_primitives.swift')
+SHELL = ProductSource('v3_unified_shell.swift')
 HARNESS = ROOT / "tests/fixtures/v3_sidesign_reload_owner_harness.swift"
 
 

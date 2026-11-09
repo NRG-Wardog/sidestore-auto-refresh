@@ -78,7 +78,7 @@ def verify_source_transition(root, owner, spec, pins):
 
 def expected_anisette_evidence(pins=None):
     require(pins is None or pins.get("source_basis") is None, "unsupported retired source basis")
-    from patch_anisette_isolated_otp import expected_evidence
+    from anisette_evidence import expected_evidence
     return expected_evidence()
 
 

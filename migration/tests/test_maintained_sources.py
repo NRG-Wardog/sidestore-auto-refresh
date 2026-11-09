@@ -95,7 +95,9 @@ class GitInputsTests(unittest.TestCase):
 
     def test_exact_source_tree_passes_without_changing_any_bytes(self):
         before = (self.root / 'source.swift').read_bytes()
-        self.assertEqual(self.verify()['commit'], self.commit)
+        result = self.verify()
+        self.assertEqual(result['commit'], self.commit)
+        self.assertEqual(result['tree'], self.git('rev-parse', 'HEAD^{tree}').strip())
         self.assertEqual(before, (self.root / 'source.swift').read_bytes())
         self.assertEqual(self.git('status', '--porcelain'), '')
 
@@ -197,6 +199,20 @@ class GitInputsTests(unittest.TestCase):
         self.commit = self.git('rev-parse', 'HEAD').strip()
         (self.root / 'child').mkdir()
         with self.assertRaisesRegex(ValueError, 'missing actual checkout'): self.verify()
+
+    def test_recursive_child_wrong_commit_is_rejected(self):
+        child = self.root / 'child'
+        subprocess.run(['git', 'clone', '--quiet', str(self.root), str(child)],
+                       check=True, capture_output=True)
+        self.git('update-index', '--add', '--cacheinfo', '160000,' + self.commit + ',child')
+        self.git('commit', '-qm', 'Pin child')
+        self.commit = self.git('rev-parse', 'HEAD').strip()
+        self.verify()
+        subprocess.run(['git', '-C', str(child), '-c', 'user.name=Fixture',
+                        '-c', 'user.email=fixture@example.invalid', 'commit',
+                        '--allow-empty', '-qm', 'Unapproved child'], check=True)
+        with self.assertRaises(ValueError):
+            self.verify()
 
     def test_staged_changes_are_rejected_even_when_working_bytes_restored(self):
         file = self.root / 'source.swift'

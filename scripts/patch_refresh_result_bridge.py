@@ -203,7 +203,7 @@ def install_direct_host_client(text: str) -> str:
 
 
 def callback_admission_module():
-    path = Path(__file__).with_name("patch_refresh_callback_admission.py")
+    path = (Path(__file__).parent / "patch_refresh_callback_admission.py")
     spec = importlib.util.spec_from_file_location("v3_refresh_callback_admission", path)
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     return module

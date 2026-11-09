@@ -5,9 +5,11 @@ import subprocess
 import tempfile
 import unittest
 
+from tests.support.product_sources import read_product_source
+
 ROOT = Path(__file__).resolve().parents[2]
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
+SHELL = 'v3_unified_shell.swift'
+PRIMITIVES = 'v3_behavioral_primitives.swift'
 
 
 HARNESS = r'''
@@ -95,7 +97,7 @@ struct HomeVerifiedRefreshHarness {
 
 class HomeVerifiedRefreshTests(unittest.TestCase):
     def test_home_uses_settled_verification_policy_and_current_ownership(self):
-        shell = SHELL.read_text(encoding="utf-8")
+        shell = read_product_source(SHELL)
         source = shell[shell.index("struct V3HomeView"):]
         start = source.index("static func completionInputs(")
         end = source.index("    var body:", start)
@@ -112,10 +114,10 @@ class HomeVerifiedRefreshTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; Home refresh evidence harness runs in macOS CI")
-        primitives = PRIMITIVES.read_text(encoding="utf-8")
+        primitives = read_product_source(PRIMITIVES)
         start = primitives.index("enum V3RefreshAllTerminalEvidencePolicy {")
         end = primitives.index("enum V3SetupRefreshTerminalOutcome:", start)
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        failure = read_product_source('combined_failure.swift')
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "main.swift"
             executable = Path(folder) / "home-verified-refresh"

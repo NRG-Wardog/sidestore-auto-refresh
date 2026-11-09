@@ -1,3 +1,6 @@
+from tests.owner_source import owner_source
+from tests.support.product_sources import ProductSource
+from tests.support.product_sources import read_product_source
 """Regression coverage for v3.0.3 source-app Update support (issue #30)."""
 import os
 import re
@@ -6,14 +9,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
-# Exact patch-fixture revisions, independent of retired build recipes.
-# These are not the current application source graph.
-PINNED_SIDESTORE_REF = "ff25922e5c13ccfafd83bda5092910d848ebd409"
-
-
+SHELL = ProductSource('v3_unified_shell.swift')
+SERVICE = ProductSource('v3_sidestore_service.swift')
+RUNTIME = ProductSource('v3_headless_runtime.swift')
 def shell():
     return SHELL.read_text(encoding="utf-8")
 
@@ -23,28 +21,7 @@ def service():
 
 
 def upstream_installed_app():
-    """Pinned upstream InstalledApp.swift when the SideStore checkout exists.
-
-    Runs in CI (the pinned SideStore source is checked out before repository
-    checks); skips on machines without the checkout.
-    """
-    override = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-    candidates = [Path(override)] if override else [
-        ROOT / ".audit/upstream/SideStore", ROOT / "work/EmbeddedSideStore",
-        ROOT.parent / "work/EmbeddedSideStore",
-    ]
-    for candidate in candidates:
-        path = candidate / "AltStore/Core/Model/InstalledApp.swift"
-        if not path.is_file():
-            continue
-        revision = subprocess.run(["git", "-C", str(candidate), "rev-parse", "HEAD"],
-                                  capture_output=True, text=True)
-        if revision.returncode == 0 and revision.stdout.strip() == PINNED_SIDESTORE_REF:
-            return path.read_text(encoding="utf-8")
-        if override:
-            raise AssertionError(f"Embedded SideStore source must be pinned to {PINNED_SIDESTORE_REF}")
-    raise unittest.SkipTest("Pinned SideStore source unavailable; "
-                            "set EMBEDDED_SIDESTORE_TEST_SOURCE")
+    return owner_source("AltStore/Core/Model/InstalledApp.swift", "SideStore")
 
 
 class V3SourceUpdateTests(unittest.TestCase):
@@ -68,7 +45,7 @@ class V3SourceUpdateTests(unittest.TestCase):
         self.assertNotIn("CodeSignValidator", text)
 
     def test_service_supports_update_operation(self):
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = read_product_source('v3_headless_runtime.swift')
         # Update runs through the headless operation driver (opStart kind
         # "update"), using the existing SideStore update pipeline.
         self.assertIn('case "update":', runtime)
@@ -126,7 +103,7 @@ class V3SourceUpdateTests(unittest.TestCase):
         self.assertIn("terminalFailure", runtime)
 
     # --- Authoritative update-decision contract (pinned upstream) ---
-    # SideStore's InstalledApp.hasUpdate (LiveContainer/SideStore@ff25922,
+    # The maintained SideStore InstalledApp.hasUpdate (
     # AltStore/Core/Model/InstalledApp.swift) orders versions with
     # SemanticVersion: strict `latestVer > currentVer` on major.minor.patch,
     # a beta-track pre-release/build tie-break, then a final lexicographic

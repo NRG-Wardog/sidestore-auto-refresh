@@ -26,10 +26,20 @@ final class HarnessContainerFileManager: FileManager {
     static var error: Error?
     static var checks = 0
     static var runIDs: [String] = []
-    static func check(allowForegroundActivation: Bool, runID: String) async throws {
+    static func check(allowForegroundActivation: Bool, runID: String,
+                      ownsRun: @escaping @MainActor () -> Bool) async throws -> Bool {
+        guard ownsRun() else { throw CancellationError() }
         checks += 1
         runIDs.append(runID)
         if let error { throw error }
+        return false
+    }
+    static func enableInForeground(runID: String) async throws {
+        // These are OS-effect doubles, not a second implementation of retry policy.
+        if let error { throw error }
+    }
+    static func settleAfterActivation(ownsRun: @escaping @MainActor () -> Bool) async throws {
+        guard ownsRun() else { throw CancellationError() }
     }
     static func consumePendingReturn() -> Bool { false }
 }

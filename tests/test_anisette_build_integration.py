@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import combined_build_evidence as collector
 import verify_candidate_ipa as verifier
-import patch_anisette_isolated_otp as native
+import anisette_evidence as native
 
 
 class AnisetteBuildIntegrationTests(unittest.TestCase):
@@ -28,24 +28,32 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
         self.output = self.root / "debug-evidence"
         self.manifest = self.root / "after-build.json"
         self.expected = native.expected_evidence()
-        fixture = Path(native.__file__).resolve().parents[1] / "tests/fixtures/pinned_anisettekit"
-        for name in native.PATHS:
+        # Exercise the evidence/copy boundary using small synthetic sources.
+        # Exact accepted hashes and read-only Git admission have their own tests.
+        for entry in self.expected['files']:
+            name = entry['path']
+            data = ('evidence fixture: ' + name).encode()
+            entry['prepared_sha256'] = hashlib.sha256(data).hexdigest()
             path = self.source / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(native.transform(name, (fixture / name).read_text()))
+            path.write_bytes(data)
+        expected_patch = mock.patch.object(native, 'expected_evidence',
+                                          side_effect=lambda: copy.deepcopy(self.expected))
+        expected_patch.start()
+        self.addCleanup(expected_patch.stop)
         self.manifest.write_text(json.dumps(self.expected, sort_keys=True) + "\n")
         self.executable = (b"linked C provider\0" + verifier.ANISETTE_COMPILED_MARKER + b"\0" +
                            verifier.ANISETTE_COMPILED_LITERAL + b"\0")
 
     def collect(self):
-        # The native patch suite exercises the Git/CLI validator. Here its
+        # The read-only verifier suite exercises the Git validator. Here its
         # success models the exact post-build boundary so copy races, artifact
         # substitution and binary omissions can be tested independently.
         with mock.patch.object(collector.subprocess, "run") as check:
             binding = collector.collect_isolated_anisette_evidence(
                 self.source, self.manifest, self.output, self.executable)
         check.assert_called_once_with([sys.executable,
-            str(ROOT / "scripts/patch_anisette_isolated_otp.py"), str(self.source), "--verify"],
+            str(ROOT / "scripts/anisette_evidence.py"), str(self.source)],
             check=True, capture_output=True, text=True)
         return binding
 
@@ -76,7 +84,7 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
                           verifier.ANISETTE_EVIDENCE_MANIFEST).read_bytes(), self.manifest.read_bytes())
 
     def test_collector_provenance_contains_the_checked_native_source_binding(self):
-        from test_combined_build_evidence import CandidateEvidenceTests
+        from tests.test_combined_build_evidence import CandidateEvidenceTests
         ipa, output, _host, _side, argv, env_keys, env = CandidateEvidenceTests.prepare_collect_fixture(self.root)
         side_name = 'Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore'
         with zipfile.ZipFile(ipa) as archive:
@@ -94,7 +102,7 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
         self.assertEqual(provenance['raw_ipa_sha256'], hashlib.sha256(ipa.read_bytes()).hexdigest())
 
     def test_maintained_collector_records_actual_anisette_dependency(self):
-        from test_combined_build_evidence import CandidateEvidenceTests, evidence as fixture_collector
+        from tests.test_combined_build_evidence import CandidateEvidenceTests, evidence as fixture_collector
         from maintained_sources import ENV_KEYS
         from maintained_package_evidence import LEGACY_HOST_MANIFESTS, LEGACY_EMBEDDED_MANIFESTS
         ipa, output, _host, _side, argv, env_keys, env = CandidateEvidenceTests.prepare_collect_fixture(self.root)

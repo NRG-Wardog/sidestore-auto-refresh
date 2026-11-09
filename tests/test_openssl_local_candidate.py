@@ -1,6 +1,11 @@
 """Adapter controls: only Apple tool and host crypto/package boundaries mocked.
 Real seals, native inventories, -S/-x policies and ZIP preservation execute.
 """
+import sys as _native_sys
+from pathlib import Path as _NativePath
+_native_root = next((p for p in _NativePath(__file__).resolve().parents if (p / 'ci/native_paths.py').is_file()), None)
+if _native_root is not None:
+    _native_sys.path.insert(0, str(_native_root))
 import copy
 import json
 import os
@@ -12,7 +17,7 @@ from unittest.mock import patch
 import zipfile
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 import optimize_openssl_local_candidate as adapter
-from native_transfer_seal import create
+from ci.packaging.native.native_transfer_seal import create
 from test_macho_stab_guard import fixture
 from test_macho_local_symbol_guard import remove_fixture_local
 

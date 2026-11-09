@@ -1,3 +1,6 @@
+from tests.support.product_sources import ProductSource
+from tests.support.product_sources import read_product_source, SOURCES
+from tests.owner_source import owner_source
 """Coverage for catalog request failure classification and propagation.
 
 The physical defect this file locks down: a source from issue #38 could be
@@ -21,10 +24,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-BRIDGE = ROOT / "scripts/templates/v3_service_bridge.swift"
-SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-FAILURE = ROOT / "scripts/templates/combined_failure.swift"
+BRIDGE = ProductSource('v3_service_bridge.swift')
+SERVICE = ProductSource('v3_sidestore_service.swift')
+SHELL = ProductSource('v3_unified_shell.swift')
+FAILURE = ProductSource('combined_failure.swift')
 
 
 
@@ -177,7 +180,7 @@ class ServiceSidePropagationTests(unittest.TestCase):
         self.assertIn("heldRequestID: heldDirectRequestID", builder)
         self.assertIn("journalReadable: directJournalReadable", builder)
         # Only trusted envelope fields are echoed back, never the payload.
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        wire = read_product_source('v3_wire_contract.swift')
         self.assertIn('operations.contains($0) ? $0 : nil', wire)
         self.assertIn("guard data.count <= requestLimit", wire)
         self.assertIn("UUID(uuidString: $0) != nil ? $0 : nil", wire)
@@ -214,7 +217,7 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # primitives, beside CombinedFailure:
         # the wire contract is a shared source compiled independently in each
         # process and must not gain a dependency on the error model.
-        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        helper = read_product_source('v3_behavioral_primitives.swift')
         # Keep the pure encoder independent from the process wire contract.
         # The executable codec harnesses validate its leaf types and failure modes.
         helper_code = re.sub(r"//[^\n]*", "", helper)
@@ -261,19 +264,19 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # beside CombinedFailure. The wire contract is a shared source compiled
         # independently in each process, so it must not depend on the error model
         # and a test that compiles it alone has to keep passing.
-        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        helper = read_product_source('v3_behavioral_primitives.swift')
         classifier = normalized(helper[helper.index("enum V3ResponseClassifier {"):])
         self.assertIn("case Token.encodingFailed: return .responseEncodingFailed", classifier)
         self.assertIn("case Token.tooLarge: return .responseTooLarge", classifier)
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        wire = read_product_source('v3_wire_contract.swift')
         self.assertNotIn("CombinedFailure", wire)
-        failure_text = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        failure_text = read_product_source('combined_failure.swift')
         # Both causes exist, are distinct, and are not retryable: repeating the
         # same request reproduces the same defect.
         self.assertIn("case responseEncodingFailed", failure_text)
         self.assertIn("case responseTooLarge", failure_text)
         self.assertIn("case .responseTooLarge:\n                return false", failure_text)
-        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        bridge = read_product_source('v3_service_bridge.swift')
         # The legacy token path still types both, for a foreign older service.
         self.assertIn("case \"responseEncodingFailed\":", bridge)
         self.assertIn("case \"responseTooLarge\":", bridge)
@@ -297,9 +300,9 @@ class ServiceSidePropagationTests(unittest.TestCase):
         self.assertIn("throw V3SideStoreServiceError.catalogSourceUnavailable", service)
         self.assertIn("safeCause: .catalogSourceUnavailable", service)
         self.assertIn("sourceStep: .catalogRead", service)
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = read_product_source('v3_headless_runtime.swift')
         self.assertIn("case catalogSourceUnavailable", runtime)
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        failure = read_product_source('combined_failure.swift')
         self.assertIn("This source is no longer in the SideStore source list.", failure)
         self.assertIn("Return to Sources and reload the source list", failure)
         # A missing source must never be reported as a bad manifest.
@@ -349,9 +352,12 @@ class ServiceSidePropagationTests(unittest.TestCase):
         """
         safe = ("??", "unwrapOptional")
         offenders = []
-        for path in sorted((ROOT / "scripts/templates").glob("*.swift")):
+        inputs = sorted({(owner, path) for owner, path, *_ in SOURCES.values()
+                         if path.endswith(".swift")})
+        self.assertGreater(len(inputs), 5)
+        for owner, path in inputs:
             in_builder = False
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for number, line in enumerate(owner_source(path, owner).splitlines(), 1):
                 stripped = line.strip()
                 if "V3PropertyListValue.dictionary(" in stripped:
                     in_builder = True
@@ -361,7 +367,7 @@ class ServiceSidePropagationTests(unittest.TestCase):
                     pass
                 elif re.match(r'^"[A-Za-z]+":\s*.*\?\.', stripped) \
                         and not any(token in stripped for token in safe):
-                    offenders.append(f"{path.name}:{number}: {stripped}")
+                    offenders.append(f"{owner}/{path}:{number}: {stripped}")
                 if in_builder and stripped in ("]) , " "]", "]", "])", ")]"):
                     in_builder = False
         self.assertEqual(offenders, [],
@@ -393,7 +399,7 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # The verified-result response for an added source is preserved.
         self.assertIn("sourcePersistenceUnverified", text)
         self.assertNotIn("V3AuthSessionSnapshot", text.replace("V3_AUTH_SESSION_SNAPSHOT_V1", ""))
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        host = read_product_source('v3_unified_shell.swift')
         self.assertIn("V3SourceAddFailurePolicy.normalized(combined)", host)
         self.assertIn("unverifiedPersistenceFailure(", host)
 
@@ -428,6 +434,7 @@ class CatalogFailureMessageTests(unittest.TestCase):
 
     def test_generic_command_message_is_not_used_for_a_catalog_read(self):
         text = FAILURE.read_text(encoding="utf-8")
+        text = text[text.index("public struct CombinedFailure: Error, LocalizedError {"):]
         generic = "SideStore could not start or complete the requested "
         # The generic sentence is reachable only from the command stage.
         command_stage = text[text.index("case .command:"):]
@@ -471,7 +478,7 @@ class CatalogViewValidationTests(unittest.TestCase):
         self.assertIn("V3CatalogRetryPresentationPolicy.action", view)
         self.assertIn('Button("Retry Catalog")', view)
         self.assertIn('Button("Try Catalog Again (retryability unknown)")', view)
-        self.assertIn("case .prerequisite, .blocked: return .noRetry", (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+        self.assertIn("case .prerequisite, .blocked: return .noRetry", read_product_source('v3_behavioral_primitives.swift'))
 
     def test_cancellation_is_not_presented_as_a_catalog_failure(self):
         view = catalog_view()
@@ -497,7 +504,7 @@ class CatalogViewValidationTests(unittest.TestCase):
         view = catalog_view()
         self.assertIn("accumulated.append(rawApps)", view)
         self.assertIn("let mappedApps = accumulated.rows.compactMap(V3CatalogApp.init)", view)
-        self.assertIn("var identifiers = Set<String>()", (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+        self.assertIn("var identifiers = Set<String>()", read_product_source('v3_behavioral_primitives.swift'))
         # The weaker snapshot-then-filter shape is gone.
         self.assertNotIn("var existing = Set(apps.map(\\.id))", view)
         self.assertNotIn("seen.insert($0.id).inserted", view)
@@ -518,6 +525,7 @@ class CatalogViewValidationTests(unittest.TestCase):
 
     def test_host_request_context_is_appended_to_diagnostics(self):
         text = FAILURE.read_text(encoding="utf-8")
+        text = text[text.index("public struct CombinedFailure: Error, LocalizedError {"):]
         self.assertIn("public var requestContext: String?", text)
         self.assertIn("private var requestContextSuffix: String {", text)
         self.assertIn("request_operation=\\(requestedOperation) request_correlation=\\(requestID)", text)

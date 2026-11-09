@@ -8,13 +8,13 @@ import unittest
 ROOT=Path(__file__).resolve().parents[1]
 class WidgetLocalPackagingWiringTests(unittest.TestCase):
     def test_default_off_and_invalid_partial_request_rejected_at_entry(self):
-        spec=importlib.util.spec_from_file_location('widget_packager_control',ROOT/'ci/issues-native/package_candidate.py')
+        spec=importlib.util.spec_from_file_location('widget_packager_control',(ROOT/'ci/packaging/native/package_candidate.py'))
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         for kwargs in ({},{'recover_fixed_native':True},{'strip_unsigned_widget':True}):
             with self.assertRaisesRegex(ValueError,'requires fixed-native recovery'):
                 module.main(strip_widget_true_locals=True,**kwargs)
     def test_exact_cli_closure_and_helper_wiring(self):
-        source=(ROOT/'ci/issues-native/package_candidate.py').read_text();tree=ast.parse(source)
+        source=((ROOT/'ci/packaging/native/package_candidate.py')).read_text();tree=ast.parse(source)
         main=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='main')
         values=dict(zip((arg.arg for arg in main.args.kwonlyargs),main.args.kw_defaults))
         self.assertIs(values['strip_widget_true_locals'].value,False)

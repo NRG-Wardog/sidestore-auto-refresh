@@ -3,6 +3,7 @@
 These tests verify routing, persistence semantics and OSStatus handling, not
 real iOS securityd entitlement enforcement. The full iOS build typechecks it.
 """
+from tests.support.keychain_owner_runtime import keychain_runtime_source
 from pathlib import Path
 import importlib.util
 import os
@@ -11,28 +12,31 @@ import subprocess
 import tempfile
 import unittest
 
+from tests.support.product_sources import ProductSource
+from tests.owner_source import owner_source
+
+KEYCHAIN_PATH = "AltStore/Core/Components/Keychain.swift"
+
+def sidestore_source(relative):
+    return owner_source(relative, "SideStore")
+
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "scripts/templates/embedded_shared_keychain.swift"
+TEMPLATE = ProductSource("embedded_shared_keychain.swift")
 SPEC = importlib.util.spec_from_file_location("embedded_keychain_patch", ROOT / "scripts/patch_embedded_keychain.py")
 module = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(module)
 SERVICE_SPEC = importlib.util.spec_from_file_location("v3_service_patch", ROOT / "scripts/patch_v3_service.py")
 service_module = importlib.util.module_from_spec(SERVICE_SPEC)
 SERVICE_SPEC.loader.exec_module(service_module)
-BACKGROUND_SPEC = importlib.util.spec_from_file_location(
-    "background_automation_patch", ROOT / "scripts/patch_background_automation.py")
-background_module = importlib.util.module_from_spec(BACKGROUND_SPEC)
-BACKGROUND_SPEC.loader.exec_module(background_module)
-CONTRACT_SPEC = importlib.util.spec_from_file_location(
-    "combined_refresh_contract_patch", ROOT / "scripts/patch_combined_refresh_contract.py")
-contract_module = importlib.util.module_from_spec(CONTRACT_SPEC)
-CONTRACT_SPEC.loader.exec_module(contract_module)
+# Only explicit legacy negative controls may read this immutable reference.
+# Current transaction behavior always comes from the maintained owner helper.
+LEGACY_COUNTERFACTUAL_SIDESTORE_REVISION = "ff25922e5c13ccfafd83bda5092910d848ebd409"
 
 
 def read_pinned_source(source, relative):
     """Read tracked source at the embedded SideStore pin, ignoring checkout edits."""
     return subprocess.check_output(
-        ["git", "-C", str(source), "show", f"{contract_module.PIN}:{relative}"],
+        ["git", "-C", str(source), "show", f"{LEGACY_COUNTERFACTUAL_SIDESTORE_REVISION}:{relative}"],
         text=True,
     )
 
@@ -201,12 +205,6 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
 }
 '''
 
-
-# Keep the production finite error available to standalone keychain harnesses.
-_error_source = (ROOT / "scripts/templates/combined_failure.swift").read_text()
-_error_start = _error_source.index("enum LCAnisettePairError:")
-_error_end = _error_source.index("\n}", _error_start) + len("\n}")
-DOUBLES += "\n" + _error_source[_error_start:_error_end] + "\n"
 
 HARNESS = r'''
 @main struct Tests {
@@ -691,6 +689,19 @@ HARNESS = r'''
 '''
 
 class SharedKeychainHarnessDependencyTests(unittest.TestCase):
+    def test_owner_regions_reject_missing_duplicate_and_reversed_markers(self):
+        from unittest.mock import patch
+        source = sidestore_source(KEYCHAIN_PATH)
+        begin = "// V3_PENDING_CERTIFICATE_CORE_BEGIN"
+        end = "// V3_PENDING_CERTIFICATE_CORE_END"
+        variants = [source.replace(begin, "// removed", 1), source + "\n" + begin,
+                    source.replace(begin, "// placeholder", 1).replace(end, begin, 1).replace("// placeholder", end, 1)]
+        for changed in variants:
+            with self.subTest(kind=variants.index(changed)), patch(
+                    "tests.support.keychain_owner_runtime.owner_source", return_value=changed):
+                with self.assertRaises(AssertionError):
+                    keychain_runtime_source()
+
     def test_certificate_parser_dependency_is_file_scoped_and_validates_fixtures(self):
         certificate = DOUBLES.index("\nenum CertificateManager {")
         keychain_library = DOUBLES.index("\nenum KeychainAccess {")
@@ -699,7 +710,7 @@ class SharedKeychainHarnessDependencyTests(unittest.TestCase):
         self.assertIn('data == Data("new-p12".utf8) && password == "new-password"', parser)
         self.assertIn('throw NSError(domain: "CertificateFixture", code: 1009)', parser)
         self.assertIn('try CertificateManager.parse(data, password: password).serialNumber',
-                      module.KEYCHAIN_ACCESS_ADAPTER)
+                      sidestore_source(KEYCHAIN_PATH))
 
 
 class EmbeddedKeychainTests(unittest.TestCase):
@@ -711,7 +722,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(prefix="lc-keychain-tests-")
         cls.addClassCleanup(cls.temp.cleanup)
         source = Path(cls.temp.name) / "KeychainTests.swift"
-        source.write_text(DOUBLES + TEMPLATE.read_text() + module.KEYCHAIN_ACCESS_ADAPTER + HARNESS)
+        source.write_text(DOUBLES + keychain_runtime_source() + "\n" + HARNESS)
         cls.executable = Path(cls.temp.name) / "keychain-tests"
         result = subprocess.run([compiler, "-swift-version", "5", "-parse-as-library", "-O", str(source), "-o", str(cls.executable)], capture_output=True, text=True)
         if result.returncode:
@@ -744,10 +755,10 @@ class EmbeddedKeychainTests(unittest.TestCase):
         self.assertIn("could not confirm whether the Apple sign-in credentials were saved", text)
 
     def test_signout_checks_all_auth_key_deletions_before_reporting_success(self):
-        patch = (ROOT / "scripts/patch_embedded_keychain.py").read_text(encoding="utf-8")
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        patch = sidestore_source(KEYCHAIN_PATH)
+        runtime = ProductSource("v3_headless_runtime.swift").read_text(encoding="utf-8")
+        service = ProductSource("v3_sidestore_service.swift").read_text(encoding="utf-8")
+        failure = ProductSource("combined_failure.swift").read_text(encoding="utf-8")
         self.assertIn("func clearSignInInfoChecked() throws", patch)
         self.assertIn("LCEmbeddedSharedKeychain.clearSignInInfoChecked(self.keychain)", patch)
         prepare = runtime[runtime.index("static func prepareSignOut() throws"):]
@@ -758,197 +769,82 @@ class EmbeddedKeychainTests(unittest.TestCase):
         self.assertLess(service.index("try V3BackendCommands.prepareSignOut()"),
                         service.index("AuthManager.shared.signOut(keepCertificate: true"))
 
-    def test_pinned_patch_and_idempotence(self):
-        source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not source:
-            self.skipTest("pinned SideStore source unavailable locally; required in combined CI")
-        relative = "AltStore/Core/Components/Keychain.swift"
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            relatives = (
-                relative,
-                "SideStore/Core/Auth/AuthManager.swift",
-                "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
-                "SideStore/Utils/importexport/ImportExport.swift",
-                "SideStore/Core/Certificates/CertificateManager.swift",
-                *module.ANISETTE_PATHS,
-            )
-            destinations = []
-            for name in relatives:
-                target = root / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                original = read_pinned_source(source, name)
-                if name == "SideStore/Core/Auth/AuthManager.swift":
-                    original = service_module.headless_auth_manager(original)
-                elif name == "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift":
-                    original = service_module.patch_sign_in_operation(original)
-                target.write_text(original, encoding="utf-8")
-                destinations.append(target)
-            op = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
-            op.parent.mkdir(parents=True, exist_ok=True)
-            op.write_text('''func preflight() throws {
-        let auth = AuthManager.shared
-        let credentials = auth.authenticationSnapshot
-        let hasPasswordCredentials = credentials?.appleIDEmailAddress != nil && credentials?.appleIDPassword != nil
-        let hasTokenCredentials = credentials?.appleIDAdsid != nil && credentials?.appleIDXcodeToken != nil
-        let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
-        debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
-        guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else {
-            let error = NSError(domain: "com.SideStore.Authentication", code: 1004)
-            debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL reason=no_accessible_authentication_path")
-            throw error
-        }
-}''')
-            module.patch(root)
-            first = tuple(path.read_bytes() for path in destinations) + (op.read_bytes(),)
-            self.assertIn("writeAuthenticationCredentials", destinations[0].read_text(encoding="utf-8"))
-            self.assertIn(module.AUTH_MANAGER_MARKER, destinations[1].read_text(encoding="utf-8"))
-            self.assertIn(module.SIGN_IN_SNAPSHOT_MARKER, destinations[2].read_text(encoding="utf-8"))
-            self.assertIn(module.IMPORT_EXPORT_SNAPSHOT_MARKER, destinations[3].read_text(encoding="utf-8"))
-            module.patch(root)
-            self.assertEqual(first, tuple(path.read_bytes() for path in destinations) + (op.read_bytes(),))
-            background_auth = op.read_text(encoding="utf-8")
-            self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, background_auth)
-            self.assertIn("Keychain.shared.embeddedAuthenticationFailure(error)", background_auth)
-            self.assertIn(module.BACKGROUND_AUTH_MISSING_MARKER, background_auth)
-            self.assertNotIn("auth.currentAppleID", background_auth)
-            self.assertNotIn("auth.adsid", background_auth)
-            self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, op.read_text())
-            self.assertNotIn("auth.currentAppleID", op.read_text())
-            self.assertNotIn("try? Keychain.shared.keychain.get", destinations[0].read_text())
+class MaintainedKeychainIntegrationTests(unittest.TestCase):
+    def test_background_refresh_auth_preflight_uses_one_snapshot(self):
+        patched = sidestore_source("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift")
+        self.assertIn("LC_AUTO_REFRESH_CREDENTIAL_SNAPSHOT_V1", patched)
+        self.assertIn("LC_AUTH_CREDENTIALS_MISSING_V1", patched)
+        self.assertIn("authSnapshot?.appleIDEmailAddress", patched)
+        self.assertIn("authSnapshot?.appleIDPassword", patched)
+        self.assertIn("authSnapshot?.appleIDAdsid", patched)
+        self.assertIn("authSnapshot?.appleIDXcodeToken", patched)
+        self.assertIn("Keychain.shared.embeddedAuthenticationFailure(error)", patched)
+        self.assertIn("auth.v3CachedSessionMatchesCurrentRoute(auth.session)", patched)
+        self.assertEqual(patched.count("Keychain.shared.authenticationSnapshot()"), 1)
+        self.assertLess(patched.index("let hasReusableSession ="),
+                        patched.index("let authSnapshot:"))
+        self.assertNotIn("auth.currentAppleID", patched)
+        self.assertNotIn("auth.adsid", patched)
 
 
-class KeychainPatchGenerationTests(unittest.TestCase):
-    def test_pinned_background_refresh_auth_preflight_uses_one_snapshot(self):
-        source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not source:
-            self.skipTest("pinned SideStore source unavailable locally; required in combined CI")
-        relative = "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            target = root / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(read_pinned_source(source, relative), encoding="utf-8")
-            background_module.patch_background_operation(root)
-            patched = module.patch_background_auth_snapshot(target.read_text(encoding="utf-8"))
-            first = patched
-            replay = module.patch_background_auth_snapshot(patched)
-            self.assertEqual(first, replay)
-            self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, patched)
-            self.assertIn("authSnapshot?.appleIDEmailAddress", patched)
-            self.assertIn("authSnapshot?.appleIDPassword", patched)
-            self.assertIn("authSnapshot?.appleIDAdsid", patched)
-            self.assertIn("authSnapshot?.appleIDXcodeToken", patched)
-            self.assertIn("Keychain.shared.embeddedAuthenticationFailure(error)", patched)
-            self.assertIn("auth.v3CachedSessionMatchesCurrentRoute(auth.session)", patched)
-            self.assertEqual(patched.count("Keychain.shared.authenticationSnapshot()"), 1)
-            self.assertLess(patched.index("let hasReusableSession ="),
-                            patched.index("let authSnapshot:"))
-            self.assertNotIn("auth.currentAppleID", patched)
-            self.assertNotIn("auth.adsid", patched)
-
-    def test_pinned_patch_generates_one_snapshot_for_authentication_pairs(self):
-        source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not source:
-            self.skipTest("pinned SideStore source unavailable locally; required in combined CI")
+    def test_maintained_authentication_uses_transactional_pairs(self):
         relative_files = (
-            "AltStore/Core/Components/Keychain.swift",
+            KEYCHAIN_PATH,
             "SideStore/Core/Auth/AuthManager.swift",
             "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
             "SideStore/Utils/importexport/ImportExport.swift",
             "SideStore/Core/Certificates/CertificateManager.swift",
         )
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            paths = []
-            for relative in relative_files:
-                target = root / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                original = read_pinned_source(source, relative)
-                if relative == "SideStore/Core/Auth/AuthManager.swift":
-                    original = service_module.headless_auth_manager(original)
-                elif relative == "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift":
-                    original = service_module.patch_sign_in_operation(original)
-                target.write_text(original, encoding="utf-8")
-                paths.append(target)
-            background = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
-            background.parent.mkdir(parents=True, exist_ok=True)
-            background.write_text('''func preflight() throws {
-        let auth = AuthManager.shared
-        let credentials = auth.authenticationSnapshot
-        let hasPasswordCredentials = credentials?.appleIDEmailAddress != nil && credentials?.appleIDPassword != nil
-        let hasTokenCredentials = credentials?.appleIDAdsid != nil && credentials?.appleIDXcodeToken != nil
-        let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
-        debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
-        guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else {
-            let error = NSError(domain: "com.SideStore.Authentication", code: 1004)
-            debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL reason=no_accessible_authentication_path")
-            throw error
-        }
-}''', encoding="utf-8")
-            for relative in module.ANISETTE_PATHS:
-                target = root / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(read_pinned_source(source, relative), encoding="utf-8")
-            module.patch(root)
-            keychain, auth, sign_in, import_export, certificate = [p.read_text(encoding="utf-8") for p in paths]
-            self.assertIn("LCEmbeddedSharedKeychain.readAuthenticationSnapshot(self.keychain)", keychain)
-            self.assertIn("LC_AUTH_CREDENTIAL_SNAPSHOT_V1", auth)
-            self.assertIn("authenticationSnapshot?.isAuthenticated", auth)
-            self.assertIn("authenticationSnapshot?.hasPasswordCredentials", auth)
-            self.assertIn("authenticationSnapshot?.hasTokenCredentials", auth)
-            self.assertNotIn("let hasEmail = Keychain.shared.appleIDEmailAddress", auth)
-            auth_session_start = auth.index("public func getAuthenticatedSession()")
-            auth_session_end = auth.index("\n    }", auth_session_start)
-            auth_session = auth[auth_session_start:auth_session_end]
-            self.assertIn(module.AUTH_SESSION_SNAPSHOT_MARKER, auth_session)
-            self.assertIn("credentialSnapshot?.appleIDAdsid", auth_session)
-            self.assertIn("credentialSnapshot?.appleIDXcodeToken", auth_session)
-            self.assertIn("try Keychain.shared.authenticationSnapshot()", auth_session)
-            self.assertIn("Keychain.shared.embeddedAuthenticationFailure(error)", auth_session)
-            self.assertNotIn("self.adsid", auth_session)
-            self.assertNotIn("self.xcodeToken", auth_session)
-            self.assertIn("LC_SIGNIN_CREDENTIAL_SNAPSHOT_V1", sign_in)
-            self.assertIn("let credentials = candidate?.credentials", sign_in)
-            self.assertIn("try Keychain.shared.authenticationCandidate()", sign_in)
-            self.assertIn("LC_VERIFIED_ACTIVE_CERTIFICATE_V1", certificate)
-            self.assertNotIn("if let adsid = AuthManager.shared.adsid", sign_in)
-            self.assertNotIn("if let appleID = AuthManager.shared.currentAppleID", sign_in)
-            self.assertIn("LC_IMPORT_EXPORT_CREDENTIAL_SNAPSHOT_V1", import_export)
-            self.assertIn("let authSnapshot = AuthManager.shared.authenticationSnapshot", import_export)
-            self.assertIn(module.IMPORT_EXPORT_HEADLESS_MARKER, import_export)
-            for removed in ("UIDocumentPicker", "UIViewController", "DocumentPickerHandler",
-                            "documentPickerHandler", "AssociatedKeys", "importBackup(",
-                            "importBackupContents(", "renameBackupContents(", "getPreviousBackupURL("):
-                self.assertNotIn(removed, import_export)
-            self.assertIn("AES.GCM.seal(jsonData, using: key)", import_export)
-            self.assertIn("AES.GCM.open(sealedBox, using: key)", import_export)
-            self.assertIn("public static func exportAccount(password: String, includeApplePassword: Bool)", import_export)
-            self.assertIn("public static func importAccount(_ encryptedData: Data, filePassword: String)", import_export)
-            headless_runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-            self.assertIn("ImportExport.exportAccount(password: password, includeApplePassword: includeApplePassword)", headless_runtime)
-            self.assertIn("ImportExport.importAccount(data, filePassword: password)", headless_runtime)
-            failure_start = sign_in.index("V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1")
-            failure_end = sign_in.index("try? await self.finalizeAuthentication", failure_start)
-            failure_catch = sign_in[failure_start:failure_end]
-            self.assertNotIn("AuthManager.shared.signOut()", failure_catch)
-            self.assertNotIn("Keychain.shared.clearSignInInfo", failure_catch)
-            self.assertNotIn("CertificateManager.shared.clearActiveCertificate", failure_catch)
-            self.assertNotIn("DatabaseManager.shared.deactivateActiveAccountAndTeam", failure_catch)
-            self.assertNotIn("hasStoredPassword", failure_catch)
-            self.assertNotIn("hasStoredXcodeToken", failure_catch)
-            self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, background.read_text(encoding="utf-8"))
-            self.assertNotIn("AuthManager.shared.currentAppleID", background.read_text(encoding="utf-8"))
-            expected_auth = module.patch_auth_manager(service_module.headless_auth_manager(
-                read_pinned_source(source, relative_files[1])))
-            expected_sign_in = module.patch_sign_in_operation(service_module.patch_sign_in_operation(
-                read_pinned_source(source, relative_files[2])))
-            self.assertEqual(auth, expected_auth)
-            self.assertEqual(sign_in, expected_sign_in)
-            first = tuple(path.read_bytes() for path in paths) + (background.read_bytes(),)
-            module.patch(root)
-            self.assertEqual(first, tuple(path.read_bytes() for path in paths) + (background.read_bytes(),),
-                "credential snapshot generation must be idempotent")
+        keychain, auth, sign_in, import_export, certificate = map(sidestore_source, relative_files)
+        background = sidestore_source("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift")
+        self.assertIn("LCEmbeddedSharedKeychain.readAuthenticationSnapshot(self.keychain)", keychain)
+        self.assertNotIn("try? Keychain.shared.keychain.get", keychain)
+        self.assertIn("LC_AUTH_CREDENTIAL_SNAPSHOT_V1", auth)
+        self.assertIn("authenticationSnapshot?.isAuthenticated", auth)
+        self.assertIn("authenticationSnapshot?.hasPasswordCredentials", auth)
+        self.assertIn("authenticationSnapshot?.hasTokenCredentials", auth)
+        self.assertNotIn("let hasEmail = Keychain.shared.appleIDEmailAddress", auth)
+        auth_session_start = auth.index("public func getAuthenticatedSession()")
+        auth_session_end = auth.index("\n    }", auth_session_start)
+        auth_session = auth[auth_session_start:auth_session_end]
+        self.assertIn("LC_AUTHENTICATED_SESSION_SNAPSHOT_V1", auth_session)
+        self.assertIn("credentialSnapshot?.appleIDAdsid", auth_session)
+        self.assertIn("credentialSnapshot?.appleIDXcodeToken", auth_session)
+        self.assertIn("try Keychain.shared.authenticationSnapshot()", auth_session)
+        self.assertIn("Keychain.shared.embeddedAuthenticationFailure(error)", auth_session)
+        self.assertNotIn("self.adsid", auth_session)
+        self.assertNotIn("self.xcodeToken", auth_session)
+        self.assertIn("LC_SIGNIN_CREDENTIAL_SNAPSHOT_V1", sign_in)
+        self.assertIn("let credentials = candidate?.credentials", sign_in)
+        self.assertIn("try Keychain.shared.authenticationCandidate()", sign_in)
+        self.assertIn("LC_VERIFIED_ACTIVE_CERTIFICATE_V1", certificate)
+        self.assertNotIn("if let adsid = AuthManager.shared.adsid", sign_in)
+        self.assertNotIn("if let appleID = AuthManager.shared.currentAppleID", sign_in)
+        self.assertIn("LC_IMPORT_EXPORT_CREDENTIAL_SNAPSHOT_V1", import_export)
+        self.assertIn("let authSnapshot = AuthManager.shared.authenticationSnapshot", import_export)
+        self.assertIn("LC_HEADLESS_IMPORT_EXPORT_UI_REMOVED_V1", import_export)
+        for removed in ("UIDocumentPicker", "UIViewController", "DocumentPickerHandler",
+                        "documentPickerHandler", "AssociatedKeys", "importBackup(",
+                        "importBackupContents(", "renameBackupContents(", "getPreviousBackupURL("):
+            self.assertNotIn(removed, import_export)
+        self.assertIn("AES.GCM.seal(jsonData, using: key)", import_export)
+        self.assertIn("AES.GCM.open(sealedBox, using: key)", import_export)
+        self.assertIn("public static func exportAccount(password: String, includeApplePassword: Bool)", import_export)
+        self.assertIn("public static func importAccount(_ encryptedData: Data, filePassword: String)", import_export)
+        headless_runtime = ProductSource("v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIn("ImportExport.exportAccount(password: password, includeApplePassword: includeApplePassword)", headless_runtime)
+        self.assertIn("ImportExport.importAccount(data, filePassword: password)", headless_runtime)
+        failure_start = sign_in.index("V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1")
+        failure_end = sign_in.index("try? await self.finalizeAuthentication", failure_start)
+        failure_catch = sign_in[failure_start:failure_end]
+        self.assertNotIn("AuthManager.shared.signOut()", failure_catch)
+        self.assertNotIn("Keychain.shared.clearSignInInfo", failure_catch)
+        self.assertNotIn("CertificateManager.shared.clearActiveCertificate", failure_catch)
+        self.assertNotIn("DatabaseManager.shared.deactivateActiveAccountAndTeam", failure_catch)
+        self.assertNotIn("hasStoredPassword", failure_catch)
+        self.assertNotIn("hasStoredXcodeToken", failure_catch)
+        self.assertIn("LC_AUTO_REFRESH_CREDENTIAL_SNAPSHOT_V1", background)
+        self.assertNotIn("AuthManager.shared.currentAppleID", background)
 
 if __name__ == "__main__":
     unittest.main()

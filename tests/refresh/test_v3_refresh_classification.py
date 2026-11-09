@@ -6,17 +6,19 @@ Unknown errors must remain honestly unknown instead of being relabelled.
 import unittest
 from pathlib import Path
 
+from tests.support.product_sources import read_product_source
+
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE = ROOT / "scripts/templates/combined_failure.swift"
+TEMPLATE = 'combined_failure.swift'
 
 
 def template():
-    return TEMPLATE.read_text(encoding="utf-8")
+    return read_product_source(TEMPLATE)
 
 
 class RefreshClassificationTests(unittest.TestCase):
     def test_setup_test_refresh_stops_on_unverified_terminal_ledger_state(self):
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        host = read_product_source('v3_unified_shell.swift')
         setup_check = host[host.index("private func checkTestResult(attemptID: String) async -> Bool"):]
         setup_check = setup_check[:setup_check.index("func cancelTest()")]
         self.assertIn("V3SetupRefreshTerminalEvidencePolicy.outcome", setup_check)
@@ -26,9 +28,9 @@ class RefreshClassificationTests(unittest.TestCase):
 
     def test_source_catalog_and_pairing_failures_have_typed_safe_guidance(self):
         text = template()
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        runtime = read_product_source('v3_headless_runtime.swift')
+        service = read_product_source('v3_sidestore_service.swift')
+        host = read_product_source('v3_unified_shell.swift')
         for token in ("sourceNetworkFailure", "sourceInvalidManifest", "sourceInvalidURL",
                       "sourcePersistenceUnverified", "catalogUnavailable", "pairingRequired"):
             self.assertIn(token, text)
@@ -43,8 +45,8 @@ class RefreshClassificationTests(unittest.TestCase):
         # interpreted by exactly one authoritative policy, and Home Refresh All
         # consults it before posting the mutation request. The behavioural
         # guarantee is unchanged; only the location of the decision moved.
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        host = read_product_source('v3_unified_shell.swift')
+        primitives = read_product_source('v3_behavioral_primitives.swift')
         start = host.index("private func start()", host.index("struct V3RefreshAllButton"))
         end = host.index("private func monitorRun", start)
         body = host[start:end]

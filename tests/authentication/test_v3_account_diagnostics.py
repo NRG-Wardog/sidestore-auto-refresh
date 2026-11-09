@@ -1,5 +1,6 @@
 """Audit D01/D02/R02: exercise generated boundaries and the shipped wire/UI."""
-import importlib.util
+from tests.support.product_sources import ProductSource
+from tests.owner_source import owner_source
 import os
 import re
 from pathlib import Path
@@ -9,13 +10,6 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def load(name):
-    spec = importlib.util.spec_from_file_location(name, ROOT / 'scripts' / (name + '.py'))
-    value = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(value)
-    return value
 
 
 def declaration(source, signature):
@@ -33,31 +27,22 @@ def declaration(source, signature):
 
 
 def generated_sign_in():
-    location = os.environ.get('EMBEDDED_SIDESTORE_TEST_SOURCE') or os.environ.get('SIDESTORE_TEST_SOURCE')
-    if not location:
-        raise unittest.SkipTest('Pinned SideStore source unavailable; CI supplies EMBEDDED_SIDESTORE_TEST_SOURCE')
-    path = Path(location) / 'SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift'
-    original = path.read_text(encoding='utf-8')
-    service = load('patch_v3_service')
-    source = service.patch_sign_in_operation(original)
-    assert service.patch_sign_in_operation(source) == source
-    source = service.apply_embedded_credential_snapshot_patch(source, 'patch_sign_in_operation')
-    return service.headless_certificate_serial_log_redaction(source, 'SignInOperation')
+    return owner_source("SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift", "SideStore")
 
 
 def diagnostic_sources():
-    runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
+    runtime = ProductSource('v3_headless_runtime.swift').read_text()
     classifier = runtime[runtime.index('enum V3AuthFailureKind:'):runtime.index('// MARK: - Provisioning failure guidance')]
-    shell = (ROOT / 'scripts/templates/v3_unified_shell.swift').read_text()
+    shell = ProductSource('v3_unified_shell.swift').read_text()
     message = declaration(shell, '    static func failureMessage(from failure: [String: Any]) -> String {')
     message = message.replace('static func failureMessage', 'func hostFailureMessage')
     fixture = (ROOT / 'tests/fixtures/v3_auth_error_nuance_harness.swift').read_text()
     stub_errors = fixture[:fixture.index('@main')]
     return '\n'.join((
-        (ROOT / 'scripts/templates/v3_wire_contract.swift').read_text(),
-        (ROOT / 'scripts/templates/combined_failure.swift').read_text(),
+        ProductSource('v3_wire_contract.swift').read_text(),
+        ProductSource('combined_failure.swift').read_text(),
         classifier, declaration(runtime, 'enum V3AuthFailureDisplay {'), message,
-        (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text(), stub_errors))
+        ProductSource('v3_behavioral_primitives.swift').read_text(), stub_errors))
 
 
 class AccountDiagnosticTests(unittest.TestCase):
@@ -77,10 +62,10 @@ class AccountDiagnosticTests(unittest.TestCase):
             self.assertIn('PASS', executed.stdout)
 
     def test_anisette_pair_failures_keep_finite_shared_definition_and_blocked_guidance(self):
-        common = (ROOT / 'scripts/templates/combined_failure.swift').read_text()
-        runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
-        shell = (ROOT / 'scripts/templates/v3_unified_shell.swift').read_text()
-        primitives = (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text()
+        common = ProductSource('combined_failure.swift').read_text()
+        runtime = ProductSource('v3_headless_runtime.swift').read_text()
+        shell = ProductSource('v3_unified_shell.swift').read_text()
+        primitives = ProductSource('v3_behavioral_primitives.swift').read_text()
         error = declaration(common, 'enum LCAnisettePairError:')
         self.assertIn('Error, LocalizedError, Equatable', error)
         cases = re.findall(r'\bcase\s+([^\n]+)', error)
@@ -94,9 +79,9 @@ class AccountDiagnosticTests(unittest.TestCase):
         self.assertIn('if error is LCAnisettePairError', capture)
         self.assertLess(capture.index('if error is LCAnisettePairError'), capture.index('var cause = error as NSError'))
         account_error = declaration(common, 'struct V3AccountOperationError:')
-        self.assertIn('kind == .anisetteIdentityStateInvalid ? false : nil', account_error)
+        self.assertIn('kind == .anisetteIdentityStateInvalid || kind.isRemoteIdentity ? false : nil', account_error)
         self.assertIn('step == .credentialCommit && kind != .anisetteIdentityStateInvalid', account_error)
-        self.assertIn('sourceStep: kind == .anisetteIdentityStateInvalid ? .anisetteFetch : step', account_error)
+        self.assertIn('sourceStep: kind == .anisetteIdentityStateInvalid || kind.isRemoteIdentity ? .anisetteFetch : step', account_error)
         for text, anchor in ((runtime, 'enum V3AuthFailureDisplay {'),
                              (shell, '    static func failureMessage(from failure: [String: Any]) -> String {')):
             self.assertIn('case "anisetteIdentityStateInvalid": return LCAnisettePairError.safeMessage', declaration(text, anchor))
@@ -108,10 +93,10 @@ class AccountDiagnosticTests(unittest.TestCase):
             self.assertNotIn(misleading, error)
 
     def test_pair_failure_blocks_authenticated_provisioning_retry_and_reauthentication(self):
-        runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
-        shell = (ROOT / 'scripts/templates/v3_unified_shell.swift').read_text()
-        primitives = (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text()
-        post_auth = declaration(runtime, '    func run(id: String) async').split(
+        runtime = ProductSource('v3_headless_runtime.swift').read_text()
+        shell = ProductSource('v3_unified_shell.swift').read_text()
+        primitives = ProductSource('v3_behavioral_primitives.swift').read_text()
+        post_auth = declaration(runtime, '    private func runLoginPipeline(id: String) async').split(
             'if authenticatedOutcome == "authenticatedProvisioningIncomplete" {', 1)[1].split('} else if cancelled {', 1)[0]
         self.assertIn('let anisetteIdentityStateInvalid = failure.signingContext["typed_error"] == "anisetteIdentityStateInvalid"', post_auth)
         self.assertIn('provisioningRecoveryRequiresReconciliation || anisetteIdentityStateInvalid', post_auth)
@@ -134,8 +119,8 @@ class AccountDiagnosticTests(unittest.TestCase):
     def test_readiness_vocabulary_matches_production_failure_enums(self):
         # Run this contract check on Linux too; missing wire vocabulary must not
         # wait for a macOS executable harness to be detected.
-        failure = (ROOT / 'scripts/templates/combined_failure.swift').read_text()
-        wire = (ROOT / 'scripts/templates/v3_wire_contract.swift').read_text()
+        failure = ProductSource('combined_failure.swift').read_text()
+        wire = ProductSource('v3_wire_contract.swift').read_text()
         for name, boundary, allowlist in (
             ('SafeCause', 'fileprivate var inferredRetryable', 'knownSafeCauseValues'),
             ('SourceStep', 'var portalUserLabel', 'knownSourceStepValues')):
@@ -144,18 +129,36 @@ class AccountDiagnosticTests(unittest.TestCase):
             for line in re.findall(r'\bcase\s+([A-Za-z]\w*(?:\s*,\s*[A-Za-z]\w*)*)', enum):
                 cases.update(value.strip() for value in line.split(',') if value.strip())
             values = wire.split('static let ' + allowlist + ': Set<String> = [', 1)[1].split(']', 1)[0]
-            self.assertEqual(cases, set(re.findall(r'"([^"\n]+)"', values)))
+            allowed = set(re.findall(r'"([^"\n]+)"', values))
+            if name == 'SafeCause':
+                # Readiness is a narrower protocol than command failure decode.
+                # The dedicated real-decoder suite verifies rejection/acceptance.
+                self.assertLessEqual(allowed, cases)
+                self.assertEqual(cases - allowed, {
+                    'directRecoveryRecordMissing', 'directRecoveryTargetMismatch',
+                    'directRecoveryModeInvalid', 'directRecoveryPhaseNotEligible'})
+            else:
+                self.assertLessEqual(allowed, cases)
+                self.assertEqual(cases - allowed, {
+                    'refreshRecordUpdate', 'certificateSelection', 'provisioningProfileInstallation',
+                    'refreshReadiness', 'refreshPreflight', 'refreshMetadataCache', 'refreshApplication'})
         self.assertIn('"sourceStep", "signingContext"])),', wire)
 
     def test_generated_boundaries_preserve_stage_and_fail_activation(self):
         source = generated_sign_in()
         anisette = declaration(source, '    private func getAnisetteData(')
         self.assertIn('v3AuthenticationPhase(.anisetteFetch)', anisette)
-        signin = declaration(source, '    private func signIn(')
+        wrapper = declaration(source, '    private func signIn(')
+        self.assertIn('try await self.performSignIn(appleID: appleID, password: password,', wrapper)
+        self.assertIn('try await self.v3WithOwnedODA', wrapper)
+        signin = declaration(source, '    private func performSignIn(')
         self.assertIn('v3AuthenticationPhase(.appleAuthentication)', signin)
         silent = declaration(source, '    private func silentSignIn(')
         self.assertIn('v3AuthenticationPhase(.accountLookup)', silent)
-        loop = declaration(source, '    private func provisioningLoop(')
+        loop_wrapper = declaration(source, '    private func provisioningLoop(')
+        self.assertIn('try await self.performProvisioningLoop(account: account, session: session, reportProgress: reportProgress)', loop_wrapper)
+        self.assertIn('try await self.v3WithOwnedODA', loop_wrapper)
+        loop = declaration(source, '    private func performProvisioningLoop(')
         for step, operation in (
             ('fetchTeams', 'self.fetchTeam('), ('saveAccount', 'self.saveTeamAndAccount(team)'),
             ('fetchCertificate', 'self.fetchCertificate('), ('activateCertificate', 'setActiveCertificate('),
@@ -164,10 +167,15 @@ class AccountDiagnosticTests(unittest.TestCase):
         self.assertIn('if resolvedCertificate == nil {', loop)
         self.assertIn('if diagnosticError.requiresReconciliation || diagnosticError.portalSessionRejected { throw diagnosticError }', loop)
         self.assertIn('resolveProvisioningError(diagnosticError)', loop)
-        finalize = declaration(source, '    private func finalizeAuthentication(')
+        finalize_wrapper = declaration(source, '    private func finalizeAuthentication(')
+        self.assertIn('performFinalizeAuthentication(result: result)', finalize_wrapper)
+        self.assertIn('v3WithOwnedODA', finalize_wrapper)
+        finalize = declaration(source, '    private func performFinalizeAuthentication(')
         self.assertIn('throw v3AccountOperationFailure(error, step: .activateAccount)', finalize)
         self.assertLess(finalize.index('throw v3AccountOperationFailure'), finalize.index('Database updates completed'))
-        persistence = declaration(source, '    private func saveTeamAndAccount(')
+        persistence_wrapper = declaration(source, '    private func saveTeamAndAccount(')
+        self.assertIn('self.performSaveTeamAndAccount(altTeam, makeActive: makeActive)', persistence_wrapper)
+        persistence = declaration(source, '    private func performSaveTeamAndAccount(')
         self.assertIn('await context.perform { context.rollback() }', persistence)
         self.assertLess(persistence.index('try context.save()'), persistence.index('UserDefaults.standard.activeAppsLimit'))
         silent = declaration(source, '    private func silentSignIn(')
@@ -177,7 +185,7 @@ class AccountDiagnosticTests(unittest.TestCase):
                         auth_loop.index('V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry'))
 
     def test_rejected_team_session_offers_reauthentication_not_same_token_retry(self):
-        runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
+        runtime = ProductSource('v3_headless_runtime.swift').read_text()
         handler = declaration(runtime, '    func resolveProvisioningError(')
         rejected = handler.split('if diagnosticError.portalSessionRejected {', 1)[1].split('if diagnosticError.requiresReconciliation', 1)[0]
         self.assertIn('error: diagnosticError, mayRetry: false', rejected)
@@ -197,12 +205,14 @@ class AccountDiagnosticTests(unittest.TestCase):
             self.assertNotIn(forbidden, retirement)
 
     def test_terminal_routes_capture_owned_phase_evidence(self):
-        runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
-        run = declaration(runtime, '    func run(id: String) async')
+        runtime = ProductSource('v3_headless_runtime.swift').read_text()
+        run = declaration(runtime, '    private func runLoginPipeline(id: String) async')
         self.assertEqual(run.count('v3CaptureAuthFailure(error, operation: "signIn"'), 2)
         self.assertNotIn('CombinedFailure.capture(error, operation: "signIn"', run)
         source = generated_sign_in()
-        execute = declaration(source, '    override func execute(')
+        wrapper = declaration(source, '    override func execute(')
+        self.assertIn('try await self.executeLoginPipeline(parentProgress: parentProgress)', wrapper)
+        execute = declaration(source, '    private func executeLoginPipeline(')
         self.assertIn('session.anisetteData = try await self.getAnisetteData()', execute)
         self.assertIn('if self.v3ForceProvisioningRetry', execute)
         # Both paths use the generated owned Anisette boundary; their escaped
@@ -216,16 +226,17 @@ class AccountDiagnosticTests(unittest.TestCase):
         self.execute(diagnostic_sources() + (ROOT / 'tests/fixtures/v3_native_adi_evidence_harness.swift').read_text())
 
     def test_native_adi_evidence_is_typed_and_diagnostic_only(self):
-        common = (ROOT / 'scripts/templates/combined_failure.swift').read_text()
-        runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
+        common = ProductSource('combined_failure.swift').read_text()
+        runtime = ProductSource('v3_headless_runtime.swift').read_text()
         adapter = declaration(runtime, 'func v3AccountOperationFailure(')
         self.assertIn('case .adiError(let code, let description):', adapter)
         self.assertIn('nativeEvidence = .capture(code: code, description: description)', adapter)
         capture = declaration(common, 'struct V3AnisetteNativeEvidence {')
         self.assertIn('1f5a7e36553cc865b873f222b87a6486c0bcc7bf', common)
         self.assertIn('String(subcode) == tail', capture)
-        self.assertNotIn('.contains(', capture)
-        self.assertNotIn('.hasPrefix(', capture)
+        decoder = declaration(capture, '    static func capture(')
+        self.assertNotIn('.contains(', decoder)
+        self.assertNotIn('.hasPrefix(', decoder)
         for mutation in ('UserDefaults', 'FileManager', 'Keychain', 'retry', 'reset', 'removeItem'):
             self.assertNotIn(mutation, capture)
         validator = declaration(common, '    public static func validatedSigningContext(')
@@ -233,24 +244,26 @@ class AccountDiagnosticTests(unittest.TestCase):
         self.assertIn('V3AnisetteNativeEvidence.Phase(rawValue: text) != nil', validator)
         # Both existing terminal routes already call this production capture;
         # no retry, classification, credential or provider behavior is changed.
-        run = declaration(runtime, '    func run(id: String) async')
+        run = declaration(runtime, '    private func runLoginPipeline(id: String) async')
         self.assertEqual(run.count('v3CaptureAuthFailure(error, operation: "signIn"'), 2)
 
     def test_generated_commit_auth_loop_and_finalize_execute(self):
         source = generated_sign_in()
         # Keep the complete post-auth commit (including verified legacy recovery)
         # in its real generated method boundary, with every dependency supplied.
-        sign_in = declaration(source, '    private func signIn(')
+        sign_in = declaration(source, '    private func performSignIn(')
         commit_start = sign_in.index('        // V3_AUTH_CREDENTIAL_TRANSACTION_V1')
         commit_end = sign_in.index('        return (account, session)', commit_start)
         commit = sign_in[commit_start:commit_end]
         auth = declaration(source, '    private func authenticationLoop(').replace('private func', 'func', 1)
-        finalize = declaration(source, '    private func finalizeAuthentication(').replace('private func', 'func', 1)
-        provisioning = declaration(source, '    private func provisioningLoop(').replace('private func', 'func', 1)
+        finalize = (declaration(source, '    private func finalizeAuthentication(') + '\n' +
+                    declaration(source, '    private func performFinalizeAuthentication(')).replace('private func', 'func')
+        provisioning = (declaration(source, '    private func provisioningLoop(') + '\n' +
+                        declaration(source, '    private func performProvisioningLoop(')).replace('private func', 'func')
         harness = (ROOT / 'tests/fixtures/v3_account_boundaries_harness.swift').read_text()
         harness = harness.replace('// GENERATED_COMMIT', commit).replace('// GENERATED_AUTH_LOOP', auth)
         harness = harness.replace('// GENERATED_FINALIZE', finalize).replace('// GENERATED_PROVISIONING', provisioning)
-        keychain = (ROOT / 'scripts/templates/embedded_shared_keychain.swift').read_text()
+        keychain = ProductSource('embedded_shared_keychain.swift').read_text()
         identity_types = '\n'.join(declaration(keychain, signature) for signature in (
             'struct LCEmbeddedAuthenticationSnapshot:', 'struct LCEmbeddedAuthenticationCandidate:'))
         self.execute(diagnostic_sources() + '\n' + identity_types + '\n' + harness)

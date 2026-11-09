@@ -8,11 +8,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def owner_pin(owner="LiveContainer"):
-    return json.loads((ROOT/"ci/issues-native/candidate-graph.json").read_text())["owners"][owner][1]
+    return json.loads(((ROOT/'ci/build/candidate-graph.json')).read_text())["owners"][owner][1]
 
 
 def owner_root(owner="LiveContainer"):
-    variable = {"LiveContainer": "MAINTAINED_LIVE_CONTAINER_TEST_SOURCE",
+    variable = {"AnisetteKit": "MAINTAINED_ANISETTEKIT_TEST_SOURCE",
+                "LiveContainer": "MAINTAINED_LIVE_CONTAINER_TEST_SOURCE",
                 "idevice": "MAINTAINED_IDEVICE_TEST_SOURCE",
                 "SideStore": "MAINTAINED_SIDESTORE_TEST_SOURCE",
                 "SideStore/Dependencies/SideSign": "MAINTAINED_SIDESIGN_TEST_SOURCE",

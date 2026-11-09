@@ -1,4 +1,5 @@
 """Executable and integration coverage for authoritative sign-out reporting."""
+from tests.support.product_sources import ProductSource
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class SignOutPostconditionTests(unittest.TestCase):
     def test_run_mutation_checks_only_signout_snapshot_before_success_copy(self):
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = (ProductSource('v3_unified_shell.swift')).read_text(encoding="utf-8")
         start = shell.index("private func runMutation(")
         end = shell.index("\n    func signOut()", start)
         mutation = shell[start:end]
@@ -29,7 +30,7 @@ class SignOutPostconditionTests(unittest.TestCase):
         self.assertLess(policy_index, mutation.index("finishMutation()", policy_index))
         self.assertIn('func signOut() { runMutation("signOut", successNotice: "Signed out successfully.") }', shell)
 
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service = (ProductSource('v3_sidestore_service.swift')).read_text(encoding="utf-8")
         service_start = service.index('case "signOut":')
         service_end = service.index('\n        case "syncAppIDs":', service_start)
         signout = service[service_start:service_end]
@@ -47,7 +48,7 @@ class SignOutPostconditionTests(unittest.TestCase):
         if not compiler:
             self.skipTest("Swift compiler unavailable; executable policy harness runs in macOS CI")
 
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8")
         fixture = (ROOT / "tests/fixtures/v3_signout_postcondition_harness.swift").read_text(encoding="utf-8")
         policy_start = primitives.index("enum V3SignOutOutcome: Equatable {")
         policy_end = primitives.index("\nenum V3AnisetteFailureGuidance {", policy_start)
