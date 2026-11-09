@@ -552,7 +552,7 @@ def preflight_archive(archive, ipa_size_bytes: int, limits: dict | None = None):
     return infos
 
 
-from patch_native_error_presenters import TOUCHED_PATHS as NATIVE_ERROR_SOURCE_PATHS
+from native_error_evidence import NATIVE_ERROR_SOURCE_PATHS
 
 REQUIRED_GENERATED_HOST_SOURCES = {
     *NATIVE_ERROR_SOURCE_PATHS,
