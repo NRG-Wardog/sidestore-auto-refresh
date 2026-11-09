@@ -1,152 +1,42 @@
-"""Regression coverage for the Dead10ccFix upstream backport (v3.0.3, issue #33).
+"""Exercise Dead10cc behavior from the exact maintained owner, not a patch generator.
 
-Backports upstream LiveContainer fix e98699a ("Fix #1491: 0xdead10cc
-regression") into the pinned LiveContainer tree: initDead10ccFix() must
-register BOTH NSExtensionHostDidEnterBackgroundNotification and
-UIApplicationDidEnterBackgroundNotification inside the original
-LiveProcess/shared-guest scope, because either can fire
-depending on Scene API. Duplicate notifications for one transition are gated.
+The portable C probes execute extracted production blocks with OS doubles.
+They are not a UIKit or physical-device claim. Source checkout is mandatory in CI.
 """
-import importlib.util
+import json
 import os
+from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
-from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location(
-    "dead10cc_patch", ROOT / "scripts/patch_dead10cc_fix.py")
-patch = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(patch)
-
-RESOURCE_SCANNER = '''- (NSMutableSet *)_lock_lockedFilePathsIgnoring:(NSMutableSet *)ignoring {
-    void *pidinfo = malloc(pidinfo_size);
-    pidinfo_size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, pidinfo, pidinfo_size);
-    if (pidinfo_size >= 8) {
-        struct proc_fdinfo *fdinfo = (struct proc_fdinfo *)pidinfo;
-        while (count--) {
-            fdinfo++;
-        }
-    }
-
-    NSMutableSet *lockedFilePaths = [NSMutableSet set];
-    for (NSString *path in openFilePaths) {
-            int fd = open(path_c, O_RDONLY | O_NOCTTY);
-            if (fd <= 1) {
-                continue;
-            }
-
-            struct flock fl;
-            memset(&fl, 0, sizeof(fl));
-            fl.l_type = F_WRLCK;
-            fl.l_pid = pid;
-
-            int lock = fcntl(fd, F_GETLKPID, &fl);
-            if (lock == -1) {
-                continue;
-            }
-
-            if ((fl.l_type &~ F_UNLCK) == 1) {
-                [lockedFilePaths addObject:path];
-            }
-    }
-    return lockedFilePaths;
-}
-'''
-
-PINNED_FIXTURE = '''@import Foundation;
-
-@interface Dead10ccFix : NSObject
-@property(nonatomic) BOOL methodInited;
-@property(nonatomic) int deboundeToken;
-@end
-
-Dead10ccFix* fix = nil;
-
-void initDead10ccFix(void) {
-
-    if(NSUserDefaults.isLiveProcess) {
-        fix = [[Dead10ccFix alloc] init];
-        [NSNotificationCenter.defaultCenter addObserver:fix selector:@selector(handleAppDidEnterBackground:) name:NSExtensionHostDidEnterBackgroundNotification object:nil];
-    } else if (NSUserDefaults.isSharedApp){
-        fix = [[Dead10ccFix alloc] init];
-        [NSNotificationCenter.defaultCenter addObserver:fix selector:@selector(handleAppDidEnterBackground:) name:@"UIApplicationDidEnterBackgroundNotification" object:nil];
-    }
-}
-
-@implementation Dead10ccFix
-
-- (void)handleAppDidEnterBackgroundReal {
-    NSSet* locks = [self _lock_lockedFilePathsIgnoring:[NSMutableSet set]];
-}
-
-- (void)handleAppDidEnterBackground:(NSNotification *)notification {
-    if(!_methodInited) {
-    }
-}
-
-- (void)_terminateWithStatus:(int)status {
-    // Fake implementation from UIApplication
-    NSLog(@"[LC] _handleTaskCompletionAndTerminate");
-}
-
-@end
-'''
-PINNED_FIXTURE = PINNED_FIXTURE.replace("@implementation Dead10ccFix\n",
-                                      "@implementation Dead10ccFix\n\n" + RESOURCE_SCANNER)
+SOURCE_PATH = "LiveContainer/Tweaks/Dead10ccFix.m"
 
 
-class Dead10ccFixTests(unittest.TestCase):
-    def test_scan_balances_allocation_before_lock_detection(self):
-        generated = patch.patch_resource_lifetimes(RESOURCE_SCANNER)
-        self.assertEqual(generated, patch.patch_resource_lifetimes(generated))
-        self.assertIn("if (pidinfo == NULL) return nil;", generated)
-        self.assertLess(generated.index("free(pidinfo);"),
-                        generated.index("NSMutableSet *lockedFilePaths"))
-        self.assertLess(generated.index("close(fd);"), generated.index("if (lock == -1)"))
-        self.assertEqual(generated.count("free(pidinfo);"), 1)
-        self.assertEqual(generated.count("close(fd);"), 1)
+def owner_source():
+    graph = json.loads((ROOT/'ci/issues-native/candidate-graph.json').read_text())
+    expected = graph['owners']['LiveContainer'][1]
+    root = Path(os.environ.get('MAINTAINED_LIVE_CONTAINER_TEST_SOURCE', ROOT/'sources/LiveContainer'))
+    actual = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+    if actual != expected:
+        raise ValueError('LiveContainer checkout is not the current pinned owner')
+    committed = subprocess.check_output(['git', '-C', str(root), 'show', f'{expected}:{SOURCE_PATH}'])
+    path = root/SOURCE_PATH
+    if path.is_symlink() or path.read_bytes() != committed:
+        raise ValueError('LiveContainer source differs from its pinned Git blob')
+    return committed.decode('utf-8')
 
-    def test_resource_patch_fails_closed_on_drift_or_partial_prepared_source(self):
-        generated = patch.patch_resource_lifetimes(RESOURCE_SCANNER)
-        for broken in (RESOURCE_SCANNER.replace("fdinfo++;", "fdinfo += 1;"),
-                       generated.replace("    free(pidinfo);\n", ""),
-                       generated.replace("            close(fd);\n", "")):
-            with self.assertRaises(SystemExit):
-                patch.patch_resource_lifetimes(broken)
 
-    def test_existing_observer_patch_is_upgraded_without_duplicate_observers(self):
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name)
-            source = root / "LiveContainer/Tweaks/Dead10ccFix.m"
-            source.parent.mkdir(parents=True)
-            source.write_text(PINNED_FIXTURE)
-            patch.patch_dead10cc(root)
-            expected = source.read_text()
-            legacy = expected.replace(patch.patch_resource_lifetimes(RESOURCE_SCANNER),
-                                      RESOURCE_SCANNER)
-            self.assertIn(patch.MARKER, legacy)
-            self.assertNotIn(patch.RESOURCE_MARKER, legacy)
-            source.write_text(legacy)
-            patch.patch_dead10cc(root)
-            self.assertEqual(source.read_text(), expected)
-            patch.verify(root)
+def descriptor_probe(source):
+    start = source.index('            int fd = open(')
+    end = source.index('            if ((fl.l_type', start)
+    return source[start:end]
 
-    def test_descriptor_probe_executes_generated_code_and_baseline_leaks(self):
-        import subprocess
-        compiler = shutil.which("cc") or shutil.which("clang")
-        if not compiler:
-            self.skipTest("C compiler unavailable")
 
-        def probe(source):
-            start = source.index("            int fd = open(")
-            end = source.index("            if ((fl.l_type", start)
-            return source[start:end]
-
-        # The open/fcntl/close production block is unchanged in this extraction.
-        # Only OS functions/types are doubles; no UIKit runtime is simulated.
-        harness = r'''
+DESCRIPTOR_HARNESS = r'''
 #include <assert.h>
 #include <string.h>
 enum { O_RDONLY = 0, O_NOCTTY = 1, F_WRLCK = 2, F_GETLKPID = 3 };
@@ -185,163 +75,116 @@ __PRODUCTION_PROBE__
     return 0;
 }
 '''
+
+
+class OwnerSourceAdmissionTests(unittest.TestCase):
+    def test_wrong_pin_and_modified_blob_are_rejected(self):
+        expected = json.loads((ROOT/'ci/issues-native/candidate-graph.json').read_text())['owners']['LiveContainer'][1]
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name)/SOURCE_PATH
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b'owner')
+            with patch.dict(os.environ, {'MAINTAINED_LIVE_CONTAINER_TEST_SOURCE': name}):
+                with patch('subprocess.check_output', return_value='0'*40+'\n'):
+                    with self.assertRaisesRegex(ValueError, 'current pinned owner'):
+                        owner_source()
+                for modified in (False, True):
+                    path.write_bytes(b'modified' if modified else b'owner')
+                    with patch('subprocess.check_output', side_effect=[expected+'\n', b'owner']):
+                        if modified:
+                            with self.assertRaisesRegex(ValueError, 'pinned Git blob'):
+                                owner_source()
+                        else:
+                            self.assertEqual(owner_source(), 'owner')
+                path.unlink()
+                target = Path(name)/'linked'
+                target.write_bytes(b'owner')
+                path.symlink_to(target)
+                with patch('subprocess.check_output', side_effect=[expected+'\n', b'owner']):
+                    with self.assertRaisesRegex(ValueError, 'pinned Git blob'):
+                        owner_source()
+
+
+class Dead10ccFixTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = owner_source()
+        cls.compiler = shutil.which('cc') or shutil.which('clang')
+        if not cls.compiler:
+            raise RuntimeError('C compiler is required for maintained-owner runtime probes')
+
+    def run_c(self, source):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
-            for label, source, expected in (
-                ("baseline", RESOURCE_SCANNER, 17),
-                ("patched", patch.patch_resource_lifetimes(RESOURCE_SCANNER), 0),
-            ):
-                cfile, executable = root / (label + ".c"), root / label
-                cfile.write_text(harness.replace("__PRODUCTION_PROBE__", probe(source)))
-                built = subprocess.run([compiler, str(cfile), "-o", str(executable)],
-                                       capture_output=True, text=True)
-                self.assertEqual(built.returncode, 0, built.stderr)
-                run = subprocess.run([str(executable)], capture_output=True, text=True, timeout=5)
-                self.assertEqual(run.returncode, expected, label + run.stderr)
+            path, binary = root/'probe.c', root/'probe'
+            path.write_text(source)
+            build = subprocess.run([self.compiler, str(path), '-o', str(binary)],
+                                   capture_output=True, text=True, timeout=30)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            return subprocess.run([str(binary)], capture_output=True, text=True, timeout=5)
 
-    def test_pinned_source_patch_is_idempotent_and_scoped(self):
-        source = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
-        if not source:
-            self.skipTest("Pinned LiveContainer source is supplied by macOS CI")
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name)
-            original = Path(source) / "LiveContainer/Tweaks/Dead10ccFix.m"
-            target = root / "LiveContainer/Tweaks/Dead10ccFix.m"
-            target.parent.mkdir(parents=True)
-            shutil.copy2(original, target)
-            patch.patch_dead10cc(root)
-            first = target.read_bytes()
-            patch.patch_dead10cc(root)
-            self.assertEqual(first, target.read_bytes())
-            text = target.read_text(encoding="utf-8")
-            self.assertIn("!NSUserDefaults.isLiveProcess && !NSUserDefaults.isSharedApp", text)
-            self.assertIn("LCDead10ccClaimBackgroundTransition", text)
-            self.assertIn("handleAppWillEnterForeground", text)
-            self.assertIn("free(pidinfo);", text)
-            self.assertIn("close(fd);", text)
-            # The C harness exercises exactly this emitted resource probe,
-            # not a rewritten model of its descriptor ownership.
-            start, end = "            int fd = open(", "            if ((fl.l_type"
-            actual_probe = text[text.index(start):text.index(end, text.index(start))]
-            fixture = patch.patch_resource_lifetimes(RESOURCE_SCANNER)
-            fixture_probe = fixture[fixture.index(start):fixture.index(end, fixture.index(start))]
-            self.assertEqual(actual_probe, fixture_probe)
+    def test_descriptor_probe_executes_owner_and_detects_leak_regression(self):
+        probe = descriptor_probe(self.source)
+        self.assertEqual(probe.count('close(fd);'), 1)
+        for label, value, expected in (
+            ('owner', probe, 0),
+            ('missing-close', probe.replace('close(fd);', ''), 17),
+            ('reject-valid-fd-zero-and-one', probe.replace('fd < 0', 'fd <= 1'), 17),
+        ):
+            with self.subTest(label=label):
+                result = self.run_c(DESCRIPTOR_HARNESS.replace('__PRODUCTION_PROBE__', value))
+                self.assertEqual(result.returncode, expected, result.stderr)
 
-    def test_registers_both_background_notifications(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name)
-            target = root / "LiveContainer" / "Tweaks"
-            target.mkdir(parents=True)
-            (target / "Dead10ccFix.m").write_text(PINNED_FIXTURE, encoding="utf-8")
-            patch.patch_dead10cc(root)
-            text = (target / "Dead10ccFix.m").read_text(encoding="utf-8")
-        self.assertIn("NSExtensionHostDidEnterBackgroundNotification", text)
-        self.assertIn("UIApplicationDidEnterBackgroundNotification", text)
-        # Both notifications stay inside the same original guest-process scope.
-        self.assertIn("if (!NSUserDefaults.isLiveProcess && !NSUserDefaults.isSharedApp) return;", text)
-        self.assertIn("handleAppWillEnterForeground:", text)
-        self.assertIn("- (void)handleAppWillEnterForeground:(NSNotification *)notification;", text)
-
-    def test_matches_upstream_fix_behavior(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name)
-            target = root / "LiveContainer" / "Tweaks"
-            target.mkdir(parents=True)
-            (target / "Dead10ccFix.m").write_text(PINNED_FIXTURE, encoding="utf-8")
-            patch.patch_dead10cc(root)
-            text = (target / "Dead10ccFix.m").read_text(encoding="utf-8")
-        # Single shared fix instance, paired notifications plus resume reset.
-        self.assertEqual(text.count("addObserver:fix"), 4)
-        self.assertIn("DEAD10CC_FIX_E98699A", text)
-        self.assertIn("LCDead10ccClaimBackgroundTransition(&_backgroundTransitionGate)", text)
-
-    def test_patch_is_idempotent(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name)
-            target = root / "LiveContainer" / "Tweaks"
-            target.mkdir(parents=True)
-            (target / "Dead10ccFix.m").write_text(PINNED_FIXTURE, encoding="utf-8")
-            patch.patch_dead10cc(root)
-            first = (target / "Dead10ccFix.m").read_text(encoding="utf-8")
-            patch.patch_dead10cc(root)
-            second = (target / "Dead10ccFix.m").read_text(encoding="utf-8")
-        self.assertEqual(first, second)
-
-    def test_no_fake_background_keepalive(self):
-        source = (ROOT / "scripts/patch_dead10cc_fix.py").read_text(encoding="utf-8")
-        for forbidden in ("silent audio", "AVAudioSession", "beginBackgroundTask",
-                          "setMinimumBackgroundFetchInterval", "while (1)", "while(true)",
-                          "keepalive", "keep-alive", "wakeLock", "idleTimerDisabled"):
-            self.assertNotIn(forbidden, source)
-
-    def test_lifecycle_diagnostics_present(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name)
-            target = root / "LiveContainer" / "Tweaks"
-            target.mkdir(parents=True)
-            (target / "Dead10ccFix.m").write_text(PINNED_FIXTURE, encoding="utf-8")
-            patch.patch_dead10cc(root)
-            text = (target / "Dead10ccFix.m").read_text(encoding="utf-8")
-        self.assertIn("[LC_GUEST_LIFECYCLE]", text)
-        self.assertIn("BACKGROUND source=", text)
-        self.assertIn("DEAD10CC_PREPARATION pid=", text)
-        self.assertNotIn("PROCESS_INTERRUPTED", text)
-
-    def test_prepared_tree_upgrades_false_interruption_diagnostic(self):
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name)
-            source = root / "LiveContainer/Tweaks/Dead10ccFix.m"
-            source.parent.mkdir(parents=True)
-            source.write_text(PINNED_FIXTURE)
-            patch.patch_dead10cc(root)
-            expected = source.read_text()
-            source.write_text(expected.replace("DEAD10CC_PREPARATION pid=", "PROCESS_INTERRUPTED pid="))
-            patch.patch_dead10cc(root)
-            self.assertEqual(source.read_text(), expected)
-            patch.verify(root)
-
-    def test_transition_gate_executes_actual_patched_code(self):
-        import shutil
-        import subprocess
-        import tempfile
-        compiler = shutil.which("cc") or shutil.which("clang")
-        if not compiler:
-            self.skipTest("C compiler unavailable; transition gate executes in macOS CI")
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name)
-            target = root / "LiveContainer" / "Tweaks"
-            target.mkdir(parents=True)
-            source = target / "Dead10ccFix.m"
-            source.write_text(PINNED_FIXTURE, encoding="utf-8")
-            patch.patch_dead10cc(root)
-            text = source.read_text(encoding="utf-8")
-            helper = text[text.index("// DEAD10CC_TRANSITION_GATE_BEGIN"):text.index("// DEAD10CC_TRANSITION_GATE_END")]
-            c_source = helper + r'''
-#include <assert.h>
-#include <stdio.h>
+    def test_transition_gate_executes_owner_and_rejects_missing_reset(self):
+        start = self.source.index('// DEAD10CC_TRANSITION_GATE_BEGIN')
+        end = self.source.index('// DEAD10CC_TRANSITION_GATE_END', start)
+        helper = self.source[start:end]
+        harness = r'''
 int main(void) {
     LCDead10ccTransitionGate gate = {0};
-    assert(LCDead10ccClaimBackgroundTransition(&gate) == 1);
-    assert(LCDead10ccClaimBackgroundTransition(&gate) == 0);
+    if (LCDead10ccClaimBackgroundTransition(&gate) != 1) return 1;
+    if (LCDead10ccClaimBackgroundTransition(&gate) != 0) return 2;
     LCDead10ccResetBackgroundTransition(&gate);
-    assert(LCDead10ccClaimBackgroundTransition(&gate) == 1);
-    assert(LCDead10ccClaimBackgroundTransition(&gate) == 0);
-    puts("DEAD10CC_TRANSITION_GATE_PASS");
+    if (LCDead10ccClaimBackgroundTransition(&gate) != 1) return 3;
+    if (LCDead10ccClaimBackgroundTransition(&gate) != 0) return 4;
     return 0;
 }
 '''
-            c_file = root / "gate.c"
-            executable = root / "gate"
-            c_file.write_text(c_source, encoding="utf-8")
-            subprocess.run([compiler, str(c_file), "-o", str(executable)], check=True,
-                           capture_output=True, text=True)
-            result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
-            self.assertIn("DEAD10CC_TRANSITION_GATE_PASS", result.stdout)
+        self.assertEqual(self.run_c(helper+harness).returncode, 0)
+        reset = '__atomic_store_n(&gate->handled, 0, __ATOMIC_RELEASE);'
+        self.assertEqual(helper.count(reset), 1)
+        self.assertEqual(self.run_c(helper.replace(reset, '')+harness).returncode, 3)
+
+    def test_resource_lifetimes_are_balanced_on_failure_and_success(self):
+        text = self.source
+        self.assertIn('if (pidinfo == NULL) return nil;', text)
+        self.assertIn('if (pidinfo_size <= 0) {\n        free(pidinfo);\n        return nil;', text)
+        self.assertIn('for (; count--; fdinfo++)', text)
+        self.assertIn('    free(pidinfo);\n\n    NSMutableSet *lockedFilePaths', text)
+        probe = descriptor_probe(text)
+        self.assertLess(probe.index('close(fd);'), probe.index('if (lock == -1)'))
+
+    def test_background_and_foreground_notifications_are_guest_scoped(self):
+        text = self.source
+        init = text[text.index('void initDead10ccFix(void)'):text.index('@implementation Dead10ccFix')]
+        self.assertIn('if (!NSUserDefaults.isLiveProcess && !NSUserDefaults.isSharedApp) return;', init)
+        self.assertEqual(init.count('addObserver:fix'), 4)
+        for name in ('NSExtensionHostDidEnterBackgroundNotification',
+                     'UIApplicationDidEnterBackgroundNotification',
+                     'UIApplicationWillEnterForegroundNotification',
+                     'NSExtensionHostDidBecomeActiveNotification'):
+            self.assertIn(name, init)
+        self.assertIn('LCDead10ccClaimBackgroundTransition(&_backgroundTransitionGate)', text)
+        self.assertIn('LCDead10ccResetBackgroundTransition(&_backgroundTransitionGate)', text)
+
+    def test_diagnostics_do_not_claim_interruption_or_fake_keepalive(self):
+        for required in ('[LC_GUEST_LIFECYCLE]', 'BACKGROUND source=', 'DEAD10CC_PREPARATION pid='):
+            self.assertIn(required, self.source)
+        for forbidden in ('PROCESS_INTERRUPTED', 'AVAudioSession', 'beginBackgroundTask',
+                          'setMinimumBackgroundFetchInterval', 'while (1)', 'while(true)',
+                          'keepalive', 'keep-alive', 'wakeLock', 'idleTimerDisabled'):
+            self.assertNotIn(forbidden, self.source)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()
