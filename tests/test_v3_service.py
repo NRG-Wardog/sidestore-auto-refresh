@@ -778,7 +778,6 @@ import Foundation
 
     def test_transport_log_templates_keep_dynamic_errors_paths_and_endpoints_out_of_logs(self):
         gateway = (ROOT / "scripts/patch_sidestore_integration.py").read_text(encoding="utf-8")
-        rust = (ROOT / "scripts/patch_coredevice_idevice.py").read_text(encoding="utf-8")
         for unsafe_log in (
             'TRANSPORT_CREATE_FAIL code=\\(code) subcode=\\(subCode) error=\\(message)',
             'selected_transport=FAILED_NO_VALID_TRANSPORT reason=\\(error.localizedDescription)',
@@ -786,11 +785,8 @@ import Foundation
             'FETCH_UDID_FAIL stage=rsd_service reason=\\\\(error.localizedDescription)',
             'AFC_FILE_OPEN_START path=\\(path)',
             'SIDESTORE_INSTALL_REQUEST_START path=\\(path)',
-            'HEARTBEAT_CONNECT_FAIL error={error}',
-            'HEARTBEAT_POLO_FAIL error={error}',
-            'HEARTBEAT_MARCO_FAIL error={error}',
         ):
-            self.assertNotIn(unsafe_log, gateway + rust)
+            self.assertNotIn(unsafe_log, gateway)
         # Internal error messages remain available to the classifier; only the
         # user-copyable logger is normalized.
         self.assertIn('IPA install failed: \\(message)', gateway)
