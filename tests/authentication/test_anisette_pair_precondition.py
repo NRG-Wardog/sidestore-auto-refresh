@@ -65,6 +65,7 @@ def program(*, baseline=False, old_fallback=False):
         support = (ProductSource('anisette_legacy_recovery.swift')).read_text()
         extra = "\n".join(declaration(common, signature) for signature in (
             "public struct V3TemporaryAnisetteTrace:",
+            "public struct V3TemporaryADIConsumption {", "public struct V3ConstructorFaultDiagnostic:",
             "struct V3AnisetteAttemptContext {", "struct V3AnisetteAttemptError:",
             "struct V3AnisetteNativeEvidence {"))
         extra += (ROOT / "tests/fixtures/anisette_recovery_probe_double.swift").read_text()

@@ -71,3 +71,18 @@ Final actual CI output SHA256 must be independently pinned before private
 owner-only delivery. Prior delivered inputs, oversize output and below-bound
 payload/metadata tampering remain rejected. No public Release, issue closure,
 physical-device execution or owner-account authentication is claimed.
+
+## Pinned native receipt admission
+
+The active input above retains its original producer receipts. Multitask and
+startup-upgrade verification use `pinned_native_admission.py`, with an exact
+seven-file SHA-256-reviewed snapshot under `reviewed-native/pinned-input`.
+This is an active compatibility boundary for that exact commit/run/attempt,
+not a second CI runner or evidence of a newer native build. Snapshot bytes and
+receipt self-hashes are unchanged. Artifact code is never executed; the loader
+isolates contract imports and rejects other input identities. Current native
+builds continue to use the maintained qualification modules.
+
+When replacing this input, first qualify a new native run and update its entire
+artifact/source contract. Do not rewrite historical receipts or bypass their
+producer hashes to make a newer verifier accept them.

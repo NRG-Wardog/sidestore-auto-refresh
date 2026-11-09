@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-from tests.support.product_sources import read_product_source
+from tests.support.product_sources import read_product_source, declaration_end
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = 'livecontainer_refresh_settings.swift'
@@ -187,8 +187,9 @@ class HistoryExecutionTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(prefix="lc-history-tests-")
         cls.addClassCleanup(cls.temp.cleanup)
         source = read_product_source(TEMPLATE)
-        start = source.index("// LC_REFRESH_HISTORY_STORE_V1_BEGIN")
-        end = source.index("// LC_REFRESH_HISTORY_STORE_V1_END")
+        start = source.index("struct LiveContainerRefreshHistoryEntry:")
+        store = source.index("enum LiveContainerRefreshHistoryStore {")
+        end = declaration_end(source, store)
         file = Path(cls.temp.name) / "HistoryTests.swift"
         file.write_text("import Foundation\n" + source[start:end] + HARNESS, encoding="utf-8")
         cls.executable = Path(cls.temp.name) / "history-test"

@@ -82,6 +82,14 @@ struct Other {}
 
 
 class ProductSourceRoleTests(unittest.TestCase):
+    def test_platform_libc_imports_are_mutually_exclusive(self):
+        expected = "#if canImport(Darwin)\nimport Darwin\n#elseif canImport(Glibc)\nimport Glibc\n#endif"
+        for role in ("v3_ipa_staging.swift", "v3_secret_handoff.swift"):
+            with self.subTest(role=role):
+                imports = sources.SOURCES[role][-1]
+                self.assertIn(expected, imports)
+                self.assertNotIn("import Darwin\nimport Glibc", imports)
+
     def test_role_never_resolves_a_local_template_path(self):
         role = sources.ProductSource('v3_wire_contract.swift')
         with patch.object(sources, 'read_product_source', return_value='exact owner') as read:

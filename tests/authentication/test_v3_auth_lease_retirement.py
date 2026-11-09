@@ -1,3 +1,4 @@
+from tests.test_v3_service import startup_diagnostic_source
 from tests.support.product_sources import ProductSource
 import shutil
 import re
@@ -36,6 +37,7 @@ class AuthLeaseRetirementTests(unittest.TestCase):
             directory = Path(name)
             program = directory / "main.swift"
             program.write_text(
+                startup_diagnostic_source() + "\n" +
                 (ROOT / "tests/fixtures/v3_auth_lease_retirement_harness.swift").read_text()
                 + (ProductSource('combined_failure.swift')).read_text()
                 + (ProductSource('v3_wire_contract.swift')).read_text()

@@ -30,7 +30,7 @@ def verifier_sources():
     import attachment_contract,diagnostics_contract
     paths={'multitask_receipt.py':Path(__file__),'diagnostics_contract.py':Path(diagnostics_contract.__file__)}
     for name in attachment_contract.CLEANUP_SOURCE_FILES:
-        paths[name]=Path(attachment_contract.__file__).parent/name
+        paths[name]=attachment_contract.cleanup_source_path(name)
     return {name:sha(path) for name,path in paths.items()}
 def verify_portable(value,graph,expected_identity):
     require(set(value)=={'schema','status','identity','source_graph','source','source_inventory_sha256','physical_device_execution','real_extension_launch','reports','artifact_sha256','embedded_sha256','verifier_sha256'},'Guest qualification fields differ')

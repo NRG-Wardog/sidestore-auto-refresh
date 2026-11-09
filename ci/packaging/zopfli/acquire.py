@@ -50,12 +50,12 @@ def unpack(m,archive,out):
     require(p.get('cold_vpn_regression_sha256')==SHA((out/'cold-vpn-tests.json').read_bytes()),'cold VPN regression receipt mismatch')
     sys.path.insert(0,str(((_CIPath(__file__).resolve().parents[3]/'ci/qualification/native'))))
     sys.path.insert(0,str((_CIPath(__file__).resolve().parents[3]/'ci/qualification/multitask')))
-    from ci.qualification.native.multitask_receipt import verify_portable
+    from pinned_native_admission import verify_multitask as verify_portable
     guest=read_json(out/'multitask-launch-tests.json');native=read_json(out/'native-receipt.json')
     guest_sha=SHA((out/'multitask-launch-tests.json').read_bytes())
     require(p.get('multitask_launch_regression_sha256')==guest_sha and native['evidence_sha256'].get('multitask-launch-tests.json')==guest_sha,'guest qualification receipt mismatch')
     verify_portable(guest,native['requested_graph'],{'workflow_commit':m['commit'],'run_id':str(m['run_id']),'run_attempt':str(m['run_attempt'])})
-    from ci.qualification.native.startup_upgrade_receipt import verify_portable as verify_schema
+    from pinned_native_admission import verify_startup_upgrade as verify_schema
     schema_sha=SHA((out/'startup-upgrade-tests.json').read_bytes())
     require(p.get('startup_upgrade_regression_sha256')==schema_sha and native['evidence_sha256'].get('startup-upgrade-tests.json')==schema_sha,'Core Data qualification receipt mismatch')
     verify_schema(read_json(out/'startup-upgrade-tests.json'),native['requested_graph'],{'workflow_commit':m['commit'],'run_id':str(m['run_id']),'run_attempt':str(m['run_attempt'])})

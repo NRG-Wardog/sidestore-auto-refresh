@@ -112,6 +112,9 @@ class IsolatedAnisetteOTPTests(unittest.TestCase):
                 program = harness.replace('__PRODUCTION_RESPONSE_PARSER__', declaration(swift, '    func parseHeadersResponse('))
                 program = program.replace('__PRODUCTION_JSON_PARSER__', declaration(swift, '    private func parseJSONString('))
                 program = program.replace('__PRODUCTION_NATIVE_TRACE__', declaration(swift, 'private enum TemporaryAnisetteNativeTrace {'))
+                program = '\n'.join((source('Sources/LoginDiagnosticTrace.swift'),
+                    declaration(swift, 'private enum TemporaryADIConsumptionTrace {'),
+                    declaration(swift, 'private enum TemporaryConstructorFaultTrace {'), program))
                 path, binary = Path(directory) / 'main.swift', Path(directory) / 'native-trace-swift'
                 path.write_text(program)
                 result = subprocess.run([compiler, '-parse-as-library', str(path), '-o', str(binary)],

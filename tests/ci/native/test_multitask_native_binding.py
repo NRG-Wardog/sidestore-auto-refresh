@@ -14,6 +14,7 @@ class BindingTests(unittest.TestCase):
  def setUp(self):
   self.temp=tempfile.TemporaryDirectory();self.fakepath=Path(self.temp.name)/'attachment_contract.py';self.fakepath.write_text('# controlled model double\n')
   self.validator=mock.Mock();self.module=types.SimpleNamespace(__file__=str(self.fakepath),validate=self.validator,validate_cleanup_receipt=mock.Mock(),CLEANUP_SOURCE_FILES=('run_attachment.py','owned_simulator_cleanup.py','attachment_contract.py','test_owned_simulator_cleanup.py'),PRODUCTION_FILES=('MultitaskSupport/AppSceneViewController.m',),UNCHANGED_BRIDGE_HASHES={},BASELINE_VIRTUAL_SHA='a'*64,SCREENSHOTS=['synthetic.png'])
+  self.module.cleanup_source_path=lambda name:Path(self.temp.name)/name
   for name in self.module.CLEANUP_SOURCE_FILES:
    if name!='attachment_contract.py':(Path(self.temp.name)/name).write_text('# controlled hash-only source\n')
   self.diagpath=Path(self.temp.name)/'diagnostics_contract.py';self.diagpath.write_text('# diagnostic model double\n');self.diagvalidator=mock.Mock();self.diagmodule=types.SimpleNamespace(__file__=str(self.diagpath),validate=self.diagvalidator,EXPECTED_SOURCES=('LiveContainerSwiftUI/Models/LCAppModel.swift',))

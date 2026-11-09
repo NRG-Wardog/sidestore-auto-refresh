@@ -55,6 +55,7 @@ class PipelinePersistenceContractTests(unittest.TestCase):
         get_mapped_error = swift_declaration(
             app_manager, "func getMappedError(for operation: AppOperation, error: Error) -> Error")
 
+        pairing = swift_declaration(read_product_source("v3_headless_runtime.swift"), "enum V3HeadlessPairingFailure {")
         source = """
 import Foundation
 import CoreData
@@ -70,9 +71,14 @@ extension NSError {
 protocol AppProtocol { var name: String { get }; var bundleIdentifier: String { get } }
 struct FakeApp: AppProtocol { var name = "Example"; var bundleIdentifier = "example.bundle" }
 enum AppOperation {
-    case install, refresh, update, activate, deactivate, deleteApp, backup, restore, resign, removeApp, removeDeactivatedApp
+    case install, reinstall, refresh, update, activate, deactivate, deleteApp, backup, restore, resign, removeApp, removeDeactivatedApp
     var app: AppProtocol { FakeApp() }
 }
+// External error type shapes only; tag/walk/classification stays owner code.
+enum OperationError: Error { case invalidPairingFile(reason: String) }
+enum MinimuxerError: Error { case invalidPairing(protocol: String, reason: String) }
+struct MinimuxerServiceError: Error { let error: Error }
+""" + pairing + """
 struct ProductionErrorMapper {
 """ + get_mapped_error + """
 }

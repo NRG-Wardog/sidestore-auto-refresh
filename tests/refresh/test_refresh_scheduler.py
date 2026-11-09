@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 
-from tests.support.product_sources import read_product_source
+from tests.support.product_sources import read_product_source, declaration_end
 from tests.owner_source import owner_source
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +26,10 @@ class LiveContainerRuntimeTests(unittest.TestCase):
         source += "\n" + "\n".join(read_product_source(role) for role in (
             "v3_shared_app_group.swift", "livecontainer_refresh_policy.swift",
             "livecontainer_vpn_recovery.swift", "livecontainer_refresh_scheduler.swift"))
+        source += "\n" + owner_source("LiveContainerSwiftUI/Utilities/V3Localization.swift")
+        support = owner_source("SideStoreSupport/SideStore.swift")
+        begin = support.index("public enum V3RefreshNotificationLocalization {")
+        source += "\n" + support[begin:declaration_end(support, begin)]
         source += "\n" + (ROOT / "tests/fixtures/livecontainer_scheduler_harness.swift").read_text()
         with tempfile.TemporaryDirectory() as directory:
             file = Path(directory) / "Test.swift"

@@ -77,11 +77,18 @@ struct UNAuthorizationOptions: OptionSet {
 }
 struct UNNotificationSettings { var authorizationStatus: UNAuthorizationStatus = .authorized }
 struct UNNotificationSound { static let `default` = Self() }
-class UNMutableNotificationContent { var title = ""; var body = ""; var sound: UNNotificationSound?; var userInfo: [AnyHashable: Any] = [:] }
+class UNMutableNotificationContent {
+    var title = ""; var body = ""; var sound: UNNotificationSound?; var userInfo: [AnyHashable: Any] = [:]
+    func mutableCopy() -> Any {
+        let copy = UNMutableNotificationContent()
+        copy.title = title; copy.body = body; copy.sound = sound; copy.userInfo = userInfo
+        return copy
+    }
+}
 class UNTimeIntervalNotificationTrigger { init(timeInterval: TimeInterval, repeats: Bool) {} }
 class UNNotificationRequest {
-    let identifier: String; let content: UNMutableNotificationContent
-    init(identifier: String, content: UNMutableNotificationContent, trigger: UNTimeIntervalNotificationTrigger?) { self.identifier = identifier; self.content = content }
+    let identifier: String; let content: UNMutableNotificationContent; let trigger: UNTimeIntervalNotificationTrigger?
+    init(identifier: String, content: UNMutableNotificationContent, trigger: UNTimeIntervalNotificationTrigger?) { self.identifier = identifier; self.content = content; self.trigger = trigger }
 }
 @MainActor class UNUserNotificationCenter {
     static let shared = UNUserNotificationCenter()

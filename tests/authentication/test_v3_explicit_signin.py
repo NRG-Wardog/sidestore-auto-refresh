@@ -59,13 +59,19 @@ class ExplicitSignInTests(unittest.TestCase):
         center_end = runtime.index("final class V3HeadlessAuthHandler:")
         center_source = runtime[center_start:center_end]
         center_methods = "\n\n".join(declaration(center_source, sig) for sig in (
-            "func poll(id:", "func respond(id:"))
+            "func poll(id:", "private func pollAuthenticationState(id:", "func respond(id:"))
         center_methods += "\n\n" + declaration(runtime, "func promptsParked(")
         handler_source = runtime[center_end:]
         handler_methods = "\n\n".join(declaration(handler_source, sig) for sig in (
             "private func center()", "private func ask(", "func credentials()",
-            "func verificationCode(", "private func chooseDeliveryMethod(",
+            "func verificationCode(", "private func diagnosticVerificationCode(", "private func chooseDeliveryMethod(",
             "private func enterVerificationCode("))
+        sequence = owner_source('SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift', 'SideStore')
+        helpers += '\n' + '\n'.join(declaration(sequence, anchor) for anchor in (
+            'enum V3DiagnosticProvider:', 'struct V3DiagnosticProviderPlan:',
+            'enum V3OwnedODASourceEligibility:', 'actor V3DiagnosticAttemptClock {'))
+        helpers += '\n' + declaration(owner_source('Sources/Anisette/ILoaderRemoteAnisette.swift',
+            'SideStore/Dependencies/SideSign'), 'public enum ILoaderRemoteError:')
         fixture = (ROOT / "tests/fixtures/v3_credentials_prompt_transition_harness.swift").read_text()
         fixture = fixture.replace("__PRODUCTION_CENTER_METHODS__", center_methods)
         fixture = fixture.replace("__PRODUCTION_HANDLER_METHODS__", handler_methods)

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from tests.owner_source import owner_source
 from scripts.headless_artifact_contract import verify_keychain_selection_contract
-from tests.support.product_sources import read_product_source
+from tests.support.product_sources import read_product_source, declaration_end
 
 class CombinedRefreshContractTests(unittest.TestCase):
     def test_package_verifier_does_not_require_interpolation_fragments_in_binary(self):
@@ -88,7 +88,7 @@ print("LCSharedKeychainReadyV1")
     def test_post_dispatch_connection_loss_retains_refresh_lease_without_matching_callback(self):
         handler = read_product_source("combined_refresh_handler.swift")
         start = handler.index("enum V3RefreshAdmissionFailureResolution")
-        end = handler.index("\n}\n\n@MainActor\nclass RefreshHandler", start) + 2
+        end = declaration_end(handler, start)
         production_policy = handler[start:end]
         production_handler = handler[handler.index("private func performRefresh(identifier: String,", handler.index("class RefreshHandler")):]
         self.assertIn("V3RefreshAdmissionFailureResolution.resolve(", production_handler)
@@ -224,7 +224,7 @@ struct RefreshGroup {
         defaults.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
         let targetProbe = Operation()
         targetProbe.installedApps.append(InstalledApp(bundleIdentifier: "running.app", name: "Running"))
-        targetProbe.record(["fixture.app": .success(InstalledApp())], attemptedAppIDs: ["fixture.app"], group: RefreshGroup(), runID: (try? automaticRefreshDefaults())?.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier)
+        targetProbe.record(["fixture.app": .success(InstalledApp())], attemptedAppIDs: ["fixture.app"])
         let skippedManifest = defaults.dictionary(forKey: "liveContainerAutoRefreshVerification")!
         precondition(skippedManifest["expected_ids"] as? [String] == ["fixture.app"])
         precondition(skippedManifest["requested_ids"] as? [String] == ["fixture.app", "running.app"])

@@ -16,11 +16,13 @@ DOUBLES = existing.DOUBLES.replace(
     "    static var writes = 0",
     "    static var failPendingAfterReady = false\n"
     "    static var corruptReadKey: String?\n"
+    "    static var corruptReadRequiresReadyMarker: String?\n"
     "    static var corruptReadAfterWrites = 0\n"
     "    static var writes = 0",
 ).replace(
     "            let value = Store.data[group]?[key]",
-    "            if Store.corruptReadKey == key && Store.writes >= Store.corruptReadAfterWrites {\n"
+    "            if Store.corruptReadKey == key && Store.writes >= Store.corruptReadAfterWrites &&\n"
+    "               (Store.corruptReadRequiresReadyMarker == nil || Store.data[group]?[Store.corruptReadRequiresReadyMarker!] == Data(\"1\".utf8)) {\n"
     "                Store.corruptReadKey = nil\n"
     '                return Data("different-readback".utf8)\n'
     "            }\n"
@@ -46,7 +48,8 @@ HARNESS = r'''
         let scenario = CommandLine.arguments[1]
         func expectFailure(_ code: Int, _ work: () throws -> Void) {
             do { try work(); preconditionFailure("expected failure") }
-            catch { precondition((error as NSError).code == code) }
+            catch { precondition((error as NSError).code == code,
+                "expected code \(code), got \((error as NSError).domain):\((error as NSError).code)") }
         }
         func commit(_ candidate: LCEmbeddedAuthenticationCandidate, email: String = "test@example.com", dsid: String = "id") throws {
             try keychain.writeVerifiedAuthentication(candidate, appleID: email, dsid: dsid, authToken: "verified-token")
@@ -121,14 +124,22 @@ HARNESS = r'''
             expectFailure(1010) { try keychain.writeAuthenticationCredentials(appleID: "test@example.com", password: "p", dsid: "id", authToken: "t") }
             precondition(Store.data == before)
         case "auth_each_write_failure":
-            // Pending marker, email, DSID, token, ready marker. The token-only
-            // route intentionally omits rather than fabricates a password.
-            for failAt in 1...6 {
+            // Journal, pending marker, route marker, three credential values,
+            // then ready marker. No password is fabricated for a token-only route.
+            for failAt in 1...7 {
                 Store.data[group] = route
                 Store.setCalls = 0; Store.setFailAt = failAt
                 let candidate = try keychain.authenticationCandidate()!
-                expectFailure(-25291) { try commit(candidate) }
+                if failAt == 3 {
+                    do { try commit(candidate); preconditionFailure("route write must fail") }
+                    catch { precondition(error as? V3RemoteIdentityError == .storageUnverified,
+                        "route storage wraps only its own IO failure") }
+                } else { expectFailure(-25291) { try commit(candidate) } }
+                precondition(Store.setCalls >= failAt, "selected write fault was not reached")
                 precondition(Store.data[group] == route, "failed commit must restore markerless source")
+                let restoredRoute = try LCEmbeddedSharedKeychain.remoteRouteBytes()
+                precondition(restoredRoute == nil,
+                    "rollback must also restore the previously absent route marker")
             }
         case "auth_readback_failure":
             Store.data[group] = route
@@ -242,6 +253,8 @@ HARNESS = r'''
             } else {
                 Store.data[group] = route
                 Store.corruptReadKey = "appleIDEmailAddress"
+                Store.corruptReadAfterWrites = 0
+                Store.corruptReadRequiresReadyMarker = marker
                 let candidate = try keychain.authenticationCandidate()!
                 expectFailure(1010) { try commit(candidate) }
                 precondition(Store.data[group]?[marker] == LCSharedKeychainMigration.ready)

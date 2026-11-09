@@ -209,7 +209,7 @@
         }
         let conflict = v3AccountOperationFailure(NSError(domain: "LiveContainerRefresh.Configuration", code: 1008), step: .credentialCommit)
         precondition(conflict.kind == .legacyMigrationConflict)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectCredentials) == .invalidCredentials)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectCredentials()) == .invalidCredentials)
         precondition(CombinedFailure.validatedSigningContext(["typed_error": secret]) == nil)
         precondition(CombinedFailure.validatedSigningContext(["server_code": "9120 HTTP 503"]) == nil)
         let suite = "V3AccountDiagnostics-" + UUID().uuidString

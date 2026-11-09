@@ -1,3 +1,4 @@
+from tests.support.auth_diagnostic_owner import diagnostic_error_types, operation_error_cases, provisioning_diagnostic_helpers
 """Executable regression for conservative typed authentication error mapping."""
 from tests.support.product_sources import ProductSource
 from pathlib import Path
@@ -34,7 +35,8 @@ class AuthErrorNuanceTests(unittest.TestCase):
             classifier,
             host_message,
             (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8"),
-            (ROOT / "tests/fixtures/v3_auth_error_nuance_harness.swift").read_text(encoding="utf-8"),
+            diagnostic_error_types(), operation_error_cases(), provisioning_diagnostic_helpers(),
+            "@main" + (ROOT / "tests/fixtures/v3_auth_error_nuance_harness.swift").read_text(encoding="utf-8").split("@main", 1)[1],
         ))
 
         with tempfile.TemporaryDirectory() as temporary:

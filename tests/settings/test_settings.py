@@ -178,13 +178,15 @@ class TransportSettingParityTests(unittest.TestCase):
             return owner_source(path, "SideStore")
         defaults = upstream("AltStore/Core/Extensions/UserDefaults+AltStore.swift")
         properties = "\n".join(declaration(defaults, "    @objc var " + signature) for signature in (
-            "remotePairingPortOverride: Int", "deviceProbeTimeoutOverride: Int", "minimuxerGatewayBackend: String"))
+            "remotePairingPortOverride: Int", "lastDiscoveredRemotePairingPort: Int", "deviceProbeTimeoutOverride: Int", "minimuxerGatewayBackend: String"))
         properties += "\n" + declaration(defaults, "    var customizeAppExtensions:")
         properties += "\n" + declaration(defaults, "    @objc(customizeAppExtensions) private var _customizeAppExtensions:")
         wrapper = upstream("SideStore/Core/DeviceApi/MinimuxerWrapper.swift")
         cache_start = wrapper.index("public var selectedGatewayBackendCache")
         cache_end = wrapper.index("var minimuxer: any MinimuxerFacade")
         caches = wrapper[cache_start:cache_end]
+        api = owner_source("Sources/MinimuxerApi.swift", "SideStore/Dependencies/minimuxer")
+        params = declaration(api, "public struct MinimuxerParams:")
         runtime = (ProductSource('v3_headless_runtime.swift')).read_text()
         arrays = runtime[runtime.index("    static let boolSettings:"):runtime.index("    static func settingsGet()")]
         setter = declaration(runtime, "    static func settingsSet(")
@@ -200,6 +202,13 @@ final class WidgetDataManager { static let shared = WidgetDataManager(); var isV
 extension UserDefaults {
 ''' + properties + '''
 }
+''' + params + '''
+// External transport sink records configuration, never supplies cache decisions.
+final class TransportSink {
+    var received: [MinimuxerParams] = []
+    func set(_ value: MinimuxerParams) { received.append(value) }
+}
+let minimuxer = TransportSink()
 ''' + caches + '''
 enum V3WireContract {
 ''' + strict + '''
@@ -210,11 +219,17 @@ enum V3BackendCommands {
 @main struct Test {
     static func main() throws {
         let defaults = UserDefaults.standard
-        let keys = ["remotePairingPortOverride", "deviceProbeTimeoutOverride", "minimuxerGatewayBackend"]
+        let keys = ["remotePairingPortOverride", "lastDiscoveredRemotePairingPort", "deviceProbeTimeoutOverride", "minimuxerGatewayBackend"]
         for key in keys { defaults.removeObject(forKey: key) }
         defer { for key in keys { defaults.removeObject(forKey: key) } }
         syncMinimuxerBackendFromUserDefaults()
         precondition(remotePairingPortCache == AppConstants.Minimuxer.remotePairingPort)
+        precondition(minimuxer.received.last?.remotePairingPort == remotePairingPortCache)
+        defaults.lastDiscoveredRemotePairingPort = 49152
+        syncMinimuxerBackendFromUserDefaults()
+        precondition(remotePairingPortCache == 49152 && minimuxer.received.last?.remotePairingPort == 49152)
+        defaults.lastDiscoveredRemotePairingPort = 0
+        syncMinimuxerBackendFromUserDefaults()
         defaults.minimuxerGatewayBackend = GatewayBackend.libimobiledevice.rawValue
         precondition(selectedGatewayBackendCache == .idevice)
         try V3BackendCommands.settingsSet(payload: ["key": "remotePairingPortOverride", "int": 65535])

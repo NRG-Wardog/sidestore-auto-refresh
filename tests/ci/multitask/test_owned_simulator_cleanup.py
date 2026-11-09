@@ -19,6 +19,14 @@ def ownership():return O.creation_ownership(OWNER+'\n',['xcrun','simctl','create
 def report(cleanup,observation='PASS_ACTUAL_ATTACHMENT_HELPER_NOT_GUEST_LAUNCH'):
  return {'identity':{'run_id':'10'},'simulator':{'udid':OWNER,'device_type':{'identifier':TYPE},'runtime':{'identifier':RUNTIME}},'observation_status':observation,'cleanup':cleanup,'cleanup_source_sha256':{n:'a'*64 for n in C.CLEANUP_SOURCE_FILES}}
 class CleanupTests(unittest.TestCase):
+ def test_current_cleanup_closure_resolves_runtime_and_relocated_test_files(self):
+  root=Path(__file__).resolve().parents[3]
+  for name in C.CLEANUP_SOURCE_FILES:
+   path=C.cleanup_source_path(name)
+   self.assertTrue(path.is_file(),name)
+   expected=root/('tests/ci/multitask' if name.startswith('test_') else 'ci/qualification/multitask')/name
+   self.assertEqual(path,expected)
+  with self.assertRaises(ValueError):C.cleanup_source_path('../unreviewed.py')
  def run_cleanup(self,body=None,kinds=('timeout','success','success')):
   calls=[]
   with tempfile.TemporaryDirectory() as directory:

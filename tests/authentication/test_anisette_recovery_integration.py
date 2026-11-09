@@ -68,7 +68,8 @@ class RecoveryIntegrationTests(unittest.TestCase):
         source = integration_source()
         self.assertEqual(source.count('static let automaticRecoveryEnabled = false'), 1)
         self.assertNotIn('__PRODUCTION_', source)
-        self.assertIn('return try await recoverVerifiedLegacyIdentity(', source)
+        self.assertIn('return try await v3LoginStage(.recovery) {', source)
+        self.assertIn('try await recoverVerifiedLegacyIdentity(', source)
         self.assertIn('extension OnDeviceAnisetteManager {', source)
         self.assertIn('func commitAnisetteRecovery(', source)
 

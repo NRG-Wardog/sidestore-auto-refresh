@@ -27,7 +27,7 @@ HARNESS = r"""
     static let id = "00000000-0000-4000-8000-000000000001"
     static let other = "00000000-0000-4000-8000-000000000002"
     static func envelope() -> [String: Any] {
-        ["version": 1, "operation": "snapshot", "stage": "serviceReadiness",
+        ["version": 1, "operation": "status", "stage": "serviceReadiness",
          "code": "failed", "correlationID": id, "underlyingDomain": "redacted",
          "underlyingCode": 0, "retryable": false]
     }
@@ -85,6 +85,13 @@ HARNESS = r"""
                              ("retryable", 1 as Any), ("correlationID", other as Any),
                              ("correlationID", 7 as Any)] {
             var wire = envelope(); wire[key] = wrong; try rejectBoth(wire)
+        }
+        var invalidOperation = envelope(); invalidOperation["operation"] = "snapshot"
+        precondition(CombinedFailure.decode(invalidOperation, expectedID: id) == nil)
+        // Readiness separately supports the snapshot operation label. Command
+        // failure decoding remains finite and must not expand to match it.
+        guard case .failed = try readiness(invalidOperation) else {
+            preconditionFailure("Readiness snapshot envelope rejected")
         }
         var unknownKey = envelope(); unknownKey["unrecognized"] = "value"
         try rejectBoth(unknownKey)

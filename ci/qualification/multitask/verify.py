@@ -40,7 +40,7 @@ def verify(source,evidence,expected_identity=None,*,validated_native_inventory=N
     require(attachment['schema']=='multitask-attachment-ci-v2' and attachment['status']=='PASS_ACTUAL_ATTACHMENT_HELPER_NOT_GUEST_LAUNCH' and attachment['simulator_execution'] is True,'Attachment observations incomplete')
     run_attachment.validate_cleanup_receipt(attachment)
     for name,digest in attachment['cleanup_source_sha256'].items():
-        require(sha(run_attachment.HERE/name)==digest,'Cleanup source differs')
+        require(sha(run_attachment.cleanup_source_path(name))==digest,'Cleanup source differs')
     work=evidence/'multitask-attachment'
     cleanup=attachment['cleanup']
     require(sha(work/'simulator-create.log')==cleanup['ownership']['create_stdout_sha256'],'Creation log differs')

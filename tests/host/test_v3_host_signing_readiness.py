@@ -39,7 +39,7 @@ def pinned_validator(test):
 class HostSigningReadinessTests(unittest.TestCase):
     def test_local_only_health_is_allowlisted_and_does_not_use_network(self):
         service = (ProductSource('v3_sidestore_service.swift')).read_text()
-        wire = (ProductSource('v3_wire_contract.swift')).read_text()
+        wire = ProductSource("combined_failure.swift").read_text() + "\n" + ProductSource("v3_wire_contract.swift").read_text()
         runtime = RUNTIME.read_text()
         command = service[service.index('        case "healthSnapshot":'):service.index('        case "accountExport":')]
         self.assertIn('if target == "hostSigningOnly"', command)
@@ -170,7 +170,7 @@ class HostSigningReadinessTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; local health wire harness requires macOS CI")
-        wire = (ProductSource('v3_wire_contract.swift')).read_text()
+        wire = ProductSource("combined_failure.swift").read_text() + "\n" + ProductSource("v3_wire_contract.swift").read_text()
         harness = r'''
 let now = Date()
 for target in ["", "hostSigningOnly", "unexpected", "HOSTSIGNINGONLY"] {

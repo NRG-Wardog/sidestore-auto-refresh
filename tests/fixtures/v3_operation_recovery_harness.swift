@@ -20,11 +20,15 @@ struct OperationRecoveryHarness {
 
         let refreshRequest = ["version": 1, "id": UUID().uuidString,
             "operation": "refreshAdmissionEnd", "target": UUID().uuidString,
-            "deadline": Date().addingTimeInterval(30), "payload": ["state": "failed"]] as [String: Any]
+            "deadline": Date().addingTimeInterval(30), "payload": ["state": "failed", "admissionID": UUID().uuidString]] as [String: Any]
         precondition(V3WireContract.decodeRequest(V3WireContract.encodeRequest(refreshRequest)!) != nil,
             "terminal refresh release carries a typed state")
+        var missingAdmission = refreshRequest
+        missingAdmission["payload"] = ["state": "failed"]
+        precondition(V3WireContract.encodeRequest(missingAdmission) == nil,
+            "state alone cannot settle an unidentified refresh admission")
         var invalidRefreshRequest = refreshRequest
-        invalidRefreshRequest["payload"] = ["state": "retry"]
+        invalidRefreshRequest["payload"] = ["state": "retry", "admissionID": UUID().uuidString]
         precondition(V3WireContract.encodeRequest(invalidRefreshRequest) == nil,
             "arbitrary text cannot clear refresh ownership")
         let unreadableRepairRequest: [String: Any] = ["version": 1, "id": UUID().uuidString,

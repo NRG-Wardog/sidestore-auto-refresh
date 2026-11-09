@@ -198,6 +198,11 @@ class HostDiagnosticScopeTests(unittest.TestCase):
                     references = diagnostic_references(source)
                     body = "func checkDiagnosticDependencies() {\n" + "\n".join(reads[name] for name in sorted(references)) + "\n}\n"
                     if relative.endswith("LCEmbeddedSideStoreRefreshView.swift"):
+                        # Real same-module localization does not import the
+                        # framework on behalf of the consumer being tested.
+                        body += owner_source("LiveContainerSwiftUI/Utilities/V3Localization.swift") + "\n"
+                        language = owner_source("LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift")
+                        body += declaration(language, "struct V3LocalizedText: View {") + "\n"
                         # Typecheck the exact generated Text/Button UI too. Only
                         # the surrounding View and sample state are scaffolding.
                         body += "@MainActor struct SettingsDiagnosticsProbe: View {\nlet lastError = \"Failed\"\n@ViewBuilder var body: some View {\n"

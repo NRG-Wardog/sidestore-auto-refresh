@@ -229,7 +229,12 @@ enum V3SharedAppGroup {
         var failed = valid; failed["results"] = [["bundle_id": "a", "success": true, "verification": renewed],
             ["bundle_id": "b", "success": false, "failure": CombinedFailure(operation: "refresh", stage: .authentication, id: run).wire]]
         _ = try receive(failed)
-        precondition(defaults.string(forKey: key) == nil, "known terminal failure should allow policy evaluation")
+        precondition(defaults.string(forKey: key) == run, "generic authentication failure cannot prove mutation was not dispatched")
+        var preflightFailed = failed
+        preflightFailed["results"] = [["bundle_id": "a", "success": true, "verification": renewed],
+            ["bundle_id": "b", "success": false, "failure": CombinedFailure(operation: "refresh", stage: .authentication, id: run, sourceStep: .refreshPreflight).wire]]
+        _ = try receive(preflightFailed)
+        precondition(defaults.string(forKey: key) == nil, "explicit pre-mutation preflight failure should release uncertainty")
         // The real producer persists true and this run ID before the manifest
         // copies the persisted Boolean into host_handoff.
         var handoff = valid; handoff["host_handoff"] = true

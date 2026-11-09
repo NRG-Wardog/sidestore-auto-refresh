@@ -75,7 +75,19 @@ class V3InstallMetadataAdapterTests(unittest.TestCase):
         parser = swift_function(
             pinned_app_manager(),
             "static func readAppMetadata(from url: URL, packageType: PackageType)")
-        fixture = HARNESS.read_text(encoding="utf-8")
+        info = owner_source("Sources/Models/InfoPlistParser.swift", "SideStore/Dependencies/SideSign")
+        # Compile the exact parser dependency used by both .ipa and .app paths.
+        # Other InfoPlistParser accessors are outside this metadata interface.
+        members = ["    public private(set) var rawDictionary: [String: any Sendable]"]
+        for signature in ("public init(data: Data)", "public init(plistURL: URL)",
+                          "public init(bundleURL: URL)", "public static func resolveInfoPlistURL(",
+                          "public var bundleIdentifier:", "public var appName:",
+                          "public var displayName:", "public var bundleName:"):
+            members.append(swift_function(info, signature))
+        dependency = "\npublic struct InfoPlistParser {\n" + "\n".join(members) + "\n}\n"
+        # Error-only CodeSignKit boundary; no parsing decisions are simulated.
+        dependency += "enum SignerError: Error { case invalidApp(cause: String), missingInfoPlist(path: String) }\n"
+        fixture = HARNESS.read_text(encoding="utf-8") + dependency
         self.assertEqual(fixture.count("__PRODUCTION_METADATA_PARSER__"), 1)
         source = fixture.replace("__PRODUCTION_METADATA_PARSER__", parser)
         with tempfile.TemporaryDirectory(prefix="v3-install-metadata-") as temporary:

@@ -78,14 +78,14 @@ assert cold_report['physical_device_execution'] is False
 assert native_report['evidence_sha256']['cold-vpn-tests.json']==sha((R/'cold-vpn-tests.json').read_bytes())
 sys.path.insert(0,str(((_CIPath(__file__).resolve().parents[3]/'ci/qualification/native'))))
 sys.path.insert(0,str((_CIPath(__file__).resolve().parents[3]/'ci/qualification/multitask')))
-from ci.qualification.native.multitask_receipt import verify_portable as verify_multitask_portable
+from pinned_native_admission import verify_multitask as verify_multitask_portable
 guest_report=read_json(R/'multitask-launch-tests.json')
 guest_sha=sha((R/'multitask-launch-tests.json').read_bytes())
 assert prov['multitask_launch_regression_sha256']==guest_sha
 assert native_report['evidence_sha256']['multitask-launch-tests.json']==guest_sha
 assert guest_report['source_graph']==language_report['source_graph']
 verify_multitask_portable(guest_report,native_report['requested_graph'],language_report['run_identity'])
-from ci.qualification.native.startup_upgrade_receipt import verify_portable as verify_schema_portable
+from pinned_native_admission import verify_startup_upgrade as verify_schema_portable
 schema_report=read_json(R/'startup-upgrade-tests.json');schema_sha=sha((R/'startup-upgrade-tests.json').read_bytes())
 assert prov['startup_upgrade_regression_sha256']==schema_sha
 assert native_report['evidence_sha256']['startup-upgrade-tests.json']==schema_sha

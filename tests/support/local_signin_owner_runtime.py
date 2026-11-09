@@ -29,11 +29,13 @@ def dependencies():
     sequence = owner_source('SideStore/Core/Anisette/V3DiagnosticProviderSequence.swift', 'SideStore')
     return '\n'.join(declaration(sequence, anchor) for anchor in (
         'enum V3DiagnosticProvider:', 'enum V3DiagnosticProviderRoute {',
-        'enum V3OwnedODASourceEligibility:',
+        'enum V3OwnedODASourceEligibility:', 'actor V3DiagnosticAttemptClock {',
     )) + '\n' + IO
 
 
 FIELDS = r'''
+    let loginDiagnosticTrace = LoginDiagnosticTrace()
+    let authenticationDiagnosticTrace = AuthenticationDiagnosticTrace()
     let v3RemoteAnisetteLock = NSLock()
     var v3RemoteAnisetteContext: FixtureAttemptContext? = nil
     var v3RemoteAnisetteAttempt: FixtureRemoteAttempt? = nil
@@ -42,6 +44,7 @@ FIELDS = r'''
     var v3OwnedODASource: String? = nil
     var v3DiagnosticIdentityStamp: String? = nil
     var v3DiagnosticCommittedIdentityStamp: String? = nil
+    var v3DiagnosticAttemptClock: V3DiagnosticAttemptClock? = nil
     var v3DiagnosticProvider: V3DiagnosticProvider? = nil
     var v3AnisetteRouteResolved = false
     var v3RemoteAnisetteSelection: (@MainActor @Sendable () throws -> Bool)? = nil
@@ -73,7 +76,9 @@ final class FixtureAuthorization {
         fatalError("unexpected remote transition")
     }
 }
+struct FixtureRemoteHandoff {}
 final class FixtureRemoteAttempt {
+    func handoff() async throws -> FixtureRemoteHandoff { fatalError("unexpected remote identity handoff") }
     let context = FixtureAttemptContext()
     let authorization: FixtureAuthorization? = nil
     init() { fatalError("unexpected remote attempt creation") }
@@ -97,10 +102,14 @@ extension UserDefaults {
 }
 enum AnisetteServersManager { static let defaultSource = "https://example.invalid/unused" }
 // Observation sinks preserve results and errors but are not diagnostic tests.
-enum FixtureLoginStage { case credentialRead, credentialCommit, sessionCommit, accountLookup, appleAuthentication, uiCredentials }
-enum FixtureLoginReason { case notRequired, retry }
-final class LoginDiagnosticTrace {
-    static let current: LoginDiagnosticTrace? = nil
+enum FixtureLoginStage { case credentialRead, credentialCommit, sessionCommit, accountLookup, appleAuthentication, uiCredentials, login, preconditions, credentialRoute, provisioning }
+enum FixtureLoginReason { case notRequired, retry, cached, fresh }
+enum FixtureLoginOutcome { case succeeded }
+final class FixtureLoginSpan { func finish(_ outcome: FixtureLoginOutcome, reason: FixtureLoginReason) {} }
+final class AuthenticationDiagnosticTrace: @unchecked Sendable { @TaskLocal static var current: AuthenticationDiagnosticTrace? }
+final class LoginDiagnosticTrace: @unchecked Sendable {
+    @TaskLocal static var current: LoginDiagnosticTrace?
+    func begin(_ stage: FixtureLoginStage) -> FixtureLoginSpan { FixtureLoginSpan() }
     func skip(_ stage: FixtureLoginStage, reason: FixtureLoginReason) {}
 }
 func v3LoginStage<T>(_ stage: FixtureLoginStage, perform: () async throws -> T) async rethrows -> T { try await perform() }

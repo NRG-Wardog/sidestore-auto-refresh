@@ -232,9 +232,30 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
                     else:
                         with self.assertRaises(ValueError): run_owned_swift_suites(temp, Path(temp) / 'evidence')
 
+    def test_generated_input_owner_classification_normalizes_sibling_checkout(self):
+        import sys
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            harness_file = root/'harness/tests/ci/native/test_issue_receipt.py'
+            harness_file.parent.mkdir(parents=True); harness_file.touch()
+            side = root/'sources/SideStore'
+            generator = side/'.ci/initial-provider-rejection/generate.py'
+            generator.parent.mkdir(parents=True)
+            inputs = []
+            for owner, base in [('SideStore', side), ('SideStore/Dependencies/SideSign', side/'Dependencies/SideSign')]:
+                path = base/next(iter(INITIAL_REJECTION_INPUTS[owner]))
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_text('synthetic input')
+                inputs.append(str(path.resolve()))
+            generator.write_text('import argparse,json\nfrom pathlib import Path\n'
+                'p=argparse.ArgumentParser();p.add_argument("--output");p.add_argument("--sidesign-root");a=p.parse_args()\n'
+                + 'Path(a.output,"source-evidence.json").write_text(json.dumps({"inputs":'+repr(inputs)+'}))\n')
+            with patch.object(sys.modules[__name__], '__file__', str(harness_file)):
+                self.test_actual_generated_initial_rejection_inputs_are_all_sealed()
+
     def test_actual_generated_initial_rejection_inputs_are_all_sealed(self):
         import subprocess, sys
-        root = (_CIPath(__file__).resolve().parents[3]/'..')
+        root = (_CIPath(__file__).resolve().parents[3]/'..').resolve()
         side = root / 'SS'
         if not side.is_dir():
             side = root / 'sources/SideStore'

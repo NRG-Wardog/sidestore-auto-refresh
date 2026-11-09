@@ -97,6 +97,7 @@ class JITLessImportOwnershipTests(unittest.TestCase):
         self.assertEqual(harness_template.count("$IMPORT_OWNERSHIP_HELPER$"), 1)
         harness = harness_template.replace("$IMPORT_OWNERSHIP_HELPER$", import_ownership())
         harness = harness.replace("$MANUAL_IMPORT_FUNCTION$", method)
+        harness += "\n" + owner_source("LiveContainerSwiftUI/Utilities/V3Localization.swift")
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             source = directory / "manual-import.swift"

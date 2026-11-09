@@ -84,7 +84,7 @@ struct ProvisioningTypedGuidanceHarness {
         // be classified from that integer.
         let bridgedCodes = [
             (OperationError.noConnection(reason: secret) as NSError).code,
-            (OperationError.unknownUDID as NSError).code,
+            (OperationError.unknownUDID(reason: "") as NSError).code,
             (OperationError.serverNotFound as NSError).code
         ]
         print("V3_PROVISIONING_BRIDGE_CODES \(bridgedCodes)")

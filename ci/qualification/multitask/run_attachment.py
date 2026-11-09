@@ -15,7 +15,7 @@ def run(root,output):
     work=output/'multitask-attachment';require(not work.exists(),'Fresh attachment evidence required');work.mkdir()
     before=inventory(root);udid=None;ownership=None
     report={'schema':'multitask-attachment-ci-v2','status':'FAILED','identity':identity(),'source':manifest(),'source_inventory':before,'physical_device_execution':False,'real_extension_launch':False}
-    report['cleanup_source_sha256']={name:sha(HERE/name) for name in CLEANUP_SOURCE_FILES}
+    report['cleanup_source_sha256']={name:sha(cleanup_source_path(name)) for name in CLEANUP_SOURCE_FILES}
     try:
         require(platform.system()=='Darwin','UIKit fixture requires installed Apple simulator')
         require(all(sha(root/name)==digest for name,digest in UNCHANGED_BRIDGE_HASHES.items()),'Language bridge changed outside attachment scope')

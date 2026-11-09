@@ -84,6 +84,7 @@ final class AuthLeaseFakeClient {
 
 @MainActor
 final class RefreshHandler {
+    var startupDiagnostics = V3StartupDiagnosticLog()
     static let shared = RefreshHandler()
     var sideStorePid: Int32 = 321
     var v3ServiceIdentity: UUID? = UUID()

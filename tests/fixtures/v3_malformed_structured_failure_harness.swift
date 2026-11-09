@@ -53,11 +53,13 @@ struct MalformedStructuredFailureHarness {
 
         let typedFailure = CombinedFailure(operation: "refresh", stage: .signing,
             code: .failed, id: id, retryable: false, safeCause: .certificateUnavailable)
+        let commandOnlyCauses: Set<String> = ["directRecoveryRecordMissing", "directRecoveryTargetMismatch", "directRecoveryModeInvalid", "directRecoveryPhaseNotEligible"]
+        let commandOnlySteps: Set<String> = ["refreshRecordUpdate", "certificateSelection", "provisioningProfileInstallation", "refreshReadiness", "refreshPreflight", "refreshMetadataCache", "refreshApplication"]
         precondition(V3ServiceReadinessReply.knownSafeCauseValues ==
-                     Set(CombinedFailure.SafeCause.allCases.map(\.rawValue)) &&
+                     Set(CombinedFailure.SafeCause.allCases.map(\.rawValue)).subtracting(commandOnlyCauses) &&
                      V3ServiceReadinessReply.knownSourceStepValues ==
-                     Set(CombinedFailure.SourceStep.allCases.map(\.rawValue)),
-            "readiness vocabulary must cover every typed cause and source step")
+                     Set(CombinedFailure.SourceStep.allCases.map(\.rawValue)).subtracting(commandOnlySteps),
+            "readiness has an explicit narrower scope than command replies")
         let typedReply: [String: Any] = ["version": 1, "id": id, "ok": false,
             "error": "busy", "failure": typedFailure.wire]
         do {

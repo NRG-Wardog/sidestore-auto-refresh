@@ -1614,7 +1614,39 @@ class RefreshAdmissionOwnerTests(unittest.TestCase):
         self.assertIn("deadlineTasks[id] = Task { @MainActor in", service)
 
 
+def wire_runtime_source():
+    # The current wire schema validates bounded diagnostics using their real
+    # shared model. Do not substitute permissive fixture sanitizers.
+    return "\n".join((read_product_source("combined_failure.swift"), read_product_source("v3_wire_contract.swift")))
+
+
+def startup_diagnostic_source():
+    source = owner_source("SideStoreSupport/SideStore.swift", "LiveContainer")
+    return ServiceOwnerTests.swift_declaration(source, "public struct V3StartupDiagnosticLog {")
+
+
+def bridge_runtime_source():
+    return "\n".join((
+        (ROOT / "tests/fixtures/v3_bridge_harness.swift").read_text(),
+        startup_diagnostic_source(),
+        read_product_source("combined_failure.swift"),
+        read_product_source("v3_behavioral_primitives.swift"),
+        read_product_source("combined_service_connection.swift"),
+        read_product_source("v3_wire_contract.swift"),
+        read_product_source("v3_service_bridge.swift"),
+    ))
+
+
 class WireExecutionTests(unittest.TestCase):
+    def test_wire_harness_includes_current_diagnostic_dependencies(self):
+        source = wire_runtime_source()
+        for name in ("V3TemporaryADIConsumption", "V3TemporaryAnisetteTrace", "V3LoginDiagnosticSnapshot"):
+            self.assertIn("struct " + name, source)
+        self.assertIn("public struct V3StartupDiagnosticLog", startup_diagnostic_source())
+        assembled = bridge_runtime_source()
+        self.assertIn(startup_diagnostic_source() + "\n" + read_product_source("combined_failure.swift"), assembled)
+        self.assertNotIn("}import", assembled)
+
     def test_active_certificate_export_adapter_crosses_service_owned_group_boundary(self):
         service = read_product_source("v3_sidestore_service.swift")
         start = service.index("enum V3ActiveCertificateExportAdapter {")
@@ -1673,7 +1705,7 @@ print("ACTIVE_CERTIFICATE_EXPORT_BOUNDARY_PASS")
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             program = directory / "main.swift"
-            program.write_text(read_product_source("v3_wire_contract.swift") + r'''
+            program.write_text(wire_runtime_source() + r'''
 let now = Date(timeIntervalSince1970: 100000)
 let storeID = UUID().uuidString
 let installed = "x-coredata://\(storeID)/InstalledApp/p1"
@@ -1833,12 +1865,7 @@ enum Failure: Error { case native }
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             program = directory / "main.swift"
-            program.write_text((ROOT / "tests/fixtures/v3_bridge_harness.swift").read_text() +
-                               read_product_source("combined_failure.swift") +
-                               read_product_source("v3_behavioral_primitives.swift") +
-                               read_product_source("combined_service_connection.swift") +
-                               read_product_source("v3_wire_contract.swift") +
-                               read_product_source("v3_service_bridge.swift"))
+            program.write_text(bridge_runtime_source())
             executable = directory / "bridge-tests"
             compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)], capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
@@ -1853,7 +1880,7 @@ enum Failure: Error { case native }
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             program = directory / "main.swift"
-            program.write_text(read_product_source("v3_wire_contract.swift") + r'''
+            program.write_text(wire_runtime_source() + r'''
 let now = Date(timeIntervalSince1970: 100000)
 let valid: [String: Any] = ["version": 1, "id": UUID().uuidString, "operation": "snapshot",
                           "target": "", "deadline": now.addingTimeInterval(30)]
@@ -1919,7 +1946,7 @@ print("V3 wire contract PASS")
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             program = directory / "main.swift"
-            program.write_text(read_product_source("v3_wire_contract.swift") + r'''
+            program.write_text(wire_runtime_source() + r'''
 let now = Date(timeIntervalSince1970: 100000)
 func encode(_ value: [String: Any]) -> Data {
     try! PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)

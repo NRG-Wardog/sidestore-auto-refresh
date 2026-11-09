@@ -88,6 +88,7 @@ enum V3OperationRecoveryJournal {
 final class SnapshotAuth {
     var provisioningCompletion = V3ProvisioningCompletionState(defaults: testDefaults)
     var activeSessionIDForSnapshot: String?
+    var pendingCertificateRecoveryState = "none"
     var provisioningRecoveryRequiresReconciliation = false
     var resumeAvailable = false
     func canResumeProvisioning() -> Bool { resumeAvailable }
@@ -98,9 +99,17 @@ final class V3HeadlessRuntime {
     static let shared = V3HeadlessRuntime(); let auth = SnapshotAuth(); let operations = Operations()
 }
 final class RefreshAdmission {
+    var hasLiveOwner = false
     var isActive = false; var ownerLost = false; var runID: String?
     func expire() -> Bool { false }; func owns(_ id: String) -> Bool { false }
     func restoreLost(runID: String) -> Bool { false }
+}
+// Pairing selection is external configuration input to the snapshot.
+final class PairingFileManager {
+    enum Selection: String { case selected, unconfigured }
+    static let shared = PairingFileManager()
+    var selection = Selection.selected
+    func currentSelectionState() -> Selection { selection }
 }
 enum V3BackendCommands { static func pairingFileStatus() -> String { "present" } }
 final class SnapshotService {
@@ -121,6 +130,14 @@ struct SnapshotHarness {
     static func main() throws {
         let service = SnapshotService(); let auth = V3HeadlessRuntime.shared.auth
         var snapshot = try service.read()
+        precondition(snapshot["pairingSelection"] as? String == "selected")
+        precondition(snapshot["pendingCertificateRecoveryState"] as? String == "none")
+        service.refreshAdmission.hasLiveOwner = true
+        let admitted = try service.read()
+        precondition(admitted["activeMutation"] as? Bool == true)
+        precondition(admitted["provisioningReauthenticationAvailable"] as? Bool == false)
+        service.refreshAdmission.hasLiveOwner = false
+
         precondition(snapshot["hostSigningContext"] as? String == "fixture-host-context")
         SnapshotHostSigningDependency.digest = nil
         precondition(try! service.read()["hostSigningContext"] as? String == "")

@@ -1,3 +1,4 @@
+from tests.support.auth_diagnostic_owner import diagnostic_error_types, operation_error_cases, provisioning_diagnostic_helpers
 """Audit D01/D02/R02: exercise generated boundaries and the shipped wire/UI."""
 from tests.support.product_sources import ProductSource
 from tests.owner_source import owner_source
@@ -37,7 +38,7 @@ def diagnostic_sources():
     message = declaration(shell, '    static func failureMessage(from failure: [String: Any]) -> String {')
     message = message.replace('static func failureMessage', 'func hostFailureMessage')
     fixture = (ROOT / 'tests/fixtures/v3_auth_error_nuance_harness.swift').read_text()
-    stub_errors = fixture[:fixture.index('@main')]
+    stub_errors = '\n'.join((diagnostic_error_types(), operation_error_cases(), provisioning_diagnostic_helpers()))
     return '\n'.join((
         ProductSource('v3_wire_contract.swift').read_text(),
         ProductSource('combined_failure.swift').read_text(),
@@ -266,7 +267,44 @@ class AccountDiagnosticTests(unittest.TestCase):
         keychain = ProductSource('embedded_shared_keychain.swift').read_text()
         identity_types = '\n'.join(declaration(keychain, signature) for signature in (
             'struct LCEmbeddedAuthenticationSnapshot:', 'struct LCEmbeddedAuthenticationCandidate:'))
-        self.execute(diagnostic_sources() + '\n' + identity_types + '\n' + harness)
+        from tests.support import local_signin_owner_runtime as local_runtime
+        # Reuse the local-route dependency closure, but the diagnostic classifier
+        # already supplies the actual remote error and owned-context IO shape.
+        # Do not redeclare those types or substitute classifier behavior.
+        dependencies = local_runtime.dependencies()
+        for duplicate in (
+            'typealias OwnedODAAuthenticationContext = FixtureAttemptContext\n',
+            'enum ILoaderRemoteError: Error { case consentRequired }\n',
+        ):
+            self.assertEqual(dependencies.count(duplicate), 1)
+            dependencies = dependencies.replace(duplicate, '')
+        dependencies = dependencies.replace(
+            'enum OwnedODAAuthentication { @TaskLocal static var current: FixtureAttemptContext? }',
+            'enum OwnedODAAuthentication { @TaskLocal static var current: OwnedODAAuthenticationContext? }')
+        dependencies = dependencies.replace(
+            'final class FixtureOwnedAttempt {\n    let context = FixtureAttemptContext()',
+            'final class FixtureOwnedAttempt {\n    let context = OwnedODAAuthenticationContext()')
+        dependencies = dependencies.replace(
+            'credentialRoute, provisioning }', 'credentialRoute, provisioning, accountFinalize, cleanup }')
+        # These contexts are outside the ordinary-route scenarios. Any accidental
+        # transition into their IO must fail, not manufacture a successful proof.
+        dependencies += '''
+extension OwnedODAAuthenticationContext {
+    func invalidate() { fatalError("unexpected owned authentication invalidation") }
+    func stagedBlobForCommit() throws -> Data? { fatalError("unexpected owned authentication blob") }
+}
+'''
+        operation_errors = owner_source('SideStore/Core/Operations/Errors/OperationError.swift', 'SideStore')
+        keychain_source = owner_source('AltStore/Core/Components/Keychain.swift', 'SideStore')
+        dependencies += '\n'.join((
+            'extension OperationError {\n' + declaration(operation_errors, '    public static var cancelled:') + '\n}',
+            declaration(keychain_source, 'enum V3PendingCertificateCreationError:'),
+        ))
+        harness = harness.replace('// CURRENT_LOCAL_ROUTE_MEMBERS', local_runtime.members())
+        diagnostic = diagnostic_sources()
+        self.assertEqual(diagnostic.count('enum V3DeviceSetupDeferralPolicy {'), 1)
+        self.assertEqual(diagnostic.count('struct V3ProvisioningReauthenticationIdentityError:'), 1)
+        self.execute('\n'.join((diagnostic, identity_types, dependencies, harness)))
 
 
 if __name__ == '__main__':

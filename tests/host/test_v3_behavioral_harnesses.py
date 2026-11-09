@@ -54,6 +54,8 @@ class V3BehavioralHarnessTests(unittest.TestCase):
             self.skipTest("Swift compiler unavailable; behavioral harnesses run in macOS CI")
         if "enum V3WireContract {" not in source:
             source = WIRE_CONTRACT.read_text(encoding="utf-8") + "\n" + source
+        if "public struct CombinedFailure:" not in source:
+            source = ProductSource("combined_failure.swift").read_text() + "\n" + source
         with tempfile.TemporaryDirectory() as temporary:
             main = Path(temporary) / "main.swift"
             executable = Path(temporary) / "behavior"
@@ -179,7 +181,8 @@ enum V3SetupReloadOutcomeHarness {
         if not compiler:
             self.skipTest("Swift compiler unavailable; pinned pairing parser runs in macOS CI")
         harness = (ROOT / "tests/fixtures/v3_pinned_pairing_parser_harness.swift").read_text(encoding="utf-8")
-        program = (owner_source("Common/PairingProtocol.swift", "SideStore/Dependencies/minimuxer") + "\n" +
+        program = (owner_source("Common/ConcurrencyUtils.swift", "SideStore/Dependencies/minimuxer") + "\n" +
+                   owner_source("Common/PairingProtocol.swift", "SideStore/Dependencies/minimuxer") + "\n" +
                    owner_source("Common/PairingFile.swift", "SideStore/Dependencies/minimuxer") + "\n" + harness)
         with tempfile.TemporaryDirectory() as temporary:
             main = Path(temporary) / "main.swift"
@@ -386,8 +389,7 @@ final class SourceRecoveryStartHost {
         # re-sign leaves pointing at groups it is no longer entitled for.
         shared = (ProductSource('v3_shared_app_group.swift')).read_text(encoding="utf-8")
         handler = (ProductSource('combined_refresh_handler.swift')).read_text(encoding="utf-8")
-        payload = handler[handler.index("enum V3EmbeddedSideStoreLaunchPayload {"):
-                          handler.index("private final class CombinedServiceCallbacks")]
+        payload = swift_declaration(handler, "enum V3EmbeddedSideStoreLaunchPayload {")
         harness = (ROOT / "tests/fixtures/v3_embedded_sidestore_launch_payload_harness.swift").read_text(
             encoding="utf-8")
         self.compile_and_run(shared + "\n" + payload + "\n" + harness,
@@ -417,7 +419,10 @@ final class SourceRecoveryStartHost {
         failure = (ProductSource('combined_failure.swift')).read_text(encoding="utf-8")
         helper = (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_auth_classification_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + failure + "\n" + classifier + "\n" +
+        from tests.support.auth_diagnostic_owner import (
+            diagnostic_error_types, operation_error_cases, provisioning_diagnostic_helpers)
+        dependencies = "\n".join((diagnostic_error_types(), operation_error_cases(), provisioning_diagnostic_helpers()))
+        self.compile_and_run("import Foundation\n" + dependencies + "\n" + failure + "\n" + classifier + "\n" +
                              host_message + "\n" + helper + "\n" + harness,
                              "V3_AUTH_AND_PPQ_CLASSIFICATION_PASS")
 
@@ -460,11 +465,18 @@ struct V3ReadinessAndDiagnosticsContractHarness {
                 "version": 1, "id": id, "ok": false, "failure": failure
             ], format: .binary, options: 0)
         }
-        let template = CombinedFailure(operation: "refresh", stage: .command,
-            code: .failed, id: id, retryable: true, safeCause: .networkTimedOut)
+        // Database readiness failures require this exact authoritative scope.
+        let template = CombinedFailure(operation: "status", stage: .serviceReadiness,
+            code: .failed, id: id, retryable: false, safeCause: .networkTimedOut)
         for cause in CombinedFailure.SafeCause.allCases {
             var envelope = template.wire
             envelope["safeCause"] = cause.rawValue
+            if !V3ServiceReadinessReply.knownSafeCauseValues.contains(cause.rawValue) {
+                precondition(["directRecoveryRecordMissing", "directRecoveryTargetMismatch", "directRecoveryModeInvalid", "directRecoveryPhaseNotEligible"].contains(cause.rawValue))
+                let result = V3ServiceReadinessReply.decode(try encode(envelope), requestID: id)
+                precondition(result == .invalid)
+                continue
+            }
             if case .failed(let decoded) = V3ServiceReadinessReply.decode(try encode(envelope), requestID: id) {
                 precondition(decoded.safeCause == cause.rawValue)
             } else {
@@ -474,12 +486,22 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         for step in CombinedFailure.SourceStep.allCases {
             var envelope = template.wire
             envelope["sourceStep"] = step.rawValue
+            if !V3ServiceReadinessReply.knownSourceStepValues.contains(step.rawValue) {
+                precondition(["refreshRecordUpdate", "certificateSelection", "provisioningProfileInstallation", "refreshReadiness", "refreshPreflight", "refreshMetadataCache", "refreshApplication"].contains(step.rawValue))
+                let result = V3ServiceReadinessReply.decode(try encode(envelope), requestID: id)
+                precondition(result == .invalid)
+                continue
+            }
             if case .failed(let decoded) = V3ServiceReadinessReply.decode(try encode(envelope), requestID: id) {
                 precondition(decoded.sourceStep == step.rawValue)
             } else {
                 preconditionFailure("known SourceStep rejected: \(step.rawValue)")
             }
         }
+        let wrongDatabaseScope = CombinedFailure(operation: "refresh", stage: .command,
+            code: .failed, id: id, retryable: true, safeCause: .databaseLayoutBlocked).wire
+        let rejectedDatabaseScope = V3ServiceReadinessReply.decode(try encode(wrongDatabaseScope), requestID: id)
+        precondition(rejectedDatabaseScope == .invalid, "database readiness cannot borrow command scope")
         var unknownCause = template.wire
         unknownCause["safeCause"] = "futureUnknownCause"
         let unknownCauseData = try encode(unknownCause)

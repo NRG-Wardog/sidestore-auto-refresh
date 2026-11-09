@@ -158,7 +158,7 @@ class BackupCallbackParityTests(unittest.TestCase):
             self.skipTest("Swift compiler unavailable; production callback harness runs in macOS CI")
         primitives = ProductSource("v3_behavioral_primitives.swift").read_text()
         runtime = ProductSource("v3_headless_runtime.swift").read_text()
-        producer = PATCH.headless_sidebackup_response(pinned_source("SideBackup/SideBackupApp.swift"))
+        producer = pinned_source("SideBackup/SideBackupApp.swift")
         callback_response = producer[producer.index('        var callbackItems ='):producer.index('\n        guard let responseURL', producer.index('        var callbackItems ='))]
         declarations = "\n".join(declaration(primitives, signature) for signature in (
             'struct V3BackupCallbackIdentity:', 'struct V3BackupCallbackResult:',

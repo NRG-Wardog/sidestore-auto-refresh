@@ -36,6 +36,15 @@ def validate(data):
 # Prospective exact-owned cleanup evidence. Portable: standard library only.
 CLEANUP_SCHEMA='owned-simulator-cleanup-v1'
 CLEANUP_SOURCE_FILES=('run_attachment.py','owned_simulator_cleanup.py','attachment_contract.py','test_owned_simulator_cleanup.py')
+
+def cleanup_source_path(name):
+    """Resolve the closed source/test closure without assuming one flat folder."""
+    from pathlib import Path
+    require(name in CLEANUP_SOURCE_FILES, 'Unknown cleanup source')
+    here = Path(__file__).resolve().parent
+    if name == 'test_owned_simulator_cleanup.py':
+        return here.parents[2]/'tests/ci/multitask'/name
+    return here/name
 def _uuid(value):
     import uuid
     require(type(value) is str,'Invalid simulator UUID type')

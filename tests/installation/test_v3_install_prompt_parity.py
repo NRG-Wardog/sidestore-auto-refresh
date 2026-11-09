@@ -1,5 +1,6 @@
 from tests.support.product_sources import ProductSource
-from tests.support.product_sources import read_product_source
+from tests.support.product_sources import read_product_source, declaration_end
+from tests.owner_source import owner_source
 """Execute the production install customization adapter with headless prompts."""
 from pathlib import Path
 import shutil
@@ -40,13 +41,20 @@ def extension_policies():
     source = read_product_source('v3_behavioral_primitives.swift')
     start = source.index("enum V3ExtensionRemovalPromptPolicy {")
     end = source.index("enum V3RefreshAllPhase:", start)
-    return policies + source[start:end]
+    reuse = owner_source("SideStore/Core/Operations/PipelineExecutionHandler.swift", "SideStore")
+    begin = reuse.index("enum V3ReuseMainExplanation {")
+    enum_start = reuse.index("enum ExtensionRemovalDecision:")
+    return (policies + source[start:end] + "\n" + reuse[begin:declaration_end(reuse, begin)]
+            + "\n" + reuse[enum_start:declaration_end(reuse, enum_start)] + "\n")
 
 
 HARNESS = r'''
 import Foundation
 
+extension Bundle { enum Info { static let activeBundleIdentifier = "fixture.host" } }
+
 final class ALTApplication: Hashable {
+    var isAltStoreApp: Bool { bundleIdentifier == Bundle.Info.activeBundleIdentifier }
     let bundleIdentifier: String
     let appExtensions: Set<ALTApplication>
     init(_ bundleIdentifier: String, extensions: Set<ALTApplication> = []) {
@@ -57,13 +65,6 @@ final class ALTApplication: Hashable {
         lhs.bundleIdentifier == rhs.bundleIdentifier
     }
     func hash(into hasher: inout Hasher) { hasher.combine(bundleIdentifier) }
-}
-
-enum ExtensionRemovalDecision {
-    case cancel
-    case keepAll(useMainProfile: Bool)
-    case removeAll
-    case removeSelected(Set<ALTApplication>)
 }
 
 // PRODUCTION_POLICIES
@@ -150,8 +151,22 @@ struct InstallPromptParityHarness {
         precondition(handler.promptCalls == beforeFreshInstall + 1,
                      "Fresh installs must offer customization despite zero excess extensions")
         precondition(Set(handler.offeredOptions.compactMap { $0["id"] }).isSuperset(of:
-            ["keepAll", "keepAllMainProfile", "removeAll", "cancel",
+            ["keepAll", "keepAllValidatedReuseMain", "removeAll", "cancel",
              "remove:" + existingExtension.bundleIdentifier, "remove:" + newExtension.bundleIdentifier]))
+
+        // Current ordinary apps offer validated reuse; host self-install never does.
+        handler.answer = ["choice": "keepAllValidatedReuseMain"]
+        switch try await handler.selectAppExtensionsToRemove(appBundle: target,
+            localAppExtensions: [], excessExtensions: []) {
+        case .keepAllValidatedReuseMain: break
+        default: fatalError("Experimental reuse must preserve its distinct decision")
+        }
+        let host = ALTApplication(Bundle.Info.activeBundleIdentifier, extensions: [existingExtension])
+        handler.answer = ["choice": "keepAllMainProfile"]
+        _ = try await handler.selectAppExtensionsToRemove(appBundle: host,
+            localAppExtensions: [], excessExtensions: [])
+        precondition(handler.offeredOptions.contains { $0["id"] == "keepAllMainProfile" })
+        precondition(!handler.offeredOptions.contains { $0["id"] == "keepAllValidatedReuseMain" })
 
         handler.answer = ["choice": "keepAll"]
         switch try await handler.selectAppExtensionsToRemove(appBundle: target,
@@ -159,7 +174,7 @@ struct InstallPromptParityHarness {
         case .keepAll(let useMainProfile): precondition(!useMainProfile)
         default: fatalError("Explicit registration choice must preserve separate profiles")
         }
-        precondition(handler.promptCalls == beforeFreshInstall + 2,
+        precondition(handler.promptCalls == beforeFreshInstall + 4,
                      "An unchanged update must still allow customization")
 
         handler.answer = ["choice": "selected", "ids": "remove:" + existingExtension.bundleIdentifier]
