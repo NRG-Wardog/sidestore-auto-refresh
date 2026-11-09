@@ -38,3 +38,15 @@ It also supports absolute paths from outside the checkout. Do not broaden the
 empty skip allowlist to hide missing native prerequisites. The integration suite
 checks that ordinary discovery includes every root and domain module, has no
 import failures or duplicate IDs, and preserves focused file selection.
+
+## CI ownership
+
+`source-integrity-contract.yml` owns reviewed-source validation and current-entry
+controls on Linux, portable packaging controls on Linux, and the bounded native
+converter/packaging suite on macOS. The Linux and macOS packaging runs are
+intentional cross-platform coverage; each suite runs once per platform.
+`custom-integration-contract.yml` owns integration inventory and boundary tests,
+not another copy of the packaging suite. Feature branches are checked on the
+pull request, and main is checked after merging, not twice for every branch push.
+The retired packaging/current-entry workflow wrappers no longer duplicate these
+jobs. Full native builds and compiled-catalog qualification remain separate.

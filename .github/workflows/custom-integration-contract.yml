@@ -75,6 +75,7 @@ on:
       - 'ci/startup-upgrade/test_acquire.py'
       - '.github/workflows/custom-integration-contract.yml'
   push:
+    branches: [main]
     paths:
       - 'scripts/**'
       - 'tests/**'
@@ -171,7 +172,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence
-          for suite in test_integration_contracts.py test_packaging_adapters.py test_custom_integration_boundaries.py test_combined_packaging.py; do
+          for suite in test_integration_contracts.py test_custom_integration_boundaries.py; do
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" \
               --allowlist scripts/required_test_skip_allowlist.json 2>&1 | tee "evidence/$suite.log"
           done

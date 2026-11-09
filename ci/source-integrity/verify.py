@@ -10,7 +10,7 @@ import json
 import re
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_SHA256 = 'edf5552f3cef67a8bef394876ab9305fc725d8a1356068ecfd93e230b7fe32b0'
+MANIFEST_SHA256 = '0b0879228770e3b3628b99cb1214c427be0dc4e46cd43503c271722f0e052b9d'
 
 
 def require(ok, message):
@@ -57,7 +57,7 @@ def verify(root=ROOT, *, expected_manifest_sha256=MANIFEST_SHA256):
                  if p.suffix in ('.yml', '.yaml')}
     require(workflows == {p for p in m['files'] if p.startswith('.github/workflows/')},
             'Unreviewed workflow inventory')
-    for retired in ('ci/maintained-build', '.github/workflows/build-current.yml', '.github/workflows/livecontainer-build.yml', '.github/workflows/release-dispatch.yml', '.github/workflows/maintained-entry-contract.yml', '.github/workflows/livecontainer-source-audit.yml', 'migration/diagnostics', 'migration/p0-native-basis-v1', 'migration/p1-native-basis-v1', 'migration/p0-constructor-diagnostics-v1', 'migration/p0-elf-metadata-bounds-v1', 'migration/p0-cxx-allocation-v1', 'migration/p2-composed-host-v1', 'migration/p0-full-login-diagnostics-v1', 'migration/historical', 'migration/local_replay_tests', '.ci', 'ci/validation-history', '.github/workflow-archive',
+    for retired in ('ci/issue55-zopfli', 'ci/issue56-zopfli', 'ci/language-switch-zopfli', 'ci/maintained-build', '.github/workflows/build-current.yml', '.github/workflows/livecontainer-build.yml', '.github/workflows/release-dispatch.yml', '.github/workflows/maintained-entry-contract.yml', '.github/workflows/livecontainer-source-audit.yml', 'migration/diagnostics', 'migration/p0-native-basis-v1', 'migration/p1-native-basis-v1', 'migration/p0-constructor-diagnostics-v1', 'migration/p0-elf-metadata-bounds-v1', 'migration/p0-cxx-allocation-v1', 'migration/p2-composed-host-v1', 'migration/p0-full-login-diagnostics-v1', 'migration/historical', 'migration/local_replay_tests', '.ci', 'ci/validation-history', '.github/workflow-archive',
                     'ci/branch-cleanup', 'ci/branch-forwardports', 'ci/branch-semantic-review',
                     'ci/release-v6.0.0', 'ci/release-notes-v6.0.0-20261024'):
         path = root/retired
