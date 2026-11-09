@@ -12,22 +12,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from tests.owner_source import owner_source as read_owner_source
+
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_PATH = "LiveContainer/Tweaks/Dead10ccFix.m"
 
 
 def owner_source():
-    graph = json.loads((ROOT/'ci/issues-native/candidate-graph.json').read_text())
-    expected = graph['owners']['LiveContainer'][1]
-    root = Path(os.environ.get('MAINTAINED_LIVE_CONTAINER_TEST_SOURCE', ROOT/'sources/LiveContainer'))
-    actual = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
-    if actual != expected:
-        raise ValueError('LiveContainer checkout is not the current pinned owner')
-    committed = subprocess.check_output(['git', '-C', str(root), 'show', f'{expected}:{SOURCE_PATH}'])
-    path = root/SOURCE_PATH
-    if path.is_symlink() or path.read_bytes() != committed:
-        raise ValueError('LiveContainer source differs from its pinned Git blob')
-    return committed.decode('utf-8')
+    return read_owner_source(SOURCE_PATH)
 
 
 def descriptor_probe(source):
