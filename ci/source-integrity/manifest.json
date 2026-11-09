@@ -63,7 +63,7 @@
     "tests/authentication/test_lc_certificate_observation.py": "3cee815167fd0ff46d847c9bb91e88e6e1646b9b1a40ebd99d7cae92b15057ed",
     "tests/authentication/test_sidesign_privacy.py": "fa5ed768df37a2d09ff989bf3aa7f4ad21bf633c07ab2a72cb13473ba2bfe671",
     "tests/authentication/test_v3_2fa.py": "479d4c53d48813760e6d3ab6068c8f7443eab469fc50d182a706808799cb191d",
-    "tests/fixtures/guest_launch_completion_harness.m": "459c4375f963362f304a1f35d31167f5408844f6e9bb90e88b73ebafc4be7622",
+    "tests/fixtures/guest_launch_completion_harness.m": "bd4f1665a4d782aced514622a91cc69bd1be4ea6bb461a7da02642e8f564010b",
     "tests/fixtures/guest_return_control_harness.m": "9e396315001893c379a24d88bae9da9b1a4e57ad5da2cb2363186febe14bece4",
     "tests/fixtures/lc_certificate_native_harness.mm": "a747fc025bf5aa141b78f40696fdf8476acfcfdd2fa647aa6a30aeee4fa2dc87",
     "tests/fixtures/multitask_dock_session_harness.swift": "2044dce2b08103b3c62ea7fa2406aa9185f79d9f2259f352b8f0e9f01f57d191",

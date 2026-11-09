@@ -105,6 +105,7 @@ enum { UIViewAutoresizingFlexibleWidth=1, UIViewAutoresizingFlexibleHeight=2,
 @end
 @interface DecoratedAppSceneViewController : NSObject
 @property BOOL lcLaunchSettled;
+@property(strong) UILabel *terminatedLabel;
 @property(copy) NSString *launchErrorMessage;
 @property(copy) NSString *launchErrorDiagnosticID;
 @property(copy) NSString *launchErrorDetails;
