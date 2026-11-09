@@ -95,3 +95,15 @@ logging autoclosures. Negative controls mutate the production enum/filter/sink,
 not the expected assertions. macOS CI requires all harnesses without skips.
 The complete tracked SideSign Swift inventory is checked for unreviewed direct
 log sinks. This does not claim end-to-end authentication or device validation.
+
+Guest owner pilot: `host/test_guest_owner.py` reads exact maintained source,
+checks input cleanup, host admission and localized-alert ownership boundaries,
+and requires three macOS runtime probes with negative controls. These execute
+the existing owner launch-completion runner, the original Return control
+harness, and the actual alert completion gate under Foundation doubles. They
+do not render UIKit, exercise remote guest focus, or qualify device behavior.
+Guest generator retirement retains the original geometry, registry, shared-defaults,
+Return-control and launch-terminal harness assertions, extracting current owner
+methods instead. The launch-terminal harness doubles the localized alert factory;
+actual generation ownership is covered separately, not claimed as UI rendering.
+The missing-callback mutation replaces the old unpatched baseline negative control.

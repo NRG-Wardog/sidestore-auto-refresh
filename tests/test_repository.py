@@ -24,7 +24,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_v3_service.py",
     "patch_combined_refresh_contract.py",
     "patch_embedded_keychain.py",
-    "patch_guest_return.py",
     "patch_combined_refresh_contract.py",
     "patch_combined_service_startup.py",
     "patch_refresh_result_bridge.py",
@@ -35,7 +34,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "p2_localization_contract.py",
     "p2_permission_contract.py",
     "audit_ipa_signing.py",
-    "patch_guest_return.py",
     "patch_combined_service_startup.py",
     "patch_refresh_result_bridge.py",
     "patch_background_automation.py",
@@ -46,7 +44,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "run_issue25_rendering.py",
     "package_livecontainer_combined.py", "packaging_adapters.py", "rehearse_packaging_integration.py",
     "audit_ipa_signing.py",
-    "patch_guest_return.py",
     "patch_refresh_result_bridge.py",
 }
 LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"

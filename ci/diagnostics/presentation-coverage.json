@@ -1647,7 +1647,7 @@
         362
       ],
       "flow": "guest launch",
-      "origin": "NSError.localizedDescription; repo patch_guest_return.py replaces this",
+      "origin": "NSError.localizedDescription; repo maintained guest-launch owner replaces this",
       "adapter": "Known own-domain 410 early exit or explicit unknown; raw provider description excluded from display and copy.",
       "copy": "yes raw error",
       "diagnostic_codes": [
@@ -1679,7 +1679,7 @@
     "V3AnisetteFailureGuidance.message at shell7998 bypasses V3FailureGuidance. Preserve its typed CombinedFailure ID.",
     "Scheduler supplied safeMessage line527 can bypass structured.safeMessage, persisted historical run messages may lack IDs. Refresh button963 and setup9443/9449/9493 accept historical message strings.",
     "V3SharedRefreshStore.unavailableMessage is another static storage origin, scheduler17 references it.",
-    "Guest ObjC patch_guest_return.py38 and41 show/copy launchError.localizedDescription; add finite LC guest-launch adapter before raw presentation. Origins include LiveContainerReturn code410 early exit and busy code409. No CombinedFailure bridge currently.",
+    "Guest ObjC maintained guest-launch owner38 and41 show/copy launchError.localizedDescription; add finite LC guest-launch adapter before raw presentation. Origins include LiveContainerReturn code410 early exit and busy code409. No CombinedFailure bridge currently.",
     "Pinned pristine LiveContainer12377cf is available at /workspace/shared/sidestore-review/LiveContainer. It is not a generated patched build. Native SwiftUI app-list, settings, container, sources, storage, tweaks and UIKit showError presenters remain separate from central templates and require explicit patch-generator coverage or a documented P1 residual.",
     "Confirmation alerts, settings explanatory text, expected not-configured setup states, successful messages, normal user cancellations, and ongoing checking/waiting progress are NOT failure labels."
   ],
@@ -1706,8 +1706,17 @@
       "LiveContainerSwiftUI/Views/LCTabView.swift",
       "TweakLoader/TweakLoader.m"
     ],
-    "guest_generator": "scripts/patch_guest_return.py",
     "validation_scope": "Pinned-owner routing and copy assertions, executable Swift helper with wrong-ID negative control, and Swift syntax parsing. Does not qualify UIKit/device behavior or full UI equivalence.",
     "privacy_residual": "Native provider prose remains an independent privacy/wording review item; this cleanup changes no app source."
+  },
+  "guest_implementation": {
+    "owner": "LiveContainer",
+    "owner_graph": "ci/issues-native/candidate-graph.json",
+    "source_checks": [
+      "tests/host/test_guest_return.py",
+      "tests/host/test_guest_launch_completion.py",
+      "tests/host/test_guest_owner.py"
+    ],
+    "scope": "Maintained source checks and runtime probes with explicit UIKit doubles; not device or UI equivalence."
   }
 }
