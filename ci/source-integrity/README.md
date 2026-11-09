@@ -22,3 +22,10 @@ This is repository integrity, not artifact or device qualification. Native
 builds still verify exact component pins, compiler inputs, same-run receipts,
 CMS/signing policy, refresh/database/startup/multitask results and packaging
 admission. The manual maintained build is documented in `ci/current-build/`.
+
+CFBundle and embedded startup regressions read pinned owner sources. The two C
+harnesses retain guard-page and failed-read/write checks; their unsafe baseline
+loops are explicit negative test controls, not a source transformer. macOS also
+compiles the real production adapter against the iPhoneOS SDK. These bounded
+checks are not device qualification. Current SideStore uses its maintained
+MaintenanceManager storage preflight, not the former callback-era startup code.

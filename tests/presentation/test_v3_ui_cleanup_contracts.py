@@ -11,13 +11,15 @@ from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+import sys
+sys.path.insert(0, str(ROOT / "tests"))
+from owner_source import owner_source
 SCRIPTS = ROOT / "scripts"
 TEMPLATES = SCRIPTS / "templates"
 
 SERVICE_PATCH = (SCRIPTS / "patch_v3_service.py").read_text(encoding="utf-8")
 SHELL_PATCH = (SCRIPTS / "patch_v3_unified_shell.py").read_text(encoding="utf-8")
 KEYCHAIN_PATCH = (SCRIPTS / "patch_embedded_keychain.py").read_text(encoding="utf-8")
-STARTUP_PATCH = (SCRIPTS / "patch_embedded_sidestore_startup.py").read_text(encoding="utf-8")
 SHELL = (TEMPLATES / "v3_unified_shell.swift").read_text(encoding="utf-8")
 RUNTIME = (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
 WIRE = (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8")
@@ -143,7 +145,7 @@ class ThemeAndWidgetColorTests(unittest.TestCase):
         for patch, marker in ((SERVICE_PATCH, "V3_COMMAND_PATCH_V1"),
                               (SHELL_PATCH, "V3_LEGACY_SOURCES_UI_EXCLUDED_V1"),
                               (KEYCHAIN_PATCH, "LC_HEADLESS_IMPORT_EXPORT_UI_REMOVED_V1"),
-                              (STARTUP_PATCH, "REMOVE_NON_LIVE_SIDESTORE_UI_V1")):
+                              (owner_source("SideStoreSupport/SideStoreHooks.m"), "REMOVE_NON_LIVE_SIDESTORE_UI_V1")):
             self.assertIn(marker, patch)
         # The widget's own colour preference is widget-visible state, so it is
         # shared, and it is read by the grid cell the widget mirrors.
@@ -179,13 +181,11 @@ class RemovedPresentationTests(unittest.TestCase):
             self.assertIn(f'"{token}"', KEYCHAIN_PATCH,
                           f"the picker removal guard for {token} must keep checking for it")
 
-    def test_the_cleanup_did_not_become_an_open_ended_audit(self):
-        # The removals are enumerated, not pattern-driven: each one is anchored to
-        # a named upstream contract so an upstream change fails closed.
-        for marker in ("UI version overlay sysctl import", "SideStore UI import",
-                       "version overlay state", "version overlay passthrough window",
-                       "non-LiveProcess UI removal marker"):
-            self.assertIn(f'"{marker}"', STARTUP_PATCH)
+    def test_named_standalone_ui_remains_absent_from_maintained_hooks(self):
+        hooks = owner_source("SideStoreSupport/SideStoreHooks.m")
+        for token in ('#import <sys/sysctl.h>', '@import UIKit;', 'SSVersionWindows',
+                      'SSSceneObserver', 'PassthroughWindow', 'SSInstallVersionWindow'):
+            self.assertNotIn(token, hooks)
 
 
 if __name__ == "__main__":

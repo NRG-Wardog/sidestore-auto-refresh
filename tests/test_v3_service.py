@@ -1128,26 +1128,8 @@ import Foundation
         self.assertEqual(updater.count("try context.save()"), 2)
         self.assertEqual(updater.count("UUID().uuidString"), 2)
 
-        startup = module("patch_embedded_sidestore_startup")
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = self.fixture(directory)
-            database_path = roots[1] / relative
-            startup.patch_database(database_path)
-            self.apply(roots)
-            generated = database_path.read_text(encoding="utf-8")
-            generated_boot = self.swift_declaration(generated, "private func performStart() async throws")
-            self.assertIn("persistentStoreCoordinator.persistentStores.isEmpty", generated_boot)
-            self.assertIn("try await self.migrateDatabaseToAppGroupIfNeeded()", generated_boot)
-            self.assertIn("try await self.prepareDatabase()", generated_boot)
-            generated_preparation = self.swift_declaration(
-                generated, "private func prepareDatabase() async throws")
-            self.assertIn("V3_HEADLESS_FEATURED_SORT_SKIP_V1", generated_preparation)
-            self.assertNotIn("updateFeaturedSortIDs()", generated_preparation)
-            first = self.snapshot(directory)
-            self.apply(roots)
-            self.assertEqual(first, self.snapshot(directory),
-                             "generated database startup output must remain stable on replay")
+        # Startup migration is now checked against maintained owner sources in
+        # test_embedded_sidestore_startup, not replayed through a retired generator.
 
     def test_featured_sort_anchor_failure_writes_nothing(self):
         with tempfile.TemporaryDirectory() as name:
@@ -1447,10 +1429,6 @@ import Foundation
             ):
                 (target / extra).write_bytes(subprocess.check_output(
                     ["git", "-C", checkout, "show", pin + ":" + extra]))
-            with mock.dict("sys.modules", {"patch_cf_bundle_scan": module("patch_cf_bundle_scan")}):
-                startup = module("patch_embedded_sidestore_startup")
-            startup.patch(live, side)
-            startup.patch(live, side)
             self.apply((live, side))
             self.apply((live, side))
             module("patch_background_automation").patch_background_operation(side)
