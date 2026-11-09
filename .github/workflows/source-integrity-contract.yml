@@ -100,3 +100,10 @@ jobs:
           MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_guest_owner.py \
               --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained guest return, registry and terminal-path regressions
+        run: |
+          set -euo pipefail
+          export MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer"
+          for suite in test_guest_return.py test_guest_launch_completion.py test_v3_diagnostic_codes.py; do
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
+          done

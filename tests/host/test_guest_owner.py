@@ -1,6 +1,6 @@
 """Maintained guest lifecycle pilot; not a UIKit/device qualification.
 
-Legacy suites remain intact until broader behavioral coverage is reviewed.
+The current owner is admitted before extraction; UIKit/display behavior remains out of scope.
 """
 import json
 from pathlib import Path
@@ -86,6 +86,17 @@ def verify_alert_boundary(source):
 
 
 class GuestOwnerSourceTests(unittest.TestCase):
+    def test_guest_coverage_metadata_references_live_owner_and_tests(self):
+        coverage = json.loads((ROOT/'ci/diagnostics/presentation-coverage.json').read_text())
+        guest = coverage['guest_implementation']
+        self.assertNotIn('guest_generator', coverage['native_implementation'])
+        graph = json.loads((ROOT/guest['owner_graph']).read_text())
+        self.assertIn(guest['owner'], graph['owners'])
+        self.assertEqual(guest['source_checks'], ['tests/host/test_guest_return.py',
+                         'tests/host/test_guest_launch_completion.py', 'tests/host/test_guest_owner.py'])
+        for path in guest['source_checks']:
+            self.assertTrue((ROOT/path).is_file())
+
     def test_input_cleanup_and_negative_control(self):
         source = owner_source(SCENE)
         verify_input_boundary(source)

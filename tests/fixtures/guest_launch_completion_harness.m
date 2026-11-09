@@ -105,6 +105,12 @@ enum { UIViewAutoresizingFlexibleWidth=1, UIViewAutoresizingFlexibleHeight=2,
 @end
 @interface DecoratedAppSceneViewController : NSObject
 @property BOOL lcLaunchSettled;
+@property(copy) NSString *launchErrorMessage;
+@property(copy) NSString *launchErrorDiagnosticID;
+@property(copy) NSString *launchErrorDetails;
+@property BOOL launchErrorFinished;
+@property(strong) UIAlertController *launchErrorAlert;
+- (UIAlertController *)localizedLaunchErrorAlert;
 @property bool isAppTerminationRequested;
 @property int pid;
 @property(nonatomic, strong) NSString *dataUUID;
@@ -133,6 +139,9 @@ enum { UIViewAutoresizingFlexibleWidth=1, UIViewAutoresizingFlexibleHeight=2,
 @implementation DecoratedAppSceneViewController
 - (instancetype)init { if ((self = [super init])) _view = [UIView new]; return self; }
 - (void)updateOriginalFrame {}
+// UI adapter only: this harness checks settlement, not localized rendering.
+// The real alert ownership gate has its own maintained runtime negative control.
+- (UIAlertController *)localizedLaunchErrorAlert { return [UIAlertController new]; }
 - (void)presentViewController:(id)controller animated:(BOOL)animated completion:(void (^)(void))completion {}
 // __PRODUCTION_METHODS__
 @end

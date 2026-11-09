@@ -2,7 +2,7 @@
 """Label pinned LC error presenters without reclassifying causes or rewriting prose.
 
 IDs identify unknown failures at a presentation site, not their underlying cause.
-Guest launch remains owned by patch_guest_return.py (SS-GUEST-EXIT/UNKNOWN).
+Guest launch remains owned by LiveContainer (SS-GUEST-EXIT/UNKNOWN).
 Legacy sources/root are covered even when excluded or replaced by the V3 shell.
 Existing provider prose is preserved for the separate wording/privacy work.
 """

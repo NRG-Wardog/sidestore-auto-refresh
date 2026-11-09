@@ -8,6 +8,9 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+import sys
+sys.path.insert(0, str(ROOT / "tests"))
+from guest_owner_parts import implementations, block
 COMMON = ROOT / 'scripts/templates/combined_failure.swift'
 
 
@@ -86,13 +89,14 @@ class DiagnosticCodeTests(unittest.TestCase):
         self.assertEqual(len(codes), len(set(codes)))
 
     def test_guest_alert_does_not_display_or_copy_arbitrary_provider_text(self):
-        source = (ROOT / 'scripts/patch_guest_return.py').read_text()
-        body = source.split('VIRTUAL_LAUNCH_INITIALIZED =', 1)[1].split('CANCELLATION_OLD', 1)[0]
+        source = implementations().sources['MultitaskSupport/DecoratedAppSceneViewController.m']
+        body = block(source, '- (void)appSceneVC:(AppSceneViewController*)vc didInitializeWithError:')
         self.assertNotIn('launchError.localizedDescription', body)
         self.assertIn('SS-GUEST-EXIT', body)
         self.assertIn('SS-GUEST-UNKNOWN', body)
         self.assertIn('safeNative ? launchError.domain : @"redacted"', body)
-        self.assertIn('UIPasteboard.generalPasteboard.string = details', body)
+        alert = block(source, '- (UIAlertController *)localizedLaunchErrorAlert')
+        self.assertIn('UIPasteboard.generalPasteboard.string = details', alert)
 
     def test_actual_swift_categories_display_copy_and_privacy(self):
         compiler = shutil.which('swiftc')
