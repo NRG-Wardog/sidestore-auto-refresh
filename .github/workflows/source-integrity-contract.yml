@@ -94,3 +94,17 @@ jobs:
           MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore" MAINTAINED_SIDESIGN_TEST_SOURCE="$PWD/sources/SideStore/Dependencies/SideSign" \
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_sidesign_privacy.py \
               --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained transport and ownership regressions
+        run: |
+          set -euo pipefail
+          pin=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/minimuxer"][1])')
+          repository=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/minimuxer"][0])')
+          git init -q sources/SideStore/Dependencies/minimuxer
+          git -C sources/SideStore/Dependencies/minimuxer remote add origin "https://github.com/$repository.git"
+          git -C sources/SideStore/Dependencies/minimuxer -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$pin"
+          git -C sources/SideStore/Dependencies/minimuxer -c core.hooksPath=/dev/null checkout --detach "$pin"
+          export MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore"
+          export MAINTAINED_MINIMUXER_TEST_SOURCE="$PWD/sources/SideStore/Dependencies/minimuxer"
+          for suite in test_combined_transport.py test_combined_failure_execution.py test_issue24_udid_error_propagation.py; do
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
+          done

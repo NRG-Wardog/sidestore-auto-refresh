@@ -10,38 +10,10 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-# Monolithic build assertions below cover the retained historical workflow;
-# current native entrypoint contracts are checked by test_repository.py.
 sys.path.insert(0, str(ROOT / "scripts"))
-from patch_combined_transport import POLICY, patch
-from patch_v3_service import PINS as V3_SOURCE_PINS
-from patch_sidestore_integration import patch_gateway
+from tests.owner_source import owner_source, owner_root
 
-
-def source_root():
-    override = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-    candidates = [Path(override)] if override else [
-        ROOT / ".audit/upstream/SideStore", ROOT / "work/EmbeddedSideStore",
-        ROOT.parent / "work/EmbeddedSideStore",
-    ]
-    for candidate in candidates:
-        if not (candidate / "Dependencies/minimuxer/DeviceGateway/BaseDeviceGateway.swift").is_file():
-            continue
-        revision = subprocess.run(["git", "-C", str(candidate), "rev-parse", "HEAD"],
-                                  capture_output=True, text=True)
-        if revision.returncode == 0 and revision.stdout.strip() == V3_SOURCE_PINS[1]:
-            return candidate
-        if override:
-            raise AssertionError(f"Embedded SideStore source must be pinned to {V3_SOURCE_PINS[1]}")
-    message = "Pinned modern SideStore source unavailable; set EMBEDDED_SIDESTORE_TEST_SOURCE"
-    if override:
-        raise AssertionError(message + f" (invalid path: {override})")
-    raise unittest.SkipTest(message)
-
-
-def snapshot(root):
-    return {p.relative_to(root).as_posix(): p.read_bytes()
-            for p in root.rglob("*") if p.is_file()}
+MUX_OWNER = "SideStore/Dependencies/minimuxer"
 
 
 def function(text, name):
@@ -56,33 +28,60 @@ def function(text, name):
     return text[match.start():match.start() + end.end()]
 
 
+def verify_gateway_ownership(text):
+    """Current Swift call-site contracts; not a claim of executing Rust FFI."""
+    logging = function(text, "setLogging")
+    callback = "idevice_set_transport_log_callback(sideStoreTransportLog)"
+    assert logging.count(callback) == 1, "transport log callback must be installed"
+    assert logging.index(callback) < logging.index("idevice_init_logger("), "callback must precede logger"
+    for method, cast, release, use in (
+        ("verifyInstalledBundle", "let applications = result.assumingMemoryBound(to: plist_t?.self)",
+         "defer { idevice_plist_array_free(applications, UInt(count)) }", "for index in 0..<count {"),
+        ("getAppPaths", "let plistArray = resultPtr.assumingMemoryBound(to: plist_t?.self)",
+         "defer { idevice_plist_array_free(plistArray, UInt(outLen)) }", "for i in 0..<outLen {")):
+        body = function(text, method)
+        assert body.count(release) == 1, method + " must release the Rust array exactly once"
+        assert re.search(re.escape(cast) + r"\s*" + re.escape(release), body), method + " must defer immediately after cast"
+        assert body.index(release) < body.index(use), method + " must defer before enumeration"
+        assert not re.search(r"(?<![\w])free\s*\(\s*(?:outResult|resultPtr|plistArray|applications|result)\s*\)", body), method + " must not libc-free Rust storage"
+    # Preserve the former whole-file ban as well as scoped ownership checks.
+    assert not re.search(r"(?<![\w])free\s*\(\s*outResult\s*\)", text), "outResult is Rust-owned"
+    verify = function(text, "verifyInstalledBundle")
+    marker = 'debugLog("[SELF_REFRESH] SIDESTORE_POST_INSTALL_VERIFY_PASS")'
+    assert verify.count(marker) == 1, "post-install success evidence must be emitted once"
+    assert re.search(r'guard let matchedIdentifier else \{\s*throw IdeviceGatewayError\([^\n]+\)\s*\}\s*'
+                     r'debugLog\("\[SELF_REFRESH\] INSTALLED_APP_LOOKUP_PASS"\)\s*' + re.escape(marker), verify), "success evidence must follow exact lookup guard"
+
+
 class SourceFixture(unittest.TestCase):
     def setUp(self):
-        source = source_root()
-        self.temp = tempfile.TemporaryDirectory(prefix="combined-transport-")
+        self.temp = tempfile.TemporaryDirectory(prefix="owner-transport-")
         self.addCleanup(self.temp.cleanup)
         self.side = Path(self.temp.name) / "SideStore"
-        # Prune .git and binaries rather than copying a recursive submodule checkout.
-        for directory, dirs, files in os.walk(source):
-            dirs[:] = [d for d in dirs if d not in {".git", ".build", "build"}]
-            for name in files:
-                if name.endswith(".swift") or name in {"Package.swift", "Package.resolved"}:
-                    original = Path(directory) / name
-                    target = self.side / original.relative_to(source)
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(original, target)
         self.mux = self.side / "Dependencies/minimuxer"
+        # All inputs checked against the candidate graph and committed blob before copying.
+        inputs = {
+            "SideStore": ["SideStore/Core/Operations/PipelineRunner.swift",
+                "SideStore/Core/Operations/PipelineOperations/SendAppOperation.swift",
+                "SideStore/Core/DeviceApi/MinimuxerWrapper.swift", "AltStore/My Apps/MyAppsViewController.swift",
+                "SideStore/Views/Settings/TechyThings/HealthCheck/HealthCheckView.swift",
+                "SideStore/Views/Settings/TechyThings/HealthCheck/HealthCheckViewModel.swift"],
+            MUX_OWNER: ["DeviceGateway/idevice/IdeviceGateway.swift", "DeviceGateway/DeviceGatewayError.swift",
+                "Common/FFIDispatcher.swift", "Common/PairingFile.swift", "Common/PairingProtocol.swift",
+                "Sources/MinimuxerImpl.swift", "Sources/MinimuxerError.swift", "Sources/RefreshTransportPolicy.swift"]}
+        for owner, paths in inputs.items():
+            target_root = self.side if owner == "SideStore" else self.mux
+            for relative in paths:
+                target = target_root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(owner_source(relative, owner), encoding="utf-8")
         self.gateway = self.mux / "DeviceGateway/idevice/IdeviceGateway.swift"
         self.send = self.side / "SideStore/Core/Operations/PipelineOperations/SendAppOperation.swift"
-        self.assertTrue(self.send.is_file(), "Real SendAppOperation.swift must be included in fixture")
-        self.original = self.gateway.read_text(encoding="utf-8")
-        self.assertNotIn("TRANSPORT_CREATE_START", self.original,
-                         "Fixture must be clean upstream, not an already patched checkout")
 
     def read(self, relative):
         return (self.mux / relative).read_text(encoding="utf-8")
 
-    def compile_run(self, source):
+    def compile_run(self, source, *, expected_success=True):
         compiler = shutil.which("swiftc")
         if compiler is None:
             self.skipTest("swiftc unavailable on PATH; executable Swift behavior not verified")
@@ -93,50 +92,67 @@ class SourceFixture(unittest.TestCase):
                                 capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        if expected_success:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        else:
+            self.assertNotEqual(result.returncode, 0, "negative control unexpectedly passed")
 
 
 class CombinedTransportTests(SourceFixture):
-    def test_upstream_ipv6_and_backend_cache_improvements_survive(self):
-        upstream = {name: self.read(name) for name in (
-            "Common/NetworkUtils.swift", "Sources/Services/UsbmuxdProxyServer.swift")}
-        before_api = self.read("Sources/MinimuxerApi.swift")
-        patch(self.mux)
-        for name, original in upstream.items():
-            self.assertEqual(self.read(name), original)
-        gateway = self.gateway.read_text(encoding="utf-8")
-        for method in ("withSockaddr", "syncHeartbeat"):
-            if "func " + method in self.original:
-                self.assertEqual(function(gateway, method), function(self.original, method))
-        api = self.read("Sources/MinimuxerApi.swift")
-        cache = "if let cached = cachedInstance, currentBackend == resolvedBackend"
-        self.assertLess(api.index(cache), api.index("currentBackend = resolvedBackend", api.index(cache)))
-        self.assertIn("cached.core.setDeviceProbeTimeout(resolvedTimeout)", before_api)
+    def test_gateway_native_ownership_and_evidence(self):
+        verify_gateway_ownership(self.gateway.read_text(encoding="utf-8"))
 
-    def test_modern_gateway_double_application(self):
-        patch_gateway(self.mux)
-        first = snapshot(self.side)
-        patch_gateway(self.mux)
-        self.assertEqual(first, snapshot(self.side))
-        self.assertNotEqual(self.original, self.gateway.read_text(encoding="utf-8"))
+    def test_gateway_native_ownership_rejects_counterfactuals(self):
+        original = self.gateway.read_text(encoding="utf-8")
+        callback = "idevice_set_transport_log_callback(sideStoreTransportLog)"
+        application_free = "defer { idevice_plist_array_free(applications, UInt(count)) }"
+        paths_free = "defer { idevice_plist_array_free(plistArray, UInt(outLen)) }"
+        marker = 'debugLog("[SELF_REFRESH] SIDESTORE_POST_INSTALL_VERIFY_PASS")'
+        cases = {
+            "missing callback": (callback, ""),
+            "wrong callback": (callback, "idevice_set_transport_log_callback(nil)"),
+            "missing applications free": (application_free, ""),
+            "wrong applications count": (application_free, application_free.replace("UInt(count)", "0")),
+            "missing paths free": (paths_free, ""),
+            "wrong paths count": (paths_free, paths_free.replace("UInt(outLen)", "0")),
+            "libc paths free": (paths_free, "defer { free(outResult) }"),
+            "extra libc paths free": (paths_free, paths_free + "\n            free ( outResult )"),
+            "eager applications free": (application_free, "idevice_plist_array_free(applications, UInt(count))"),
+            "missing success evidence": (marker, ""),
+            "lookup guard removed": ("guard let matchedIdentifier else {", "if false {"),
+        }
+        for label, (before, after) in cases.items():
+            with self.subTest(label=label):
+                self.assertEqual(original.count(before), 1)
+                with self.assertRaises(AssertionError):
+                    verify_gateway_ownership(original.replace(before, after, 1))
+        # A marker at function entry is not proof of a successful installation.
+        anchor = '        debugLog("[SELF_REFRESH] POST_INSTALL_BROWSE_START")'
+        self.assertEqual(original.count(anchor), 1)
+        early = original.replace(marker, "", 1).replace(anchor, anchor + "\n        " + marker, 1)
+        with self.assertRaises(AssertionError):
+            verify_gateway_ownership(early)
 
-    def test_combined_double_application(self):
-        before = snapshot(self.side)
-        patch(self.mux)
-        first = snapshot(self.side)
-        patch(self.mux)
-        self.assertEqual(first, snapshot(self.side))
-        self.assertNotEqual(before, first)
-        self.assertEqual(self.read("Sources/RefreshTransportPolicy.swift"), POLICY)
-        self.assertIn("public import MinimuxerCommon\n", POLICY)
-        self.assertFalse((self.mux / "Common/RefreshTransportPolicy.swift").exists())
-        self.assertFalse(any(p.name == ".git" for p in self.side.rglob("*")))
+    def test_owned_readiness_runner_uses_verified_production(self):
+        # This real owner harness covers the redesigned lease/configuration paths
+        # that did not exist in the old generated readiness body.
+        for relative in (".ci/test-owned-readiness.py", ".ci/owned-readiness/fixture.swift",
+                         "Sources/MinimuxerApi.swift", "Sources/MinimuxerImpl.swift",
+                         "Sources/Services/NetworkObserverService.swift",
+                         "Sources/Services/EndpointRefreshTransaction.swift",
+                         "Sources/Services/DeviceConnectionManager.swift", "Sources/DeviceProvider.swift"):
+            owner_source(relative, MUX_OWNER)
+        if not shutil.which("swiftc"):
+            self.skipTest("Swift unavailable: owned readiness runtime not executed")
+        result = subprocess.run([sys.executable, str(owner_root(MUX_OWNER) / ".ci/test-owned-readiness.py")],
+            capture_output=True, text=True, timeout=300,
+            env={**os.environ, "REQUIRE_SWIFT_OWNED_READINESS_TESTS": "1"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("skipped", result.stderr)
 
     def test_app_folder_staging_and_install_preserved(self):
-        patch(self.mux)
         text = self.gateway.read_text(encoding="utf-8")
         for name in ("syncsendAppBundleAfc", "syncInstallAppBundle"):
-            self.assertIn("func " + name, self.original)
             self.assertIn("try self." + name, text)
         stage = function(text, "syncsendAppBundleAfc")
         for token in ("fileManager.enumerator(", "for case let fileURL as URL in enumerator",
@@ -153,7 +169,6 @@ class CombinedTransportTests(SourceFixture):
             self.assertIn(token, writer)
 
     def test_signed_bundle_identity_mapping_and_exact_lookup(self):
-        patch(self.mux)
         text = self.gateway.read_text(encoding="utf-8")
         stage = function(text, "syncsendAppBundleAfc")
         invalidate = "stagedBundleIdentities.removeValue(forKey: bundleId)"
@@ -182,15 +197,17 @@ class CombinedTransportTests(SourceFixture):
         self.assertIn(invalidate, function(text, "syncsendIpaAfc"))
 
     def test_dispatch_and_transport_routing(self):
-        patch(self.mux)
         text = self.gateway.read_text(encoding="utf-8")
         calls = re.findall(r"withFFIDispatch\s*(\([^\n]*?\))?\s*\{", text)
         self.assertIn("public import MinimuxerCommon\n", text)
         self.assertNotIn("internal import MinimuxerCommon", text)
         self.assertGreaterEqual(len(calls), 10)
-        self.assertEqual(len(calls), self.original.count("withFFIDispatch {"))
         self.assertTrue(all(call == "(on: self.ffiQueue)" for call in calls))
-        self.assertEqual(text.count("defer { if self.batchCount == 0 { self.releaseTransport() } }"), len(calls))
+        self.assertEqual(text.count("defer { if self.batchCount == 0 { self.releaseTransport() } }"), len(calls) - 1)
+        # stop() invokes cleanup directly; every async operation closure releases its lease.
+        self.assertIn("self.cleanup()", function(text, "stop"))
+        self.assertIn("onFFIQueue { self.syncCleanup() }", function(text, "cleanup"))
+        self.assertIn("releaseTransport()", function(text, "syncCleanup"))
         for name in ("setDeviceEndpointIp", "setPort", "invalidateConnection"):
             self.assertIn("onFFIQueue", function(text, name))
         self.assertIn("DispatchQueue.getSpecific", function(text, "onFFIQueue"))
@@ -203,7 +220,6 @@ class CombinedTransportTests(SourceFixture):
         self.assertIn("connectLockdown", function(text, "performWithEitherService"))
 
     def test_coredevice_failure_and_readiness_require_real_tunnel(self):
-        patch(self.mux)
         text = self.gateway.read_text(encoding="utf-8")
         connection = function(text, "ensureCoreDeviceConnection")
         self.assertIn("tunnel_create_usb(provider, &adapter, &handshake)", connection)
@@ -218,35 +234,36 @@ class CombinedTransportTests(SourceFixture):
         self.assertLess(fetch.index("try ensureRPConnection()"), fetch.index("lockdownd_connect_rsd("))
         self.assertIn("try self.syncFetchUDID()", function(text, "fetchUDID"))
         self.assertIn("try ensureRPConnection()", function(text, "performWithService"))
-        readiness = function(self.read("Sources/MinimuxerImpl.swift"), "isReady")
-        self.assertIn("if !gateway.hasActiveTransportBatch { return .success(false) }", readiness)
+        readiness = function(self.read("Sources/MinimuxerImpl.swift"), "readinessObservation")
+        self.assertIn("if !gateway.hasActiveTransportBatch { return .init(result: .success(false)) }", readiness)
         # Both DDI-enabled and DDI-disabled readiness must first fetch through the tunnel.
         fetch_call = readiness.index("try await fetchUDID()")
-        valid_udid = readiness.index("guard deviceUDID != nil else {")
+        valid_udid = readiness.index("if let failure = await localObservationFailure()", fetch_call)
         ddi_branch = readiness.index("if withDDIMountCheck {")
         self.assertLess(fetch_call, valid_udid)
         self.assertLess(valid_udid, ddi_branch)
-        self.assertLess(ddi_branch, readiness.index("return .success(true)"))
-        self.assertEqual(readiness.count("return .success(true)"), 1)
+        self.assertLess(ddi_branch, readiness.index("return .init(result: .success(true))", ddi_branch))
+        self.assertEqual(readiness[readiness.index("let deviceUDID: String"):].count("return .init(result: .success(true))"), 1)
+        self.assertIn("owned: false).result", function(self.read("Sources/MinimuxerImpl.swift"), "isReady"))
+        self.assertIn("!udid.isEmpty", fetch)
 
     def test_readiness_and_batch_lease(self):
-        patch(self.mux)
         impl = self.read("Sources/MinimuxerImpl.swift")
         self.assertIn("if #available(iOS 26.4, *)", impl)
         self.assertIn("gateway.supportsCoreDeviceTransport", impl)
-        self.assertIn("if !gateway.hasActiveTransportBatch { return .success(false) }", impl)
+        self.assertIn("if !gateway.hasActiveTransportBatch { return .init(result: .success(false)) }", impl)
         self.assertNotIn("no ipsec interface (required for lockdown", impl.lower())
         runner = (self.side / "SideStore/Core/Operations/PipelineRunner.swift").read_text(encoding="utf-8")
-        self.assertIn("V3HeadlessPairingFailure.tagIfInvalidPairing(error.asOperationError)", runner)
+        self.assertIn("V3HeadlessPairingFailure.tagIfInvalidPairing(typedError)", runner)
         begin = runner.index("await transportCore.beginTransportBatch()")
         task = runner.index("do {", begin)
         readiness = runner.index("/* Minimuxer Readiness Check */", task)
         end = runner.index("await transportCore.endTransportBatch()", readiness)
         self.assertLess(begin, task)
         self.assertLess(task, readiness)
-        normal = runner.index("for operation in normalOperations {", readiness)
+        normal = runner.index("for owned in normalOperations {", readiness)
         drained = runner.index("while let _ = try await taskGroup.next() {}", normal)
-        host = runner.index("for operation in hostOperations {", drained)
+        host = runner.index("for owned in hostOperations {", drained)
         self.assertLess(readiness, normal)
         self.assertLess(normal, drained)
         self.assertLess(drained, host)
@@ -254,23 +271,24 @@ class CombinedTransportTests(SourceFixture):
         self.assertRegex(runner[drained:host],
                          r"^while let _ = try await taskGroup.next\(\) \{\}\s*\}\s*$")
         self.assertIn("taskGroup.addTask {", runner[normal:drained])
-        self.assertIn("try await self.performOperation(for: operation, handler: handler, group: group)",
+        self.assertIn("try await self.performOperation(for: operation, handler: handler, group: group,",
                       runner[normal:drained])
         self.assertRegex(runner[host:end],
-                         r"for operation in hostOperations \{\s*try Task.checkCancellation\(\)\s*"
-                         r"try await self.performOperation\(for: operation, handler: handler, group: group\)\s*\}")
+                         r"for owned in hostOperations \{\s*let operation = owned.operation\s*try checkReadinessOwnership\(\)\s*"
+                         r"try await self.performOperation\(for: operation, handler: handler, group: group,")
         self.assertNotIn("taskGroup.addTask", runner[host:end])
-        execution = runner.index("let hostOperations = operations.filter {", readiness)
+        execution = runner.index("let hostOperations = ownedOperations.filter {", readiness)
         self.assertNotRegex(runner[execution:end], r"for operation in operations\s*\{")
-        self.assertIn("let hostOperations = operations.filter {", runner[readiness:normal])
-        self.assertIn("let normalOperations = operations.filter {", runner[readiness:normal])
-        self.assertIn("!(($0.app as? ALTApplication)?.isAltStoreApp == true || $0.bundleIdentifier.isAltStoreAppID)",
+        self.assertIn("let hostOperations = ownedOperations.filter {", runner[readiness:normal])
+        self.assertIn("let normalOperations = ownedOperations.filter {", runner[readiness:normal])
+        self.assertIn("!(($0.operation.app as? ALTApplication)?.isAltStoreApp == true || $0.operation.bundleIdentifier.isAltStoreAppID)",
                       runner[readiness:normal])
         self.assertEqual(runner.count("await transportCore.beginTransportBatch()"), 1)
         self.assertEqual(runner.count("await transportCore.endTransportBatch()"), 2)
         self.assertRegex(runner[end:], r"(?s)await transportCore.endTransportBatch\(\)\s*return group\s*\} catch \{\s*await transportCore.endTransportBatch\(\)\s*throw error")
         self.assertIn("CellularRefreshManager.shared.isEnabled", runner[readiness:end])
-        self.assertIn("await MainActor.run", runner[host:end])
+        self.assertIn("refreshAdmission: checkReadinessOwnership", runner[host:end])
+        self.assertIn("if let native = error as? MinimuxerError { typedError = native.asOperationError }", runner)
         gateway = self.gateway.read_text(encoding="utf-8")
         self.assertIn("self.batchCount += 1", function(gateway, "beginTransportBatch"))
         cleanup = function(gateway, "endTransportBatch")
@@ -279,7 +297,6 @@ class CombinedTransportTests(SourceFixture):
                          r"self.stagedBundleIdentities.removeAll\(\)\s*\}")
 
     def test_idle_readiness_ui_is_neutral_and_coredevice_needs_no_ipsec(self):
-        patch(self.mux)
         apps = (self.side / "AltStore/My Apps/MyAppsViewController.swift").read_text(encoding="utf-8")
         for value in ("status", "result"):
             self.assertNotIn(f"updateStatusDot(isReady: {value}.isSuccess)", apps)
@@ -306,9 +323,6 @@ class CombinedTransportTests(SourceFixture):
         self.assertIn("self.ipsecSatisfied = status.ipsecSat", model)
 
     def test_send_app_preserves_afc_error_and_cellular_cleanup(self):
-        original = self.send.read_text(encoding="utf-8")
-        self.assertIn("throw OperationError.appNotFound(name: bundleIdentifier)", original)
-        patch(self.mux)
         sent = self.send.read_text(encoding="utf-8")
         self.assertIn("try await sendAppBundleAfc(bundleIdentifier, at: appURL)", sent)
         catch = sent[sent.index("} catch {"):sent.index("return resignedAppBundle")]
@@ -318,13 +332,11 @@ class CombinedTransportTests(SourceFixture):
         self.assertNotIn("OperationError.appNotFound", sent)
 
     def test_composite_parser_source(self):
-        patch(self.mux)
         parser = self.read("Common/PairingFile.swift")
-        body = parser[parser.index("public static func validatePairingFile"):]
+        body = parser[parser.index("// Keep NRG composite records"):parser.index("public static func parse")]
         self.assertLess(body.index("return .lockdown"), body.index("return .rppairing"))
 
     def test_cleanup_closures_preserve_return_values(self):
-        patch(self.mux)
         gateway = self.gateway.read_text(encoding="utf-8")
         gateway = gateway[gateway.index("// Async FFI Dispatcher Extensions"):]
         for name in ("fetchUDID", "getLockdownValue", "dumpProfiles", "isDDIMounted",
@@ -337,10 +349,9 @@ class CombinedTransportTests(SourceFixture):
         self.assertIn("return newInterval > 0 ? newInterval : 1000", heartbeat)
         self.assertNotIn("return try self.syncPerformHeartbeat", heartbeat)
 
-    def test_generated_cleanup_closures_executable(self):
+    def test_owner_cleanup_closures_executable(self):
         if not shutil.which("swiftc"):
-            self.skipTest("swiftc unavailable; generated closure typechecking not verified locally")
-        patch(self.mux)
+            self.skipTest("swiftc unavailable; owner closure typechecking not verified locally")
         gateway = self.gateway.read_text(encoding="utf-8")
         gateway = gateway[gateway.index("// Async FFI Dispatcher Extensions"):]
         methods = "\n".join(function(gateway, name) for name in
@@ -352,7 +363,7 @@ final class IdeviceGateway: @unchecked Sendable {
     var releases = 0
     var fail = false
     func releaseTransport() { releases += 1 }
-    func syncFetchUDID() throws -> String? {
+    func syncFetchUDID() throws -> String {
         if fail { throw NSError(domain: "test", code: 1) }
         return "test-device"
     }
@@ -388,21 +399,19 @@ precondition(finished.wait(timeout: .now() + 10) == .success)
 ''')
 
     def test_pairing_mode_diagnostic_uses_selected_parser_mode(self):
-        patch(self.mux)
         text = self.gateway.read_text(encoding="utf-8")
         marker = "[SIDESTORE_COREDEVICE] PAIRING_MODE_SELECTED"
         self.assertEqual(text.count(marker), 1)
         self.assertIn(
             'setPairingFileType(parsedPairingFile.mode)\n'
             '            debugLog("' + marker + r' mode=\(parsedPairingFile.mode)")', text)
-        self.assertLess(text.index("PairingFileParser.parse(content: pairingFileContent)"),
+        self.assertLess(text.index("PairingFileParser.parse(content: pairingFileContent, preferred: preferred)"),
                         text.index(marker))
 
     def test_composite_parser_executable(self):
         if not shutil.which("swiftc"):
             self.skipTest("swiftc unavailable on PATH; real pairing parser execution not verified")
-        patch(self.mux)
-        self.compile_run('''import Foundation
+        source = '''import Foundation
 enum MinimuxerConstants {
     static let remotePairingPort: UInt16 = 49151
     static let lockdowndPort: UInt16 = 62078
@@ -420,17 +429,29 @@ for (record, expected) in [(rp, PairingProtocol.rppairing), (lockdown, .lockdown
     let parsed = try PairingFileParser.parse(content: String(decoding: data, as: UTF8.self))
     precondition(parsed.mode == expected)
 }
+for mode in [PairingProtocol.lockdown, .rppairing] {
+ let selected = try PairingFileParser.validatePairingFile(from: composite, preferred: mode)
+ precondition(selected == mode)
+}
+for (record, mode) in [(rp, PairingProtocol.lockdown), (lockdown, .rppairing), (composite, .unknown)] {
+ do { _ = try PairingFileParser.validatePairingFile(from: record, preferred: mode); fatalError("accepted invalid preference") }
+ catch is PairingError { }
+}
 let invalidRecords: [[String: any Sendable]?] = [nil, [:], ["identifier": "test"]]
 for invalid in invalidRecords {
     do { _ = try PairingFileParser.validatePairingFile(from: invalid); fatalError("accepted invalid record") }
     catch is PairingError { }
 }
-''')
+'''
+        self.compile_run(source)
+        anchor = "if hasLockdown {\n            return .lockdown"
+        self.assertEqual(source.count(anchor), 1)
+        self.compile_run(source.replace(anchor, "if hasLockdown {\n            return .rppairing", 1), expected_success=False)
 
     def test_policy_executable(self):
-        self.compile_run('''public enum DeviceConnectionMode { case notConfigured, localVPN, remoteServer }
+        source = '''public enum DeviceConnectionMode { case notConfigured, localVPN, remoteServer }
 public enum PairingProtocol { case unknown, lockdown, rppairing }
-''' + POLICY.replace("public import MinimuxerCommon\n", "") + '''
+''' + self.read("Sources/RefreshTransportPolicy.swift").replace("public import MinimuxerCommon\n", "") + '''
 for modern in [false, true] {
  for mode in [DeviceConnectionMode.notConfigured, .localVPN, .remoteServer] {
   for pairing in [PairingProtocol.unknown, .lockdown, .rppairing] {
@@ -449,18 +470,32 @@ for modern in [false, true] {
       let actual = RefreshTransportPolicy.select(modernOS: modern, mode: mode, pairing: pairing, utun: utun, ipsec: ipsec, coreDeviceSupported: supported)
       precondition(actual.transport == expected, "policy matrix mismatch")
       precondition(!actual.reason.isEmpty)
+      let cause: RefreshTransportUnavailableCause?
+      if pairing == .unknown { cause = .pairingUnavailable }
+      else if mode == .remoteServer { cause = nil }
+      else if mode != .localVPN { cause = .connectionModeNotConfigured }
+      else if !utun {
+       cause = modern && pairing == .lockdown && !supported && !ipsec
+          ? .unsupportedBackend : .missingRequiredVPNInterface
+      } else if expected == .unavailable { cause = .unsupportedBackend }
+      else { cause = nil }
+      precondition(actual.unavailableCause == cause, "wrong recovery authority")
      }
     }
    }
   }
  }
 }
-''')
+'''
+
+        self.compile_run(source)
+        anchor = "transport: .coreDevice, reason:"
+        self.assertEqual(source.count(anchor), 1)
+        self.compile_run(source.replace(anchor, "transport: .unavailable, reason:", 1), expected_success=False)
+
 
 
 class RuntimeAuthenticationSourceTests(unittest.TestCase):
-
-
     def test_runtime_uses_authoritative_authentication_graph(self):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()

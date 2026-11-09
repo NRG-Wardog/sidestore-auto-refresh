@@ -28,7 +28,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_embedded_keychain.py",
     "patch_guest_return.py",
     "patch_combined_refresh_contract.py",
-    "patch_combined_transport.py",
     "patch_combined_service_startup.py",
     "patch_refresh_result_bridge.py",
     "patch_embedded_sidestore_startup.py",
@@ -40,7 +39,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "p2_permission_contract.py",
     "audit_ipa_signing.py",
     "patch_guest_return.py",
-    "patch_combined_transport.py",
     "patch_combined_service_startup.py",
     "patch_refresh_result_bridge.py",
     "patch_background_automation.py",
@@ -53,7 +51,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "package_livecontainer_combined.py", "packaging_adapters.py", "rehearse_packaging_integration.py",
     "audit_ipa_signing.py",
     "patch_guest_return.py",
-    "patch_combined_transport.py",
     "patch_refresh_result_bridge.py",
     "patch_embedded_sidestore_startup.py",
 }
@@ -212,7 +209,7 @@ class RepositoryTests(unittest.TestCase):
         test_guest_return, test_sidesign_privacy, and test_v3_unified_shell.
         """
         for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
-                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py", "patch_refresh_result_bridge.py", V3_UNIFIED_SHELL_SCRIPT}:
+                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_refresh_result_bridge.py", V3_UNIFIED_SHELL_SCRIPT}:
             path = SCRIPTS / name
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         self.assertIn(
