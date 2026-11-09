@@ -13,7 +13,8 @@ def owner_pin(owner="LiveContainer"):
 
 def owner_root(owner="LiveContainer"):
     variable = {"LiveContainer": "MAINTAINED_LIVE_CONTAINER_TEST_SOURCE",
-                "idevice": "MAINTAINED_IDEVICE_TEST_SOURCE"}[owner]
+                "idevice": "MAINTAINED_IDEVICE_TEST_SOURCE",
+                "SideStore": "MAINTAINED_SIDESTORE_TEST_SOURCE"}[owner]
     return Path(os.environ.get(variable, ROOT/"sources"/owner))
 
 
