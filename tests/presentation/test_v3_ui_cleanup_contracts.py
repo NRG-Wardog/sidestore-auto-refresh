@@ -18,7 +18,6 @@ SERVICE_PATCH = (SCRIPTS / "patch_v3_service.py").read_text(encoding="utf-8")
 SHELL_PATCH = (SCRIPTS / "patch_v3_unified_shell.py").read_text(encoding="utf-8")
 KEYCHAIN_PATCH = (SCRIPTS / "patch_embedded_keychain.py").read_text(encoding="utf-8")
 STARTUP_PATCH = (SCRIPTS / "patch_embedded_sidestore_startup.py").read_text(encoding="utf-8")
-LAYOUT_PATCH = (SCRIPTS / "patch_app_layout.py").read_text(encoding="utf-8")
 SHELL = (TEMPLATES / "v3_unified_shell.swift").read_text(encoding="utf-8")
 RUNTIME = (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
 WIRE = (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8")
@@ -135,20 +134,7 @@ class ThemeAndWidgetColorTests(unittest.TestCase):
     the check is that the cleanup never touched the patcher that owns them.
     """
 
-    def test_the_banner_configuration_contract_is_untouched(self):
-        for token in ('"struct LCAppBannerConfiguration {\\n    let model: LCAppModel\\n'
-                       '    let dynamicColors: Bool\\n    let darkModeIcon: Bool\\n}"',
-                       "layoutStyle: layoutStyle", "showLabels"):
-            self.assertIn(token, LAYOUT_PATCH)
-        self.assertIn("dynamicColors: Bool,", LAYOUT_PATCH)
-        self.assertIn("darkModeIcon: Bool", LAYOUT_PATCH)
 
-    def test_colour_preferences_keep_an_explicit_shared_store(self):
-        cell = (TEMPLATES / "livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
-        for key in ("dynamicColors", "darkModeIcon"):
-            self.assertIn(f'@AppStorage("{key}", store: LCUtils.appGroupUserDefault)', cell)
-        self.assertIn('@AppStorage("darkModeIcon", store: LCUtils.appGroupUserDefault) var darkModeIcon = false',
-                      LAYOUT_PATCH)
 
     def test_no_cleanup_marker_removed_the_theme_or_widget_configuration(self):
         # The cleanup markers are the only removals these patches performed, and
@@ -163,7 +149,6 @@ class ThemeAndWidgetColorTests(unittest.TestCase):
         # shared, and it is read by the grid cell the widget mirrors.
         self.assertIn('@AppStorage("dynamicColors", store: LCUtils.appGroupUserDefault)',
                       (TEMPLATES / "livecontainer_grid_app_cell.swift").read_text(encoding="utf-8"))
-        self.assertIn("dynamicColors: Bool,", LAYOUT_PATCH)
 
 
 class RemovedPresentationTests(unittest.TestCase):

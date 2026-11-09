@@ -70,3 +70,15 @@ jobs:
           MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_multitask_dock.py \
               --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained presentation source contracts and Swift syntax
+        run: |
+          set -euo pipefail
+          pin=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore"][1])')
+          repository=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore"][0])')
+          git init -q sources/SideStore
+          git -C sources/SideStore remote add origin "https://github.com/$repository.git"
+          git -C sources/SideStore -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$pin"
+          git -C sources/SideStore -c core.hooksPath=/dev/null checkout --detach "$pin"
+          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_app_layout.py \
+              --allowlist scripts/required_test_skip_allowlist.json

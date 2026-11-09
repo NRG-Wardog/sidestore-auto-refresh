@@ -10,7 +10,7 @@ import json
 import re
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_SHA256 = '44e30684ef7c44e4228368e283c34adf7d2495e3a6f0642949a5fc7995dc60ae'
+MANIFEST_SHA256 = '1380f2d9c0fed5aac9c510b4dd4a6990f93902bdfedbf9f339eb27f69e1e8975'
 
 
 def require(ok, message):
@@ -57,7 +57,7 @@ def verify(root=ROOT, *, expected_manifest_sha256=MANIFEST_SHA256):
                  if p.suffix in ('.yml', '.yaml')}
     require(workflows == {p for p in m['files'] if p.startswith('.github/workflows/')},
             'Unreviewed workflow inventory')
-    for retired in ('scripts/patch_multitask_dock.py', 'scripts/templates/multitask_dock_session_state.swift', 'scripts/patch_coredevice_idevice.py', 'scripts/patch_local_idevice_package.py', 'scripts/patch_lc_certificate_observation.py', 'tests/fixtures/lc_certificate_observation', 'scripts/patch_dead10cc_fix.py', 'ci/issue55-zopfli', 'ci/issue56-zopfli', 'ci/language-switch-zopfli', 'ci/maintained-build', '.github/workflows/build-current.yml', '.github/workflows/livecontainer-build.yml', '.github/workflows/release-dispatch.yml', '.github/workflows/maintained-entry-contract.yml', '.github/workflows/livecontainer-source-audit.yml', 'migration/diagnostics', 'migration/p0-native-basis-v1', 'migration/p1-native-basis-v1', 'migration/p0-constructor-diagnostics-v1', 'migration/p0-elf-metadata-bounds-v1', 'migration/p0-cxx-allocation-v1', 'migration/p2-composed-host-v1', 'migration/p0-full-login-diagnostics-v1', 'migration/historical', 'migration/local_replay_tests', '.ci', 'ci/validation-history', '.github/workflow-archive',
+    for retired in ('scripts/patch_app_layout.py', 'scripts/patch_multitask_dock.py', 'scripts/templates/multitask_dock_session_state.swift', 'scripts/patch_coredevice_idevice.py', 'scripts/patch_local_idevice_package.py', 'scripts/patch_lc_certificate_observation.py', 'tests/fixtures/lc_certificate_observation', 'scripts/patch_dead10cc_fix.py', 'ci/issue55-zopfli', 'ci/issue56-zopfli', 'ci/language-switch-zopfli', 'ci/maintained-build', '.github/workflows/build-current.yml', '.github/workflows/livecontainer-build.yml', '.github/workflows/release-dispatch.yml', '.github/workflows/maintained-entry-contract.yml', '.github/workflows/livecontainer-source-audit.yml', 'migration/diagnostics', 'migration/p0-native-basis-v1', 'migration/p1-native-basis-v1', 'migration/p0-constructor-diagnostics-v1', 'migration/p0-elf-metadata-bounds-v1', 'migration/p0-cxx-allocation-v1', 'migration/p2-composed-host-v1', 'migration/p0-full-login-diagnostics-v1', 'migration/historical', 'migration/local_replay_tests', '.ci', 'ci/validation-history', '.github/workflow-archive',
                     'ci/branch-cleanup', 'ci/branch-forwardports', 'ci/branch-semantic-review',
                     'ci/release-v6.0.0', 'ci/release-notes-v6.0.0-20261024'):
         path = root/retired
