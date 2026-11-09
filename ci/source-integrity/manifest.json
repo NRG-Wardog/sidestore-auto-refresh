@@ -1,6 +1,6 @@
 {
   "schema": "current-source-integrity-v1",
-  "basis": "79921aea70341d5dbcc3561bda5427929f744471",
+  "basis": "e769da39b06db7e8db187fa11e6d10354c2cd4e2",
   "files": {
     ".github/workflows/cold-vpn-native.yml": "dd993982d048b6439e2c8169df5d33e576d347c0a2be09507d5a29fd18fca1b1",
     ".github/workflows/cold-vpn-preflight.yml": "3dbdc0c6359b1598a048e1bf1cbc94ebdf30fe36aa1ec398543b793f437adb2a",
@@ -17,7 +17,7 @@
     ".github/workflows/openssl-local-host-diagnostic.yml": "9a2729d3c6f580dc6fed6ce771b376cad3c3bf5841cfd31fd2384b803e954b3c",
     ".github/workflows/recover-native-package.yml": "9a5aa1489d2ea7757fadca24d8b9277dffe516634621d986da991ac0801b2836",
     ".github/workflows/refresh-truth-preflight.yml": "290d1e3a2450ec2c002fb945fa403795371fe150dc592c665b4c06d0408491c2",
-    ".github/workflows/source-integrity-contract.yml": "b9ddaf06d12fdb562799359b8c8f63aa24205b2a7eb486ccb042a8589b637db9",
+    ".github/workflows/source-integrity-contract.yml": "64c11ac4b4415cd47583fb778c817691f558ecf56fd8a6f57ddecf3511c79365",
     ".github/workflows/startup-upgrade-preflight.yml": "fb72c382c42dfa34c9a2f96755fc0cd2157cc303c575e60cc1cc36fd76304457",
     "ci/current-build/source_selection.py": "02abf5b6893bf9433aa7cb3b2e9b1b9b0d2171f35d914cb1a2bdcf7f7b277d4d",
     "ci/current-build/test_ci_ownership.py": "d0eaeaf4e495baf31b5fedac2a4065a787e291ff842f9fb6723db5fa2b063c38",
@@ -66,6 +66,7 @@
     "tests/authentication/test_v3_2fa.py": "479d4c53d48813760e6d3ab6068c8f7443eab469fc50d182a706808799cb191d",
     "tests/fixtures/cf_bundle_runtime_harness.c": "d774ad7492c18a9fa3cb3b3e5213fdb343de03cb76273713bdfef7c413c8679f",
     "tests/fixtures/cf_bundle_scan_harness.c": "6b77ce01d65825ac7da16e3f9cd227771dd4b2f0b73c7644f44f38fbbce5ab10",
+    "tests/fixtures/guest_return_control_harness.m": "9e396315001893c379a24d88bae9da9b1a4e57ad5da2cb2363186febe14bece4",
     "tests/fixtures/lc_certificate_native_harness.mm": "a747fc025bf5aa141b78f40696fdf8476acfcfdd2fa647aa6a30aeee4fa2dc87",
     "tests/fixtures/multitask_dock_session_harness.swift": "2044dce2b08103b3c62ea7fa2406aa9185f79d9f2259f352b8f0e9f01f57d191",
     "tests/fixtures/upstream-packaging/2d092098-anchor-profile.json": "e81e2c74d016bbec469ccd8579edeb818414b2335170024c8976f357b0cde244",
@@ -77,6 +78,7 @@
     "tests/host/test_coredevice_owner.py": "96db081e68000655d36a88b8827bb3a22a930733ea795dca8d195e3920d632a4",
     "tests/host/test_dead10cc_fix.py": "40cee5d48ff307c3d9dd508b203bcabdd6404132e0dd859f00bf5cbcda2a4e58",
     "tests/host/test_embedded_sidestore_startup.py": "12ff2d37517839d7d1911a5b5af4ee0e332c0a5e92865df629fdb3a07c23e577",
+    "tests/host/test_guest_owner.py": "3865fb4afaab50784e81fa3b18b36d4e4481abd094bda2f4ac31abbdb0024037",
     "tests/host/test_multitask_dock.py": "f96783fa33d1a88015aaeb2813d4da2a453489d6ea168ea773aeb74b70cd9711",
     "tests/host/test_v3_shared_app_group.py": "fa7d6c59a3a158ce57f8f4a54c8cf3b51d0c61d6c488f3751b1bedd6a05960d8",
     "tests/installation/test_v3_provisioning_recovery.py": "6b991766a791d40321ec108824a7c944896158c3ab5565d45853740fa72479e7",
