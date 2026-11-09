@@ -200,6 +200,13 @@ jobs:
           MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_dead10cc_fix.py \
               --allowlist scripts/required_test_skip_allowlist.json 2>&1 | tee evidence/owner-lifecycle.log
+      - name: Check maintained CoreDevice transport source contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAINTAINED_IDEVICE_TEST_SOURCE="$PWD/sources/idevice" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_coredevice_owner.py \
+              --allowlist scripts/required_test_skip_allowlist.json 2>&1 | tee evidence/owner-coredevice.log
       - name: Retain exact inventory and regression evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

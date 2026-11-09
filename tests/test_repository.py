@@ -13,7 +13,6 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cold-vpn-native.yml"
 SCRIPTS = ROOT / "scripts"
 REQUIRED_SCRIPTS = {
-    "patch_coredevice_idevice.py",
     "patch_sidestore_integration.py",
     "patch_background_automation.py",
 }
@@ -226,10 +225,6 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn(
             "if MARKER in text",
             (SCRIPTS / "patch_background_automation.py").read_text(encoding="utf-8"),
-        )
-        self.assertIn(
-            "if MARKER in text",
-            (SCRIPTS / "patch_coredevice_idevice.py").read_text(encoding="utf-8"),
         )
         self.assertIn(
             "if MARKER in text",

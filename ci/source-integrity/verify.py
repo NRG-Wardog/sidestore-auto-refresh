@@ -10,7 +10,7 @@ import json
 import re
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_SHA256 = 'f8a49e21cc5f920c3f3baf40d234e26fe07da581f531c36b0479b4b3faeefe7c'
+MANIFEST_SHA256 = '0a085835259cc9b44dfcf6936fd44c21bbd691815ce57001ff7860d255efede4'
 
 
 def require(ok, message):
@@ -57,7 +57,7 @@ def verify(root=ROOT, *, expected_manifest_sha256=MANIFEST_SHA256):
                  if p.suffix in ('.yml', '.yaml')}
     require(workflows == {p for p in m['files'] if p.startswith('.github/workflows/')},
             'Unreviewed workflow inventory')
-    for retired in ('scripts/patch_local_idevice_package.py', 'scripts/patch_lc_certificate_observation.py', 'tests/fixtures/lc_certificate_observation', 'scripts/patch_dead10cc_fix.py', 'ci/issue55-zopfli', 'ci/issue56-zopfli', 'ci/language-switch-zopfli', 'ci/maintained-build', '.github/workflows/build-current.yml', '.github/workflows/livecontainer-build.yml', '.github/workflows/release-dispatch.yml', '.github/workflows/maintained-entry-contract.yml', '.github/workflows/livecontainer-source-audit.yml', 'migration/diagnostics', 'migration/p0-native-basis-v1', 'migration/p1-native-basis-v1', 'migration/p0-constructor-diagnostics-v1', 'migration/p0-elf-metadata-bounds-v1', 'migration/p0-cxx-allocation-v1', 'migration/p2-composed-host-v1', 'migration/p0-full-login-diagnostics-v1', 'migration/historical', 'migration/local_replay_tests', '.ci', 'ci/validation-history', '.github/workflow-archive',
+    for retired in ('scripts/patch_coredevice_idevice.py', 'scripts/patch_local_idevice_package.py', 'scripts/patch_lc_certificate_observation.py', 'tests/fixtures/lc_certificate_observation', 'scripts/patch_dead10cc_fix.py', 'ci/issue55-zopfli', 'ci/issue56-zopfli', 'ci/language-switch-zopfli', 'ci/maintained-build', '.github/workflows/build-current.yml', '.github/workflows/livecontainer-build.yml', '.github/workflows/release-dispatch.yml', '.github/workflows/maintained-entry-contract.yml', '.github/workflows/livecontainer-source-audit.yml', 'migration/diagnostics', 'migration/p0-native-basis-v1', 'migration/p1-native-basis-v1', 'migration/p0-constructor-diagnostics-v1', 'migration/p0-elf-metadata-bounds-v1', 'migration/p0-cxx-allocation-v1', 'migration/p2-composed-host-v1', 'migration/p0-full-login-diagnostics-v1', 'migration/historical', 'migration/local_replay_tests', '.ci', 'ci/validation-history', '.github/workflow-archive',
                     'ci/branch-cleanup', 'ci/branch-forwardports', 'ci/branch-semantic-review',
                     'ci/release-v6.0.0', 'ci/release-notes-v6.0.0-20261024'):
         path = root/retired
