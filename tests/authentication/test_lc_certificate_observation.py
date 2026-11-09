@@ -1,8 +1,7 @@
-"""Exercise the pinned LiveContainer certificate-observation transform."""
+"""Exercise certificate observation from the exact maintained LiveContainer owner."""
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -11,33 +10,17 @@ import sys
 import tempfile
 import unittest
 
+from tests.owner_source import owner_source, owner_root, owner_pin
+
 ROOT = Path(__file__).resolve().parents[2]
-PIN = "12377cf3b91d51739a33f14a302e5f522b238593"
-PATCH_PATH = Path(os.environ.get("LC_CERTIFICATE_OBSERVATION_PATCHER",
-                                ROOT / "scripts/patch_lc_certificate_observation.py"))
-FIXTURE_ROOT = ROOT / "tests/fixtures/lc_certificate_observation"
+
+PATHS = ("ZSign/zsigner.h", "ZSign/zsign.mm",
+         "LiveContainerSwiftUI/Utilities/LCUtils.h",
+         "LiveContainerSwiftUI/Utilities/LCUtils.m")
 
 
-def load_patcher():
-    if not PATCH_PATH.is_file():
-        raise FileNotFoundError(f"certificate observation patcher not found: {PATCH_PATH}")
-    spec = importlib.util.spec_from_file_location("patch_lc_certificate_observation", PATCH_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def pinned_sources(patcher):
-    live = os.environ.get("LIVE_CONTAINER_TEST_SOURCE")
-    sources = {}
-    for relative in patcher.PATHS:
-        if live:
-            data = subprocess.check_output(["git", "-C", live, "show", f"{PIN}:{relative}"], text=True)
-        else:
-            fixture = FIXTURE_ROOT / Path(relative).name
-            data = fixture.read_text(encoding="utf-8")
-        sources[relative] = data
-    return sources
+def pinned_sources():
+    return {path: owner_source(path) for path in PATHS}
 
 
 def matching_swift_or_objc_brace(text: str, open_brace: int) -> int:
@@ -77,21 +60,14 @@ def method_after_marker(text: str, marker: str, signature: str) -> str:
     return text[start:matching_swift_or_objc_brace(text, opening)]
 
 
-class CertificateObservationTransformTests(unittest.TestCase):
+class CertificateObservationOwnerTests(unittest.TestCase):
     def setUp(self):
-        try:
-            self.patcher = load_patcher()
-        except FileNotFoundError as error:
-            self.skipTest(str(error))
-        self.sources = pinned_sources(self.patcher)
+        self.sources = pinned_sources()
 
-    def test_pinned_transform_is_idempotent_and_observation_only(self):
-        original = dict(self.sources)
-        generated = self.patcher.transform(self.sources)
-        self.assertEqual(self.sources, original, "transform must not mutate its input map")
-        self.assertEqual(self.patcher.transform(generated), generated)
-        signer = generated["ZSign/zsign.mm"]
-        lcutils = generated["LiveContainerSwiftUI/Utilities/LCUtils.m"]
+    def test_current_owner_is_observation_only(self):
+        sources = self.sources
+        signer = sources["ZSign/zsign.mm"]
+        lcutils = sources["LiveContainerSwiftUI/Utilities/LCUtils.m"]
         self.assertEqual(signer.count("V3_CANONICAL_CERTIFICATE_FACTS_V1"), 1)
         self.assertIn("asset.InitSimple(cert.bytes, (int)cert.length, nil, 0, string(passwordBytes))", signer)
         self.assertIn("X509_digest((X509 *)asset.m_x509Cert, EVP_sha256(), digest, &length)", signer)
@@ -102,27 +78,6 @@ class CertificateObservationTransformTests(unittest.TestCase):
         self.assertIn("completionHandler(2, nil, nil, @\"LiveContainer's certificate validator is unavailable.\")", lcutils)
         self.assertIn("NSString *password = [LCSharedUtils certificatePassword];", lcutils)
         self.assertIn("return [signer checkCert:certData pass:password completionHandler:completionHandler];", lcutils)
-
-    def test_incomplete_sources_fail_closed_without_partial_generated_outputs(self):
-        incomplete = dict(self.sources)
-        incomplete["ZSign/zsign.mm"] = incomplete["ZSign/zsign.mm"].replace(
-            "+ (NSString*)getTeamIdWithCert:", "+ (NSString*)getTeamIdentifierWithCert:", 1)
-        before = dict(incomplete)
-        with self.assertRaises(ValueError):
-            self.patcher.transform(incomplete)
-        self.assertEqual(incomplete, before)
-
-        partial = dict(self.sources)
-        partial["ZSign/zsign.mm"] += "\n// certificateFactsWith partial marker\n"
-        with self.assertRaises(ValueError):
-            self.patcher.transform(partial)
-
-        validation = dict(self.sources)
-        validation_path = "LiveContainerSwiftUI/Utilities/LCUtils.m"
-        validation[validation_path] = validation[validation_path].replace("return -6;", "return -7;", 1)
-        with self.assertRaises(ValueError):
-            self.patcher.transform(validation)
-
 
 class NativeCertificateObservationTests(unittest.TestCase):
     @property
@@ -135,17 +90,8 @@ class NativeCertificateObservationTests(unittest.TestCase):
         self.skipTest(reason)
 
     def setUp(self):
-        try:
-            self.patcher = load_patcher()
-        except FileNotFoundError as error:
-            self.native_missing(str(error))
-        live = os.environ.get("LIVE_CONTAINER_TEST_SOURCE")
-        if not live:
-            self.native_missing("LIVE_CONTAINER_TEST_SOURCE pinned checkout is supplied by macOS CI")
-        actual = subprocess.check_output(["git", "-C", live, "rev-parse", "HEAD"], text=True).strip()
-        self.assertEqual(actual, PIN, "native helper test must use the pinned LiveContainer checkout")
-        self.live = Path(live)
-        self.sources = pinned_sources(self.patcher)
+        self.live = owner_root()
+        self.sources = pinned_sources()
 
     def _openssl3(self):
         if sys.platform != "darwin":
@@ -170,15 +116,15 @@ class NativeCertificateObservationTests(unittest.TestCase):
         if not compiler:
             self.native_missing("clang++ unavailable; Xcode command line tools are required for native ZSign test")
         openssl_prefix, openssl = self._openssl3()
-        generated = self.patcher.transform(self.sources)
-        signer_method = method_after_marker(generated["ZSign/zsign.mm"],
+        sources = self.sources
+        signer_method = method_after_marker(sources["ZSign/zsign.mm"],
             "V3_CANONICAL_CERTIFICATE_FACTS_V1", "+ (NSDictionary<NSString *, NSString *> *)certificateFactsWithCert:")
-        utils_method = method_after_marker(generated["LiveContainerSwiftUI/Utilities/LCUtils.m"],
+        utils_method = method_after_marker(sources["LiveContainerSwiftUI/Utilities/LCUtils.m"],
             "V3_CANONICAL_CERTIFICATE_FACTS_V1", "+ (NSDictionary<NSString *, NSString *> *)certificateFactsWithKeyData:")
-        validation_method = method_after_marker(generated["LiveContainerSwiftUI/Utilities/LCUtils.m"],
+        validation_method = method_after_marker(sources["LiveContainerSwiftUI/Utilities/LCUtils.m"],
             "V3_CANONICAL_CERTIFICATE_VALIDATION_CALLBACK_V1", "+ (int)validateCertificateWithCompletionHandler:")
-        signer_header = generated["ZSign/zsigner.h"]
-        lcutils_header = generated["LiveContainerSwiftUI/Utilities/LCUtils.h"]
+        signer_header = sources["ZSign/zsigner.h"]
+        lcutils_header = sources["LiveContainerSwiftUI/Utilities/LCUtils.h"]
         signer_facts_declaration = next(line.strip() for line in signer_header.splitlines()
             if "certificateFactsWithCert:" in line)
         signer_check_declaration = next(line.strip() for line in signer_header.splitlines()
@@ -194,9 +140,9 @@ class NativeCertificateObservationTests(unittest.TestCase):
             # git-show files from the pin, never a builder-mutated source checkout.
             zsign = temp / "ZSign"
             tracked_zsign = subprocess.check_output(["git", "-C", str(self.live), "ls-tree", "-r",
-                "--name-only", PIN, "--", "ZSign"], text=True).splitlines()
+                "--name-only", owner_pin(), "--", "ZSign"], text=True).splitlines()
             for relative in tracked_zsign:
-                contents = subprocess.check_output(["git", "-C", str(self.live), "show", f"{PIN}:{relative}"])
+                contents = subprocess.check_output(["git", "-C", str(self.live), "show", f"{owner_pin()}:{relative}"])
                 destination = temp / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(contents)

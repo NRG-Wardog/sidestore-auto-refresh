@@ -16,13 +16,11 @@ REQUIRED_SCRIPTS = {
     "patch_coredevice_idevice.py",
     "patch_sidestore_integration.py",
     "patch_background_automation.py",
-    "patch_local_idevice_package.py",
 }
 LIVE_CONTAINER_SCRIPTS = {
     "ipa_size_report.py",
     "patch_native_error_presenters.py",
     "patch_cf_bundle_scan.py",
-    "patch_lc_certificate_observation.py",
     "patch_livecontainer_autorefresh.py",
     "patch_embedded_sidestore_startup.py",
     "patch_v3_unified_shell.py",
@@ -38,7 +36,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_refresh_result_bridge.py",
     "patch_app_layout.py",
     "patch_embedded_sidestore_startup.py",
-    "patch_local_idevice_package.py",
     "patch_combined_service_startup.py",
     "combined_build_evidence.py",
     "run_issue25_rendering.py", "rendering_localization.py",
@@ -54,7 +51,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_background_automation.py",
     "patch_combined_refresh_contract.py",
     "patch_embedded_sidestore_startup.py",
-    "patch_local_idevice_package.py",
     "patch_v3_service.py",
     "patch_combined_service_startup.py",
     "combined_build_evidence.py",
@@ -66,7 +62,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_combined_transport.py",
     "patch_refresh_result_bridge.py",
     "patch_embedded_sidestore_startup.py",
-    "patch_local_idevice_package.py",
 }
 LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
 LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"

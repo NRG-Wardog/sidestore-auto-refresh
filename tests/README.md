@@ -59,3 +59,10 @@ runs. CI supplies the same pinned source already acquired for integration
 inventory, and treats missing prerequisites as failures, not skips. Historical
 patch-generator/idempotence assertions were retired with their unused generator;
 notification, diagnostics, resource ownership and runtime controls remain.
+
+Certificate observation tests read the same maintained LiveContainer pin as the
+production build, never a generated patch or historical upstream fixture. The
+macOS bounded-contract lane requires the real ZSign/OpenSSL 3 harness (valid,
+wrong-password, malformed and multiple certificates plus validation callbacks)
+without skips. The shared owner loader rejects mismatched pins and modified
+source bytes. Dead10cc continues to execute production C blocks on Linux.
