@@ -79,3 +79,11 @@ state helper once (the old suite ran the same harness twice) and syntax-checks
 both complete owner files, with no skips. First presentation, session override,
 per-session reset, tucked preference and separate hidden/guest settings remain
 covered. This is not an on-device SwiftUI rendering result.
+
+App Layout tests now inspect the maintained LiveContainer/SideStore owners. They
+cover the current grid-size/label preferences, accessibility/action routing,
+dynamic type and shared theme configuration. The old list/grid settings patch
+for SideStore is not a current headless-product input. Its generator and replay
+tests are retired. Grid/model templates remain because Issue25 rendering uses
+them, and tests require byte equality with the maintained owner. macOS CI requires
+all source checks and Swift syntax checks without skips; this is not visual QA.

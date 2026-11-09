@@ -32,7 +32,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_combined_transport.py",
     "patch_combined_service_startup.py",
     "patch_refresh_result_bridge.py",
-    "patch_app_layout.py",
     "patch_embedded_sidestore_startup.py",
     "patch_combined_service_startup.py",
     "combined_build_evidence.py",
@@ -40,7 +39,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "run_p0_signin_rendering.py",
     "p2_localization_contract.py",
     "p2_permission_contract.py",
-    "patch_app_layout.py",
     "audit_ipa_signing.py",
     "patch_guest_return.py",
     "patch_combined_transport.py",
@@ -53,7 +51,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_combined_service_startup.py",
     "combined_build_evidence.py",
     "run_issue25_rendering.py",
-    "patch_app_layout.py",
     "package_livecontainer_combined.py", "packaging_adapters.py", "rehearse_packaging_integration.py",
     "audit_ipa_signing.py",
     "patch_guest_return.py",
@@ -65,7 +62,6 @@ LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
 LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
 COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
 EMBEDDED_KEYCHAIN_SCRIPT = "patch_embedded_keychain.py"
-APP_LAYOUT_SCRIPT = "patch_app_layout.py"
 V3_UNIFIED_SHELL_SCRIPT = "patch_v3_unified_shell.py"
 
 _SENSITIVE_ARTIFACT_SUFFIXES = {".p12", ".pfx", ".der", ".pem", ".key"}
@@ -217,7 +213,7 @@ class RepositoryTests(unittest.TestCase):
         test_guest_return, test_sidesign_privacy, and test_v3_unified_shell.
         """
         for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
-                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py", "patch_refresh_result_bridge.py", APP_LAYOUT_SCRIPT, V3_UNIFIED_SHELL_SCRIPT,
+                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py", "patch_refresh_result_bridge.py", V3_UNIFIED_SHELL_SCRIPT,
                                         "patch_sidesign_2fa_state.py"}:
             path = SCRIPTS / name
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
