@@ -1,13 +1,19 @@
-# Remaining source compatibility fixtures
+# Baseline compatibility fixtures
 
-The current application build uses the exact component graph in
-`ci/issues-native/candidate-graph.json`; see `ci/current-build/`.
+Only the baseline registry and product-evidence regression fixtures remain here.
+They support the retained collector/verifier tests, not the current build entry.
+All p0/p1/p2 and ADI experimental source graphs, adapters and private tests have
+been retired. Their input values now fail closed before acquisition or writes.
 
-This directory is not a user-data migration system. Its remaining contracts,
-source fixtures and diagnostic receipts are still consumed by legacy packaging
-and regression helpers. Do not treat them as current build or device evidence.
+The compatibility CLI requires explicit `--pins`; it has no default source graph.
+Do not use the test fixture as a production build default. Current builds use
+`ci/issues-native/candidate-graph.json` through `ci/current-build/`.
 
-Offline candidate finalizers, their private tests and unconsumed cutover reports
-have been retired. The remaining parity report is still hash-referenced by two
-compatibility records. Further removal requires separating those consumers,
-not deleting application regression coverage or changing runtime source pins.
+Run the retained checks with:
+
+```sh
+python3 -B -m unittest discover -s migration/tests -p 'test_*.py' -v
+```
+
+`contracts/` and its parity evidence remain hash-bound. Removing them requires
+retiring or replacing the remaining baseline collector/verifier product tests.

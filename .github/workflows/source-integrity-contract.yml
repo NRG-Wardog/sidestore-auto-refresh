@@ -53,4 +53,4 @@ jobs:
           for name in test_repository.py test_combined_packaging.py test_compiled_localization.py test_required_test_runner.py test_combined_build_evidence.py test_merged_rendering_contract.py test_dylibify_source_build.py; do
             python3 -B -m unittest discover -s tests -p "$name" -v
           done
-          python3 -B -m unittest discover -s migration/tests -p test_p1_admission.py -v
+          python3 -B -m unittest discover -s migration/tests -p 'test_*.py' -v
