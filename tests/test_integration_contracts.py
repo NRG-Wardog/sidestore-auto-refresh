@@ -858,7 +858,7 @@ class WorkflowTests(unittest.TestCase):
     def test_ci_is_read_only_and_retains_explicit_evidence_limits(self):
         workflow = (ROOT / '.github/workflows/custom-integration-contract.yml').read_text()
         for needle in ('pull_request:', 'push:', 'workflow_dispatch:', 'contents: read', 'persist-credentials: false',
-                       'test_integration_contracts.py', 'test_packaging_adapters.py', 'test_custom_integration_boundaries.py',
+                       'test_integration_contracts.py', 'test_custom_integration_boundaries.py',
                        'run_required_tests.py', 'verify_inventory.py --sources sources', 'if: always()',
                        "'scripts/**'", "'ci/issues-native/candidate-graph.json'", 'cancel-in-progress: false'):
             self.assertIn(needle, workflow)

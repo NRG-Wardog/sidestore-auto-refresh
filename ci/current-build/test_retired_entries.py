@@ -4,7 +4,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 RETIRED = ('build-current.yml', 'livecontainer-build.yml', 'release-dispatch.yml',
-           'maintained-entry-contract.yml', 'livecontainer-source-audit.yml')
+           'maintained-entry-contract.yml', 'livecontainer-source-audit.yml',
+           'maintained-packaging-contract.yml', 'current-build-contract.yml',
+           'issue53-lts-source.yml', 'issue53-pinned-crypto.yml',
+           'issue56-zopfli.yml', 'language-switch-zopfli.yml', 'zopfli-package.yml')
 
 
 class RetiredEntryTests(unittest.TestCase):
@@ -12,7 +15,8 @@ class RetiredEntryTests(unittest.TestCase):
         for name in RETIRED:
             with self.subTest(name=name):
                 self.assertFalse((ROOT/'.github/workflows'/name).exists())
-        self.assertFalse((ROOT/'ci/maintained-build').exists())
+        for folder in ('maintained-build', 'issue55-zopfli', 'issue56-zopfli', 'language-switch-zopfli'):
+            self.assertFalse((ROOT/'ci'/folder).exists())
 
     def test_no_live_workflow_dispatches_or_checks_retired_routes(self):
         for path in (ROOT/'.github/workflows').glob('*.yml'):
