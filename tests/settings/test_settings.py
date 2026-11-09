@@ -14,8 +14,6 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
 
-
-
 def declaration(source, signature):
     start = source.index(signature)
     opening = source.index("{", start)
@@ -26,23 +24,7 @@ def declaration(source, signature):
             return source[start:end + 1]
     raise AssertionError(signature)
 
-
 class SettingsPersistenceTests(unittest.TestCase):
-    def test_dock_preference_uses_app_group_store(self):
-        source = (ROOT / "scripts/patch_multitask_dock.py").read_text(encoding="utf-8")
-        self.assertIn("LCUtils.appGroupUserDefault", source)
-        self.assertIn("LCMultitaskDockStartsCollapsed", source)
-        self.assertIn("LCMultitaskDockStartsTuckedToEdge", source)
-        # The persisted default is applied with a readback, not assumed.
-        self.assertIn('bool(forKey:', source)
-
-    def test_dock_preference_applied_once(self):
-        source = (ROOT / "scripts/patch_multitask_dock.py").read_text(encoding="utf-8")
-        # Applied once at creation; layout/rotation must never reset it.
-        self.assertIn("MULTITASK_DOCK_START_COLLAPSED_V1", source)
-        self.assertIn("override init()", source)
-        self.assertNotIn("layoutSubviews", source)
-        self.assertNotIn("viewWillAppear", source)
 
     def test_v3_templates_use_app_group_store(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
@@ -64,25 +46,6 @@ class SettingsPersistenceTests(unittest.TestCase):
         # Host UI keys and guest container paths must stay separate.
         self.assertNotIn("Library/Preferences", shell)
 
-    def test_settings_roundtrip_contract(self):
-        # Documents the device acceptance contract: write -> relaunch -> read.
-        # LC settings keys covered by this line:
-        for key in ("LCMultitaskDockStartsCollapsed", "LCMultitaskDockStartsTuckedToEdge",
-                    "LCHideCollapsedDock",
-                    "LCGridSize.storageKey", '"LCShowAppLabels"'):
-            found = key in (ROOT / "scripts/patch_multitask_dock.py").read_text(encoding="utf-8") \
-                or key in (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-            self.assertTrue(found, key)
-
-    # --- Persistence mechanism verification ---
-    def test_dock_preference_init_reads_back_from_store(self):
-        source = (ROOT / "scripts/patch_multitask_dock.py").read_text(encoding="utf-8")
-        # The init reads the persisted value and applies it once.
-        # This ensures write -> relaunch -> read works.
-        # The patch uses KEY variable which expands to LCMultitaskDockStartsCollapsed
-        self.assertIn('LCUtils.appGroupUserDefault.bool(forKey: "{KEY}")', source)
-        self.assertIn("MULTITASK_DOCK_START_COLLAPSED_V1", source)
-
     def test_guest_return_uses_shared_app_group_defaults(self):
         guest = (ROOT / "scripts/patch_guest_return.py").read_text(encoding="utf-8")
         # Host SwiftUI and LiveProcess Objective-C must use the same suite.
@@ -90,12 +53,6 @@ class SettingsPersistenceTests(unittest.TestCase):
         self.assertIn("NSUserDefaults.lcSharedDefaults", guest)
         self.assertNotIn("NSUserDefaults.lcUserDefaults", guest)
         self.assertIn("LCGuestReturnStartsCollapsed", guest)
-
-    def test_hide_collapsed_dock_uses_app_group(self):
-        # LCHideCollapsedDock is defined in the patched LCMultitaskSettingView.swift
-        source = (ROOT / "scripts/patch_multitask_dock.py").read_text(encoding="utf-8")
-        self.assertIn('"LCHideCollapsedDock"', source)
-        self.assertIn('store: LCUtils.appGroupUserDefault', source)
 
     def test_no_standard_userdefaults_for_lc_settings(self):
         # LC settings must use LCUtils.appGroupUserDefault, not standard UserDefaults
@@ -105,7 +62,6 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertNotIn(f"UserDefaults.standard.{key}", shell)
             self.assertNotIn(f'UserDefaults.standard.string(forKey: "{key}")', shell)
             self.assertNotIn(f'UserDefaults.standard.bool(forKey: "{key}")', shell)
-
 
 class EffectiveDefaultsTests(unittest.TestCase):
     def test_bridge_uses_upstream_computed_signing_preferences(self):
@@ -184,7 +140,6 @@ enum V3BackendCommands {
             executed = subprocess.run([str(path / "probe")], capture_output=True, text=True, timeout=30)
             self.assertEqual(executed.returncode, 0, executed.stderr)
             self.assertIn("V3_EFFECTIVE_SETTINGS_DEFAULTS_PASS", executed.stdout)
-
 
 class TransportSettingParityTests(unittest.TestCase):
     def test_integer_writes_validate_then_refresh_upstream_caches(self):
@@ -284,7 +239,6 @@ enum V3BackendCommands {
             executed = subprocess.run([str(path / "probe")], capture_output=True, text=True, timeout=30)
             self.assertEqual(executed.returncode, 0, executed.stderr)
             self.assertIn("V3_TRANSPORT_SETTINGS_PARITY_PASS", executed.stdout)
-
 
 SETTINGS_LOAD_HARNESS = r'''
 import Foundation
@@ -460,7 +414,6 @@ extension V3SettingsStore {
 }
 '''
 
-
 class SettingsLoadRaceTests(unittest.TestCase):
     def test_store_captures_write_generations_before_bulk_read(self):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text()
@@ -490,7 +443,6 @@ class SettingsLoadRaceTests(unittest.TestCase):
             executed = subprocess.run([str(path / "probe")], capture_output=True, text=True, timeout=30)
             self.assertEqual(executed.returncode, 0, executed.stderr)
             self.assertIn("V3_SETTINGS_LOAD_RACE_PASS", executed.stdout)
-
 
 BOOL_ROW_HARNESS = r'''
 import Foundation
@@ -676,7 +628,6 @@ enum ProbeError: Error { case failed }
 }
 '''
 
-
 class BoolSettingRowRaceTests(unittest.TestCase):
     def test_row_guards_late_reads_and_balances_write_ownership(self):
         row = declaration((ROOT / "scripts/templates/v3_unified_shell.swift").read_text(), "struct V3BoolSettingRow: View {")
@@ -712,7 +663,6 @@ class BoolSettingRowRaceTests(unittest.TestCase):
             executed = subprocess.run([str(path / "probe")], capture_output=True, text=True, timeout=30)
             self.assertEqual(executed.returncode, 0, executed.stderr)
             self.assertIn("V3_BOOL_SETTING_ROW_RACE_PASS", executed.stdout)
-
 
 if __name__ == "__main__":
     unittest.main()

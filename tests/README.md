@@ -72,3 +72,10 @@ CI source acquisition, including heartbeat log privacy and rejected dynamic-log
 mutations. The historical transport generator is retired. These are source
 contracts, not a Rust execution or device-connectivity claim; the existing
 maintained native owner/ABI qualification remains unchanged.
+
+Multitask Dock regressions read the maintained owner's Dock and Settings Swift
+sources. The macOS lane executes the extracted production session/presentation
+state helper once (the old suite ran the same harness twice) and syntax-checks
+both complete owner files, with no skips. First presentation, session override,
+per-session reset, tucked preference and separate hidden/guest settings remain
+covered. This is not an on-device SwiftUI rendering result.

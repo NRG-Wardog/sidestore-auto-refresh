@@ -54,7 +54,7 @@ jobs:
             python3 -B -m unittest discover -s tests -p "$name" -v
           done
           python3 -B -m unittest discover -s migration/tests -p 'test_*.py' -v
-      - name: Acquire maintained certificate owner and require native regressions
+      - name: Acquire maintained owner and require native certificate and dock regressions
         run: |
           set -euo pipefail
           pin=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["LiveContainer"][1])')
@@ -66,4 +66,7 @@ jobs:
           brew list openssl@3 >/dev/null || brew install openssl@3
           MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" REQUIRE_LC_CERTIFICATE_NATIVE_TESTS=1 \
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_lc_certificate_observation.py \
+              --allowlist scripts/required_test_skip_allowlist.json
+          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_multitask_dock.py \
               --allowlist scripts/required_test_skip_allowlist.json
