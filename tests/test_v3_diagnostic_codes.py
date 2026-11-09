@@ -10,14 +10,17 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+import sys
+sys.path.insert(0, str(ROOT / "tests"))
+from guest_owner_parts import implementations, block
 COMMON = ROOT / 'scripts/templates/combined_failure.swift'
 
 
 def validate_native_coverage(coverage, root=ROOT):
     native = coverage['native_implementation']
-    if 'generator' in native or 'generated_files' in native:
+    if any(key in native for key in ('generator', 'generated_files', 'guest_generator')):
         raise ValueError('native coverage must describe maintained owner, not a retired generator')
-    for key in ['owner_graph', 'evidence_inventory', 'source_checks', 'guest_generator']:
+    for key in ['owner_graph', 'evidence_inventory', 'source_checks']:
         path = Path(native[key])
         if path.is_absolute() or '..' in path.parts or not (root/path).is_file():
             raise ValueError('broken native coverage reference: '+key)
@@ -93,13 +96,14 @@ class DiagnosticCodeTests(unittest.TestCase):
     def test_native_coverage_has_live_owner_and_evidence_references(self):
         coverage = json.loads((ROOT/'ci/diagnostics/presentation-coverage.json').read_text())
         validate_native_coverage(coverage)
-        for key in ['owner_graph', 'evidence_inventory', 'source_checks', 'guest_generator']:
+        for key in ['owner_graph', 'evidence_inventory', 'source_checks']:
             broken = copy.deepcopy(coverage)
             broken['native_implementation'][key] = 'scripts/missing-retired-generator.py'
             with self.assertRaises(ValueError):
                 validate_native_coverage(broken)
         for key, value in [('pin', '0'*40), ('maintained_files', []),
-                           ('generator', 'scripts/retired-generator.py')]:
+                           ('generator', 'scripts/retired-generator.py'),
+                           ('guest_generator', 'scripts/retired-guest-generator.py')]:
             broken = copy.deepcopy(coverage)
             broken['native_implementation'][key] = value
             with self.assertRaises(ValueError):
@@ -121,13 +125,14 @@ class DiagnosticCodeTests(unittest.TestCase):
         self.assertEqual(len(codes), len(set(codes)))
 
     def test_guest_alert_does_not_display_or_copy_arbitrary_provider_text(self):
-        source = (ROOT / 'scripts/patch_guest_return.py').read_text()
-        body = source.split('VIRTUAL_LAUNCH_INITIALIZED =', 1)[1].split('CANCELLATION_OLD', 1)[0]
+        source = implementations().sources['MultitaskSupport/DecoratedAppSceneViewController.m']
+        body = block(source, '- (void)appSceneVC:(AppSceneViewController*)vc didInitializeWithError:')
         self.assertNotIn('launchError.localizedDescription', body)
         self.assertIn('SS-GUEST-EXIT', body)
         self.assertIn('SS-GUEST-UNKNOWN', body)
         self.assertIn('safeNative ? launchError.domain : @"redacted"', body)
-        self.assertIn('UIPasteboard.generalPasteboard.string = details', body)
+        alert = block(source, '- (UIAlertController *)localizedLaunchErrorAlert')
+        self.assertIn('UIPasteboard.generalPasteboard.string = details', alert)
 
     def test_actual_swift_categories_display_copy_and_privacy(self):
         compiler = shutil.which('swiftc')

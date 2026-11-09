@@ -50,7 +50,7 @@ jobs:
           set -euo pipefail
           command -v xcrun
           xcrun --find clang
-          for name in test_packaging_adapters.py test_ipa_size_report.py test_repository.py test_combined_packaging.py test_compiled_localization.py test_required_test_runner.py test_combined_build_evidence.py test_merged_rendering_contract.py test_dylibify_source_build.py test_v3_diagnostic_codes.py; do
+          for name in test_packaging_adapters.py test_ipa_size_report.py test_repository.py test_combined_packaging.py test_compiled_localization.py test_required_test_runner.py test_combined_build_evidence.py test_merged_rendering_contract.py test_dylibify_source_build.py; do
             python3 -B -m unittest discover -s tests -p "$name" -v
           done
           python3 -B -m unittest discover -s migration/tests -p 'test_*.py' -v
@@ -114,3 +114,10 @@ jobs:
           MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_guest_owner.py \
               --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained guest return, registry and terminal-path regressions
+        run: |
+          set -euo pipefail
+          export MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer"
+          for suite in test_guest_return.py test_guest_launch_completion.py test_v3_diagnostic_codes.py; do
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
+          done

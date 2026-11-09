@@ -23,6 +23,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 import sys
 sys.path.insert(0, str(ROOT / "tests"))
+from guest_owner_parts import implementations, block
 from owner_source import owner_source
 TEMPLATES = ROOT / "scripts" / "templates"
 RULES = TEMPLATES / "LCAppGroupIdentityRules.h"
@@ -490,7 +491,6 @@ class AppGroupSweepClassificationTests(unittest.TestCase):
     RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
     SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
     AUTOMATION = ROOT / "scripts/patch_background_automation.py"
-    GUEST_RETURN = ROOT / "scripts/patch_guest_return.py"
 
     SAFE_PROCESS_LOCAL = [
         (HOST, ["V3NotificationsPromptShown"]),
@@ -562,8 +562,7 @@ class AppGroupSweepClassificationTests(unittest.TestCase):
     def test_upstream_livecontainer_helpers_keep_their_own_runtime_group(self):
         # LiveContainer's own shared-preference helpers already resolve the
         # runtime group; they are not a fixed-suite assumption and must stay.
-        for path in (self.GUEST_RETURN,):
-            text = path.read_text(encoding="utf-8")
+        for text in implementations().sources.values():
             self.assertNotIn("UserDefaults(suiteName: \"group.", text)
         self.assertIn("LCUtils.appGroupUserDefault", self.HOST.read_text(encoding="utf-8"))
 

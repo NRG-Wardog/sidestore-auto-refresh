@@ -12,6 +12,9 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+import sys
+sys.path.insert(0, str(ROOT / "tests"))
+from guest_owner_parts import implementations, block
 RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
 
 def declaration(source, signature):
@@ -47,12 +50,14 @@ class SettingsPersistenceTests(unittest.TestCase):
         self.assertNotIn("Library/Preferences", shell)
 
     def test_guest_return_uses_shared_app_group_defaults(self):
-        guest = (ROOT / "scripts/patch_guest_return.py").read_text(encoding="utf-8")
-        # Host SwiftUI and LiveProcess Objective-C must use the same suite.
-        self.assertIn("UserDefaults.lcShared()", guest)
-        self.assertIn("NSUserDefaults.lcSharedDefaults", guest)
-        self.assertNotIn("NSUserDefaults.lcUserDefaults", guest)
-        self.assertIn("LCGuestReturnStartsCollapsed", guest)
+        guest = implementations()
+        self.assertIn("UserDefaults.lcShared()", guest.SETTINGS_PROPERTIES)
+        for control in (guest.CONTROL, guest.DIRECT_CONTROL):
+            self.assertIn('NSUserDefaults.lcSharedDefaults', control)
+            for line in control.splitlines():
+                if any(token in line for token in ('boolForKey:', 'arrayForKey:', 'setBool:', 'setObject:')):
+                    self.assertNotIn('lcUserDefaults', line)
+            self.assertIn('LCGuestReturnStartsCollapsed', control)
 
     def test_no_standard_userdefaults_for_lc_settings(self):
         # LC settings must use LCUtils.appGroupUserDefault, not standard UserDefaults
