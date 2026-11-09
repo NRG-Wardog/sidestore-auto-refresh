@@ -1461,11 +1461,6 @@ import Foundation
                  mock.dict("sys.modules", {"patch_embedded_keychain": embedded_keychain}):
                 contract.patch_combined_cli(side)
                 contract.patch_combined_cli(side)
-            privacy = module("patch_sidesign_privacy")
-            before_privacy = (side / relative).read_bytes()
-            privacy.patch_sidestore_tree(side)
-            privacy.patch_sidestore_tree(side)
-            self.assertEqual(before_privacy, (side / relative).read_bytes())
             checked = subprocess.run(["git", "-C", str(side), "diff", "--check", "--", relative],
                                      capture_output=True, text=True)
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
@@ -2885,14 +2880,6 @@ class GsaPreparedTreeTests(unittest.TestCase):
         scripts = (ROOT / "scripts").glob("*.py")
         for script in scripts:
             content = script.read_text(encoding="utf-8")
-            if script.name == "patch_sidesign_privacy.py":
-                self.assertIn('LOGGING = Path("Sources/Logging.swift")', content)
-                self.assertNotIn("Authentication.swift", content)
-                continue
-            if script.name == "patch_sidesign_2fa_state.py":
-                self.assertIn("Authentication.swift", content)
-                self.assertIn("DeveloperPortalAPI.swift", content)
-                continue
             self.assertNotIn("DeveloperPortal/Authentication", content)
         # A read-only provenance collector may reference SideSign source paths.
         # Its source-preservation behavior is exercised by the collector harness.

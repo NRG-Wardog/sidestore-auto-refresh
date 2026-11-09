@@ -82,3 +82,15 @@ jobs:
           MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore" \
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_app_layout.py \
               --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained privacy and typed-2FA runtime controls
+        run: |
+          set -euo pipefail
+          pin=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/SideSign"][1])')
+          repository=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/SideSign"][0])')
+          git init -q sources/SideStore/Dependencies/SideSign
+          git -C sources/SideStore/Dependencies/SideSign remote add origin "https://github.com/$repository.git"
+          git -C sources/SideStore/Dependencies/SideSign -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$pin"
+          git -C sources/SideStore/Dependencies/SideSign -c core.hooksPath=/dev/null checkout --detach "$pin"
+          MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore" MAINTAINED_SIDESIGN_TEST_SOURCE="$PWD/sources/SideStore/Dependencies/SideSign" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_sidesign_privacy.py \
+              --allowlist scripts/required_test_skip_allowlist.json
