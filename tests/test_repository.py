@@ -18,10 +18,8 @@ REQUIRED_SCRIPTS = {
 }
 LIVE_CONTAINER_SCRIPTS = {
     "ipa_size_report.py",
-    "patch_native_error_presenters.py",
-    "patch_cf_bundle_scan.py",
+    "native_error_evidence.py",
     "patch_livecontainer_autorefresh.py",
-    "patch_embedded_sidestore_startup.py",
     "patch_v3_unified_shell.py",
     "patch_v3_service.py",
     "patch_combined_refresh_contract.py",
@@ -30,7 +28,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_combined_refresh_contract.py",
     "patch_combined_service_startup.py",
     "patch_refresh_result_bridge.py",
-    "patch_embedded_sidestore_startup.py",
     "patch_combined_service_startup.py",
     "combined_build_evidence.py",
     "run_issue25_rendering.py", "rendering_localization.py",
@@ -43,7 +40,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_refresh_result_bridge.py",
     "patch_background_automation.py",
     "patch_combined_refresh_contract.py",
-    "patch_embedded_sidestore_startup.py",
     "patch_v3_service.py",
     "patch_combined_service_startup.py",
     "combined_build_evidence.py",
@@ -52,10 +48,8 @@ LIVE_CONTAINER_SCRIPTS = {
     "audit_ipa_signing.py",
     "patch_guest_return.py",
     "patch_refresh_result_bridge.py",
-    "patch_embedded_sidestore_startup.py",
 }
 LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
-LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
 COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
 EMBEDDED_KEYCHAIN_SCRIPT = "patch_embedded_keychain.py"
 V3_UNIFIED_SHELL_SCRIPT = "patch_v3_unified_shell.py"
@@ -208,7 +202,7 @@ class RepositoryTests(unittest.TestCase):
         Examples include test_automation, test_app_layout, test_embedded_keychain,
         test_guest_return, test_sidesign_privacy, and test_v3_unified_shell.
         """
-        for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
+        for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT,
                                         COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_refresh_result_bridge.py", V3_UNIFIED_SHELL_SCRIPT}:
             path = SCRIPTS / name
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

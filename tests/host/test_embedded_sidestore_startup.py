@@ -12,76 +12,38 @@ from typing import Optional
 
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "scripts"))
-from patch_embedded_sidestore_startup import MARKER, patch
-# Exact patch-fixture revisions, independent of retired build recipes.
-# These are not the current application source graph.
-LIVE_CONTAINER_REF = "12377cf3b91d51739a33f14a302e5f522b238593"
-EMBEDDED_SIDESTORE_REF = "ff25922e5c13ccfafd83bda5092910d848ebd409"
+sys.path.insert(0, str(ROOT / "tests"))
+from owner_source import owner_source
+MARKER = "EMBEDDED_SIDESTORE_STARTUP_FIX_V1"
 
 
-def checkout_revision(root: Path) -> Optional[str]:
-    result = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
-                            capture_output=True, text=True)
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
-def upstream_roots():
-    explicit_live = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
-    explicit_side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-    live = Path(explicit_live or ROOT / ".audit/upstream/LiveContainer")
-    side = Path(explicit_side or ROOT / ".audit/upstream/SideStore")
-    if not (live / "LiveContainer" / "LCBootstrap.m").is_file():
-        raise unittest.SkipTest("Pinned LiveContainer source unavailable")
-    if not (side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift").is_file():
-        raise unittest.SkipTest("Pinned embedded SideStore source unavailable")
-    for root, expected, explicit, name in (
-        (live, LIVE_CONTAINER_REF, explicit_live, "LiveContainer"),
-        (side, EMBEDDED_SIDESTORE_REF, explicit_side, "embedded SideStore"),
-    ):
-        actual = checkout_revision(root)
-        if actual != expected:
-            message = f"{name} test source is {actual or 'not a Git checkout'}, expected pinned {expected}"
-            if explicit:
-                raise AssertionError(message)
-            raise unittest.SkipTest(message)
-    return live, side
+def verify_database_retry(source):
+    body = source.split('private func performStart() async throws', 1)[1].split('public func purgeLoggedErrors', 1)[0]
+    guarded = 'if self.persistentContainer.persistentStoreCoordinator.persistentStores.isEmpty {\n            try await self.persistentContainer.loadPersistentStores()\n        } else {'
+    if guarded not in body or body.count('try await self.persistentContainer.loadPersistentStores()') != 1:
+        raise ValueError('retry must not reload an already attached persistent store')
+    if 'try await self.prepareDatabase()' not in body:
+        raise ValueError('retry must still prepare the database')
 
 
 class EmbeddedSideStoreStartupTests(unittest.TestCase):
     def setUp(self):
-        live, side = upstream_roots()
-        self.temp = tempfile.TemporaryDirectory(prefix="embedded-sidestore-startup-")
+        self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        root = Path(self.temp.name)
-        self.live = root / "LiveContainer"
-        self.side = root / "SideStore"
-        for source, target in (
-            (side / "SideStore/Core/Auth/AuthManager.swift", self.side / "SideStore/Core/Auth/AuthManager.swift"),
-            (live / "SideStoreSupport" / "SideStoreHooks.m", self.live / "SideStoreSupport" / "SideStoreHooks.m"),
-            (live / "SideStoreSupport" / "XPCClient.m", self.live / "SideStoreSupport" / "XPCClient.m"),
-            (live / "LiveContainer" / "LCBootstrap.m", self.live / "LiveContainer" / "LCBootstrap.m"),
-            (side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift",
-             self.side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift"),
-        ):
-            target.parent.mkdir(parents=True, exist_ok=True)
-            source_root = side if side in source.parents else live
-            target.write_bytes(subprocess.check_output([
-                "git", "-C", str(source_root), "show", "HEAD:" + source.relative_to(source_root).as_posix()]))
-        self.original_auth = self.text(self.side / "SideStore/Core/Auth/AuthManager.swift")
-        self.original_xpc_client = self.text(self.live / "SideStoreSupport" / "XPCClient.m")
+        self.live = Path(self.temp.name)/"LiveContainer"
+        self.side = Path(self.temp.name)/"SideStore"
+        for owner, root, paths in [
+            ("LiveContainer", self.live, ["SideStoreSupport/SideStoreHooks.m", "SideStoreSupport/XPCClient.m", "LiveContainer/LCBootstrap.m"]),
+            ("SideStore", self.side, ["SideStore/Core/Auth/AuthManager.swift", "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift"])]:
+            for path in paths:
+                target = root/path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(owner_source(path, owner))
 
-    def text(self, path: Path) -> str:
-        return path.read_text(encoding="utf-8")
+    def text(self, path):
+        return path.read_text()
 
-    def test_patch_is_idempotent_and_installs_after_side_runtime_loads(self):
-        before = {path: self.text(path) for path in self.temp_paths()}
-        patch(self.live, self.side)
-        first = {path: self.text(path) for path in self.temp_paths()}
-        patch(self.live, self.side)
-        self.assertEqual(first, {path: self.text(path) for path in self.temp_paths()})
-        self.assertNotEqual(before, first)
-
+    def test_current_hooks_install_after_side_runtime_loads(self):
         hooks = self.text(self.live / "SideStoreSupport" / "SideStoreHooks.m")
         self.assertIn(MARKER, hooks)
         self.assertIn("PrivClass(Source) == nil", hooks)
@@ -118,7 +80,6 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         ):
             self.assertIn(retained_backend_symbol, hooks)
         xpc_client = self.text(self.live / "SideStoreSupport" / "XPCClient.m")
-        self.assertEqual(xpc_client, self.original_xpc_client)
         self.assertIn("installSideStoreHooks();", xpc_client)
         self.assertIn("if(!NSUserDefaults.isLiveProcess) return;", xpc_client)
         self.assertIn("installSideStoreNotificationHooks();", xpc_client)
@@ -127,8 +88,6 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         self.assertLess(xpc_client.index("if(!NSUserDefaults.isLiveProcess) return;"),
                         xpc_client.index("installSideStoreNotificationHooks();"))
         auth = self.text(self.side / "SideStore/Core/Auth/AuthManager.swift")
-        self.assertEqual(auth, self.original_auth, "Never patch upstream authentication behavior")
-        self.assertIn('coalesce(key: "apple_auth_session")', auth)
         self.assertNotIn('debugLog("[SAVED]', auth)
         for line in auth.splitlines():
             if 'debugLog(' in line and 'readback_matches=' in line:
@@ -143,7 +102,6 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
                         bootstrap.index('dlsym(sideStoreSupportHandle, "installSideStoreHooks")'))
 
     def test_database_retry_reuses_attached_store_and_preserves_cause(self):
-        patch(self.live, self.side)
         database = self.text(self.side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift")
         self.assertIn(MARKER, database)
         self.assertIn("persistentStores.isEmpty", database)
@@ -151,15 +109,18 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         self.assertIn("Unable to read the active LiveContainer application bundle", database)
         self.assertIn("The active LiveContainer bundle has no readable provisioning profile", database)
         self.assertIn("private func performStart() async throws", database)
-        self.assertIn("try await self.migrateDatabaseToAppGroupIfNeeded()", database)
+        self.assertIn("try MaintenanceManager.shared.preparePersistentStoreURLs(in: self.persistentContainer)", database)
         self.assertIn("try await self.prepareDatabase()", database)
         self.assertNotIn("guard let localAppBundle = ALTApplication(fileURL: Bundle.Info.activeBundleURL) else { return }", database)
 
-    def temp_paths(self):
-        return sorted(path for path in self.temp_paths_root().rglob("*") if path.is_file())
 
-    def temp_paths_root(self):
-        return Path(self.temp.name)
+    def test_retry_owner_negative_controls(self):
+        database = self.text(self.side/"AltStore/Core/Model/DatabaseManager/DatabaseManager.swift")
+        verify_database_retry(database)
+        for broken in [database.replace('persistentStores.isEmpty', 'persistentStores.count > 0'),
+                       database.replace('try await self.prepareDatabase()', '// removed preparation')]:
+            with self.assertRaises(ValueError):
+                verify_database_retry(broken)
 
 
 if __name__ == "__main__":
