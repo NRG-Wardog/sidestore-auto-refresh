@@ -32,21 +32,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: NRG-Wardog/LiveContainer
-          ref: c7111b580254190a0c037037036aaed49bfce8c6
-          path: maintained-implementation
-          persist-credentials: false
-          sparse-checkout: .github/workflows
       - name: Reject malformed manifests and source drift
         run: python3 -B -m unittest discover -s ci/source-integrity -p test_integrity.py -v
       - name: Verify current source boundaries
         run: python3 -B ci/source-integrity/verify.py
-      - name: Verify immutable maintained entry and packaging boundaries
-        env:
-          MAINTAINED_IMPLEMENTATION_ROOT: ${{ github.workspace }}/maintained-implementation
-        run: python3 -B ci/maintained-build/test_contract.py -v
+      - name: Verify supported native entry and mandatory receipt gates
+        run: python3 -B -m unittest discover -s ci/current-build -p 'test_*.py' -v
       - name: Run bounded portable and native converter regressions
         run: |
           set -euo pipefail

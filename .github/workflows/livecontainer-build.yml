@@ -1,9 +1,0 @@
-# Unsigned native applications only. See ci/README.md for reviewed IPA packaging.
-name: Build maintained LiveContainer and SideStore native applications
-on:
-  workflow_dispatch:
-permissions:
-  contents: read
-jobs:
-  native:
-    uses: NRG-Wardog/LiveContainer/.github/workflows/native-app-compile.yml@c7111b580254190a0c037037036aaed49bfce8c6

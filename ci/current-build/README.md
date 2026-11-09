@@ -23,9 +23,8 @@ Nothing is published automatically, and passing fixtures is not device testing.
 Zopfli recompression remains separate. Its old exact-run manifest must not be
 reused for a new run or relaxed to accept whichever artifact is newest. This
 entry produces the qualified pre-Zopfli IPA, so its size is not the published
-v6.0.1 compressed size. The older `build-current.yml` / `livecontainer-build.yml`
-wrappers still reproduce the separately pinned 6.0.0 unsigned-native graph;
-do not use them to select this graph.
+v6.0.1 compressed size. The old unsigned 6.0.0 wrappers and release-branch
+dispatcher are retired; this is the supported build entry.
 
 Portable entry checks:
 
