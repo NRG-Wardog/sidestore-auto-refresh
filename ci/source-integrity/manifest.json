@@ -85,7 +85,7 @@
     "tests/presentation/test_v3_ui_cleanup_contracts.py": "0b76a14bb66358e3de68d937722828f08fb23a6b5cb62daad7a676486bb6ed1a",
     "tests/refresh/test_automation.py": "d67ae4b6913db2ed5be6485cc0c52804c11645b79b44db58de2f85bf64cc559c",
     "tests/refresh/test_combined_failure_execution.py": "e4b229dc6beb17d5e2d990fd2e69dfae32415dcd6f3c0ede74d108f505ee4a1b",
-    "tests/refresh/test_combined_transport.py": "320a0f13f44c4a65fc80a374c668e6ed78b5f919dd6e1fd1cb2129020bb03934",
+    "tests/refresh/test_combined_transport.py": "6d655f90bb9deab9599f2d0569584b012319931cac028856aa4f852b9bd06968",
     "tests/refresh/test_issue24_udid_error_propagation.py": "c39a2e008b3ea171bfdd65b54d8f0d9b5d8ccfa1804b8f9546ea049263f30905",
     "tests/settings/test_settings.py": "4c165383be133b7254816a3cd234a795fb799123af4a9a4140306ea9b3bd89b1",
     "tests/test_anisette_build_integration.py": "7a8044029a92c4798ff4fc0388dc0903a03b4b78069a86f250912651af0d5aa8",

@@ -67,7 +67,7 @@ class SourceFixture(unittest.TestCase):
                 "SideStore/Views/Settings/TechyThings/HealthCheck/HealthCheckView.swift",
                 "SideStore/Views/Settings/TechyThings/HealthCheck/HealthCheckViewModel.swift"],
             MUX_OWNER: ["DeviceGateway/idevice/IdeviceGateway.swift", "DeviceGateway/DeviceGatewayError.swift",
-                "Common/FFIDispatcher.swift", "Common/PairingFile.swift", "Common/PairingProtocol.swift",
+                "Common/ConcurrencyUtils.swift", "Common/FFIDispatcher.swift", "Common/PairingFile.swift", "Common/PairingProtocol.swift",
                 "Sources/MinimuxerImpl.swift", "Sources/MinimuxerError.swift", "Sources/RefreshTransportPolicy.swift"]}
         for owner, paths in inputs.items():
             target_root = self.side if owner == "SideStore" else self.mux
@@ -416,7 +416,7 @@ enum MinimuxerConstants {
     static let remotePairingPort: UInt16 = 49151
     static let lockdowndPort: UInt16 = 62078
 }
-''' + self.read("Common/PairingProtocol.swift") + self.read("Common/PairingFile.swift") + '''
+''' + self.read("Common/ConcurrencyUtils.swift") + self.read("Common/PairingProtocol.swift") + self.read("Common/PairingFile.swift") + '''
 let rp: [String: any Sendable] = ["private_key": Data(), "public_key": Data(), "identifier": "test"]
 let keys = ["WiFiMACAddress", "SystemBUID", "RootPrivateKey", "HostPrivateKey", "HostID", "RootCertificate", "UDID", "EscrowBag", "HostCertificate", "DeviceCertificate"]
 var lockdown: [String: any Sendable] = [:]
