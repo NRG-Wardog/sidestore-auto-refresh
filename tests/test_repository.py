@@ -18,7 +18,7 @@ REQUIRED_SCRIPTS = {
 }
 LIVE_CONTAINER_SCRIPTS = {
     "ipa_size_report.py",
-    "patch_native_error_presenters.py",
+    "native_error_evidence.py",
     "patch_livecontainer_autorefresh.py",
     "patch_v3_unified_shell.py",
     "patch_v3_service.py",

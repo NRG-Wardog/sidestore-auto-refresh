@@ -36,7 +36,7 @@ HOST_SOURCE_PATHS = [
       ('LCAppBanner.swift', 'LCAppBannerView.swift', 'LCAppBannerViewController.swift')],
     '.lc-app-layout.json', '.combined-service-startup.json',
 ]
-from patch_native_error_presenters import TOUCHED_PATHS as NATIVE_ERROR_SOURCE_PATHS
+from native_error_evidence import NATIVE_ERROR_SOURCE_PATHS
 
 V3_HOST_SOURCE_PATHS = [
     *NATIVE_ERROR_SOURCE_PATHS,

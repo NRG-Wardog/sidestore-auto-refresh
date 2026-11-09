@@ -50,7 +50,7 @@ jobs:
           set -euo pipefail
           command -v xcrun
           xcrun --find clang
-          for name in test_packaging_adapters.py test_ipa_size_report.py test_repository.py test_combined_packaging.py test_compiled_localization.py test_required_test_runner.py test_combined_build_evidence.py test_merged_rendering_contract.py test_dylibify_source_build.py; do
+          for name in test_packaging_adapters.py test_ipa_size_report.py test_repository.py test_combined_packaging.py test_compiled_localization.py test_required_test_runner.py test_combined_build_evidence.py test_merged_rendering_contract.py test_dylibify_source_build.py test_v3_diagnostic_codes.py; do
             python3 -B -m unittest discover -s tests -p "$name" -v
           done
           python3 -B -m unittest discover -s migration/tests -p 'test_*.py' -v
@@ -102,3 +102,9 @@ jobs:
           for suite in test_cf_bundle_scan.py test_embedded_sidestore_startup.py test_v3_ui_cleanup_contracts.py; do
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
           done
+      - name: Require maintained native error presenter contracts and runtime controls
+        run: |
+          set -euo pipefail
+          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_native_error_presenters.py \
+              --allowlist scripts/required_test_skip_allowlist.json

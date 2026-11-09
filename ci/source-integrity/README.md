@@ -29,3 +29,8 @@ loops are explicit negative test controls, not a source transformer. macOS also
 compiles the real production adapter against the iPhoneOS SDK. These bounded
 checks are not device qualification. Current SideStore uses its maintained
 MaintenanceManager storage preflight, not the former callback-era startup code.
+Native error presenter regressions read pinned LiveContainer sources. They check
+finite IDs, display/copy routing, optional errors and separate crash details.
+macOS executes the exact Swift helper plus a deliberately wrong-ID control and
+parses the 12 maintained Swift files. These checks are not UIKit/device tests.
+The source-evidence inventory remains shared by both packaging verifiers.
