@@ -50,3 +50,12 @@ not another copy of the packaging suite. Feature branches are checked on the
 pull request, and main is checked after merging, not twice for every branch push.
 The retired packaging/current-entry workflow wrappers no longer duplicate these
 jobs. Full native builds and compiled-catalog qualification remain separate.
+
+The Dead10cc lifecycle suite now reads the current LiveContainer owner commit
+from `ci/issues-native/candidate-graph.json`. It rejects a different checkout or
+a modified source blob, then executes its C descriptor and transition blocks.
+Set `MAINTAINED_LIVE_CONTAINER_TEST_SOURCE` to that acquired checkout for local
+runs. CI supplies the same pinned source already acquired for integration
+inventory, and treats missing prerequisites as failures, not skips. Historical
+patch-generator/idempotence assertions were retired with their unused generator;
+notification, diagnostics, resource ownership and runtime controls remain.

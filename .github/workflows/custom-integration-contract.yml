@@ -193,6 +193,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B ci/issue52-integration/verify_inventory.py --sources sources > evidence/pinned-inventory.json
+      - name: Exercise maintained owner lifecycle code without patch generators
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_dead10cc_fix.py \
+              --allowlist scripts/required_test_skip_allowlist.json 2>&1 | tee evidence/owner-lifecycle.log
       - name: Retain exact inventory and regression evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
