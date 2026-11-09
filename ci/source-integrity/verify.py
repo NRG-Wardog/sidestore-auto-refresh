@@ -10,7 +10,7 @@ import json
 import re
 
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_SHA256 = 'a33fe4affc75167a9359a0e5bd8791ac0cacb84e4cc681a8c0d339e78b1554bb'
+MANIFEST_SHA256 = '72147777f19f3ce9e6d4e66266fec270e7e3b402f903ab649cca0bcff4198727'
 
 
 def require(ok, message):

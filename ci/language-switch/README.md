@@ -1,15 +1,12 @@
 # Same-session language switching candidate
 
-This workflow extends the successful issue56 native source/build/package graph.
-It retains every prior required suite and the safe size pipeline, adding a
-mandatory source-owned live language transition suite. Failure blocks candidate
-packaging and uploads early diagnostics. No public release is published.
+The supported `cold-vpn-native.yml` entry runs the source-owned live language
+transition suite as a mandatory step before candidate packaging. Failure blocks
+packaging and uploads bounded diagnostics. The separate language-only native
+build recipe has been retired; it duplicated the earlier build graph.
 
-Before dispatch, the coordinator must populate `ci/issues-native/candidate-graph.json`
-with the exact reviewed LC commit, tree, and every changed blob. The previous
-issue56 LC pin is not evidence of this fix and is intentionally not rewritten here
-while the app implementation is pending. New tests must run against the acquired
-source owner, not a sibling or historical baseline.
+The component revisions come from `ci/issues-native/candidate-graph.json`.
+Tests run against the acquired source owner, not a sibling or historical baseline.
 
 The native receipt and delivered artifact must bind the language-switch report.
 Foundation state-machine tests alone are not UIKit/SwiftUI live-layout evidence.

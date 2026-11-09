@@ -72,7 +72,7 @@ class InitialProviderRejectionProjection(unittest.TestCase):
     def test_current_workflows_register_controls(self):
         root=Path(__file__).resolve().parents[2]
         for name in ('issues-native','cold-vpn-preflight','cold-vpn-native','issue56-native',
-                     'refresh-truth-preflight','language-switch-native'):
+                     'refresh-truth-preflight'):
             text=(root/'.github/workflows'/ (name+'.yml')).read_text()
             self.assertIn('python3 -B harness/ci/issues-native/test_initial_provider_rejection_projection.py',text)
         gate=(root/'ci/issues-native/verify_comprehensive_diagnostics.py').read_text()
