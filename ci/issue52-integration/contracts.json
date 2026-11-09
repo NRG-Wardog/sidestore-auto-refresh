@@ -1471,12 +1471,6 @@
         },
         {
           "owner": "sidestore-auto-refresh",
-          "path": ".github/workflows/language-switch-native.yml",
-          "interface": "Recovery upstream successor controls and source-report verification",
-          "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."
-        },
-        {
-          "owner": "sidestore-auto-refresh",
           "path": ".github/workflows/issue56-native.yml",
           "interface": "Recovery upstream successor controls and source-report verification",
           "rationale": "Run the exact successor controls and verify the produced source-owned report while keeping portable source tests distinct from native recovery evidence."

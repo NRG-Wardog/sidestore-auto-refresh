@@ -55,7 +55,7 @@ class UpstreamSuccessorTests(unittest.TestCase):
    with self.assertRaises(ValueError):p.verify_report(self.root,changed)
  def test_all_workflow_callers_register_controls_and_report_revalidation(self):
   root=p.HERE.parents[1]
-  for name in ('refresh-truth-preflight','cold-vpn-native','issues-native','language-switch-native','issue56-native'):
+  for name in ('refresh-truth-preflight','cold-vpn-native','issues-native','issue56-native'):
    text=(root/'.github/workflows'/ (name+'.yml')).read_text()
    self.assertEqual(text.count('python3 -B harness/ci/issues-native/test_preservation_upstream_tests_projection.py'),2)
    command='python3 -B harness/ci/issues-native/database_recovery_upstream_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json'

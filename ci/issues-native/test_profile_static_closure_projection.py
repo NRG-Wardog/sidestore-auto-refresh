@@ -38,7 +38,7 @@ class ProfileStaticSuccessorTests(unittest.TestCase):
   with self.assertRaises(ValueError):p.validate(old,self.contract)
  def test_mandatory_workflow_controls(self):
   root=Path(__file__).resolve().parents[2]
-  for name in ('refresh-truth-preflight','cold-vpn-native','issues-native','language-switch-native','issue56-native'):
+  for name in ('refresh-truth-preflight','cold-vpn-native','issues-native','issue56-native'):
    text=(root/'.github/workflows'/(name+'.yml')).read_text()
    self.assertEqual(text.count('python3 -B harness/ci/issues-native/test_profile_static_closure_projection.py'),1)
 if __name__=='__main__':unittest.main()

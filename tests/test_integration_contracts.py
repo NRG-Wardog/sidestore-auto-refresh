@@ -442,7 +442,6 @@ class ReviewedRecoveryBoundaryTests(unittest.TestCase):
                  '.github/workflows/refresh-truth-preflight.yml',
                  '.github/workflows/cold-vpn-native.yml',
                  '.github/workflows/issues-native.yml',
-                 '.github/workflows/language-switch-native.yml',
                  '.github/workflows/issue56-native.yml')
         for path in paths:
             with self.subTest(path=path):

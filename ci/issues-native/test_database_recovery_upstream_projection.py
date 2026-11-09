@@ -50,7 +50,7 @@ class RecoverySuccessorTests(unittest.TestCase):
   for file in ('upstream_candidate_projection.py','verify_upstream_sync.py'):
    self.assertIn('from database_recovery_upstream_projection import',(p.HERE/file).read_text())
   root=p.HERE.parents[1]
-  for name in ('refresh-truth-preflight','cold-vpn-native','issues-native','language-switch-native','issue56-native'):
+  for name in ('refresh-truth-preflight','cold-vpn-native','issues-native','issue56-native'):
    s=(root/'.github/workflows'/ (name+'.yml')).read_text()
    self.assertEqual(s.count('python3 -B harness/ci/issues-native/test_database_recovery_upstream_projection.py'),2)
    self.assertEqual(s.count('database_recovery_upstream_projection.py --sources sources --report evidence/SideStore-upstream-sync-tests.json'),1)

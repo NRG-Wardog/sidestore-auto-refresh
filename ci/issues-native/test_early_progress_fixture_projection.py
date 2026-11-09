@@ -75,7 +75,7 @@ class EarlyProgressFixtureTests(unittest.TestCase):
 
     def test_mandatory_workflow_and_routes(self):
         root = Path(__file__).resolve().parents[2]
-        for name in ('refresh-truth-preflight', 'cold-vpn-native', 'issues-native', 'language-switch-native', 'issue56-native', 'cold-vpn-preflight'):
+        for name in ('refresh-truth-preflight', 'cold-vpn-native', 'issues-native', 'issue56-native', 'cold-vpn-preflight'):
             text = (root/'.github/workflows'/(name+'.yml')).read_text()
             self.assertEqual(text.count('python3 -B harness/ci/issues-native/test_early_progress_fixture_projection.py'), 1)
         for name in ('verify_setup_state_recovery.py', 'project_candidate_contracts.py'):
