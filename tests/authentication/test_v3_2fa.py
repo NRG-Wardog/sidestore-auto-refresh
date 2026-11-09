@@ -148,8 +148,8 @@ class V3TwoFactorTests(unittest.TestCase):
                                 "Verification code requested by SMS.",
                                 "Verification call requested."):
             self.assertIn(acknowledgement, backend)
-        self.assertIn("The verification code was not accepted. Enter a new code and try again.",
-                      (ROOT / "scripts/patch_sidesign_2fa_state.py").read_text(encoding="utf-8"))
+        # The provider's typed message executes from the maintained SideSign
+        # source in test_sidesign_privacy, rather than inspecting a generator.
         self.assertIn("case .enterVerificationCode", host)
         self.assertIn("accepted ? .completed : .enterVerificationCode",
                       (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
