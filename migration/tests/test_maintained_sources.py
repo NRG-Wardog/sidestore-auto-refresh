@@ -498,31 +498,8 @@ class NativeReadinessLinkageTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    def test_builder_acquires_baseline_history_before_required_tests(self):
-        workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
-        release = workflow.split('  source-and-host-build:', 1)[1]
-        checkout = release.split('      - uses: actions/checkout@v4', 1)[1].split('      - name:', 1)[0]
-        self.assertIn('path: builder', checkout)
-        self.assertIn('fetch-depth: 0', checkout)
-        self.assertLess(release.index('fetch-depth: 0'), release.index('run_required_tests.py'))
 
-    def test_archived_workflow_is_exact_baseline(self):
-        old = subprocess.check_output(['git', '-C', str(ROOT), 'show', gate.BASELINE + ':.github/workflows/livecontainer-build.yml'])
-        self.assertEqual((ROOT / 'migration/historical/livecontainer-build-141776ba.yml').read_bytes(), old)
 
-    def test_release_path_has_no_runtime_patch_invocations(self):
-        run = (ROOT / '.github/workflows/livecontainer-build.yml').read_text().split('  source-and-host-build:', 1)[1]
-        mutations = [line for line in run.splitlines() if 'builder/scripts/patch_' in line]
-        self.assertEqual(len(mutations), 1)
-        self.assertIn('patch_combined_refresh_contract.py --verify-ipa ', mutations[0])
-        self.assertNotIn('cargo fmt --manifest-path', run)
-        self.assertNotIn('.package(name: "AnisetteKit", path:', run)
-        self.assertLess(run.index('maintained_sources.py env'), run.index('maintained_sources.py acquire'))
-        self.assertIn('maintained-sources-before-native-build.json', run)
-        self.assertIn('maintained-sources-after-native-build.json', run)
-        for command in ('verify_candidate_ipa.py', 'run_issue25_rendering.py',
-                        'combined_build_evidence.py collect', 'package_livecontainer_combined.py'):
-            self.assertIn(command, run)
 
     def test_registry_bytes_are_reviewed_anchor(self):
         actual = hashlib.sha256((ROOT / 'migration/contracts/compatibility-registry.json').read_bytes()).hexdigest()

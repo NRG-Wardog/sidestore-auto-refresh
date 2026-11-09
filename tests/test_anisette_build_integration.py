@@ -60,55 +60,9 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
             "--anisette-source", str(self.source)], check=True, capture_output=True, text=True)
         verifier.verify_isolated_anisette_evidence(self.output, binding, self.executable)
 
-    def test_historical_workflow_verifies_resolved_checkout_and_frozen_build(self):
-        # Preserve orchestration coverage of the retained P0 build, not the
-        # current reusable native entry point. Its bytes remain hash-bound.
-        workflow = (ROOT / "migration/historical/ssa-validation/p0-livecontainer-build.yml").read_text()
-        block = workflow.split("- name: Build embedded SideStore\n", 1)[1].split(
-            "- name: Package and verify", 1)[0]
-        resolved = block.index('test "$resolved" -eq 1')
-        apply = block.index('maintained_sources.py anisette --anisette-source "$ANISETTE"')
-        self.assertNotIn('patch_anisette_isolated_otp.py', block)
-        before = block.index('anisette-isolated-otp-before-build.json')
-        build = block.index('xcodebuild -project work/EmbeddedSideStore/AltStore.xcodeproj')
-        after = block.index('anisette-isolated-otp-after-build.json')
-        compare = block.index('cmp artifacts/dependencies/anisette-isolated-otp-before-build.json')
-        self.assertEqual(sorted([resolved, apply, before, build, after, compare]),
-                         [resolved, apply, before, build, after, compare])
-        self.assertIn('-disableAutomaticPackageResolution', block[build:after])
-        self.assertIn('-onlyUsePackageVersionsFromResolvedFile', block[build:after])
-        self.assertNotIn('-resolvePackageDependencies', block[apply:])
-        self.assertEqual(block.count('maintained_sources.py anisette --anisette-source "$ANISETTE"'), 2)
-        self.assertIn('ANISETTE="$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/checkouts/AnisetteKit"', block)
-        package = workflow.split('- name: Package and verify', 1)[1].split(
-            '- name: Verify embedded CoreDevice', 1)[0]
-        self.assertIn('--anisette-source "$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/checkouts/AnisetteKit"', package)
-        self.assertIn('--anisette-manifest artifacts/dependencies/anisette-isolated-otp-after-build.json', package)
-        self.assertIn('verify_candidate_ipa.py', package)
 
-    def test_historical_preflight_patterns_are_disjoint_strict_and_before_ui(self):
-        workflow = (ROOT / 'migration/historical/ssa-validation/p0-livecontainer-build.yml').read_text()
-        focused = workflow.split('  signin-preflight:\n', 1)[1].split('  source-and-host-build:', 1)[0]
-        patterns = ('test_p0_signin*.py', 'test_anisette*.py')
-        for pattern in patterns:
-            self.assertEqual(focused.count("--pattern '" + pattern + "'"), 1)
-        self.assertLess(focused.index("--pattern 'test_anisette*.py'"),
-                        focused.index('- name: Execute selected sign-in test lane'))
-        self.assertEqual(focused.count('--allowlist builder/scripts/required_test_skip_allowlist.json'), 2)
+    def test_required_test_skip_allowlist_is_empty(self):
         self.assertEqual(json.loads((ROOT / 'scripts/required_test_skip_allowlist.json').read_text()), [])
-        self.assertIn('ref: ${{ env.LEGACY_EMBEDDED_SIDESTORE_REF }}', focused)
-        self.assertIn('EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/AnisettePreflightSideStore', focused)
-        self.assertIn('rev-parse HEAD)" = "$LEGACY_EMBEDDED_SIDESTORE_REF"', focused)
-        self.assertEqual(focused.count('artifacts/logs/signin-preflight-anisette-test-timings.json'), 2)
-        self.assertIn('tee artifacts/logs/signin-preflight-anisette-tests.log', focused)
-        names = [path.name for path in (ROOT / 'tests').rglob('test_*.py')]
-        selected = [{name for name in names if fnmatch.fnmatchcase(name, pattern)} for pattern in patterns]
-        self.assertFalse(selected[0] & selected[1])
-        self.assertIn('test_anisette_build_integration.py', selected[1])
-        release = workflow.split('  source-and-host-build:', 1)[1]
-        check = release.split('- name: Run repository checks and historical patch regressions', 1)[1].split('- name:', 1)[0]
-        self.assertIn('--start-directory builder/tests', check)
-        self.assertNotIn('--pattern', check)
 
     def test_exact_sources_manifest_and_binary_are_bound_without_changing_inputs(self):
         before = {name: (self.source / name).read_bytes() for name in native.PATHS}

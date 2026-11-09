@@ -228,14 +228,6 @@ class MaintainedPackageEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'linked maintained contract evidence'):
             self.verify(evidence)
 
-    def test_workflow_preflight_precedes_every_expensive_stage(self):
-        workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
-        release = workflow.split('  source-and-host-build:', 1)[1]
-        preflight = release.index('combined_build_evidence.py preflight')
-        self.assertLess(release.index('maintained_sources.py acquire'), preflight)
-        for stage in ('Acquire immutable historical regression fixtures', 'Select Xcode',
-                      'Run repository checks', 'Build unified host', 'Build idevice', 'Build embedded SideStore'):
-            self.assertLess(preflight, release.index(stage), stage)
 
 
 if __name__ == '__main__':

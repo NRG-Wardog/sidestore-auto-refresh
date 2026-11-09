@@ -31,8 +31,8 @@ for focused tests and prerequisites.
 - `issues-native/` and candidate-specific directories: native qualification,
   exact-input manifests and packaging checks.
 - `maintained-build/`: immutable build-entry contracts.
-- `validation-history/`: source/provenance gates. Recorded hashes and historical
-  Git-object paths remain exact even when current file locations change.
+- `source-integrity/`: reviewed current packaging, dependency and workflow hashes.
+  Native source-owner pins and artifact admission remain independent build gates.
 
 Validation evidence is not a device-compatibility guarantee. Keep app identity,
 user data and signing/pairing state intact when testing updates. Do not commit
