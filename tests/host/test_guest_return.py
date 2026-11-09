@@ -148,9 +148,7 @@ class GuestReturnTests(unittest.TestCase):
         # shipped control is LCDirectReturnPresenter in LCBootstrap.m, and the
         # hooks file is now read, never written.
         source = module.sources["SideStoreSupport/SideStoreHooks.m"]
-        startup = (ROOT / "scripts/patch_embedded_sidestore_startup.py").read_text(encoding="utf-8")
-        self.assertIn("SideStoreMyAppsViewController_orig_viewDidload", startup,
-                      "the hook removal must stay anchored to the swizzle it removes")
+        self.assertNotIn("SideStoreMyAppsViewController_orig_viewDidload", source)
         for removed in ("SideStoreMyAppsViewController_hook_escapeButtonTapped",
                         "SideStoreMyAppsViewController_orig_viewDidload"):
             self.assertNotIn(removed, module.DIRECT_CONTROL + module.DIRECT_RUNTIME + module.METHODS,

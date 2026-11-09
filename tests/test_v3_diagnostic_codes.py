@@ -1,4 +1,6 @@
 """Stable categories are explicit finite evidence, independent of attempt IDs."""
+import copy
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -12,6 +14,24 @@ import sys
 sys.path.insert(0, str(ROOT / "tests"))
 from guest_owner_parts import implementations, block
 COMMON = ROOT / 'scripts/templates/combined_failure.swift'
+
+
+def validate_native_coverage(coverage, root=ROOT):
+    native = coverage['native_implementation']
+    if any(key in native for key in ('generator', 'generated_files', 'guest_generator')):
+        raise ValueError('native coverage must describe maintained owner, not a retired generator')
+    for key in ['owner_graph', 'evidence_inventory', 'source_checks']:
+        path = Path(native[key])
+        if path.is_absolute() or '..' in path.parts or not (root/path).is_file():
+            raise ValueError('broken native coverage reference: '+key)
+    graph = json.loads((root/native['owner_graph']).read_text())
+    if graph['owners'].get(native['owner']) != [native['repository'], native['pin']]:
+        raise ValueError('native owner differs from maintained graph')
+    spec = importlib.util.spec_from_file_location('native_inventory', root/native['evidence_inventory'])
+    inventory = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(inventory)
+    if native['maintained_files'] != list(inventory.NATIVE_ERROR_SOURCE_PATHS):
+        raise ValueError('native coverage differs from evidence inventory')
 
 
 def declaration(source, anchor):
@@ -72,6 +92,22 @@ class DiagnosticCodeTests(unittest.TestCase):
         self.assertEqual(registry['authKind']['anisetteIdentityStateInvalid'], 'A12')
         primitives = (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text()
         self.assertIn('case "anisetteIdentityStateInvalid": kindToken = "A12"', primitives)
+
+    def test_native_coverage_has_live_owner_and_evidence_references(self):
+        coverage = json.loads((ROOT/'ci/diagnostics/presentation-coverage.json').read_text())
+        validate_native_coverage(coverage)
+        for key in ['owner_graph', 'evidence_inventory', 'source_checks']:
+            broken = copy.deepcopy(coverage)
+            broken['native_implementation'][key] = 'scripts/missing-retired-generator.py'
+            with self.assertRaises(ValueError):
+                validate_native_coverage(broken)
+        for key, value in [('pin', '0'*40), ('maintained_files', []),
+                           ('generator', 'scripts/retired-generator.py'),
+                           ('guest_generator', 'scripts/retired-guest-generator.py')]:
+            broken = copy.deepcopy(coverage)
+            broken['native_implementation'][key] = value
+            with self.assertRaises(ValueError):
+                validate_native_coverage(broken)
 
     def test_every_inventoried_local_condition_has_its_frozen_label(self):
         registry = json.loads((ROOT / 'ci/diagnostics/error-codes-v1.json').read_text())

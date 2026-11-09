@@ -1685,10 +1685,13 @@
   ],
   "current_scope": "See ERROR_DIAGNOSTICS.md for implemented structured/local coverage and explicit privacy/system-message residuals. The notes below describe pre-change audit observations, not unresolved implementation status.",
   "native_implementation": {
-    "generator": "scripts/patch_native_error_presenters.py",
-    "reviewed_commit": "464f30d594caa821523c48fb20fcd5837abb6284",
-    "pin": "12377cf3b91d51739a33f14a302e5f522b238593",
-    "generated_files": [
+    "owner": "LiveContainer",
+    "owner_graph": "ci/issues-native/candidate-graph.json",
+    "repository": "NRG-Wardog/LiveContainer",
+    "pin": "5d2498d4dfffa14c031ca1481ab9f3417bfccc3f",
+    "evidence_inventory": "scripts/native_error_evidence.py",
+    "source_checks": "tests/test_native_error_presenters.py",
+    "maintained_files": [
       "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
       "LiveContainerSwiftUI/Utilities/ViewExtensions.swift",
       "LiveContainerSwiftUI/Views/AppList/AppSettings/LCAppSettingsView.swift",
@@ -1703,8 +1706,8 @@
       "LiveContainerSwiftUI/Views/LCTabView.swift",
       "TweakLoader/TweakLoader.m"
     ],
-    "source_checks": "Pinned two-pass idempotence, atomic drift rejection, marker tampering, and composition after actual shell/service transforms passed. Native compilation not run locally.",
-    "privacy_residual": "Existing native provider prose remains a pre-existing P1 privacy/wording review item. No new copy controls or provider data are added."
+    "validation_scope": "Pinned-owner routing and copy assertions, executable Swift helper with wrong-ID negative control, and Swift syntax parsing. Does not qualify UIKit/device behavior or full UI equivalence.",
+    "privacy_residual": "Native provider prose remains an independent privacy/wording review item; this cleanup changes no app source."
   },
   "guest_implementation": {
     "owner": "LiveContainer",

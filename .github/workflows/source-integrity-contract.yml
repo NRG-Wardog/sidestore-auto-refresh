@@ -94,6 +94,20 @@ jobs:
           MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore" MAINTAINED_SIDESIGN_TEST_SOURCE="$PWD/sources/SideStore/Dependencies/SideSign" \
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_sidesign_privacy.py \
               --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained startup, CFBundle runtime and real iPhoneOS SDK controls
+        run: |
+          set -euo pipefail
+          export MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer"
+          export MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore"
+          for suite in test_cf_bundle_scan.py test_embedded_sidestore_startup.py test_v3_ui_cleanup_contracts.py; do
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
+          done
+      - name: Require maintained native error presenter contracts and runtime controls
+        run: |
+          set -euo pipefail
+          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_native_error_presenters.py \
+              --allowlist scripts/required_test_skip_allowlist.json
       - name: Require maintained guest owner pilot and negative runtime controls
         run: |
           set -euo pipefail
