@@ -1,12 +1,9 @@
-"""Execute the generated transport/query error path, not a parallel Python model."""
+"""Execute the current owner transport/query error path, not a parallel Python model."""
 import re
 import shutil
 import subprocess
 from pathlib import Path
-from unittest.mock import patch as mock
 from tests.refresh.test_combined_transport import SourceFixture, function
-from patch_combined_transport import patch
-from patch_combined_service_startup import patch_transport
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -25,14 +22,13 @@ class ErrorExecutionTests(SourceFixture):
         self.assertIn('PASS', result.stdout)
 
     def test_actual_gateway_mapping_retains_categories(self):
-        patch(self.mux)
-        method = function(self.read('Sources/MinimuxerImpl.swift'), 'runIdeviceCheckingVPN').replace('private func', 'func')
+        method = function(self.read('Sources/MinimuxerImpl.swift'), 'runWithChecks').replace('private func', 'func')
         native = self.read('DeviceGateway/DeviceGatewayError.swift')
         errors = self.read('Sources/MinimuxerError.swift')
         errors = errors[errors.index('public enum MinimuxerError:'):]
-        source = native + '\npublic enum PairingProtocol: Equatable { case lockdown }\n' + errors + '''
-struct Gateway { var pairingFileType = PairingProtocol.lockdown; var coreDeviceTransportEnabled = false }
-struct Adapter { let gateway = Gateway()
+        source = self.read('Common/FFIDispatcher.swift') + native + '\npublic enum PairingProtocol: Equatable { case lockdown }\n' + errors + '''
+struct Gateway: Sendable { var pairingFileType = PairingProtocol.lockdown; var coreDeviceTransportEnabled = false }
+struct Adapter: Sendable { let gateway = Gateway(); let activeProtocol = PairingProtocol.lockdown
 ''' + method + '''
 }
 @main struct Tests {
@@ -47,12 +43,12 @@ struct Adapter { let gateway = Gateway()
    (.serviceError, "Lockdown failed", .createLockdown("Lockdown failed")),
    (.serviceError, "UniqueDeviceID failed", .getLockdownValue("UniqueDeviceID failed"))]
   for (code, reason, expected) in cases {
-   do { let _: String? = try await adapter.runIdeviceCheckingVPN("fetching device UDID", fallback: nil) {
+   do { let _: String? = try await adapter.runWithChecks("fetching device UDID", catchAll: { .fetchUDID($0) }) {
       throw DeviceGatewayError(code, reason: reason)
     }; preconditionFailure("error became nil")
    } catch { precondition(error == expected, "wrong category: \\(error)") }
   }
-  let success: String? = try await adapter.runIdeviceCheckingVPN("fetching device UDID", fallback: nil) { "live-response" }
+  let success: String? = try await adapter.runWithChecks("fetching device UDID", catchAll: { .fetchUDID($0) }) { "live-response" }
   precondition(success == "live-response")
   print("Actual gateway mapping PASS")
  }
@@ -61,9 +57,6 @@ struct Adapter { let gateway = Gateway()
         self.execute(source)
 
     def test_actual_query_captures_error_before_free_and_sanitizes(self):
-        patch(self.mux)
-        with mock('patch_combined_service_startup.subprocess.check_output', return_value='98c3c79982f813878e922ab42f9545314a700f0c'):
-            patch_transport(self.mux)
         source = self.gateway.read_text(encoding='utf-8')
         query = function(source, 'syncFetchUDID')
         query = query[query.index('            var plistVal:'):query.index('            return udid') + len('            return udid')]
@@ -102,7 +95,7 @@ func query() throws -> String {
    do { _ = try query(); preconditionFailure("failed query succeeded") }
    catch {
     precondition(error is IdeviceGatewayError,
-                 "the transformed query must throw the pinned concrete gateway error type")
+                 "the actual query must throw the pinned concrete gateway error type")
     let failure = CombinedFailure.capture(error, operation: "refresh", stage: .command, id: id)
     precondition(failure.stage == .uniqueDeviceID)
     if value == 0 {

@@ -13,18 +13,15 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 try:
-    from tests.refresh.test_combined_transport import SourceFixture, function, snapshot
+    from tests.refresh.test_combined_transport import SourceFixture, function
 except ImportError:
-    from tests.test_combined_transport import SourceFixture, function, snapshot
+    from tests.test_combined_transport import SourceFixture, function
 
-from patch_combined_transport import patch
-from patch_sidestore_integration import patch_gateway
 
 
 class Issue24UdidErrorPropagationTests(SourceFixture):
     def setUp(self):
         super().setUp()
-        patch(self.mux)
         self.gateway_text = self.gateway.read_text(encoding="utf-8")
         self.impl_text = self.read("Sources/MinimuxerImpl.swift")
         wrapper_path = self.side / "SideStore/Core/DeviceApi/MinimuxerWrapper.swift"
@@ -35,10 +32,10 @@ class Issue24UdidErrorPropagationTests(SourceFixture):
         fetch = function(self.gateway_text, "syncFetchUDID")
         self.assertIn("try verifyInitialized()", fetch)
 
-        # Verify invalidPairingFile is preserved in runIdeviceCheckingVPN
-        run_vpn = function(self.impl_text, "runIdeviceCheckingVPN")
+        # Verify invalidPairingFile is preserved in runWithChecks
+        run_vpn = function(self.impl_text, "runWithChecks")
         self.assertIn("if err.code == .invalidPairingFile {", run_vpn)
-        self.assertIn("throw MinimuxerError.invalidPairing(protocol: self.gateway.pairingFileType, reason: err.reason)", run_vpn)
+        self.assertIn("throw MinimuxerError.invalidPairing(protocol: activeProtocol, reason: err.reason)", run_vpn)
 
         # Verify invalidPairing maps to invalidPairingFile in MinimuxerWrapper
         if self.wrapper_text:
@@ -50,8 +47,8 @@ class Issue24UdidErrorPropagationTests(SourceFixture):
         self.assertIn("tunnel_create_usb(provider, &adapter, &handshake)", ensure_core)
         self.assertIn("selected_transport=FAILED_NO_VALID_TRANSPORT", ensure_core)
 
-        # Verify runIdeviceCheckingVPN maps connectionFailed to createCoreDevice / noDevice
-        run_vpn = function(self.impl_text, "runIdeviceCheckingVPN")
+        # Verify runWithChecks maps connectionFailed to createCoreDevice / noDevice
+        run_vpn = function(self.impl_text, "runWithChecks")
         self.assertIn("if self.gateway.coreDeviceTransportEnabled || err.reason.contains(\"CoreDevice\") {", run_vpn)
         self.assertIn("throw MinimuxerError.createCoreDevice(err.reason)", run_vpn)
         self.assertIn("throw MinimuxerError.noDevice(err.reason)", run_vpn)
@@ -66,10 +63,10 @@ class Issue24UdidErrorPropagationTests(SourceFixture):
         ensure_core = function(self.gateway_text, "ensureCoreDeviceConnection")
         self.assertIn("guard tunnel_heartbeat_is_active() else {", ensure_core)
         self.assertIn('debugLog("[SIDESTORE_COREDEVICE] HEARTBEAT_FAIL")', ensure_core)
-        self.assertIn('throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice heartbeat is inactive")', ensure_core)
+        self.assertIn('throw IdeviceGatewayError(.connectionFailed, reason: "lc_stage=heartbeat CoreDevice heartbeat is inactive")', ensure_core)
 
-        # Verify runIdeviceCheckingVPN maps heartbeat failure to MinimuxerError.connect
-        run_vpn = function(self.impl_text, "runIdeviceCheckingVPN")
+        # Verify runWithChecks maps heartbeat failure to MinimuxerError.connect
+        run_vpn = function(self.impl_text, "runWithChecks")
         self.assertIn('if err.reason.lowercased().contains("heartbeat") {', run_vpn)
         self.assertIn("throw MinimuxerError.connect(err.reason)", run_vpn)
 
@@ -81,11 +78,11 @@ class Issue24UdidErrorPropagationTests(SourceFixture):
         """4. RSD service failures remain RSD/service errors (.noService / .createLockdown)."""
         fetch = function(self.gateway_text, "syncFetchUDID")
         self.assertIn('debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=rsd_service', fetch)
-        self.assertIn('throw IdeviceGatewayError(.serviceError, reason: "Lockdownd RSD connection failed', fetch)
+        self.assertIn('throw IdeviceGatewayError(.serviceError, reason: "lc_stage=rsdService lc_native_code=\\(code) Lockdownd RSD connection failed', fetch)
 
-        # Verify runIdeviceCheckingVPN maps rsd_service failures
-        run_vpn = function(self.impl_text, "runIdeviceCheckingVPN")
-        self.assertIn('if err.reason.contains("stage=rsd_service") || (err.reason.contains("RSD") && err.reason.contains("service")) {', run_vpn)
+        # Verify runWithChecks maps rsd_service failures
+        run_vpn = function(self.impl_text, "runWithChecks")
+        self.assertIn('if err.reason.contains("stage=rsd_service") || err.reason.contains("stage=rsdService") || (err.reason.contains("RSD") && err.reason.contains("service")) {', run_vpn)
         self.assertIn("throw MinimuxerError.noService(err.reason)", run_vpn)
 
     def test_requirement5_lockdownd_connection_failure_remains_lockdownd_error(self):
@@ -94,9 +91,9 @@ class Issue24UdidErrorPropagationTests(SourceFixture):
         self.assertIn('debugLog("[SIDESTORE_COREDEVICE] LOCKDOWN_CONNECT_FAIL', fetch)
         self.assertIn("lockdownd_connect_rsd(", fetch)
 
-        # Verify runIdeviceCheckingVPN maps Lockdown connection errors
-        run_vpn = function(self.impl_text, "runIdeviceCheckingVPN")
-        self.assertIn('if err.reason.contains("Lockdown") || err.reason.contains("lockdown") {', run_vpn)
+        # Verify runWithChecks maps Lockdown connection errors
+        run_vpn = function(self.impl_text, "runWithChecks")
+        self.assertIn('if err.reason.lowercased().contains("lockdown") {', run_vpn)
         self.assertIn("throw MinimuxerError.createLockdown(err.reason)", run_vpn)
 
         if self.wrapper_text:
@@ -107,10 +104,10 @@ class Issue24UdidErrorPropagationTests(SourceFixture):
         fetch = function(self.gateway_text, "syncFetchUDID")
         self.assertIn('lockdownd_get_value(client, "UniqueDeviceID", nil, &plistVal)', fetch)
         self.assertIn('debugLog("[SIDESTORE_COREDEVICE] UNIQUE_DEVICE_ID_QUERY_FAIL', fetch)
-        self.assertIn('throw IdeviceGatewayError(.serviceError, reason: "Querying UniqueDeviceID failed', fetch)
+        self.assertIn('throw IdeviceGatewayError(.serviceError, reason: "lc_stage=uniqueDeviceID lc_native_code=\\(code) Querying UniqueDeviceID failed', fetch)
 
-        # Verify runIdeviceCheckingVPN maps UniqueDeviceID query errors
-        run_vpn = function(self.impl_text, "runIdeviceCheckingVPN")
+        # Verify runWithChecks maps UniqueDeviceID query errors
+        run_vpn = function(self.impl_text, "runWithChecks")
         self.assertIn('if err.reason.contains("UniqueDeviceID") {', run_vpn)
         self.assertIn("throw MinimuxerError.getLockdownValue(err.reason)", run_vpn)
 
@@ -124,10 +121,10 @@ class Issue24UdidErrorPropagationTests(SourceFixture):
         self.assertNotIn("catch {\n                return nil\n            }", fetch)
         self.assertNotIn("catch {\n                    return nil\n                }", fetch)
 
-        # In MinimuxerImpl runIdeviceCheckingVPN, fetching device UDID must rethrow typed errors
-        run_vpn = function(self.impl_text, "runIdeviceCheckingVPN")
-        self.assertIn('if context.contains("fetching device UDID") {', run_vpn)
-        self.assertNotIn('if context.contains("fetching device UDID") {\n            return fallback\n        }', run_vpn)
+        # In MinimuxerImpl runWithChecks, fetching device UDID must rethrow typed errors
+        run_vpn = function(self.impl_text, "runWithChecks")
+        self.assertIn('if context.contains("fetching device UDID") && !err.isVPNDrop {', run_vpn)
+        self.assertNotIn('if context.contains("fetching device UDID") && !err.isVPNDrop {\n            return fallback\n        }', run_vpn)
 
         # In MinimuxerWrapper, verify that .createCoreDevice, .createLockdown, .getLockdownValue, .connect, .noService do NOT map to .invalidPairingFile
         if self.wrapper_text:
@@ -140,10 +137,11 @@ class Issue24UdidErrorPropagationTests(SourceFixture):
         self.assertIn('debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_PASS")', fetch)
         self.assertIn("return udid", fetch)
 
-        readiness = function(self.impl_text, "isReady")
+        readiness = function(self.impl_text, "readinessObservation")
         self.assertIn("try await fetchUDID()", readiness)
-        self.assertIn("guard deviceUDID != nil else {", readiness)
-        self.assertIn("return .success(true)", readiness)
+        self.assertIn("let deviceUDID: String", readiness)
+        self.assertIn("!udid.isEmpty", fetch)
+        self.assertIn("return .init(result: .success(true))", readiness)
 
     def test_requirement9_remote_pairing_behavior_not_regressed(self):
         """9. RemotePairing behavior is not regressed."""
@@ -157,7 +155,7 @@ class Issue24UdidErrorPropagationTests(SourceFixture):
         """10. Strict privacy: NEVER leak UDID, certs, keys, or credentials into logs."""
         # Check MinimuxerImpl.swift
         self.assertNotIn('deviceUDID=\\(deviceUDID ?? "nil")', self.impl_text)
-        self.assertIn("deviceUDID_present=\\(deviceUDID != nil)", self.impl_text)
+        self.assertIn("deviceUDID_present=\\(!deviceUDID.isEmpty)", self.impl_text)
 
         # Check IdeviceGateway.swift
         fetch = function(self.gateway_text, "syncFetchUDID")
@@ -166,18 +164,9 @@ class Issue24UdidErrorPropagationTests(SourceFixture):
         self.assertNotIn("identity=\\(", fetch)
         self.assertNotIn("key=\\(", fetch)
 
-    def test_requirement11_patches_remain_idempotent(self):
-        """11. Patches remain idempotent and pass all repository & combined transport tests."""
-        first_snap = snapshot(self.side)
-        patch(self.mux)
-        second_snap = snapshot(self.side)
-        self.assertEqual(first_snap, second_snap, "Second application of patch() must be a no-op")
-
-    def test_requirement12_verification_markers_complete(self):
-        """12. Gateway and combined verification checks include all required markers."""
-        from patch_sidestore_integration import verify_gateway
-        # Should not raise SystemExit
-        verify_gateway(self.gateway_text)
+    # Patch replay and old-ABI bans do not apply to the current owner.
+    # Current Swift allocation/callback/evidence call sites are checked with
+    # counterfactuals by test_combined_transport; native ABI remains a build gate.
 
 
 if __name__ == "__main__":

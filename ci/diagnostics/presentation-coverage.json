@@ -1647,7 +1647,7 @@
         362
       ],
       "flow": "guest launch",
-      "origin": "NSError.localizedDescription; repo patch_guest_return.py replaces this",
+      "origin": "NSError.localizedDescription; repo maintained guest-launch owner replaces this",
       "adapter": "Known own-domain 410 early exit or explicit unknown; raw provider description excluded from display and copy.",
       "copy": "yes raw error",
       "diagnostic_codes": [
@@ -1679,16 +1679,19 @@
     "V3AnisetteFailureGuidance.message at shell7998 bypasses V3FailureGuidance. Preserve its typed CombinedFailure ID.",
     "Scheduler supplied safeMessage line527 can bypass structured.safeMessage, persisted historical run messages may lack IDs. Refresh button963 and setup9443/9449/9493 accept historical message strings.",
     "V3SharedRefreshStore.unavailableMessage is another static storage origin, scheduler17 references it.",
-    "Guest ObjC patch_guest_return.py38 and41 show/copy launchError.localizedDescription; add finite LC guest-launch adapter before raw presentation. Origins include LiveContainerReturn code410 early exit and busy code409. No CombinedFailure bridge currently.",
+    "Guest ObjC maintained guest-launch owner38 and41 show/copy launchError.localizedDescription; add finite LC guest-launch adapter before raw presentation. Origins include LiveContainerReturn code410 early exit and busy code409. No CombinedFailure bridge currently.",
     "Pinned pristine LiveContainer12377cf is available at /workspace/shared/sidestore-review/LiveContainer. It is not a generated patched build. Native SwiftUI app-list, settings, container, sources, storage, tweaks and UIKit showError presenters remain separate from central templates and require explicit patch-generator coverage or a documented P1 residual.",
     "Confirmation alerts, settings explanatory text, expected not-configured setup states, successful messages, normal user cancellations, and ongoing checking/waiting progress are NOT failure labels."
   ],
   "current_scope": "See ERROR_DIAGNOSTICS.md for implemented structured/local coverage and explicit privacy/system-message residuals. The notes below describe pre-change audit observations, not unresolved implementation status.",
   "native_implementation": {
-    "generator": "scripts/patch_native_error_presenters.py",
-    "reviewed_commit": "464f30d594caa821523c48fb20fcd5837abb6284",
-    "pin": "12377cf3b91d51739a33f14a302e5f522b238593",
-    "generated_files": [
+    "owner": "LiveContainer",
+    "owner_graph": "ci/issues-native/candidate-graph.json",
+    "repository": "NRG-Wardog/LiveContainer",
+    "pin": "5d2498d4dfffa14c031ca1481ab9f3417bfccc3f",
+    "evidence_inventory": "scripts/native_error_evidence.py",
+    "source_checks": "tests/test_native_error_presenters.py",
+    "maintained_files": [
       "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
       "LiveContainerSwiftUI/Utilities/ViewExtensions.swift",
       "LiveContainerSwiftUI/Views/AppList/AppSettings/LCAppSettingsView.swift",
@@ -1703,8 +1706,17 @@
       "LiveContainerSwiftUI/Views/LCTabView.swift",
       "TweakLoader/TweakLoader.m"
     ],
-    "guest_generator": "scripts/patch_guest_return.py",
-    "source_checks": "Pinned two-pass idempotence, atomic drift rejection, marker tampering, and composition after actual shell/service transforms passed. Native compilation not run locally.",
-    "privacy_residual": "Existing native provider prose remains a pre-existing P1 privacy/wording review item. No new copy controls or provider data are added."
+    "validation_scope": "Pinned-owner routing and copy assertions, executable Swift helper with wrong-ID negative control, and Swift syntax parsing. Does not qualify UIKit/device behavior or full UI equivalence.",
+    "privacy_residual": "Native provider prose remains an independent privacy/wording review item; this cleanup changes no app source."
+  },
+  "guest_implementation": {
+    "owner": "LiveContainer",
+    "owner_graph": "ci/issues-native/candidate-graph.json",
+    "source_checks": [
+      "tests/host/test_guest_return.py",
+      "tests/host/test_guest_launch_completion.py",
+      "tests/host/test_guest_owner.py"
+    ],
+    "scope": "Maintained source checks and runtime probes with explicit UIKit doubles; not device or UI equivalence."
   }
 }

@@ -1,5 +1,4 @@
-"""Execute the actual injected registry and geometry; validate pinned patches in CI."""
-import importlib.util
+"""Execute maintained registry, geometry and controls from exact owner source."""
 import os
 from pathlib import Path
 import shutil
@@ -9,9 +8,9 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location("guest_return", ROOT / "scripts/patch_guest_return.py")
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+sys.path.insert(0, str(ROOT/'tests'))
+from guest_owner_parts import implementations, block, verify_settings_controls, verify_resume_ownership
+from owner_source import owner_source
 
 SWIFT_STUBS = r'''
 import Foundation
@@ -137,20 +136,26 @@ SWIFT_TESTS = r'''
 '''
 
 class GuestReturnTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        global module
+        module = implementations()
+
     def test_the_return_control_does_not_depend_on_removed_sidestore_hooks(self):
         # The SideStore-only escape hook was removed with the rest of that UI.
         # This patcher used to inject a second copy of the direct-return
         # diagnostic into it, so it failed closed on a clean patched tree. The
         # shipped control is LCDirectReturnPresenter in LCBootstrap.m, and the
         # hooks file is now read, never written.
-        source = (ROOT / "scripts/patch_guest_return.py").read_text(encoding="utf-8")
-        startup = (ROOT / "scripts/patch_embedded_sidestore_startup.py").read_text(encoding="utf-8")
-        self.assertIn("SideStoreMyAppsViewController_orig_viewDidload", startup,
-                      "the hook removal must stay anchored to the swizzle it removes")
+        source = module.sources["SideStoreSupport/SideStoreHooks.m"]
+        self.assertNotIn("SideStoreMyAppsViewController_orig_viewDidload", source)
         for removed in ("SideStoreMyAppsViewController_hook_escapeButtonTapped",
                         "SideStoreMyAppsViewController_orig_viewDidload"):
             self.assertNotIn(removed, module.DIRECT_CONTROL + module.DIRECT_RUNTIME + module.METHODS,
                              "the shipped return control must not reintroduce the removed hook")
+        self.assertNotIn("@interface LCDirectReturnControl", source)
+        self.assertNotIn("@interface LCDirectReturnPresenter", source)
+        self.assertIn("@property(nonatomic, copy) void (^lcActivateHost)(void);", module.sources["MultitaskSupport/AppSceneViewController.h"])
         self.assertNotIn("hooks = replace(hooks", source,
                          "the hooks file must not be patched")
         self.assertNotIn('(hooks, "DIRECT_PROCESS_RESTART_RETURN")', source,
@@ -284,7 +289,7 @@ if mode == "write" {
             self.skipTest('Objective-C Foundation runtime requires macOS')
         harness = (ROOT / 'tests/fixtures/guest_return_control_harness.m').read_text()
         color = module.CONTROL.split('static UIColor *LCGuestReturnColor', 1)[1].split('@interface LCReturnControl', 1)[0]
-        collapse = module.CONTROL.split('- (void)collapse {', 1)[1].split('- (void)preferencesChanged:', 1)[0]
+        collapse = block(module.CONTROL, '- (void)collapse {')[len('- (void)collapse {'):]
         tapped = module.CONTROL.split('- (void)tapped {', 1)[1].split('@end', 1)[0]
         source = harness.replace('// COLOR_DECODER', 'static UIColor *LCGuestReturnColor' + color)
         source = source.replace('// COLLAPSE_METHOD', '- (void)collapse {' + collapse)
@@ -299,23 +304,13 @@ if mode == "write" {
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertIn('RETURN_CONTROL_TESTS_PASSED', run.stdout)
 
-    def test_extension_diagnostics_are_truthful_idempotent_and_behavior_neutral(self):
-        original = "\n".join([
-            '    [_extension setRequestCancellationBlock:^(NSUUID *uuid, NSError *error) {\n        [weakSelf appTerminationCleanUp];\n    }];',
-            '    [_extension setRequestInterruptionBlock:^(NSUUID *uuid) {\n        [weakSelf appTerminationCleanUp];\n    }];',
-            '    [self.extension setRequestInterruptionBlock:^(NSUUID *uuid) {\n        [weakSelf appTerminationCleanUp];\n    }];',
-        ])
-        generated = module.patch_lifecycle_diagnostics(original)
-        self.assertEqual(generated.count("PROCESS_INTERRUPTED pid="), 2)
-        self.assertEqual(generated.count("PROCESS_CANCELLED pid="), 1)
-        self.assertEqual(generated, module.patch_lifecycle_diagnostics(generated))
-        without_logs = "\n".join(line for line in generated.split("\n")
-                                 if "[LC_GUEST_LIFECYCLE]" not in line)
-        self.assertEqual(without_logs, original)
-        with self.assertRaises(ValueError):
-            module.patch_lifecycle_diagnostics(generated.replace("PROCESS_CANCELLED", "PROCESS_INTERRUPTED"))
-        with self.assertRaises(ValueError):
-            module.patch_lifecycle_diagnostics(original.replace("setRequestCancellationBlock", "changedCallback"))
+    def test_current_extension_diagnostics_remain_finite(self):
+        source = module.sources['MultitaskSupport/AppSceneViewController.m']
+        self.assertEqual(source.count('PROCESS_INTERRUPTED pid='), 2)
+        self.assertEqual(source.count('PROCESS_CANCELLED pid='), 1)
+        for line in source.splitlines():
+            if '[LC_GUEST_LIFECYCLE]' in line:
+                self.assertNotIn('localizedDescription', line)
 
     def test_cleanup_finishes_before_exit_callback(self):
         self.assertLess(module.CLEANUP.index("unregisterMultitaskContainer"), module.CLEANUP.index("appSceneVCAppDidExit"))
@@ -378,45 +373,55 @@ int main(void) {
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertIn("REGISTRY_RUNTIME_TESTS_PASSED", run.stdout)
 
-    def test_pinned_patch_and_idempotence(self):
-        source = Path(os.environ.get("LIVE_CONTAINER_TEST_SOURCE", str(ROOT / ".audit/upstream/LiveContainer")))
-        if not source.is_dir(): self.skipTest("Pinned LiveContainer source unavailable")
+    def test_settings_ui_and_color_helper_negative_controls(self):
+        settings = module.sources['LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift']
+        verify_settings_controls(settings)
+        changes = [
+            ('hideReturnControl = !$0', 'hideReturnControl = $0'),
+            ('isOn: $returnStartsCollapsed', 'isOn: $returnCustomColors'),
+            ('isOn: $returnCustomColors', 'isOn: $returnStartsCollapsed'),
+            ('returnColorBinding($returnTintRGB)', 'returnColorBinding($returnBackgroundRGB)'),
+            ('returnColorBinding($returnBackgroundRGB)', 'returnColorBinding($returnTintRGB)'),
+            ('.disabled(hideReturnControl)', '.disabled(false)'),
+            ('if returnCustomColors {', 'if true {'),
+            ('private func returnColorBinding(', 'private func removedColorBinding('),
+            ('min(1, max(0, value))', 'value'),
+            ('channel(red) << 16', 'channel(blue) << 16'),
+        ]
+        for old, new in changes:
+            with self.subTest(mutation=old), self.assertRaises(ValueError):
+                verify_settings_controls(settings.replace(old, new))
+        section = block(settings, 'Section {\n                    Toggle("Show Return Button"')
+        with self.assertRaises(ValueError):
+            verify_settings_controls(settings.replace(section, ''))
+
+    def test_container_guard_and_main_session_negative_controls(self):
+        model = module.sources['LiveContainerSwiftUI/Models/LCAppModel.swift']
+        tab = module.sources['LiveContainerSwiftUI/Views/LCTabView.swift']
+        verify_resume_ownership(model, tab)
+        for old, new in [('MultitaskManager.isUsing(container: currentDataFolder)', 'false'),
+                         ('throw "lc.container.inUse".loc', 'return "lc.container.inUse".loc')]:
+            with self.assertRaises(ValueError):
+                verify_resume_ownership(model.replace(old, new), tab)
+        for old, new in [('mainSceneSession = sceneDelegate.window?.windowScene?.session', 'mainSceneSession = nil'),
+                         ('mainSceneSession?.persistentIdentifier == scene1.session.persistentIdentifier', 'mainSceneSession != nil'),
+                         ('MultitaskWindowManager.mainSceneSession = nil', '// removed clear')]:
+            with self.assertRaises(ValueError):
+                verify_resume_ownership(model, tab.replace(old, new))
+
+    def test_current_sources_preserve_layout_and_shared_settings(self):
+        decorated = module.sources['MultitaskSupport/DecoratedAppSceneViewController.m']
+        for state in ('YES', 'NO'):
+            self.assertIn(f'self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];', decorated)
+        self.assertNotIn('store: UserDefaults.lc()', module.SETTINGS_PROPERTIES)
+        compiler = shutil.which('swiftc')
+        if not compiler:
+            self.skipTest('Swift parser is required in macOS CI')
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for name in module.PATHS:
-                dest = root / name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source / name, dest)
-            module.patch(root)
-            decorated = (root / "MultitaskSupport/DecoratedAppSceneViewController.m").read_text()
-            for state in ("YES", "NO"):
-                self.assertIn(f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];", decorated)
-            # All Guest Return settings injected into this view use the App
-            # Group accessor read by the LiveProcess Objective-C control.
-            patched_settings = (root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text()
-            self.assertIn('store: UserDefaults.lcShared()', patched_settings)
-            self.assertNotIn('store: UserDefaults.lc()', patched_settings)
-            first = {name: (root/name).read_bytes() for name in module.PATHS}
-            module.patch(root)
-            self.assertEqual(first, {name: (root/name).read_bytes() for name in module.PATHS})
-            # An already patched tree must not silently accept stale settings.
-            settings_path = root / 'LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift'
-            settings_bytes = settings_path.read_bytes()
-            settings_path.write_text(settings_path.read_text().replace('LCGuestReturnTintRGB', 'WrongTintKey'))
-            before = {name: (root/name).read_bytes() for name in module.PATHS}
-            with self.assertRaisesRegex(ValueError, 'guest Return settings'):
-                module.patch(root)
-            self.assertEqual(before, {name: (root/name).read_bytes() for name in module.PATHS})
-            settings_path.write_bytes(settings_bytes)
-            compiler = shutil.which("swiftc")
-            if compiler:
-                for name in module.PATHS:
-                    if name.endswith(".swift"):
-                        result = subprocess.run([compiler, "-frontend", "-parse", str(root/name)], text=True, capture_output=True)
-                        self.assertEqual(result.returncode, 0, name + result.stderr)
-            # No partial write when one pinned anchor drifts.
-            broken = root / module.PATHS[0]
-            broken.write_text(broken.read_text().replace("LCReturnControl", "UnexpectedControl"))
-            with self.assertRaises(ValueError): module.patch(root)
+            for name, text in module.sources.items():
+                if name.endswith('.swift'):
+                    path = Path(directory)/Path(name).name
+                    path.write_text(text)
+                    subprocess.run([compiler, '-frontend', '-parse', str(path)], check=True, capture_output=True)
 
 if __name__ == "__main__": unittest.main()

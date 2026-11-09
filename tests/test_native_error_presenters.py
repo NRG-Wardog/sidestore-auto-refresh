@@ -1,119 +1,131 @@
-"""Exact pinned transforms for finite native error presentation IDs."""
-import importlib.util
-import os
+"""Maintained presenter source contracts and executable Swift helper controls.
+
+Source routing checks do not qualify UIKit/SwiftUI interaction on a device.
+"""
 from pathlib import Path
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('native_presenters', ROOT / 'scripts/patch_native_error_presenters.py')
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+sys.path.insert(0, str(ROOT/'scripts'))
+from native_error_evidence import SITES, SWIFT_ROOT, TWEAK_PATH, NATIVE_ERROR_SOURCE_PATHS
+from owner_source import owner_source
 
 
-class NativePresenterContractTests(unittest.TestCase):
-    def test_finite_registry_and_unknown_semantics(self):
-        codes = [value[0] for value in module.SITES.values()] + ['SS-NATIVE-TWEAK-LOAD']
-        self.assertEqual(len(codes), len(set(codes)))
-        for code in codes:
-            self.assertRegex(code, r'^SS-NATIVE-[A-Z-]+$')
-        self.assertNotIn('localizedDescription', module.HELPER)
-        self.assertIn('saved.utf8.count == 40', module.HELPER)
-        self.assertIn('site: LCNativeErrorSite', module.HELPER)
-        self.assertIn('builder_commit=', module.HELPER)
-
-    def test_native_presenter_provenance_and_dependency_boundary(self):
-        evidence = (ROOT / 'scripts/combined_build_evidence.py').read_text()
-        self.assertIn('*NATIVE_ERROR_SOURCE_PATHS', evidence)
-        self.assertNotIn('CombinedFailure', module.HELPER)  # No SideStore/headless-only dependency.
+def helper():
+    text = owner_source(SWIFT_ROOT+'Utilities/ViewExtensions.swift')
+    return text[text.index('enum LCNativeErrorSite:'):]
 
 
-class PinnedNativePresenterTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        value = os.environ.get('LIVE_CONTAINER_TEST_SOURCE')
-        if not value:
-            raise unittest.SkipTest('LIVE_CONTAINER_TEST_SOURCE is not set')
-        cls.source = Path(value)
-        pin = subprocess.check_output(['git', '-C', str(cls.source), 'rev-parse', 'HEAD'], text=True).strip()
-        if pin != module.PIN:
-            raise AssertionError('wrong LC source pin')
-        cls.originals = {path: subprocess.check_output(['git', '-C', str(cls.source), 'show', 'HEAD:' + path], text=True)
-                         for path in module.TOUCHED_PATHS}
+def verify_routes(sources):
+    for site, (_, path) in SITES.items():
+        text = sources[SWIFT_ROOT+path]
+        if f'appendingDiagnostic(LCNativeErrorSite.{site}.rawValue)' not in text:
+            raise ValueError('missing display site '+site)
+        if not re.search(r'LCNativeErrorPresentation.details\([^\n]+, site: \.'+site+r'\)', text):
+            raise ValueError('missing copy site '+site)
+    tweak = sources[TWEAK_PATH]
+    for token in ['Error ID: SS-NATIVE-TWEAK-LOAD', 'UIPasteboard.generalPasteboard.string = details;',
+                  '[saved isKindOfClass:NSString.class]', '[saved length] == 40',
+                  '^[0-9a-fA-F]{40}$', '[saved lowercaseString]', '@"unknown"']:
+        if token not in tweak:
+            raise ValueError('missing tweak contract '+token)
 
-    def fixture(self, directory):
-        root = Path(directory)
-        for path, text in self.originals.items():
-            destination = root / path
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(text)
-        return root
 
-    def test_exact_pinned_presenters_and_idempotence(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = self.fixture(directory)
-            module.patch(root)
-            first = {path: (root / path).read_text() for path in self.originals}
-            module.patch(root)
-            self.assertEqual(first, {path: (root / path).read_text() for path in first})
-            for path, text in first.items():
-                module.verify_transformed(path, text)
-                # Raw upstream details are neither expanded nor reclassified here.
-                self.assertEqual(text.count('localizedDescription'), self.originals[path].count('localizedDescription'))
-                self.assertEqual(text.count('Text(successInfo)'), self.originals[path].count('Text(successInfo)'))
-            root_view = first['LiveContainerSwiftUI/Views/LCTabView.swift']
-            self.assertIn('                    Text(errorInfo)\n', root_view)  # Crash-report body untouched.
-            self.assertIn('    func copyError() {\n        UIPasteboard.general.string = errorInfo', root_view)
-            source = first['LiveContainerSwiftUI/Views/LCAltStoreSourcesView.swift']
-            self.assertIn('errorMessage.map {', source)  # nil stays empty, not an error label.
-            storage = first['LiveContainerSwiftUI/Views/Settings/DataManagement/LCStorageManagementSections.swift']
-            self.assertIn('if let errorInfo {', storage)  # nil storage state remains unlabelled.
-            if shutil.which('swiftc'):
-                for path in first:
-                    if path.endswith('.swift'):
-                        subprocess.run(['swiftc', '-frontend', '-parse', str(root / path)], check=True)
+def verify_crash_copy(root):
+    crash = root.split('.sheet(isPresented: $crashReportShow)', 1)[1].split('.onAppear', 1)[0]
+    if 'copyError()' not in crash:
+        raise ValueError('crash copy action disconnected')
+    body = root.split('func copyError() {', 1)[1].split('}', 1)[0].strip()
+    if body != 'UIPasteboard.general.string = errorInfo':
+        raise ValueError('crash copy must preserve raw technical report without diagnostic label')
 
-    def test_composes_after_actual_shell_and_service_transforms(self):
-        if not os.environ.get('EMBEDDED_SIDESTORE_TEST_SOURCE'):
-            self.skipTest('EMBEDDED_SIDESTORE_TEST_SOURCE is not set')
-        from test_v3_service import ServicePatchTests
-        fixture = ServicePatchTests()
-        with tempfile.TemporaryDirectory() as directory:
-            roots = fixture.fixture(Path(directory))
-            fixture.apply(roots)
-            root = roots[0]
-            for path, original in self.originals.items():
-                destination = root / path
-                if not destination.exists():
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    destination.write_text(original)
-            module.patch(root)
-            first = {path: (root / path).read_bytes() for path in self.originals}
-            module.patch(root)
-            self.assertEqual(first, {path: (root / path).read_bytes() for path in first})
-            self.assertIn('LCNativeErrorPresentation.message(errorInfo, site: .settings)',
-                          (root / 'LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift').read_text())
 
-    def test_drift_fails_before_any_write(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = self.fixture(directory)
-            last = root / module.TWEAK_PATH
-            last.write_text(last.read_text().replace('static void showDlerrAlert', 'static void changedAlert'))
-            before = {path: (root / path).read_bytes() for path in self.originals}
+class NativePresenterOwnerTests(unittest.TestCase):
+    def test_registry_and_helper_boundary(self):
+        source = helper()
+        self.assertEqual(dict(re.findall(r'case (\w+) = "([^"]+)"', source)),
+                         {key: value[0] for key, value in SITES.items()})
+        self.assertEqual(len(set(v[0] for v in SITES.values())), len(SITES))
+        for token in ['localizedDescription', 'CombinedFailure']:
+            self.assertNotIn(token, source)
+        for token in ['saved.utf8.count == 40', '^[0-9a-fA-F]{40}$',
+                      'saved.lowercased() : "unknown"', 'builder_commit=']:
+            self.assertIn(token, source)
+        self.assertEqual(len(NATIVE_ERROR_SOURCE_PATHS), 13)
+        for name in ['combined_build_evidence.py', 'verify_candidate_ipa.py']:
+            self.assertIn('*NATIVE_ERROR_SOURCE_PATHS', (ROOT/'scripts'/name).read_text())
+
+    def test_current_routes_and_negative_controls(self):
+        sources = {path: owner_source(path) for path in NATIVE_ERROR_SOURCE_PATHS}
+        verify_routes(sources)
+        for site, (_, path) in SITES.items():
+            path = SWIFT_ROOT+path
+            changed = dict(sources)
+            changed[path] = changed[path].replace(f'LCNativeErrorSite.{site}.rawValue', 'LCNativeErrorSite.wrong.rawValue')
             with self.assertRaises(ValueError):
-                module.patch(root)
-            self.assertEqual(before, {path: (root / path).read_bytes() for path in before})
-
-    def test_marker_does_not_hide_generated_drift(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = self.fixture(directory)
-            module.patch(root)
-            path = root / 'LiveContainerSwiftUI/Views/AppList/LCAppListView.swift'
-            path.write_text(path.read_text().replace('site: .appList', 'site: .settings'))
+                verify_routes(changed)
+            changed = dict(sources)
+            changed[path] = changed[path].replace(f'site: .{site})', 'site: .wrong)')
             with self.assertRaises(ValueError):
-                module.patch(root)
+                verify_routes(changed)
+        changed = dict(sources)
+        changed[TWEAK_PATH] = changed[TWEAK_PATH].replace('generalPasteboard.string = details;', 'generalPasteboard.string = error;')
+        with self.assertRaises(ValueError):
+            verify_routes(changed)
+
+    def test_optional_errors_and_crash_report_are_separate(self):
+        sources = owner_source(SWIFT_ROOT+'Views/LCAltStoreSourcesView.swift')
+        self.assertIn('if let errorDisplay { V3LocalizedText(errorDisplay.appendingDiagnostic', sources)
+        storage = owner_source(SWIFT_ROOT+'Views/Settings/DataManagement/LCStorageManagementSections.swift')
+        self.assertIn('if let errorInfo {', storage)
+        root = owner_source(SWIFT_ROOT+'Views/LCTabView.swift')
+        crash = root.split('.sheet(isPresented: $crashReportShow)', 1)[1].split('.onAppear', 1)[0]
+        self.assertIn('Text(verbatim: errorInfo)', crash)
+        self.assertNotIn('LCNativeErrorPresentation', crash)
+        verify_crash_copy(root)
+        for changed in [root.replace('copyError()', 'wrongCopy()'),
+                        root.replace('UIPasteboard.general.string = errorInfo',
+                                     'UIPasteboard.general.string = LCNativeErrorPresentation.details(errorInfo, site: .root)')]:
+            with self.assertRaises(ValueError):
+                verify_crash_copy(changed)
+
+
+class NativePresenterRuntimeTests(unittest.TestCase):
+    def test_real_helper_and_negative_control(self):
+        swift = shutil.which('swiftc')
+        if not swift:
+            raise RuntimeError('swiftc is required for maintained presenter runtime tests')
+        harness = '\n'.join(
+            f'precondition(LCNativeErrorPresentation.message("raw provider text", site: .{key}) == "raw provider text\\nError ID: {value[0]}")'
+            for key, value in SITES.items())
+        harness += '\nprecondition(LCNativeErrorPresentation.details("", site: .banner) == "\\nError ID: SS-NATIVE-BANNER\\nbuilder_commit=unknown")\n'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            for broken in [False, True]:
+                source = helper()
+                if broken:
+                    source = source.replace('site.rawValue', '"SS-NATIVE-WRONG"')
+                (path/'main.swift').write_text('import Foundation\n'+source+'\n'+harness)
+                subprocess.run([swift, str(path/'main.swift'), '-o', str(path/'probe')], check=True, capture_output=True, timeout=60)
+                result = subprocess.run([str(path/'probe')], capture_output=True, timeout=15)
+                self.assertEqual(result.returncode == 0, not broken)
+
+    def test_all_maintained_swift_presenters_parse(self):
+        swift = shutil.which('swiftc')
+        if not swift:
+            raise RuntimeError('swiftc is required for presenter syntax tests')
+        with tempfile.TemporaryDirectory() as directory:
+            for path in NATIVE_ERROR_SOURCE_PATHS:
+                if not path.endswith('.swift'):
+                    continue
+                target = Path(directory)/Path(path).name
+                target.write_text(owner_source(path))
+                subprocess.run([swift, '-frontend', '-parse', str(target)], check=True, capture_output=True, timeout=60)
 
 
 if __name__ == '__main__':

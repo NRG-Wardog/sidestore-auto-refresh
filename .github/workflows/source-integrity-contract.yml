@@ -82,3 +82,56 @@ jobs:
           MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore" \
             python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_app_layout.py \
               --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained privacy and typed-2FA runtime controls
+        run: |
+          set -euo pipefail
+          pin=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/SideSign"][1])')
+          repository=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/SideSign"][0])')
+          git init -q sources/SideStore/Dependencies/SideSign
+          git -C sources/SideStore/Dependencies/SideSign remote add origin "https://github.com/$repository.git"
+          git -C sources/SideStore/Dependencies/SideSign -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$pin"
+          git -C sources/SideStore/Dependencies/SideSign -c core.hooksPath=/dev/null checkout --detach "$pin"
+          MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore" MAINTAINED_SIDESIGN_TEST_SOURCE="$PWD/sources/SideStore/Dependencies/SideSign" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_sidesign_privacy.py \
+              --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained transport and ownership regressions
+        run: |
+          set -euo pipefail
+          pin=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/minimuxer"][1])')
+          repository=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/minimuxer"][0])')
+          git init -q sources/SideStore/Dependencies/minimuxer
+          git -C sources/SideStore/Dependencies/minimuxer remote add origin "https://github.com/$repository.git"
+          git -C sources/SideStore/Dependencies/minimuxer -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$pin"
+          git -C sources/SideStore/Dependencies/minimuxer -c core.hooksPath=/dev/null checkout --detach "$pin"
+          export MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore"
+          export MAINTAINED_MINIMUXER_TEST_SOURCE="$PWD/sources/SideStore/Dependencies/minimuxer"
+          for suite in test_combined_transport.py test_combined_failure_execution.py test_issue24_udid_error_propagation.py; do
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
+          done
+      - name: Require maintained startup, CFBundle runtime and real iPhoneOS SDK controls
+        run: |
+          set -euo pipefail
+          export MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer"
+          export MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore"
+          for suite in test_cf_bundle_scan.py test_embedded_sidestore_startup.py test_v3_ui_cleanup_contracts.py; do
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
+          done
+      - name: Require maintained native error presenter contracts and runtime controls
+        run: |
+          set -euo pipefail
+          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_native_error_presenters.py \
+              --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained guest owner pilot and negative runtime controls
+        run: |
+          set -euo pipefail
+          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_guest_owner.py \
+              --allowlist scripts/required_test_skip_allowlist.json
+      - name: Require maintained guest return, registry and terminal-path regressions
+        run: |
+          set -euo pipefail
+          export MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer"
+          for suite in test_guest_return.py test_guest_launch_completion.py test_v3_diagnostic_codes.py; do
+            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
+          done

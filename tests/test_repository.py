@@ -18,21 +18,15 @@ REQUIRED_SCRIPTS = {
 }
 LIVE_CONTAINER_SCRIPTS = {
     "ipa_size_report.py",
-    "patch_native_error_presenters.py",
-    "patch_cf_bundle_scan.py",
+    "native_error_evidence.py",
     "patch_livecontainer_autorefresh.py",
-    "patch_embedded_sidestore_startup.py",
     "patch_v3_unified_shell.py",
-    "patch_sidesign_2fa_state.py",
     "patch_v3_service.py",
     "patch_combined_refresh_contract.py",
     "patch_embedded_keychain.py",
-    "patch_guest_return.py",
     "patch_combined_refresh_contract.py",
-    "patch_combined_transport.py",
     "patch_combined_service_startup.py",
     "patch_refresh_result_bridge.py",
-    "patch_embedded_sidestore_startup.py",
     "patch_combined_service_startup.py",
     "combined_build_evidence.py",
     "run_issue25_rendering.py", "rendering_localization.py",
@@ -40,26 +34,19 @@ LIVE_CONTAINER_SCRIPTS = {
     "p2_localization_contract.py",
     "p2_permission_contract.py",
     "audit_ipa_signing.py",
-    "patch_guest_return.py",
-    "patch_combined_transport.py",
     "patch_combined_service_startup.py",
     "patch_refresh_result_bridge.py",
     "patch_background_automation.py",
     "patch_combined_refresh_contract.py",
-    "patch_embedded_sidestore_startup.py",
     "patch_v3_service.py",
     "patch_combined_service_startup.py",
     "combined_build_evidence.py",
     "run_issue25_rendering.py",
     "package_livecontainer_combined.py", "packaging_adapters.py", "rehearse_packaging_integration.py",
     "audit_ipa_signing.py",
-    "patch_guest_return.py",
-    "patch_combined_transport.py",
     "patch_refresh_result_bridge.py",
-    "patch_embedded_sidestore_startup.py",
 }
 LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
-LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
 COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
 EMBEDDED_KEYCHAIN_SCRIPT = "patch_embedded_keychain.py"
 V3_UNIFIED_SHELL_SCRIPT = "patch_v3_unified_shell.py"
@@ -202,7 +189,7 @@ class RepositoryTests(unittest.TestCase):
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
                     'experiment_local_symbols.py', 'experiment_sidebackup_stabs.py', 'local_symbol_packaging.py', 'macho_local_symbol_guard.py', 'openssl_local_symbol_policy.py', 'optimize_openssl_local_candidate.py', 'optimize_sidebackup_candidate.py', 'optimize_unsigned_widget.py', 'patch_refresh_callback_admission.py', 'widget_local_symbols.py', 'widget_signature_policy.py',
                     "integration_contracts.py", "experiment_strip_stabs.py", "macho_stab_guard.py", "optimize_native_candidate.py",
-                    "check_compiled_localization.py", "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py"},
+                    "check_compiled_localization.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "maintained_package_evidence.py", "verify_archive_symbols.py", "verify_prepared_anisette.py"},
 
         )
 
@@ -212,9 +199,8 @@ class RepositoryTests(unittest.TestCase):
         Examples include test_automation, test_app_layout, test_embedded_keychain,
         test_guest_return, test_sidesign_privacy, and test_v3_unified_shell.
         """
-        for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
-                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py", "patch_refresh_result_bridge.py", V3_UNIFIED_SHELL_SCRIPT,
-                                        "patch_sidesign_2fa_state.py"}:
+        for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT,
+                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_refresh_result_bridge.py", V3_UNIFIED_SHELL_SCRIPT}:
             path = SCRIPTS / name
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         self.assertIn(

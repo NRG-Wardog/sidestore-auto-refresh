@@ -21,6 +21,10 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+import sys
+sys.path.insert(0, str(ROOT / "tests"))
+from guest_owner_parts import implementations, block
+from owner_source import owner_source
 TEMPLATES = ROOT / "scripts" / "templates"
 RULES = TEMPLATES / "LCAppGroupIdentityRules.h"
 SELECTION = TEMPLATES / "LCAppGroupSelectionPolicy.h"
@@ -486,9 +490,7 @@ class AppGroupSweepClassificationTests(unittest.TestCase):
     HANDLER = ROOT / "scripts/templates/combined_refresh_handler.swift"
     RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
     SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
-    STARTUP = ROOT / "scripts/patch_embedded_sidestore_startup.py"
     AUTOMATION = ROOT / "scripts/patch_background_automation.py"
-    GUEST_RETURN = ROOT / "scripts/patch_guest_return.py"
 
     SAFE_PROCESS_LOCAL = [
         (HOST, ["V3NotificationsPromptShown"]),
@@ -547,12 +549,12 @@ class AppGroupSweepClassificationTests(unittest.TestCase):
                 self.assertIn("store:", line,
                               f"{path.name} declares @AppStorage without an intended store: {line.strip()}")
 
-    def test_diagnostics_report_the_runtime_group_not_the_packaged_one(self):
-        startup = self.STARTUP.read_text(encoding="utf-8")
-        self.assertIn("let runtimeAppGroup = V3SharedAppGroup.runtimeIdentity()", startup)
+    def test_current_database_does_not_restore_retired_packaged_group_diagnostics(self):
+        # Current async startup no longer emits the old callback-era diagnostic.
+        # Keep its privacy boundary, not an assertion against a retired generator.
+        startup = owner_source("AltStore/Core/Model/DatabaseManager/DatabaseManager.swift", "SideStore")
         self.assertNotIn('forSecurityApplicationGroupIdentifier: requestedAppGroup', startup)
-        self.assertIn("app_group_source=", startup)
-        # The identifier itself must never reach a log line.
+        self.assertNotIn('app_group_source=', startup)
         for line in startup.splitlines():
             if "app_group" in line and "debugLog" in line:
                 self.assertNotIn("group.com.", line)
@@ -560,8 +562,7 @@ class AppGroupSweepClassificationTests(unittest.TestCase):
     def test_upstream_livecontainer_helpers_keep_their_own_runtime_group(self):
         # LiveContainer's own shared-preference helpers already resolve the
         # runtime group; they are not a fixed-suite assumption and must stay.
-        for path in (self.GUEST_RETURN,):
-            text = path.read_text(encoding="utf-8")
+        for text in implementations().sources.values():
             self.assertNotIn("UserDefaults(suiteName: \"group.", text)
         self.assertIn("LCUtils.appGroupUserDefault", self.HOST.read_text(encoding="utf-8"))
 
