@@ -1,3 +1,5 @@
+// Negative control: unbounded upstream loops from LiveContainer 12377cf3.
+// Intentionally unsafe, executed only in isolated guard-page child processes.
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -14,9 +16,30 @@ __PRODUCTION_HELPER__
 static uintptr_t baseline_scan(uint32_t *pc, bool adjacentTBZ) {
     void **mainBundleAddr = 0;
     if (adjacentTBZ) {
-__BASELINE_MODERN_LOOP__
+while (true) {
+            bool isTbz = ((*pc) & 0x7F000000) == 0x36000000;
+            if (isTbz) {
+                // adrp <- pc-1
+                // tbz <- pc
+                // ldr  <- addr
+                mainBundleAddr = (void **)aarch64_emulate_adrp_ldr(*(pc-1), *(uint32_t *)(pc+1), (uint64_t)(pc-1));
+                break;
+            }
+            ++pc;
+        }
     } else {
-__BASELINE_LEGACY_LOOP__
+while (true) {
+            uint64_t addr = aarch64_get_tbnz_jump_address(*pc, (uint64_t)pc);
+            if (addr) {
+                // adrp <- pc-1
+                // tbnz <- pc
+                // ...
+                // ldr  <- addr
+                mainBundleAddr = (void **)aarch64_emulate_adrp_ldr(*(pc-1), *(uint32_t *)addr, (uint64_t)(pc-1));
+                break;
+            }
+            ++pc;
+        }
     }
     return (uintptr_t)mainBundleAddr;
 }
