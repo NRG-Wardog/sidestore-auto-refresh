@@ -66,3 +66,9 @@ macOS bounded-contract lane requires the real ZSign/OpenSSL 3 harness (valid,
 wrong-password, malformed and multiple certificates plus validation callbacks)
 without skips. The shared owner loader rejects mismatched pins and modified
 source bytes. Dead10cc continues to execute production C blocks on Linux.
+
+CoreDevice source guards now inspect the pinned maintained idevice owner after
+CI source acquisition, including heartbeat log privacy and rejected dynamic-log
+mutations. The historical transport generator is retired. These are source
+contracts, not a Rust execution or device-connectivity claim; the existing
+maintained native owner/ABI qualification remains unchanged.
