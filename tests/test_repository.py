@@ -28,7 +28,6 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_combined_refresh_contract.py",
     "patch_embedded_keychain.py",
     "patch_guest_return.py",
-    "patch_multitask_dock.py",
     "patch_combined_refresh_contract.py",
     "patch_combined_transport.py",
     "patch_combined_service_startup.py",
