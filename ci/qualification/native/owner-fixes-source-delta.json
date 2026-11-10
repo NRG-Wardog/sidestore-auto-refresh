@@ -1,0 +1,123 @@
+{
+  "files": {
+    "LiveContainer/LiveContainerSwiftUI/App/AppDelegate.swift": {
+      "after_blob": "b8e8eb59139ba35eeae4865df27b5220b166bd99",
+      "after_commit": "12e77fad6517288de544e766fb0e84594c2a1912",
+      "after_sha256": "e1e00afd2e0ca7d09d2f017019a194d889b150631dd755e394655c8b57772e51",
+      "before_blob": "d0db7e811591386eec23e70ab6b9b6bacdc1fb51",
+      "before_commit": "5d2498d4dfffa14c031ca1481ab9f3417bfccc3f",
+      "before_sha256": "acaa7ae52234ea311f13d70573f8c2202873ca43d4daaa3a2cae03c6bd495440",
+      "edits": [
+        {
+          "after": "        if native.domain == \"LiveContainerRefresh.Network\", (1...4).contains(native.code) {\n",
+          "after_lines": [
+            1142,
+            1143
+          ],
+          "before": "        if native.domain == \"LiveContainerRefresh.Network\" {\n"
+        },
+        {
+          "after": "            // Capture ownership before claiming completion; a cancelled or replaced\n            // preflight cannot grant permission to schedule another run.\n            let ownsFailedPreflight = !Task.isCancelled && ownsNetworkPreflight(\n                runID: runID, requestID: correlatedRequestID, source: source,\n                gateFinished: gate.isFinished)\n",
+          "after_lines": [
+            1580,
+            1585
+          ],
+          "before": ""
+        },
+        {
+          "after": "            let preflightPending = runLedger()[runID.uuidString]?[\"network_preflight\"] as? String == \"pending\"\n            if preflightPending {\n",
+          "after_lines": [
+            1586,
+            1588
+          ],
+          "before": "            if runLedger()[runID.uuidString]?[\"network_preflight\"] as? String == \"pending\" {\n"
+        },
+        {
+          "after": "            let failure = structuredRefreshFailure(error, runID: runID.uuidString)\n            // Normalize known preflight errors before deciding whether replay is safe.\n            // A matching NSError after preflight is not evidence of no mutation.\n            let knownPreflightFailure = ownsFailedPreflight && preflightPending && nsError.domain == \"LiveContainerRefresh.Network\" && (1...4).contains(nsError.code)\n            let structured: CombinedFailure? = (error is CombinedFailure || knownPreflightFailure) ? failure : nil\n",
+          "after_lines": [
+            1593,
+            1598
+          ],
+          "before": "            let structured = error as? CombinedFailure\n"
+        },
+        {
+          "after": "",
+          "after_lines": [
+            1612,
+            1612
+          ],
+          "before": "            let failure = structuredRefreshFailure(error, runID: runID.uuidString)\n"
+        }
+      ]
+    },
+    "LiveContainer/SideStoreSupport/SideStore.swift": {
+      "after_blob": "db4a86a8fb101368d3ab7d457cf46dbffd23a2b8",
+      "after_commit": "12e77fad6517288de544e766fb0e84594c2a1912",
+      "after_sha256": "eec64cca637207acd76e13ea1e0ff32017379a9867d28cc153be2028b02a25ca",
+      "before_blob": "bc3ac9abcf06da62d40ec72c1e71016b249154ff",
+      "before_commit": "5d2498d4dfffa14c031ca1481ab9f3417bfccc3f",
+      "before_sha256": "136a02e5a8c74a47cd463c91f6e8cabccc92f9bb9f19dab5c648099c1f603834",
+      "edits": [
+        {
+          "after": "        // Adding the observer state is bookkeeping, not loss of diagnostic evidence.\n        var trimmed = fields != raw\n",
+          "after_lines": [
+            2958,
+            2960
+          ],
+          "before": ""
+        },
+        {
+          "after": "",
+          "after_lines": [
+            2961,
+            2961
+          ],
+          "before": "        var trimmed = fields != raw\n"
+        }
+      ]
+    },
+    "SideStore/AltStore/AppDelegate.swift": {
+      "after_blob": "5a04b994d7f0f06c0d6840dd610b62c8b9144726",
+      "after_commit": "d0fc537310c921cd5732e16e16f2037d215ecde2",
+      "after_sha256": "64f496c4ae34a89e7df07be1cd4b8c6f54a7f08944ea2da4bbfab053dd7bd746",
+      "before_blob": "94f3b54ac67fac7d22126673e475436c1aabd571",
+      "before_commit": "dc3f5d7ffc8a21e8ee0fbc1137572e782f0bd223",
+      "before_sha256": "820f1008de6b1ee34e943beab1d3c62c988498a89b55ef3034d4680ac104ac68",
+      "edits": [
+        {
+          "after": "        let activeAccount = DatabaseManager.shared.activeAccount()\n        let account = activeAccount?.appleID ?? \"Not signed in\"\n",
+          "after_lines": [
+            15003,
+            15005
+          ],
+          "before": "        let account = DatabaseManager.shared.activeAccount()?.appleID ?? \"Not signed in\"\n"
+        },
+        {
+          "after": "                \"activeAccountPresent\": activeAccount != nil,\n                \"activeTeamPresent\": team != nil,\n",
+          "after_lines": [
+            15011,
+            15013
+          ],
+          "before": ""
+        },
+        {
+          "after": "        // Adding the observer state is bookkeeping, not loss of diagnostic evidence.\n        var trimmed = fields != raw\n",
+          "after_lines": [
+            17619,
+            17621
+          ],
+          "before": ""
+        },
+        {
+          "after": "",
+          "after_lines": [
+            17622,
+            17622
+          ],
+          "before": "        var trimmed = fields != raw\n"
+        }
+      ]
+    }
+  },
+  "schema": "reviewed-owner-fixes-source-delta-v1"
+}

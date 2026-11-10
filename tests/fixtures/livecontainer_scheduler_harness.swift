@@ -5,6 +5,7 @@ extension LiveContainerAutoRefreshScheduler {
         LiveContainerRefreshBridge.calls = 0
         LiveContainerRefreshBridge.fails = false
         LiveContainerRefreshBridge.incomplete = false
+        LiveContainerRefreshBridge.verificationEvidence = LiveContainerRefreshBridge.renewedEvidence
         LiveContainerRefreshBridge.uncertain = false
         LiveContainerRefreshBridge.resultFailure = nil
         LiveContainerRefreshBridge.resultRetryable = nil
@@ -55,6 +56,25 @@ extension LiveContainerAutoRefreshScheduler {
         let disabled = BGTask()
         await execute(source: "bgprocessing", task: disabled)
         precondition(LiveContainerRefreshBridge.calls == 0 && disabled.completions == [true])
+
+        // The success bit alone, ACK alone, or unchanged validity cannot establish renewal.
+        let unverifiedEvidence: [[String: Any]?] = [nil,
+            ["version": 1, "mutationDispatched": true, "installAcknowledged": true,
+             "profileStore": "unavailable", "renewal": "unknown", "certificate": "valid"],
+            ["version": 1, "mutationDispatched": true, "installAcknowledged": true,
+             "profileStore": "matched", "renewal": "unchanged", "certificate": "valid"],
+            ["version": 1, "mutationDispatched": false, "installAcknowledged": true,
+             "profileStore": "matched", "renewal": "extended", "certificate": "valid"]]
+        for evidence in unverifiedEvidence {
+            clearTestState()
+            LiveContainerRefreshBridge.verificationEvidence = evidence
+            let unverified = BGTask()
+            await execute(source: "manual", task: unverified)
+            precondition(LiveContainerRefreshBridge.calls == 1 && unverified.completions == [false],
+                         "unverified or contradictory producer observations reported success")
+            precondition(defaults.object(forKey: lastSuccessfulKey) == nil && defaults.object(forKey: nextRetryKey) == nil,
+                         "unverified renewal marked success or scheduled replay")
+        }
 
         clearTestState()
         let successful = BGTask()
@@ -122,7 +142,8 @@ extension LiveContainerAutoRefreshScheduler {
         await execute(source: "manual", task: failed)
         precondition(failed.completions == [false])
         precondition(defaults.string(forKey: lastResultKey) == "failure")
-        precondition(defaults.object(forKey: nextRetryKey) as? Date != nil)
+        precondition(defaults.object(forKey: nextRetryKey) == nil,
+                     "unknown post-dispatch failure cannot authorize automatic replay")
         let currentFailure = defaults.dictionary(forKey: currentRunFailureKey)!
         precondition(currentFailure["run_id"] as? String == currentFailure["correlation"] as? String)
         precondition(currentFailure["operation"] as? String == "refresh")
@@ -166,7 +187,8 @@ extension LiveContainerAutoRefreshScheduler {
             precondition(terminal["retryable"] as? String == "unknown")
             precondition((terminal["safe_message"] as? String ?? "").contains(stage.rawValue))
             precondition(!String(describing: terminal).contains("SECRET_TOKEN"))
-            precondition((defaults.object(forKey: nextRetryKey) == nil) == (stage == .authentication))
+            precondition(defaults.object(forKey: nextRetryKey) == nil,
+                         "a stage without proven pre-mutation evidence cannot authorize replay")
         }
         clearTestState()
         LiveContainerRefreshBridge.resultFailure = .installation
@@ -208,6 +230,16 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(LiveContainerRefreshBridge.calls == priorCalls, "uncertain mutation was replayed automatically")
         LiveContainerRefreshBridge.uncertain = false
         await execute(source: "manual", task: BGTask())
+        precondition(LiveContainerRefreshBridge.calls == priorCalls,
+                     "manual refresh is not an acknowledgment of an uncertain installation")
+        guard let ticket = uncertaintyTicket() else { preconditionFailure("missing exact failed-run acknowledgment ticket") }
+        precondition(acknowledgeUncertaintyAfterUserDeviceCheck(ticket))
+        precondition(LiveContainerRefreshBridge.calls == priorCalls && defaults.object(forKey: lastSuccessfulKey) == nil,
+                     "acknowledgment must not dispatch or claim successful renewal")
+        await execute(source: "bgprocessing", task: BGTask())
+        precondition(LiveContainerRefreshBridge.calls == priorCalls,
+                     "acknowledgment must preserve the automatic-work hold")
+        await execute(source: "manual", task: BGTask())
         precondition(LiveContainerRefreshBridge.calls == priorCalls + 1)
         precondition(defaults.string(forKey: uncertainMutationKey) == nil)
 
@@ -226,7 +258,7 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(defaults.string(forKey: uncertainMutationKey) == currentRun)
         defaults.set(["run_id": currentRun, "version": 2, "schema": "LiveContainerRefreshManifestV2",
                       "expected_ids": ["fixture.app"],
-                      "results": [["bundle_id": "fixture.app", "success": true]]], forKey: verificationKey)
+                      "results": [LiveContainerRefreshBridge.successfulResult("fixture.app")]], forKey: verificationKey)
         saveRunRecord(["run_id": currentRun, "request_id": UUID().uuidString,
                        "source": "manual", "state": "verifying",
                        "started_at": Date().timeIntervalSince1970], runID: currentRun)
@@ -309,18 +341,47 @@ extension LiveContainerAutoRefreshScheduler {
         defaults.set(incompleteBatchRun, forKey: hostHandoffRunKey)
         defaults.set(Date().addingTimeInterval(-240), forKey: hostHandoffStartedKey)
         defaults.set(["run_id": incompleteBatchRun, "expiration": Date().addingTimeInterval(-86_400),
+                      "installed_bundle_id": fixtureBundleID,
                       "identifier": "ABCDE12345." + fixtureBundleID,
                       "uuid": "OLD-PROFILE-UUID"], forKey: hostBaselineKey)
         defaults.removeObject(forKey: verificationKey)
         verifyPendingHostHandoff()
         let incompleteBatchTerminal = runLedger()[incompleteBatchRun]!
         precondition(incompleteBatchTerminal["state"] as? String == "failed" &&
-                     incompleteBatchTerminal["result"] as? String == "host_verified_batch_unconfirmed" &&
-                     incompleteBatchTerminal["health"] as? String == "REFRESH_FAILED",
+                     incompleteBatchTerminal["result"] as? String == "host_baseline_unavailable" &&
+                     incompleteBatchTerminal["health"] as? String == "HOST_REFRESH_UNVERIFIED",
                      "host profile renewal cannot report success without this run's complete batch manifest")
         precondition(defaults.dictionary(forKey: currentRunFailureKey)?["run_id"] as? String == incompleteBatchRun)
         precondition(!defaults.bool(forKey: hostHandoffKey) &&
                      defaults.string(forKey: hostHandoffRunKey) == nil)
+
+        // A complete host mapping can establish host renewal while a guest failed.
+        // Exercise the later batch-failure branch separately from missing metadata.
+        clearTestState()
+        let failedGuestRun = UUID().uuidString
+        saveRunRecord(["run_id": failedGuestRun, "request_id": "", "origin": "home",
+                       "source": "manual", "state": "verifying",
+                       "started_at": Date().timeIntervalSince1970], runID: failedGuestRun)
+        defaults.set(true, forKey: hostHandoffKey)
+        defaults.set(failedGuestRun, forKey: hostHandoffRunKey)
+        defaults.set(["run_id": failedGuestRun, "expiration": Date().addingTimeInterval(-86_400),
+                      "installed_bundle_id": fixtureBundleID,
+                      "identifier": "ABCDE12345." + fixtureBundleID,
+                      "uuid": "OLD-PROFILE-UUID"], forKey: hostBaselineKey)
+        let guestFailure = CombinedFailure(operation: "refresh", stage: .signing, id: failedGuestRun)
+        defaults.set(["version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": failedGuestRun,
+                      "host_handoff": true, "expected_ids": ["com.kdt.livecontainer", "fixture.app"],
+                      "results": [["bundle_id": "com.kdt.livecontainer", "success": true],
+                                  ["bundle_id": "fixture.app", "success": false, "failure": guestFailure.wire]]],
+                     forKey: verificationKey)
+        verifyPendingHostHandoff()
+        let failedGuestTerminal = runLedger()[failedGuestRun]!
+        precondition(failedGuestTerminal["state"] as? String == "failed" &&
+                     failedGuestTerminal["result"] as? String == "host_verified_batch_unconfirmed" &&
+                     failedGuestTerminal["health"] as? String == "REFRESH_FAILED" &&
+                     defaults.object(forKey: lastSuccessfulKey) == nil,
+                     "verified host renewal must not hide a guest failure")
+        precondition(!defaults.bool(forKey: hostHandoffKey) && defaults.string(forKey: hostHandoffRunKey) == nil)
 
         // The 180-second non-advanced-profile timeout is also exercised
         // against the actual profile reader and terminal failure writer.
@@ -333,6 +394,7 @@ extension LiveContainerAutoRefreshScheduler {
         defaults.set(timedOutHandoffRun, forKey: hostHandoffRunKey)
         defaults.set(Date().addingTimeInterval(-181), forKey: hostHandoffStartedKey)
         defaults.set(["run_id": timedOutHandoffRun, "expiration": renewedExpiration,
+                      "installed_bundle_id": fixtureBundleID,
                       "identifier": "ABCDE12345." + fixtureBundleID,
                       "uuid": "FIXTURE-PROFILE-UUID"], forKey: hostBaselineKey)
         verifyPendingHostHandoff()
@@ -365,10 +427,24 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(defaults.dictionary(forKey: currentRunFailureKey)?["run_id"] as? String == interruptedFailureRun)
 
         clearTestState()
+        let unprovenRecoveryRun = UUID().uuidString
+        let unprovenManifest: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2",
+            "run_id": unprovenRecoveryRun, "expected_ids": ["fixture.app"],
+            "results": [["bundle_id": "fixture.app", "success": true]]]
+        saveRunRecord(["run_id": unprovenRecoveryRun, "request_id": "", "origin": "home",
+                       "source": "manual", "state": "verifying", "terminal_intent": "verified",
+                       "manifest": unprovenManifest,
+                       "started_at": Date().timeIntervalSince1970], runID: unprovenRecoveryRun)
+        recoverOrphanedRunLedger()
+        precondition(runLedger()[unprovenRecoveryRun]?["state"] as? String == "failed" &&
+                     defaults.object(forKey: lastSuccessfulKey) == nil && defaults.object(forKey: nextRetryKey) == nil,
+                     "recovery must not promote a success bit without renewal evidence")
+
+        clearTestState()
         let interruptedSuccessRun = UUID().uuidString
         let recoveredManifest: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2",
             "run_id": interruptedSuccessRun, "expected_ids": ["fixture.app"],
-            "results": [["bundle_id": "fixture.app", "success": true]]]
+            "results": [LiveContainerRefreshBridge.successfulResult("fixture.app")]]
         saveRunRecord(["run_id": interruptedSuccessRun, "request_id": "", "origin": "home",
                        "source": "manual", "state": "verifying", "terminal_intent": "verified",
                        "manifest": recoveredManifest,

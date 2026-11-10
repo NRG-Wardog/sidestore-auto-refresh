@@ -157,6 +157,7 @@ jobs:
           python3 -B harness/tests/ci/native/test_direct_service_projection.py
           python3 -B harness/tests/ci/native/test_direct_fixture_projection.py
           python3 -B harness/tests/ci/native/test_direct_host_projection.py
+          python3 -B harness/tests/ci/native/test_owner_fixes_projection.py --sources sources
           python3 -B harness/tests/ci/native/test_candidate_graph.py
           python3 -B harness/tests/ci/native/test_candidate_contract_projection.py
           python3 -B harness/tests/ci/native/test_russian_pairing_projection.py

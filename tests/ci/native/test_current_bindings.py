@@ -99,6 +99,9 @@ class CurrentBindingsTests(unittest.TestCase):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(native_file(name), destination)
         shutil.copy2(REPO_ROOT/'ci/native_paths.py', self.harness/'ci/native_paths.py')
+        for name in ('owner_fixes_projection.py', 'owner-fixes-source-delta.json'):
+            shutil.copy2(REPO_ROOT/'ci/qualification/native'/name,
+                         self.harness/'ci/qualification/native'/name)
         for package in ('ci', 'ci/build', 'ci/qualification', 'ci/qualification/native'):
             (self.harness/package/'__init__.py').touch()
         actual_graph = json.loads(((module_root.parents[1]/'build/candidate-graph.json')).read_text())

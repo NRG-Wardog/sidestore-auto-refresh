@@ -90,7 +90,25 @@
                         precondition(failure.stage == .authentication && failure.sourceStep == .anisetteFetch)
                         precondition(failure.safeCause == nil && failure.retryable == nil)
                         let decoded = CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)!
-                        precondition(decoded.signingContext == failure.signingContext)
+                        // Wire serialization adds a finite observation state when a
+                        // provisioning cause is present. That bookkeeping must not
+                        // remove or alter any original evidence or claim trimming.
+                        let wireContext = failure.wire["signingContext"] as! [String: String]
+                        var expectedWireContext = failure.signingContext
+                        if expectedWireContext[V3ProvisioningCauseDiagnostic.contextKey] != nil &&
+                           expectedWireContext[V3AuthenticationDiagnostics.stateKey] == nil {
+                            expectedWireContext[V3AuthenticationDiagnostics.stateKey] = "recorded"
+                        }
+                        for (key, value) in failure.signingContext {
+                            precondition(wireContext[key] == value,
+                                "native ADI wire lost original evidence: field=\(key)")
+                        }
+                        precondition(wireContext == expectedWireContext,
+                            "native ADI wire must only add recorded state without losing evidence")
+                        precondition(decoded.signingContext == wireContext,
+                            "native ADI decode must preserve canonical wire context")
+                        precondition((decoded.wire["signingContext"] as? [String: String]) == wireContext,
+                            "native ADI canonical wire context must be idempotent")
                         precondition(decoded.signingContext["native_code"] == String(code))
                         precondition(decoded.signingContext["native_phase"] == phase.rawValue)
                         precondition(decoded.signingContext["native_subcode"] == (subcode.map(String.init) ?? "unknown"))

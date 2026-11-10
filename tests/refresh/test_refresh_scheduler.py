@@ -38,7 +38,7 @@ class LiveContainerRuntimeTests(unittest.TestCase):
             build = subprocess.run([compiler, "-swift-version", "5", "-parse-as-library", str(file), "-o", str(exe)], text=True, capture_output=True)
             self.assertEqual(build.returncode, 0, build.stderr)
             result = subprocess.run([str(exe)], text=True, capture_output=True, timeout=20)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 0, f"scheduler exit={result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
             self.assertIn("SCHEDULER_BEHAVIOR_TESTS_PASSED", result.stdout)
             self.assertIn("underlying_domain=redacted underlying_code=unknown", result.stdout)
             self.assertNotIn(r"\(runID", result.stdout)

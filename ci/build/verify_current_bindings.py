@@ -67,7 +67,8 @@ def verify(sources, *, harness=(HERE.parents[2]), graph=None):
                 # successors with independently proved inverses are admitted.
                 spec = direct_host.specification()
                 if (relative == direct_host.PATH and expected == spec['before_sha256']
-                        and actual == spec['after_sha256']):
+                        and direct_host.normalize({'input_sha256': {relative: actual}})
+                            ['input_sha256'][relative] == expected):
                     require(direct_host.validate_bytes(path.read_bytes()),
                             'direct-host inverse validation did not admit successor')
                     proof = 'exact_reviewed_direct_host_inverse'

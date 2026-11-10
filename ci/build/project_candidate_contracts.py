@@ -144,6 +144,12 @@ def project(contract, graph, sources, additional_inputs=()):
 PROJECTION_RUNTIME_SOURCES = (
     'ci/__init__.py', 'ci/build/__init__.py',
     'ci/native_paths.py', 'ci/build/project_candidate_contracts.py',
+    'ci/qualification/native/owner_fixes_projection.py',
+    'ci/qualification/native/owner-fixes-source-delta.json',
+    'ci/qualification/native/direct_host_projection.py',
+    'ci/qualification/native/direct_service_projection.py',
+    'ci/qualification/native/direct-host-source-delta.json',
+    'ci/qualification/native/direct-service-source-delta.json',
 )
 
 
@@ -163,6 +169,8 @@ def verify_projection_receipt(path, expected):
 
 
 def contracts(sources, output, verify=False):
+    from ci.qualification.native.owner_fixes_projection import validate_source as validate_owner_fixes
+    validate_owner_fixes(Path(sources))
     from ci.qualification.native.direct_refresh_projection import validate_source as validate_direct_refresh_source
     validate_direct_refresh_source(Path(sources))
     from ci.qualification.native.direct_service_projection import validate_source as validate_direct_service_source

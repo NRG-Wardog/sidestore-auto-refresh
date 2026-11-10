@@ -80,6 +80,10 @@ class CurrentBuildTests(unittest.TestCase):
         steps=steps[:start]+steps[end:]
         steps=steps.replace('record.py receipt-current','record.py receipt')
         self.assertEqual(hashlib.sha256(steps.encode()).hexdigest(),
+                         'e1a25c2437f70abe138d8cfd37e3172e23c19babb9e1f47d989075c37b3f93bb')
+        added = '          python3 -B harness/tests/ci/native/test_owner_fixes_projection.py --sources sources\n'
+        self.assertEqual(steps.count(added), 1)
+        self.assertEqual(hashlib.sha256(steps.replace(added, '', 1).encode()).hexdigest(),
                          '08ed1cd77a0420a2efd3f3de488d38ccc13168794a2ddfa0853add20a2db03a9')
 
     def test_current_mode_requires_cms_without_historical_branch(self):
