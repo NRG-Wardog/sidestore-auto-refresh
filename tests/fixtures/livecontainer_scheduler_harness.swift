@@ -80,10 +80,14 @@ extension LiveContainerAutoRefreshScheduler {
         let successful = BGTask()
         var completionNotificationObservedAfterCommit = false
         UNUserNotificationCenter.shared.onAdd = { notification in
-            guard notification.content.title == "Refresh completed",
+            // Titles are localized presentation, not the notification protocol.
+            // This CLI harness has no .lproj bundle, so prose correctly fails closed.
+            guard notification.content.userInfo["kind"] as? String == "verified",
                   let runID = notification.content.userInfo["run_id"] as? String,
                   let requestID = notification.content.userInfo["request_id"] as? String,
                   let terminal = runLedger()[runID] else { return }
+            precondition(notification.content.title == V3Localization.prose("Refresh completed"),
+                         "success notification bypassed the production localization policy")
             var attempt = V3RefreshAllAttemptState()
             attempt.begin(requestID: requestID)
             let homeObservedCompletion = attempt.observe(terminal)
@@ -157,7 +161,11 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(failedLedgerRecord["manifest"] == nil &&
                      (failedLedgerRecord["manifest_summary"] as? [String: Any])?["run_id"] as? String == failedRunID,
                      "failed history should be bounded to the structured failure and manifest summary")
-        precondition(UNUserNotificationCenter.shared.requests.contains { $0.content.title == "Refresh failed" })
+        precondition(UNUserNotificationCenter.shared.requests.contains {
+            $0.content.userInfo["kind"] as? String == "failed" &&
+            $0.content.userInfo["run_id"] as? String == failedRunID &&
+            $0.content.title == V3Localization.prose("Refresh failed")
+        }, "failed run did not emit its correlated, localized notification")
 
         clearTestState()
         LiveContainerRefreshBridge.incomplete = true
