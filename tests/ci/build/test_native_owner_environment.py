@@ -74,3 +74,33 @@ class NativeOwnerEnvironmentTests(unittest.TestCase):
                 self.assertEqual(result.returncode == 0, valid, result.stdout+result.stderr)
                 if not valid:
                     self.assertIn("No module named 'preservation_cms_receipt'", result.stderr)
+
+    def test_packaging_deferred_imports_resolve_in_native_topology(self):
+        import ast
+        path = ROOT/'ci/packaging/native/package_candidate.py'
+        tree = ast.parse(path.read_text())
+        statements = []
+        for function in tree.body:
+            if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for node in ast.walk(function):
+                    if isinstance(node, (ast.Import, ast.ImportFrom)):
+                        statements.append(node)
+                    elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                        if ast.unparse(node.value.func) == 'sys.path.insert':
+                            statements.append(node)
+        statements.sort(key=lambda node: node.lineno)
+        imports = '\n'.join(ast.unparse(node) for node in statements)
+        current = 'from ci.qualification.startup.run import verify_receipt as verify_startup_receipt'
+        self.assertIn(current, imports)
+        with tempfile.TemporaryDirectory() as name:
+            workspace = Path(name)
+            (workspace/'harness').symlink_to(ROOT, target_is_directory=True)
+            env = dict(os.environ, PYTHONPATH=str(workspace/'harness')+':'+str(workspace/'harness/scripts'))
+            preamble = "import runpy\nns=runpy.run_path('harness/ci/packaging/native/package_candidate.py')\n"
+            check = "\nassert verify_startup_receipt.__module__ == 'ci.qualification.startup.run'\n"
+            for body, valid in ((imports, True), (imports.replace(current, 'from run_startup_tests import verify_receipt as verify_startup_receipt'), False)):
+                script = preamble + 'exec('+repr(body+check)+', ns)\n'
+                result = subprocess.run(['python3','-B','-c',script],cwd=workspace,env=env,capture_output=True,text=True)
+                self.assertEqual(result.returncode == 0, valid, result.stdout+result.stderr)
+                if not valid:
+                    self.assertIn("No module named 'run_startup_tests'",result.stderr)

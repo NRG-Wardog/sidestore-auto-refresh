@@ -109,8 +109,7 @@ def main(*, strip_unsigned_widget=False, strip_widget_true_locals=False, strip_o
     if same_run_qualified:
         if openssl_qualification[2]['schema'] != 'qualified-openssl-local-same-run-host-binding-v1':
             raise ValueError('Same-run size mode requires fresh same-run host qualification')
-        sys.path.insert(0, str(((_CIPath(__file__).resolve().parents[3]/'ci/qualification/size'))))
-        from run_startup_tests import verify_receipt as verify_startup_receipt
+        from ci.qualification.startup.run import verify_receipt as verify_startup_receipt
         startup_receipt = Path('evidence/issue56-startup-tests.json')
         verify_startup_receipt(startup_receipt, Path('sources'), native_identity)
         if receipt.get('evidence_sha256', {}).get(startup_receipt.name) != sha(startup_receipt):

@@ -1,5 +1,4 @@
 {
-  "schema": "current-source-integrity-v1",
   "basis": "d9caef7ca9b2153516699b0d47735f38614d2e31",
   "files": {
     ".github/workflows/custom-integration-contract.yml": "d9d2cf63bdd0805364eda49e255d689e7b3e3148d0e3401e77c4276f4134df3e",
@@ -14,7 +13,7 @@
     "ci/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "ci/artifacts/github_artifacts.py": "7c6e473f17533788dfc9b5b587270e6ada125c08aedc165f0de949716a0ec1b2",
     "ci/build/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "ci/build/candidate-graph.json": "1c8a70e06b727326807167764084f0cd55d5dd4b5e70e76e581008a621803115",
+    "ci/build/candidate-graph.json": "8adbc5098180d4d08fb1073dbb64deda31fb5bf713a7a28576b66ff2cd6ba4c0",
     "ci/build/contracts/source_selection.py": "02abf5b6893bf9433aa7cb3b2e9b1b9b0d2171f35d914cb1a2bdcf7f7b277d4d",
     "ci/build/record.py": "df926786770803c3eed89cb212f6f803ba8505a7b82b3db2fbba493c2e57ba63",
     "ci/build/transport_abi/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -24,7 +23,7 @@
     "ci/contracts/verify_product_tests.py": "739b312527127fa9e12902ff0efb9a6de6437cca0e8f06d9f48ddaa83e92c293",
     "ci/diagnostics/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "ci/diagnostics/error-codes-v1.json": "df2fa33be59a9cb9297626f6393e460b6f362edba24566d6f40b7235f5c56aed",
-    "ci/diagnostics/presentation-coverage.json": "53e1dc7e467dc6c6f1a306b5f641a22f3deb47b8098ac68422eb4087af265134",
+    "ci/diagnostics/presentation-coverage.json": "281712538e86ffcf687b77786e25fc22d701c6e516863a0312e8f9bfc1b17566",
     "ci/native_paths.py": "d0925be4528ab852a06591d36f56c8f3a074df58bcfe8aa7de912d81034750d1",
     "ci/packaging/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "ci/packaging/native/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -107,7 +106,7 @@
     "tests/authentication/test_v3_signout_postcondition.py": "74e85334f1283646b1ac0b747d6977be37446c32e3506cd69804fb92b887c583",
     "tests/ci/build/test_ci_ownership.py": "ae8bccb1c16f2401f93da02c44489beada799b51a09d8d70db3e4dc74f2f8901",
     "tests/ci/build/test_current_build.py": "91dcecf65d2d68c217d5e019c4ecbc3aafc6b17235858e2f6c173df28ee36290",
-    "tests/ci/build/test_native_owner_environment.py": "eb80e444393912e7675ef61aa6f0b44e130a9a118a050a8071fd24ba14c0fb60",
+    "tests/ci/build/test_native_owner_environment.py": "3f98d68b5a3df7935971a0aa36d422fdb71015891ba8c09a70569bbc35b7f5d2",
     "tests/ci/build/test_native_pr_identity.py": "ed1f7b227a7e9657c3fb67916c8b1afb3e86e74de8fce00e9a1c42aaf2462d6c",
     "tests/ci/build/test_product_inventory.py": "309ac11c2bacc12ea58ff1fcb518b8d853a07268d96c07f8dc3717020ea66bf1",
     "tests/ci/build/test_retired_entries.py": "a7be84daa8c01d158a92cf01d1e736d754ec9fbae24f93a2915361409aec3199",
@@ -223,5 +222,6 @@
     "tests/test_v3_diagnostic_codes.py": "193a72fce8a3439742c0e895bb54721ddc1818e920182212dd54ac262c860c32",
     "tests/test_v3_service.py": "524ed05f6b08381b5cdc8b3f04e66c2da915d1ba3360bb25e80c611e990c82a9",
     "tests/test_verify_candidate_ipa.py": "f397debc025910e0d7cff79d865f5403362779c0eba838f99ebabfac5404318b"
-  }
+  },
+  "schema": "current-source-integrity-v1"
 }
