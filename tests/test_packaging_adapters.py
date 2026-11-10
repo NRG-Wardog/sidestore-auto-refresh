@@ -10,7 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-from packaging_adapters import COMBINED_PACKAGING_RULES, IntegrationRule, adapt_combined_packaging, apply_rules, configure_anchors, patch_surface
+from packaging_adapters import CURRENT_OWNER_PACKAGING_RULES, CURRENT_OWNER_PACKAGING_SHA256, combined_packaging_rules, COMBINED_PACKAGING_RULES, IntegrationRule, adapt_combined_packaging, apply_rules, configure_anchors, patch_surface
 from package_livecontainer_combined import adapt
 from rehearse_packaging_integration import rehearse, rehearse_bytes
 
@@ -44,6 +44,55 @@ class PackagingAdapterTests(unittest.TestCase):
                 receipt = rehearse_bytes(source, row['source_commit'], profile)
                 self.assertEqual(receipt['adapted_sha256'], row['adapted_sha256'])
                 self.assertFalse(receipt['source_shell_executed'])
+
+    def current_fixture(self):
+        return (FIXTURES / '12e77fad-build_github.sh.txt').read_text()
+
+    def test_current_owner_recipe_has_identical_adapted_behavior_and_valid_shell(self):
+        source = self.current_fixture()
+        self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), CURRENT_OWNER_PACKAGING_SHA256)
+        self.assertEqual(combined_packaging_rules(source), CURRENT_OWNER_PACKAGING_RULES)
+        adapted = adapt(source)
+        self.assertEqual(adapted, adapt(self.fixture()))
+        self.assertNotIn('if [ -d .zsign_cache ]', adapted)
+        self.assertIn('find Payload -type d -name "_CodeSignature" -prune -exec rm -r {} +', adapted)
+        subprocess.run(['bash', '-n'], input=adapted, text=True, check=True)
+        receipt = rehearse_bytes(source.encode(), '12e77fad6517288de544e766fb0e84594c2a1912')
+        self.assertEqual(receipt['source_sha256'], CURRENT_OWNER_PACKAGING_SHA256)
+        self.assertEqual(receipt['rules'], patch_surface(CURRENT_OWNER_PACKAGING_RULES))
+        self.assertEqual(receipt['adapted_sha256'], hashlib.sha256(adapted.encode()).hexdigest())
+        self.assertFalse(receipt['source_shell_executed'])
+
+    def test_current_owner_surface_is_documented_without_rewriting_legacy_rules(self):
+        document = json.loads((ROOT / 'ci/packaging/patch-surface.json').read_text())
+        row = document['reviewed_owner_variant']
+        self.assertEqual(row['source_sha256'], CURRENT_OWNER_PACKAGING_SHA256)
+        self.assertEqual(row['rules'], patch_surface(CURRENT_OWNER_PACKAGING_RULES))
+        graph = json.loads((ROOT / 'ci/build/candidate-graph.json').read_text())
+        self.assertEqual(row['source_commit'], graph['owners']['LiveContainer'][1])
+
+    def test_current_recipe_unknown_missing_duplicated_and_mixed_variants_rejected(self):
+        source = self.current_fixture()
+        candidates = [source + '\n# unreviewed owner change\n']
+        legacy = {rule.name: rule for rule in COMBINED_PACKAGING_RULES}
+        for rule in CURRENT_OWNER_PACKAGING_RULES:
+            candidates.extend((source.replace(rule.anchor, '', 1), source + '\n' + rule.anchor))
+            if rule.anchor != legacy[rule.name].anchor:
+                candidates.append(source.replace(rule.anchor, legacy[rule.name].anchor, 1))
+        candidates.extend((source.replace('find Payload ', 'find ../Payload '),
+                           source.replace('then rm -r .zsign_cache; fi', 'then rm -rf .zsign_cache; fi'),
+                           source.replace('"$scheme+SideStore.ipa"', '"Other.ipa"')))
+        for candidate in candidates:
+            with self.subTest(candidate_sha256=hashlib.sha256(candidate.encode()).hexdigest()):
+                with self.assertRaisesRegex(ValueError, 'Upstream packaging anchor changed'):
+                    adapt(candidate)
+
+    def test_legacy_cache_anchor_cannot_match_inside_an_unknown_conditional(self):
+        for command in ('if true; then rm -r .zsign_cache; fi',
+                        'echo before; rm -r .zsign_cache', 'rm -r .zsign_cache; echo after'):
+            with self.subTest(command=command):
+                with self.assertRaisesRegex(ValueError, 'fresh-signing-cache'):
+                    adapt(self.fixture().replace('rm -r .zsign_cache', command))
 
     def test_reviewed_anchor_profile_rejects_drift_wrong_revision_and_unknown_seams(self):
         source = (FIXTURES / '2d092098-build_github.sh.txt').read_bytes()

@@ -185,5 +185,30 @@ COMBINED_PACKAGING_RULES = (
 )
 
 
+# Reviewed owner 12e77fad6517288de544e766fb0e84594c2a1912 fixes both cleanup
+# commands. Bind this compatibility variant to the complete recipe bytes: an
+# unknown recipe must not silently select new anchors or remove only the body
+# of an upstream conditional. Historical rules and parity witnesses stay intact.
+CURRENT_OWNER_PACKAGING_SHA256 = 'de3b76fc8f19e6afd4e02d9c96872347fda092128a09bb8a9ca9140a87ada341'
+CURRENT_OWNER_PACKAGING_RULES = configure_anchors(COMBINED_PACKAGING_RULES, {
+    'fresh-signing-cache': 'if [ -d .zsign_cache ]; then rm -r .zsign_cache; fi',
+    'signature-cleanup-root': 'find Payload -type d -name "_CodeSignature" -exec rm -r {} +',
+})
+
+
+def combined_packaging_rules(text):
+    """Select only the reviewed complete owner recipe or the legacy exact seams."""
+    if hashlib.sha256(text.encode('utf-8')).hexdigest() == CURRENT_OWNER_PACKAGING_SHA256:
+        return CURRENT_OWNER_PACKAGING_RULES
+    # Legacy cleanup anchors are complete commands, never substrings inside an
+    # unknown conditional, prefixed command or compound shell statement.
+    lines = text.splitlines()
+    for rule in COMBINED_PACKAGING_RULES:
+        if rule.name in {'fresh-signing-cache', 'signature-cleanup-root'}:
+            if lines.count(rule.anchor) != 1:
+                raise ValueError('Upstream packaging anchor changed [' + rule.name + ']: ' + rule.anchor)
+    return COMBINED_PACKAGING_RULES
+
+
 def adapt_combined_packaging(text):
-    return "set -eu\n" + apply_rules(text, COMBINED_PACKAGING_RULES)
+    return "set -eu\n" + apply_rules(text, combined_packaging_rules(text))

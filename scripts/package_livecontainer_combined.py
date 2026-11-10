@@ -11,7 +11,7 @@ import subprocess
 
 from audit_ipa_signing import inventory
 from ipa_size_report import optimize as optimize_ipa_size
-from packaging_adapters import COMBINED_PACKAGING_RULES, adapt_combined_packaging, patch_surface
+from packaging_adapters import adapt_combined_packaging, combined_packaging_rules, patch_surface
 
 REQUIRED_SIDESTORE_INTENT_SYMBOLS = (
     b"9SideStore20RefreshAllAppsIntentV",
@@ -403,7 +403,7 @@ def package(root, host, side, output):
     result['size_optimization'] = size_result
     result['upstream_packaging_sha256'] = hashlib.sha256(upstream.encode()).hexdigest()
     result['packaging_adapter_sha256'] = hashlib.sha256((Path(__file__).parent / 'packaging_adapters.py').read_bytes()).hexdigest()
-    result['packaging_adapter_rules'] = patch_surface(COMBINED_PACKAGING_RULES)
+    result['packaging_adapter_rules'] = patch_surface(combined_packaging_rules(upstream))
     result['dylibify'] = converter_evidence
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ipa, output)
