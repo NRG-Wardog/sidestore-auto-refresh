@@ -1,3 +1,4 @@
+from tests.support.product_sources import read_product_source
 """Execute the production direct-mutation journal across service recreation."""
 from pathlib import Path
 import shutil
@@ -13,7 +14,7 @@ SWIFTC = shutil.which("swiftc")
 
 class V3DirectMutationRecoveryTests(unittest.TestCase):
     def test_executable_slice_contains_direct_recovery_declarations(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service = read_product_source('v3_sidestore_service.swift')
         journal_start = service.index("private enum V3DirectMutationRecoveryPhase:")
         journal_end = service.index("V3_NATIVE_CALLBACK_GATE_V1", journal_start)
         journal = service[journal_start:journal_end]
@@ -53,7 +54,7 @@ class V3DirectMutationRecoveryTests(unittest.TestCase):
                       wire_fixture)
 
     def test_receive_routes_direct_mutations_through_ordered_lifecycle(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service = read_product_source('v3_sidestore_service.swift')
         start = service.index("private func receive(_ data: Data")
         end = service.index("\n    private func invalidRequestReply", start)
         receive = service[start:end]
@@ -79,12 +80,12 @@ class V3DirectMutationRecoveryTests(unittest.TestCase):
         if not SWIFTC:
             self.skipTest("Swift compiler unavailable; executable recovery harness runs in macOS CI")
 
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
-        shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        service = read_product_source('v3_sidestore_service.swift')
+        handoff = read_product_source('v3_secret_handoff.swift')
+        shared = read_product_source('v3_shared_app_group.swift')
+        wire = read_product_source('v3_wire_contract.swift')
+        failure = read_product_source('combined_failure.swift')
+        primitives = read_product_source('v3_behavioral_primitives.swift')
         fixture = (ROOT / "tests/fixtures/v3_direct_mutation_recovery_harness.swift").read_text(encoding="utf-8")
 
         # Slices come from one shared helper: index arithmetic repeated across

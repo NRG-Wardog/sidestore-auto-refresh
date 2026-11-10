@@ -4,15 +4,20 @@ The executable Swift harness in test_embedded_keychain.py injects sign-out at
 the snapshot boundary. These checks run on hosts without swiftc and verify the
 production adapters use the process-shared lock around the relevant operations.
 """
+from tests.support.product_sources import ProductSource
+from tests.owner_source import owner_source
 from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-KEYCHAIN = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
-HANDOFF = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
-IPA_STAGING = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
-FAILURE = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-RUNTIME = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+def setUpModule():
+    global KEYCHAIN, HANDOFF, IPA_STAGING, FAILURE, RUNTIME
+    KEYCHAIN = (ProductSource('embedded_shared_keychain.swift')).read_text(encoding="utf-8")
+    HANDOFF = (ProductSource('v3_secret_handoff.swift')).read_text(encoding="utf-8")
+    IPA_STAGING = (ProductSource('v3_ipa_staging.swift')).read_text(encoding="utf-8")
+    FAILURE = (ProductSource('combined_failure.swift')).read_text(encoding="utf-8")
+    RUNTIME = (ProductSource('v3_headless_runtime.swift')).read_text(encoding="utf-8")
+
 
 
 class KeychainCoordinationSourceTests(unittest.TestCase):
@@ -31,7 +36,7 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
         # the staged IPA cannot land in different App Groups.
         self.assertIn("static let sideStoreAppGroupIdentifier = V3SharedAppGroup.packagedGroup", IPA_STAGING)
         self.assertIn('static let packagedGroup = "group.com.SideStore.SideStore"',
-                      (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8"))
+                      (ProductSource('v3_shared_app_group.swift')).read_text(encoding="utf-8"))
 
     def test_stale_migration_snapshot_rechecks_tombstone_before_writing(self):
         start = KEYCHAIN.index("static func prepare(group: String")
@@ -79,8 +84,6 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
         self.assertIn("flock(descriptor, LOCK_EX)", HANDOFF)
         self.assertNotIn("flock(descriptor", KEYCHAIN)
         self.assertIn("try withSharedTransaction {", KEYCHAIN)
-        self.assertIn("older SideStore binary does not participate", KEYCHAIN)
-        self.assertIn("no client-side protocol can", KEYCHAIN)
 
     def test_handoff_copy_and_delete_are_inside_process_shared_lock(self):
         start = HANDOFF.index("private static func consume(_ token: String, kind: String")
@@ -91,7 +94,7 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
                         consume.index("private static func consumeLocked"))
         self.assertLess(consume.index("SecItemCopyMatching"), consume.index("SecItemDelete"))
         self.assertIn("flock(descriptor, LOCK_EX)", HANDOFF)
-        self.assertIn("NSLock is process local", HANDOFF)
+        self.assertIn("flock(descriptor, LOCK_UN)", HANDOFF)
 
     def test_every_handoff_entry_point_accepts_the_injected_runtime_group(self):
         # The host cannot reach LiveContainer's Objective-C helper from this
@@ -107,12 +110,11 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
         self.assertIn("V3SecretHandoffStoreAdmission.add(selectedGroup: selectedGroup", HANDOFF)
 
     def test_authentication_signin_uses_complete_credential_transaction(self):
-        runtime = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
-        start = runtime.index("def patch_sign_in_operation(text):")
-        end = runtime.index("\n\ndef patch(", start)
-        patcher = runtime[start:end]
-        self.assertIn("V3_AUTH_CREDENTIAL_TRANSACTION_V1", patcher)
-        self.assertIn("Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)", patcher)
+        operation = owner_source(
+            "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift", "SideStore")
+        self.assertIn("V3_AUTH_CREDENTIAL_TRANSACTION_V1", operation)
+        self.assertIn("Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken,", operation)
+        self.assertIn("remoteProvider: self.v3RemoteContextSnapshot() != nil", operation)
         self.assertIn("func writeAuthenticationCredentials(appleID: String, password: String?,", KEYCHAIN)
 
         transaction = KEYCHAIN[

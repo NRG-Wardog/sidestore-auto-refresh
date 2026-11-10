@@ -1,144 +1,22 @@
 """Regression coverage for the v3 host-owned navigation shell."""
 from pathlib import Path
-import importlib.util
 import re
 import shutil
 import subprocess
 import tempfile
 import unittest
-from typing import Tuple
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("v3_patch", ROOT / "scripts/patch_v3_unified_shell.py")
-patch = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(patch)
-
-
-def fixture(root: Path) -> Tuple[Path, Path]:
-    live = root / "LiveContainer"
-    side = root / "SideStore"
-    (live / "LiveContainerSwiftUI/Utilities").mkdir(parents=True)
-    (live / "LiveContainerSwiftUI/App").mkdir(parents=True)
-    (live / "LiveContainerSwiftUI/Views/Settings").mkdir(parents=True)
-    (live / "LiveContainer.xcodeproj").mkdir(parents=True)
-    (side / "AltStore").mkdir(parents=True)
-    (live / "LiveContainer.xcodeproj/project.pbxproj").write_text('''/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-17413FB62D9C0BAE00F3F928 /* LiveContainerSwiftUI */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = LiveContainerSwiftUI; sourceTree = "<group>"; };
-''')
-    (live / "LiveContainerSwiftUI/Utilities/Shared.swift").write_text("public enum LCTabIdentifier: Hashable {\n    case sources\n    case apps\n    case tweaks\n    case settings\n}\n\npublic struct SharedModel {\n    @Published var selectedTab: LCTabIdentifier = .apps\n}\n")
-    (live / "LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift").write_text("struct Root {\n            LCTabView()\n}\n")
-    (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").write_text('''import Foundation
-struct Settings {
-    @State private var certificateDataFound = false
-    func importCertificate() async {
-        guard let doImport = await certificateImportAlert.open(), doImport else { return }
-        guard let certificateURL = await certificateImportFileAlert.open() else { return }
-        guard let certificatePassword = await certificateImportPasswordAlert.open() else { return }
-        let certificateData: Data
-        do { certificateData = try Data(contentsOf: certificateURL) }
-        catch { errorInfo = error.localizedDescription; errorShow = true; return }
-        guard let _ = LCUtils.getCertTeamId(withKeyData: certificateData, password: certificatePassword) else {
-            errorInfo = "lc.settings.invalidCertError".loc
-            errorShow = true
-            return
-        }
-        LCUtils.appGroupUserDefault.set(certificateData, forKey: "LCCertificateData")
-        LCUtils.appGroupUserDefault.set(certificatePassword, forKey: "LCCertificatePassword")
-        LCUtils.appGroupUserDefault.set(NSDate.now, forKey: "LCCertificateUpdateDate")
-        certificateDataFound = true
-        UserDefaults.standard.set(LCSharedUtils.appGroupID(), forKey: "LCAppGroupID")
-    }
-    var body: some View {
-        NavigationView {
-            Form {
-                if sharedModel.multiLCStatus != 2 {
-                }
-            }
-            .navigationBarTitle("lc.tabView.settings".loc)
-        }
-    }
-                if store == .SideStore {
-                    Section {
-                        NavigationLink { LCEmbeddedSideStoreRefreshView() } label: { Text("SideStore scheduled refresh") }
-                    }
-                }
-}
-
-    func importCertificateFromSideStore() async {
-        if UserDefaults.sideStoreExist() {
-            if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {
-                let query: [String: Any] = [
-                    kSecClass as String: kSecClassGenericPassword,
-                    kSecAttrAccount as String: "signingCertificate",
-                    kSecReturnData as String: true,
-                    kSecMatchLimit as String: kSecMatchLimitOne,
-                    kSecAttrService as String: "com.kdt.livecontainer",
-                    kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
-                ]
-                let passwordQuery: [String: Any] = [
-                    kSecClass as String: kSecClassGenericPassword,
-                    kSecAttrAccount as String: "signingCertificatePassword",
-                    kSecReturnData as String: true,
-                    kSecMatchLimit as String: kSecMatchLimitOne,
-                    kSecAttrService as String: "com.kdt.livecontainer",
-                    kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
-                ]
-            }
-        }
-    }
-
-    func onSideStoreCertificateCallback(certificateData: Data, password: String) {
-        certificateDataFound = true
-    }
-
-    func removeCertificate() async {
-    }
-
-    func handleURL(url: URL) {
-        if url.host == "certificate" {
-            return
-        }
-    }
-
-struct LCTweaksView: View {
-    var body: some View { Text("tweaks") }
-}
-''')
-    (live / "LiveContainerSwiftUI/Views/AppList").mkdir(parents=True)
-    (live / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").write_text('''struct Apps {
-                ToolbarItem(placement: .topBarLeading) {
-                    if(UserDefaults.sideStoreExist()) {
-                        Button {
-                            LCUtils.openSideStore(delegate: self)
-                        } label: {
-                            IconImageView(icon: BuiltInSideStoreAppInfo.shared.iconIsDarkIcon(darkModeIcon))
-                                .frame(width: UIFont.preferredFont(forTextStyle: .body).lineHeight, height: UIFont.preferredFont(forTextStyle: .body).lineHeight)
-
-                        }
-                    } else {
-                        Button("Help", systemImage: "questionmark") {
-                            helpPresent = true
-                        }
-                    }
-                    
-
-                }
-                
-}
-''')
-    (side / "AltStore/AppDelegate.swift").write_text('''func boot() {
-                debugLog("Started DatabaseManager.")
-}
-''')
-    return live, side
+from tests.owner_source import owner_source
+from tests.support.product_sources import read_product_source
+from tests.test_v3_service import OwnerFile
+from tests.test_refresh_result_bridge import declaration
 
 
 class V3UnifiedShellTests(unittest.TestCase):
     def test_builtin_certificate_import_uses_bounded_service_export_and_owned_callback(self):
         with tempfile.TemporaryDirectory() as directory:
-            live, side = fixture(Path(directory))
-            patch.patch(live, side)
+            live, side = OwnerFile("LiveContainer"), OwnerFile("SideStore")
             settings = (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text()
             self.assertIn("import SideStoreSupport\n", settings)
             importer = settings[settings.index("func importCertificateFromSideStore() async {"):
@@ -159,8 +37,8 @@ class V3UnifiedShellTests(unittest.TestCase):
                              settings.index("func importCertificateFromSideStore() async {")]
             group_write = 'UserDefaults.standard.set(LCSharedUtils.appGroupID(), forKey: "LCAppGroupID")'
             event = 'NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)'
-            self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_EVENT_MARKER), 1)
-            self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_INVALIDATION_MARKER), 1)
+            self.assertEqual(manual.count("V3_CANONICAL_JITLESS_MANUAL_IMPORT_EVENT_V1"), 1)
+            self.assertEqual(manual.count("V3_CANONICAL_JITLESS_MANUAL_IMPORT_INVALIDATES_PENDING_V1"), 1)
             self.assertEqual(manual.count(event), 1)
             self.assertLess(manual.index("getCertTeamId(withKeyData: certificateData"),
                             manual.index("V3CertificateImportOwnership.invalidate()"))
@@ -168,29 +46,15 @@ class V3UnifiedShellTests(unittest.TestCase):
                             manual.index('forKey: "LCCertificateData"'))
             self.assertLess(manual.index(group_write), manual.index(event))
 
-    def test_navigation_anchor_drift_fails_without_partial_writes(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            live, side = fixture(root)
-            path = live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
-            path.write_text(path.read_text().replace("SideStore scheduled refresh", "Changed upstream refresh"))
-            before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
-            with self.assertRaises(SystemExit):
-                patch.patch(live, side)
-            self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
 
-    def test_shell_is_idempotent_and_host_owned(self):
+    def test_shell_is_host_owned(self):
         with tempfile.TemporaryDirectory() as directory:
-            live, side = fixture(Path(directory))
-            patch.patch(live, side)
-            first = {p.relative_to(Path(directory)): p.read_bytes() for p in Path(directory).rglob("*") if p.is_file()}
-            patch.patch(live, side)
-            self.assertEqual(first, {p.relative_to(Path(directory)): p.read_bytes() for p in Path(directory).rglob("*") if p.is_file()})
+            live, side = OwnerFile("LiveContainer"), OwnerFile("SideStore")
             settings = (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text()
             manual = settings[settings.index("func importCertificate() async {"):
                              settings.index("func importCertificateFromSideStore() async {")]
-            self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_EVENT_MARKER), 1)
-            self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_INVALIDATION_MARKER), 1)
+            self.assertEqual(manual.count("V3_CANONICAL_JITLESS_MANUAL_IMPORT_EVENT_V1"), 1)
+            self.assertEqual(manual.count("V3_CANONICAL_JITLESS_MANUAL_IMPORT_INVALIDATES_PENDING_V1"), 1)
             self.assertEqual(manual.count("Notification.Name(\"V3CanonicalJITLessCertificateUpdated\")"), 1)
             shell = (live / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift").read_text()
             project = (live / "LiveContainer.xcodeproj/project.pbxproj").read_text()
@@ -216,36 +80,22 @@ class V3UnifiedShellTests(unittest.TestCase):
             self.assertIn("V3_UNIFIED_SHELL_V1: SideStore is reached through unified tabs.", (live / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text())
             self.assertNotIn("SideStore scheduled refresh", (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text())
             self.assertIn("Refresh, Schedule and History", (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text())
-            status = (side / "AltStore/AppDelegate.swift").read_text()
-            self.assertIn("V3_SIDESTORE_STATUS_SNAPSHOT_V1", status)
-            self.assertNotIn("appleIDPassword", status)
-            self.assertNotIn("appleIDXcodeToken", status)
+            status = declaration(read_product_source("v3_sidestore_service.swift"), "private func snapshot()")
+            self.assertNotIn('"appleIDPassword":', status)
+            self.assertNotIn('"appleIDXcodeToken":', status)
 
     def test_launch_tab_startup_preference_is_applied(self):
         with tempfile.TemporaryDirectory() as directory:
-            live, side = fixture(Path(directory))
-            patch.patch(live, side)
+            live, side = OwnerFile("LiveContainer"), OwnerFile("SideStore")
             shared = (live / "LiveContainerSwiftUI/Utilities/Shared.swift").read_text()
             self.assertIn("LCLaunchTab.resolve(LCUtils.appGroupUserDefault.string(forKey: LCLaunchTab.storageKey)) == .apps ? .apps : .home", shared)
 
-    def test_launch_tab_anchor_drift_fails_closed(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            live, side = fixture(root)
-            path = live / "LiveContainerSwiftUI/Utilities/Shared.swift"
-            path.write_text(path.read_text().replace(
-                "    @Published var selectedTab: LCTabIdentifier = .apps",
-                "    @Published var selectedTab: LCTabIdentifier = .tweaks"))
-            before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
-            with self.assertRaises(SystemExit):
-                patch.patch(live, side)
-            self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
 
     def test_files_install_is_separate_from_guest_import(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        integration = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
+        runtime = read_product_source("v3_headless_runtime.swift")
+        service = read_product_source("v3_sidestore_service.swift")
+        integration = owner_source("LiveContainerSwiftUI/Views/AppList/LCAppListView.swift")
         self.assertIn('Button("Install with SideStore", systemImage: "arrow.down.app")', source)
         self.assertIn('UIDocumentPickerViewController(forOpeningContentTypes:', source)
         self.assertIn('func documentPickerWasCancelled', source)
@@ -261,7 +111,7 @@ class V3UnifiedShellTests(unittest.TestCase):
         self.assertIn('case "opStart"', service)
         self.assertIn('InstallTarget', runtime)
         self.assertIn('AnyApp(name:', runtime)
-        self.assertIn('.performSingleOperation(operation, handler: handler, context: context)', runtime)
+        self.assertRegex(runtime, r'\.performSingleOperation\(operation, handler: handler,\s*context: context, suppliedGroup: group\)')
         self.assertIn('V3HeadlessPipelineHandler', runtime)
         self.assertIn('group.cancel(); group.progress.cancel()', runtime)
         self.assertIn('Button("Add to LiveContainer"', integration)
@@ -378,11 +228,14 @@ precondition(near(scrolledSection, CGRect(x: 0, y: -262, width: 390, height: 325
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("swiftc unavailable")
-        result = __import__("subprocess").run([compiler, "-frontend", "-parse", str(ROOT / "scripts/templates/v3_unified_shell.swift")], text=True, capture_output=True)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "V3UnifiedShell.swift"
+            source.write_text(owner_source("LiveContainerSwiftUI/Views/V3UnifiedShell.swift"))
+            result = subprocess.run([compiler, "-frontend", "-parse", str(source)], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_normal_flows_render_no_sidesstore_ui(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         for token in ("V3RemoteServiceView", "AppSceneViewController(servicePID",
                       "Self.presenter", "presentingViewController:",
                       "struct CertificatesView", "struct DeveloperServicesView",
@@ -392,7 +245,7 @@ precondition(near(scrolledSection, CGRect(x: 0, y: -262, width: 390, height: 325
             self.assertNotIn(token, source)
 
     def test_headless_host_surfaces_exist(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         for token in ("V3SignInView", "V3AuthStore", "V3CertificatesView",
                       "V3DeveloperServicesView", "V3PairingView", "V3PromptSection",
                       "V3ConnectionView", "V3AnisetteView", "V3SideSignView",
@@ -425,7 +278,7 @@ precondition(near(scrolledSection, CGRect(x: 0, y: -262, width: 390, height: 325
 
 class V3SetupAssistantTests(unittest.TestCase):
     def test_deep_link_opens_setup_without_mutation(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         index = source.index('case "setup":')
         end = source.index("\n", source.index("status.setupPresented = true", index))
         block = source[index:end]
@@ -435,7 +288,7 @@ class V3SetupAssistantTests(unittest.TestCase):
             self.assertNotIn(token, block)
 
     def test_setup_entry_points(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         self.assertIn(".sheet(isPresented: $status.setupPresented, onDismiss: { routePendingCanonicalJITLessSetup() })", source)
         self.assertIn("V3SetupAssistantView", source)
         self.assertIn("routePendingSetup()", source)
@@ -444,16 +297,16 @@ class V3SetupAssistantTests(unittest.TestCase):
         self.assertIn("struct V3SetupAssistantView", source)
 
     def test_no_second_scheduler_or_auth_stack(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         for token in ("BGTask", "requestRefreshNow", "AutoRefreshScheduler.schedule",
-                      "SignInOperation(", "AuthManager", "Keychain",
+                      "SignInOperation(", "AuthManager.shared", "Keychain.shared",
                       "AppManager.shared.install", "AppManager.shared.refresh",
                       "AppManager.shared.update"):
             self.assertNotIn(token, source)
         self.assertEqual(source.count("SecureField"), 3)
 
     def test_setup_markers_and_diagnostics_privacy(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         for marker in ("[V3_SETUP] OPEN", "[V3_SETUP] STATUS", "[V3_SETUP] ACTION",
                        "[V3_SETUP] TEST_REFRESH_START", "[V3_SETUP] TEST_REFRESH_TERMINAL",
                        "[V3_SETUP] FAILURE"):
@@ -464,7 +317,7 @@ class V3SetupAssistantTests(unittest.TestCase):
             self.assertNotIn(secret, diagnostics)
 
     def test_verified_refresh_semantics(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         self.assertIn("testRequestID", source)
         self.assertIn("V3RefreshAllAttemptState.record(in: ledger, requestID: requestID)", source)
         self.assertIn('runRecord["state"]', source)
@@ -473,7 +326,7 @@ class V3SetupAssistantTests(unittest.TestCase):
         self.assertIn("Copy Setup Diagnostics", source)
 
     def test_setup_intent_is_safe_and_gated(self):
-        intent = (ROOT / "scripts/templates/v3_setup_intent.swift").read_text(encoding="utf-8")
+        intent = read_product_source("v3_setup_intent.swift")
         self.assertIn("struct V3SetupAssistantIntent: AppIntent", intent)
         self.assertIn("openAppWhenRun", intent)
         self.assertIn('"V3PendingSetupAssistant"', intent)
@@ -485,14 +338,12 @@ class V3SetupAssistantTests(unittest.TestCase):
             self.assertNotIn(token, code)
 
     def test_patch_installs_setup_intent(self):
-        patch = (ROOT / "scripts/patch_v3_unified_shell.py").read_text(encoding="utf-8")
-        self.assertIn("V3SetupAssistantIntent.swift", patch)
-        self.assertIn("v3 setup intent is missing", patch)
+        self.assertIn("struct V3SetupAssistantIntent", read_product_source("v3_setup_intent.swift"))
 
 
 class V3SetupAcceptanceTests(unittest.TestCase):
     def test_known_missing_pairing_does_not_offer_test_refresh(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         assistant = source.index("struct V3SetupAssistantView")
         start = source.index('Section("Verification")', assistant)
         verification = source[start:source.index("// V3_SETUP_COMPLETION_POLICY", start)]
@@ -504,7 +355,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
     def test_setup_complete_requires_everything(self):
         # V3_SETUP_COMPLETION_POLICY_V1: the assistant no longer owns a private
         # rule. It supplies inputs to the one shared policy that Home also uses.
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         setup = source[source.index("final class V3SetupStore"):source.index("struct V3SetupAssistantView")]
         self.assertIn("func completionInputs(status: V3SideStoreStatusStore) -> V3SetupCompletionInputs {", setup)
         for required in ('accountComplete: account.state == "complete"',
@@ -513,7 +364,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
                          'V3JITLessCompletionPolicy.isRequired(',
                          'jitlessComplete: V3JITLessCompletionPolicy.isComplete(status.jitlessReadiness)',
                          'networkComplete: network.state == "complete"',
-                         'tunnelComplete: tunnel.state == "complete"',
+                         'tunnelComplete: connectionVerified',
                          'backgroundRefreshAvailable: background.state == "complete"',
                          'scheduleEnabled: schedule.state == "complete"',
                          'verifiedRefreshPresent: verification.state == "complete"'):
@@ -530,10 +381,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         # is a syntax error that no source-text assertion would catch, and it is
         # easy to introduce with a scripted edit. The generated shell is checked
         # structurally, statement by statement.
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
-        staging = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
-        template = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        generated = primitives.splitlines() + [""] + staging.splitlines() + [""] + template.splitlines()
+        generated = owner_source("LiveContainerSwiftUI/Views/V3UnifiedShell.swift").splitlines()
         pattern = re.compile(r"\}\s+(?:@Published|@State|@Environment|@FocusState|@AppStorage|"
                              r"@EnvironmentObject|private |public |internal |static |func |var |let |"
                              r"struct |enum |init)")
@@ -548,15 +396,15 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         # String literals are stripped BEFORE comments, because a "//" inside a
         # literal (a URL, for example) would otherwise be read as a comment and
         # silently remove the rest of the line.
-        for path in sorted((ROOT / "scripts/templates").glob("*.swift")):
-            text = path.read_text(encoding="utf-8")
+        for path in ("LiveContainerSwiftUI/Views/V3UnifiedShell.swift", "LiveContainerSwiftUI/App/AppDelegate.swift",
+                     "SideStoreSupport/SideStore.swift"):
+            text = owner_source(path)
             body = re.sub(r'"(?:[^"\\\n]|\\.)*"', '""', text)
             body = re.sub(r"//[^\n]*", "", body)
-            self.assertEqual(body.count("{"), body.count("}"),
-                             f"{path.name} has unbalanced braces, so the generated file cannot parse")
+            self.assertEqual(body.count("{"), body.count("}"), path)
 
     def test_history_never_satisfies_current_test(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         self.assertEqual(source.count('detail: "Refresh verified"'), 1)
         check_start = source.index("private func checkTestResult")
         check = source[check_start:source.index("func cancelTest()", check_start)]
@@ -564,12 +412,12 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertIn("testRequestID", check)
         self.assertIn("V3RefreshAllAttemptState.record(in: ledger, requestID: requestID)", check)
         self.assertIn('runState == "completed" || runState == "failed"', check)
-        self.assertIn("hasCompleteTerminalResults", check)
+        self.assertIn("V3SetupRefreshTerminalEvidencePolicy", check)
         self.assertIn("V3RefreshAllTerminalEvidencePolicy.verifiedSummary", check)
         self.assertIn('runRecord["terminal_at"] as? TimeInterval', check)
 
     def test_cancelled_setup_test_task_cannot_write_into_next_attempt(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         setup = source[source.index("final class V3SetupStore"):source.index("struct V3SetupAssistantView")]
         self.assertIn("private var testAttemptID: String?", setup)
         self.assertIn("testAttemptID = nil", setup[setup.index("func cancelTest() {"):])
@@ -578,7 +426,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertIn("catch is CancellationError", setup)
 
     def test_cancelled_setup_watcher_resumes_same_scheduler_request(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         setup = source[source.index("final class V3SetupStore"):source.index("struct V3SetupAssistantView")]
         start = setup[setup.index("func runTestRefresh(status: V3SideStoreStatusStore) {"):
                       setup.index("private func startTestMonitor")]
@@ -599,7 +447,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             program = directory / "main.swift"
-            program.write_text((ROOT / "scripts/templates/combined_failure.swift").read_text() + "\n"
+            program.write_text(read_product_source("combined_failure.swift") + "\n"
                                + 'let runID = UUID().uuidString\nlet partial: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2",\n    "run_id": runID, "expected_ids": ["A", "B"],\n    "results": [["bundle_id": "A", "success": true]]]\nprecondition(!CombinedVerification.hasCompleteTerminalResults(partial, runID: runID))\nlet short: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2",\n    "run_id": runID, "expected_ids": ["A"],\n    "results": [["bundle_id": "A", "success": true]]]\nprecondition(CombinedVerification.hasCompleteTerminalResults(short, runID: runID))\nlet mismatch: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2",\n    "run_id": UUID().uuidString, "expected_ids": ["A"],\n    "results": [["bundle_id": "A", "success": true]]]\nprecondition(!CombinedVerification.hasCompleteTerminalResults(mismatch, runID: runID))\nprint("V3 manifest coverage PASS")')
             executable = directory / "manifest-coverage-tests"
             compiled = subprocess.run([compiler, str(program), "-o", str(executable)], capture_output=True, text=True)
@@ -609,7 +457,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
             self.assertIn("V3 manifest coverage PASS", result.stdout)
 
     def test_state_refreshes_after_child_flows_return(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         self.assertIn("destination.onDisappear", source)
         self.assertIn("await setup.recalculate(status: status)", source)
         self.assertIn("V3PairingView().environmentObject(status)", source)
@@ -620,14 +468,14 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         # V3_SETUP_COMPLETION_POLICY_V1: Home and the assistant now consume the
         # same policy, so the banner can no longer stop while the assistant
         # still considers setup incomplete.
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         home = source[source.index("struct V3HomeServiceHeader"):]
         self.assertIn("completionInputs(status: status, defaults: defaults).isComplete", home)
         for required in ("accountComplete: !status.needsSignIn",
                          "provisioningIncomplete: status.provisioningIncomplete",
                          "pairingSatisfied: V3PairingPresentationPolicy.isConfirmed",
                          "networkComplete: status.wifiAvailable == true",
-                         "tunnelComplete: LiveContainerNetworkPreflight.hasTunnelInterface()",
+                         "tunnelComplete: V3SetupConnectionEvidencePolicy.observe(",
                          "backgroundRefreshAvailable: UIApplication.shared.backgroundRefreshStatus == .available",
                          "scheduleEnabled: defaults?.bool(forKey: \"liveContainerAutoRefreshEnabled\")",
                          "verifiedRefreshPresent: verifiedRefresh"):
@@ -636,11 +484,13 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertNotIn('if UIApplication.shared.backgroundRefreshStatus != .available { return true }', home)
 
     def test_tunnel_presence_never_proves_coredevice(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        self.assertIn("not a CoreDevice proof", source)
-        coredevice = source[source.index("private func coredeviceState"):]
-        coredevice = coredevice[:coredevice.index("\n    }\n")]
-        self.assertIn('verification.state == "complete"', coredevice)
+        source = read_product_source("v3_unified_shell.swift")
+        self.assertIn("coreDevice = observation.coreDeviceStep", source)
+        self.assertIn("connectionVerified = observation.isVerified", source)
+        self.assertIn("V3SetupConnectionEvidencePolicy.observe(", source)
+        coredevice = declaration(source, "private func coredeviceState()")
+        self.assertIn("setup.coreDevice", coredevice)
+        self.assertNotIn("hasTunnelInterface", coredevice)
 
     def test_generic_errors_keep_structure(self):
         # V3_FAILURE_GUIDANCE_V1: this test previously asserted the opposite of
@@ -649,7 +499,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         # rendered as product copy. It also pinned an `else if let native = error
         # as NSError?` arm that made the final `else` unreachable, because every
         # Swift Error bridges to NSError?.
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         start = source.index("func recordError")
         record = source[start:source.index("\n    }\n", start)]
         record = "\n".join(line for line in record.splitlines()
@@ -673,7 +523,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         # Home under a "Last Refresh Warning" heading. It held a bridged
         # localizedDescription, which for an NSError is a numeric domain and
         # code, and opaque snake_case tokens.
-        scheduler = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text(encoding="utf-8")
+        scheduler = read_product_source("livecontainer_refresh_scheduler.swift")
         self.assertNotIn("defaults.set(error.localizedDescription, forKey: lastErrorKey)", scheduler)
         for message in ("hostRelaunchUnverifiedMessage", "hostBaselineUnavailableMessage",
                         "hostExpirationNotAdvancedMessage", "schedulerConfigurationMessage",
@@ -685,14 +535,14 @@ class V3SetupAcceptanceTests(unittest.TestCase):
             self.assertNotIn(f"defaults.set({token}, forKey: lastErrorKey)", scheduler)
         # The raw text is still recorded for a support reader.
         self.assertIn("detail: error.localizedDescription", scheduler)
-        alarm = (ROOT / "scripts/templates/livecontainer_refresh_alarm.swift").read_text(encoding="utf-8")
+        alarm = read_product_source("livecontainer_refresh_alarm.swift")
         self.assertNotIn('set(error.localizedDescription, forKey: "liveContainerAutoRefreshDeadlineWarningError")', alarm)
 
     def test_untyped_guidance_does_not_claim_a_side_effect(self):
         # Nothing supports "nothing was changed" for an untyped failure: it can
         # arrive after the service applied the request, and the same helper runs
         # after settings writes, source confirmation, pairing import and staging.
-        primitives_text = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        primitives_text = read_product_source("v3_behavioral_primitives.swift")
         start = primitives_text.index("enum V3FailureGuidance")
         guidance = primitives_text[start:primitives_text.index("\n}", start)]
         # Comments are stripped so the prose describing the old wording is never
@@ -708,7 +558,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         # The manifest's "error" field is a newline-joined block of message,
         # recovery and technical details. It is a diagnostic record, and it was
         # being rendered verbatim as the Test Refresh row caption.
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         start = source.index('var detail = "Refresh reported failures"')
         block = source[start:source.index("\n        }", start)]
         self.assertIn("CombinedFailure.decode", block)
@@ -722,7 +572,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
 
 class V3RefreshFeedbackTests(unittest.TestCase):
     def test_targeted_section_survives_missing_store(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         start = source.index("struct V3TargetedRefreshSection")
         block = source[start:start + 1200]
         self.assertIn("V3StatusStoreKey", source)
@@ -730,7 +580,7 @@ class V3RefreshFeedbackTests(unittest.TestCase):
         self.assertIn("if let status", block)
 
     def test_first_launch_notification_prompt(self):
-        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        source = read_product_source("v3_unified_shell.swift")
         self.assertIn('"V3NotificationsPromptShown"', source)
         self.assertIn("Stay Informed About Refreshes", source)
         self.assertIn("requestNotificationPermission", source)

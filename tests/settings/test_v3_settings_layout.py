@@ -6,9 +6,8 @@ JIT-Less diagnose NavigationLink was injected as a bare top-level child of the
 Settings `Form`. Its label is `EmptyView()`, and a top-level NavigationLink in a
 Form still occupies a row, so the list drew a blank, tappable-looking cell.
 
-This test inspects the final generated host UI, not just the template: it
-replays the real patchers against the pinned LiveContainer tree, then flattens
-the generated Settings list and splices in the generated V3AccountSettings body.
+This test inspects the current pinned owner UI, flattens the Settings list,
+and splices in the maintained V3AccountSettings body.
 
 Checks:
 - No empty actionable row renders anywhere in the generated Settings list.
@@ -16,24 +15,11 @@ Checks:
 - No Section renders an empty body.
 - The check has teeth: a synthetic empty-label row is detected.
 """
-import os
 import re
-import shutil
-import subprocess
-import sys
-import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = ROOT / "scripts"
-TEMPLATE = SCRIPTS / "templates" / "v3_unified_shell.swift"
-PINNED = Path(os.environ.get(
-    "LIVE_CONTAINER_TEST_SOURCE", str(ROOT / ".audit/upstream/LiveContainer")))
-PINNED_SIDESTORE = Path(os.environ.get(
-    "SIDESTORE_TEST_SOURCE",
-    os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE", str(ROOT / ".audit/v103-sources/SideStore"))))
 SETTINGS_RELATIVE = "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
 SHELL_RELATIVE = "LiveContainerSwiftUI/Views/V3UnifiedShell.swift"
 
@@ -154,48 +140,11 @@ def rows(masked: str, start: int, end: int, text: str):
 
 
 def generate() -> dict:
-    """Replay the CI patchers once and cache the generated host sources."""
-    if _CACHE:
-        return _CACHE
-    if not PINNED.exists() or not PINNED_SIDESTORE.exists():
-        raise unittest.SkipTest("pinned upstream trees unavailable")
-    sys.path.insert(0, str(SCRIPTS))
-    try:
-        import patch_livecontainer_autorefresh
-        import patch_v3_unified_shell
-        import patch_v3_service
-    finally:
-        sys.path.pop(0)
-    workspace = Path(tempfile.mkdtemp(prefix="settings-layout-"))
-    try:
-        live = workspace / "LiveContainer"
-        side = workspace / "EmbeddedSideStore"
-        shutil.copytree(PINNED, live)
-        shutil.copytree(PINNED_SIDESTORE, side, symlinks=True,
-                        ignore_dangling_symlinks=True)
-        # The real patchers verify the pinned revision through git. The
-        # disposable copies are not repositories, so the verified pin is supplied
-        # directly while every other check in the patchers still runs for real.
-        real_check_output = subprocess.check_output
-        pins = iter(patch_v3_service.PINS)
-
-        def checked(command, *args, **kwargs):
-            if isinstance(command, (list, tuple)) and "rev-parse" in [str(part) for part in command]:
-                return f"{next(pins)}\n"
-            return real_check_output(command, *args, **kwargs)
-
-        # Replay the CI patch order that shapes the Settings Form.
-        patch_livecontainer_autorefresh.patch_host_delegate(live)
-        patch_livecontainer_autorefresh.patch_settings(live)
-        patch_v3_unified_shell.patch_host(live)
-        with mock.patch.object(patch_v3_service.subprocess, "check_output", checked):
-            patch_v3_service.patch(live, side)
-        _CACHE.update({
-            "settings": (live / SETTINGS_RELATIVE).read_text(encoding="utf-8"),
-            "shell": (live / SHELL_RELATIVE).read_text(encoding="utf-8"),
-        })
-    finally:
-        shutil.rmtree(workspace, ignore_errors=True)
+    """Read the current owner UI, not a replay against historical trees."""
+    from tests.owner_source import owner_source
+    if not _CACHE:
+        _CACHE.update({"settings": owner_source(SETTINGS_RELATIVE),
+                       "shell": owner_source(SHELL_RELATIVE)})
     return _CACHE
 
 
@@ -215,7 +164,7 @@ def settings_rows() -> list:
                in rows(masked_shell, struct_start + account_start, struct_start + account_end, shell)]
     result = []
     for _, _, fragment in rows(masked_settings, start, end, settings):
-        if fragment.strip().startswith("V3AccountSettings()"):
+        if fragment.strip().startswith("V3AccountSettings("):
             result.extend(fragment for fragment in account
                           if section_name(fragment) is not None)
         else:
@@ -290,7 +239,7 @@ class GeneratedSettingsLayoutTests(unittest.TestCase):
         # Guest Runtime itself is not redesigned; it still offers Tweaks.
         self.assertIn("Guest Runtime", generate()["shell"])
         self.assertIn('Label("Tweaks", systemImage: "slider.vertical.3")',
-                      TEMPLATE.read_text(encoding="utf-8"))
+                      generate()["shell"])
 
     # -- the class of defect ----------------------------------------------
 

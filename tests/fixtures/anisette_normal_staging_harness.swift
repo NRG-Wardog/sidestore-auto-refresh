@@ -11,7 +11,7 @@
         Store.data[selected] = ["identifier": Data(identifier.uuidString.utf8)]
         if mode == "empty_failure" { Store.data[selected] = [:] }
         if !fresh { Store.data[selected]?["adiPb"] = PairTest.encodedBlob }
-        // A preserved alternative must not be queried or used automatically.
+        // A preserved alternative may be compared by enabled diagnostics, never selected or used.
         Store.data[legacy] = ["identifier": PairTest.originalIDData]
         if mode == "journal" {
             Store.data[selected]?["LCAnisetteIdentityRecoveryV1"] = Data("preserve-pending-journal".utf8)
@@ -66,7 +66,11 @@
                     (storage ? .nativeStorage : .nativeOTP))
             }
         }
-        precondition(LCAnisetteIsolatedProbe.calls == 0 && RecoveryIntegrationQueries.count == 0)
+        precondition(LCAnisetteIsolatedProbe.calls == 0 && RecoveryIntegrationQueries.candidateCalls == 0)
+        let diagnosticComparison = mode == "saved_failure" && V3TemporaryAnisetteTrace.temporaryAnisetteTraceEnabled
+        precondition(RecoveryIntegrationQueries.diagnosticCalls == (diagnosticComparison ? 1 : 0))
+        precondition(RecoveryIntegrationQueries.count == (diagnosticComparison ? 2 : 0),
+            "only the two diagnostic legacy pair-key reads are allowed")
         precondition(PairTest.providerCalls == (["keychain", "journal"].contains(mode) ? 0 : 1))
         precondition(Store.data[legacy] == original[legacy])
         print("NORMAL_ANISETTE_STAGING_PASS " + mode)

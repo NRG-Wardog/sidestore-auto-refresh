@@ -1,15 +1,16 @@
 """Source persistence and canonical JIT-Less setup contracts."""
+from tests.support.product_sources import ProductSource
+from tests.owner_source import owner_source
 import os
 from pathlib import Path
 import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
-SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
-PATCH_SHELL = ROOT / "scripts/patch_v3_unified_shell.py"
+RUNTIME = ProductSource("v3_headless_runtime.swift")
+SERVICE = ProductSource("v3_sidestore_service.swift")
+SHELL = ProductSource("v3_unified_shell.swift")
+PRIMITIVES = ProductSource("v3_behavioral_primitives.swift")
 
 
 def text(path):
@@ -117,36 +118,12 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
         self.assertIn("failedSourceInput != newURL", view)
 
     def test_pinned_sidestore_uses_fresh_context_source_is_added_semantics(self):
-        side = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not side:
-            self.skipTest("pinned SideStore source is supplied by macOS CI")
-        import sys
-        sys.path.insert(0, str(ROOT / "scripts"))
-        import patch_v3_service
-        app_manager = subprocess.check_output([
-            "git", "-C", side, "show",
-            patch_v3_service.PINS[1] + ":AltStore/Managing Apps/AppManager.swift"],
-            text=True, encoding="utf-8")
-        source_model = subprocess.check_output([
-            "git", "-C", side, "show",
-            patch_v3_service.PINS[1] + ":AltStore/Core/Model/Source.swift"],
-            text=True, encoding="utf-8")
-        launch = subprocess.check_output([
-            "git", "-C", side, "show",
-            patch_v3_service.PINS[1] + ":AltStore/LaunchViewController.swift"],
-            text=True, encoding="utf-8")
-        known_sources = subprocess.check_output([
-            "git", "-C", side, "show",
-            patch_v3_service.PINS[1] + ":SideStore/Core/Operations/StandaloneOperations/UpdateKnownSourcesOperation.swift"],
-            text=True, encoding="utf-8")
-        fetch_source = subprocess.check_output([
-            "git", "-C", side, "show",
-            patch_v3_service.PINS[1] + ":SideStore/Core/Operations/StandaloneOperations/FetchSourceOperation.swift"],
-            text=True, encoding="utf-8")
-        normalization = subprocess.check_output([
-            "git", "-C", side, "show",
-            patch_v3_service.PINS[1] + ":AltStore/Core/Extensions/URL+Normalized.swift"],
-            text=True, encoding="utf-8")
+        app_manager = owner_source('AltStore/Managing Apps/AppManager.swift', "SideStore")
+        source_model = owner_source('AltStore/Core/Model/Source.swift', "SideStore")
+        launch = owner_source('AltStore/LaunchViewController.swift', "SideStore")
+        known_sources = owner_source('SideStore/Core/Operations/StandaloneOperations/UpdateKnownSourcesOperation.swift', "SideStore")
+        fetch_source = owner_source('SideStore/Core/Operations/StandaloneOperations/FetchSourceOperation.swift', "SideStore")
+        normalization = owner_source('AltStore/Core/Extensions/URL+Normalized.swift', "SideStore")
         self.assertIn("var normalizedURL = host", normalization)
         self.assertIn("normalizedURL = normalizedURL.lowercased()", normalization)
         self.assertIn("let sourceID = try sourceURL.normalized()", source_model)
@@ -169,7 +146,8 @@ class CanonicalJITLessRouteTests(unittest.TestCase):
         shell = text(SHELL)
         health = region(shell, "struct V3HealthView", "struct V3BackupsView")
         setup = region(shell, "struct V3SetupAssistantView", "struct V3HomeServiceHeader")
-        patch = text(PATCH_SHELL)
+        settings = owner_source("LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift")
+        routes = owner_source("LiveContainerSwiftUI/Views/LCTabView.swift")
         for token in ("livecontainer://jitless-setup", "Open JIT-Less Setup"):
             self.assertIn(token, health)
         for token in ("openCanonicalJITLessSetup()", 'Button("Set Up JIT-Less")',
@@ -177,7 +155,7 @@ class CanonicalJITLessRouteTests(unittest.TestCase):
             self.assertIn(token, setup)
         for token in ("jitless-setup", "importCertificateFromSideStore()",
                       "jitless-diagnose", "V3CanonicalJITLessCertificateUpdated"):
-            self.assertIn(token, patch)
+            self.assertIn(token, settings + routes)
 
     def test_custom_copy_engine_and_side_store_keychain_access_are_absent(self):
         shell = text(SHELL)
@@ -187,20 +165,20 @@ class CanonicalJITLessRouteTests(unittest.TestCase):
             self.assertNotIn(forbidden, shell + primitives)
 
     def test_pinned_livecontainer_settings_remains_the_import_authority(self):
-        live = os.environ.get("LIVE_CONTAINER_TEST_SOURCE")
-        if not live:
-            self.skipTest("pinned LiveContainer source is supplied by macOS CI")
-        import sys
-        sys.path.insert(0, str(ROOT / "scripts"))
-        import patch_v3_service
-        source = subprocess.check_output([
-            "git", "-C", live, "show",
-            patch_v3_service.PINS[0] + ":LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"],
-            text=True, encoding="utf-8")
+        source = owner_source("LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift")
         import_flow = region(source, "func importCertificateFromSideStore() async", "func onSideStoreCertificateCallback")
         callback = region(source, "func onSideStoreCertificateCallback", "func removeCertificate()")
-        for token in ('"signingCertificate"', '"signingCertificatePassword"', '"com.kdt.livecontainer"'):
+        # Current import exports the active backend certificate over the owned
+        # service channel instead of reading stale legacy Keychain slots.
+        for token in ('request(operation: "certExportActive")',
+                      'Set(reply.keys) == Set(["data", "password", "teamIdentifier", "identitySHA256"])',
+                      'request(operation: "healthSnapshot")',
+                      'current["certificateIdentitySHA256"] as? String == fingerprint',
+                      'V3CertificateImportOwnership.consume(requestID)'):
             self.assertIn(token, import_flow)
+        self.assertNotIn('SecItemCopyMatching', import_flow)
+        self.assertLess(import_flow.index('current["certificateIdentitySHA256"]'),
+                        import_flow.index('v3CompleteSideStoreCertificateImport(certificateData: data'))
         for token in ('"LCCertificateData"', '"LCCertificatePassword"', '"LCCertificateUpdateDate"'):
             self.assertIn(token, callback)
 

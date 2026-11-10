@@ -1,4 +1,5 @@
 """Execute the production certificate-create adapter and host outcome mapping."""
+from tests.support.product_sources import ProductSource
 
 from pathlib import Path
 import shutil
@@ -26,7 +27,7 @@ def swift_declaration(source: str, signature: str) -> str:
 
 class CertificateCreateContractTests(unittest.TestCase):
     def test_service_wires_upstream_storage_readback_and_no_activation(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
+        service = (ProductSource('v3_sidestore_service.swift')).read_text()
         block_start = service.index('        case "certCreate":')
         block_end = service.index('        case "devTeams":', block_start)
         block = service[block_start:block_end]
@@ -46,9 +47,9 @@ class CertificateCreateContractTests(unittest.TestCase):
 
     def test_production_adapter_and_host_mapping_execute_behaviorally(self):
         compiler = shutil.which("swiftc")
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
-        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text()
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
+        service = (ProductSource('v3_sidestore_service.swift')).read_text()
+        host = (ProductSource('v3_unified_shell.swift')).read_text()
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text()
         declarations = "\n\n".join((
             swift_declaration(service, "enum V3CertificateCreateAdapter"),
             swift_declaration(host, "enum V3CertificateCreatePresentation"),

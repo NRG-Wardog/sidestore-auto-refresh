@@ -1,4 +1,5 @@
 """Same-run ownership/provenance controls; never substitutes for native strip CI."""
+from pathlib import Path as _CIPath
 import json
 import os
 from pathlib import Path
@@ -174,7 +175,7 @@ class SameRunOptimizationTests(unittest.TestCase):
 
     def test_failure_evidence_copy_never_contains_staged_ipa_or_symbol_zip(self):
         import importlib.util
-        path = Path(__file__).resolve().parents[1] / 'ci/issues-native/package_candidate.py'
+        path = (_CIPath(__file__).resolve().parents[1]/'ci/packaging/native/package_candidate.py')
         spec = importlib.util.spec_from_file_location('native_package_size_test', path)
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
         staging = self.root/'packaging-size-products'; staging.mkdir()

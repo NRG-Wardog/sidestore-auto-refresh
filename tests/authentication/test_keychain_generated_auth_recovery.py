@@ -1,4 +1,9 @@
 """Execute generated silentSignIn/signIn against Apple and Keychain doubles."""
+from tests.support.product_sources import ProductSource
+from tests.support.keychain_owner_runtime import keychain_runtime_source
+from tests.support.local_signin_owner_runtime import members as scope_members, dependencies as scope_dependencies
+from tests.owner_source import owner_source
+from tests.test_v3_auth_recovery_audit import declaration
 from pathlib import Path
 import os
 import shutil
@@ -139,8 +144,19 @@ MAIN = r'''
             catch {
                 if scenario != "cancelled" { precondition(error is V3AccountOperationError) }
             }
-            precondition(Store.data == before && auth.passwordCalls == 0,
-                "failure preserves stored state and never replays password auth")
+            // Removing the rolled-back remote-route item leaves an empty service
+            // bucket in this in-memory IO double, not a stored keychain item.
+            if scenario == "writeback_failure" {
+                precondition(Store.data.filter { !$0.value.isEmpty } == before.filter { !$0.value.isEmpty },
+                    "rollback preserves every stored item")
+                precondition(Store.data[group] == before[group], "credentials and readiness restored byte-for-byte")
+            } else {
+                precondition(Store.data == before)
+            }
+            precondition(auth.passwordCalls == 0, "failure never replays password auth")
+            let remoteRoute = try LCEmbeddedSharedKeychain.remoteRouteBytes()
+            precondition(remoteRoute == nil)
+            precondition(Store.data[group]?["LCSharedAuthenticationTransactionV1"] == nil)
         }
         print("PASSED: " + scenario)
     }
@@ -148,21 +164,40 @@ MAIN = r'''
 '''
 
 
+def current_owner_program():
+    generated = owner_source("SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift", "SideStore")
+    silent = declaration(generated, "    private func silentSignIn()")
+    password = "\n".join(declaration(generated, anchor) for anchor in (
+        "    private func signIn(appleID:", "    private func performSignIn(appleID:"))
+    doubles = existing.DOUBLES.replace("\nfinal class Keychain {", "\nfinal class Keychain {\n    static var shared: Keychain!", 1)
+    phase_source = (ProductSource('combined_failure.swift')).read_text()
+    phase_source = "\n".join(declaration(phase_source, anchor) for anchor in (
+        "struct V3AuthenticationPhaseError:", "func v3AuthenticationPhase<T>"))
+    fields = """
+var v3RequireInteractiveCredentials = false
+var v3ReauthenticateAppleID: String? = nil
+var v3ForceProvisioningRetry = false
+"""
+    return "\n".join((phase_source, doubles, keychain_runtime_source(), scope_dependencies(),
+                         AUTH_DOUBLES, fields, scope_members(), silent, password, MAIN))
+
+
+class CurrentOwnerAssemblyTests(unittest.TestCase):
+    def test_actual_commit_and_scope_closure_is_assembled(self):
+        source = current_owner_program()
+        self.assertIn("private func performSignIn(appleID:", source)
+        self.assertIn("try await self.v3WithOwnedODA", source)
+        self.assertIn("remoteProvider: self.v3RemoteContextSnapshot() != nil", source)
+        self.assertNotIn("__PRODUCTION_", source)
+
+
 class GeneratedAuthenticationRecoveryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        source_root = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
         compiler = shutil.which("swiftc")
-        if not source_root or not compiler:
-            raise unittest.SkipTest("pinned SideStore and Swift required; executed in combined macOS CI")
-        original = existing.read_pinned_source(source_root, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift")
-        generated = existing.module.patch_sign_in_operation(existing.service_module.patch_sign_in_operation(original))
-        silent = generated[generated.index("    private func silentSignIn()") : generated.index("    private func authenticationLoop()")]
-        password = generated[generated.index("    private func signIn(appleID:") : generated.index("    private func finalizeAuthentication(")]
-        doubles = existing.DOUBLES.replace("\nfinal class Keychain {", "\nfinal class Keychain {\n    static var shared: Keychain!", 1)
-        phase_source = (Path(__file__).resolve().parents[2] / 'scripts/templates/combined_failure.swift').read_text()
-        phase_source = phase_source[phase_source.index('struct V3AuthenticationPhaseError:'):phase_source.index('// V3_TYPED_ACCOUNT_DIAGNOSTICS_V1:')]
-        swift = phase_source + doubles + existing.TEMPLATE.read_text() + existing.module.KEYCHAIN_ACCESS_ADAPTER + AUTH_DOUBLES + silent + password + MAIN
+        if not compiler:
+            raise unittest.SkipTest("Swift required; current owner executes in macOS CI")
+        swift = current_owner_program()
         cls.temp = tempfile.TemporaryDirectory(prefix="lc-generated-auth-recovery-")
         cls.addClassCleanup(cls.temp.cleanup)
         source = Path(cls.temp.name) / "Generated.swift"

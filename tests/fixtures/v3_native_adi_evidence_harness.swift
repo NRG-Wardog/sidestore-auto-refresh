@@ -90,7 +90,25 @@
                         precondition(failure.stage == .authentication && failure.sourceStep == .anisetteFetch)
                         precondition(failure.safeCause == nil && failure.retryable == nil)
                         let decoded = CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)!
-                        precondition(decoded.signingContext == failure.signingContext)
+                        // Wire serialization adds a finite observation state when a
+                        // provisioning cause is present. That bookkeeping must not
+                        // remove or alter any original evidence or claim trimming.
+                        let wireContext = failure.wire["signingContext"] as! [String: String]
+                        var expectedWireContext = failure.signingContext
+                        if expectedWireContext[V3ProvisioningCauseDiagnostic.contextKey] != nil &&
+                           expectedWireContext[V3AuthenticationDiagnostics.stateKey] == nil {
+                            expectedWireContext[V3AuthenticationDiagnostics.stateKey] = "recorded"
+                        }
+                        for (key, value) in failure.signingContext {
+                            precondition(wireContext[key] == value,
+                                "native ADI wire lost original evidence: field=\(key)")
+                        }
+                        precondition(wireContext == expectedWireContext,
+                            "native ADI wire must only add recorded state without losing evidence")
+                        precondition(decoded.signingContext == wireContext,
+                            "native ADI decode must preserve canonical wire context")
+                        precondition((decoded.wire["signingContext"] as? [String: String]) == wireContext,
+                            "native ADI canonical wire context must be idempotent")
                         precondition(decoded.signingContext["native_code"] == String(code))
                         precondition(decoded.signingContext["native_phase"] == phase.rawValue)
                         precondition(decoded.signingContext["native_subcode"] == (subcode.map(String.init) ?? "unknown"))
@@ -110,7 +128,23 @@
                             precondition(rendered.contains("native_code=\(code)") || rendered.contains("native_code"))
                         }
                         let recaptured = v3CaptureAuthFailure(decoded, operation: "signIn", stage: .provisioning, id: id)
-                        precondition(recaptured.signingContext == decoded.signingContext)
+                        var expectedContext = decoded.signingContext
+                        let causeKey = V3ProvisioningCauseDiagnostic.contextKey
+                        let cause = recaptured.signingContext[causeKey]!
+                        // Recapturing a CombinedFailure has no underlying NSError link.
+                        // The owner must emit the finite unknown/unobserved fallback,
+                        // not merely any syntactically valid diagnostic cause.
+                        precondition(cause == "pc1|unobserved|0|1|0|unobserved,unknown,unknown,-,-,-,-,unobserved,unavailable,unavailable,-,-,0")
+                        precondition(V3ProvisioningCauseDiagnostic(encoded: cause) != nil)
+                        precondition(!cause.contains("PRIVATE_") && !cause.contains("/private/"))
+                        expectedContext[causeKey] = cause
+                        precondition(recaptured.signingContext == expectedContext)
+                        precondition(recaptured.operation == decoded.operation && recaptured.stage == decoded.stage)
+                        precondition(recaptured.code == decoded.code && recaptured.sourceStep == decoded.sourceStep)
+                        precondition(recaptured.underlyingDomain == decoded.underlyingDomain && recaptured.underlyingCode == decoded.underlyingCode)
+                        precondition(recaptured.correlationID == decoded.correlationID && recaptured.retryable == decoded.retryable && recaptured.safeCause == decoded.safeCause)
+                        let again = v3CaptureAuthFailure(recaptured, operation: "signIn", stage: .provisioning, id: id)
+                        precondition(again.signingContext == recaptured.signingContext)
                     }
                 }
             }

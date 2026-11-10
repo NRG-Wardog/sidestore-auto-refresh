@@ -1,3 +1,4 @@
+from tests.support.product_sources import ProductSource
 """A sign-in prompt owns its compact error, copy action and cancellation panel."""
 import unittest
 import os
@@ -5,17 +6,20 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-source = os.environ.get("MAINTAINED_LIVE_CONTAINER_TEST_SOURCE")
-path = Path(source) / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift" if source else ROOT / "scripts/templates/v3_unified_shell.swift"
-SHELL = path.read_text()
-P1_AVAILABLE = "@State private var copiedDiagnostic: String?" in SHELL
-if os.environ.get("V3_P1_REQUIRED") == "1" and not P1_AVAILABLE:
-    raise RuntimeError("Required P1 feedback capability absent from selected source")
-# Normalize presentation-only adapters for existing control ownership assertions.
-SHELL = SHELL.replace("V3LocalizedText(", "Text(")
-SHELL = re.sub(r"LocalizedStringKey\(([^()]*)\)", r"\1", SHELL)
-VIEW = SHELL[SHELL.index("struct V3SignInView:"):SHELL.index("struct V3CertificateRow")]
-PROMPT = SHELL[SHELL.index("struct V3PromptSection:"):SHELL.index("final class V3AuthStore")]
+def setUpModule():
+    global source, SHELL, P1_AVAILABLE, VIEW, PROMPT
+    source = os.environ.get("MAINTAINED_LIVE_CONTAINER_TEST_SOURCE")
+    path = ProductSource("v3_unified_shell.swift")
+    SHELL = path.read_text()
+    P1_AVAILABLE = "@State private var copiedDiagnostic: String?" in SHELL
+    if os.environ.get("V3_P1_REQUIRED") == "1" and not P1_AVAILABLE:
+        raise RuntimeError("Required P1 feedback capability absent from selected source")
+    # Normalize presentation-only adapters for existing control ownership assertions.
+    SHELL = SHELL.replace("V3LocalizedText(", "Text(")
+    SHELL = re.sub(r"LocalizedStringKey\(([^()]*)\)", r"\1", SHELL)
+    VIEW = SHELL[SHELL.index("struct V3SignInView:"):SHELL.index("struct V3CertificateRow")]
+    PROMPT = SHELL[SHELL.index("struct V3PromptSection:"):SHELL.index("final class V3AuthStore")]
+
 
 
 class SignInScreenCleanupTests(unittest.TestCase):

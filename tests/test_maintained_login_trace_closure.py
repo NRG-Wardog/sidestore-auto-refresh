@@ -104,7 +104,7 @@ class LoginTraceClosureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / 'shell.swift'
             source.write_text(self.shell_text.replace('V3TemporaryADIConsumption', 'RemovedADIReference'))
-            with self.assertRaisesRegex(ValueError, 'actual SideStore.swift support source'):
+            with self.assertRaisesRegex(ValueError, 'requires its actual maintained source tree'):
                 renderer.extract_sources(source, ROOT / 'scripts/templates')
 
     def test_all_five_release_build_source_sets_preserve_real_dependency_edges(self):

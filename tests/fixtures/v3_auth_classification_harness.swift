@@ -1,51 +1,13 @@
 import Foundation
 
-enum DeveloperPortalError: Error {
-    case incorrectCredentials
-    case appSpecificPasswordRequired
-    case tooManyAttempts
-    case incorrectVerificationCode
-    case invalidAnisetteData
-    case accountRepairRequired
-    case userCancelled
-    case unknown
-}
-
-enum ServerError: Error {
-    case badServerResponse(reason: String, jsonPayload: String)
-    case invalidResponseFormat(rawPayload: String)
-    case missingKey(key: String, jsonPayload: String)
-    case underlyingError(code: Int, message: String)
-}
-
-enum SideSign {
-    enum Archive {
-        enum Error: Swift.Error {
-            case fileNotFound(URL), corruptArchive(URL), readFailed(URL), writeFailed(URL), missingAppBundle(URL)
-        }
-    }
-    enum AnisetteError: Error {
-        case noServersConfigured
-        case allServersFailed
-        case badServerResponse(statusCode: Int, payload: String)
-    }
-}
-
-enum AnisetteKit {
-    enum AnisetteError: Error {
-        case invalidArgument, loaderFailed(reason: String), symbolMissing(name: String), readFailure
-        case invalidResponse(reason: String), adiError(code: Int32, description: String)
-        case librariesNotFound(reason: String), httpError(statusCode: Int, message: String)
-    }
-}
-
+// Concrete external error types are read from their pinned owners by the test.
 @main
 struct AuthClassificationHarness {
     static func main() {
-        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectCredentials) == .invalidCredentials)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.appSpecificPasswordRequired) == .appSpecificPasswordRequired)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectVerificationCode) == .invalidCode)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.tooManyAttempts) == .rateLimited)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectCredentials()) == .invalidCredentials)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.appSpecificPasswordRequired()) == .appSpecificPasswordRequired)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectVerificationCode()) == .invalidCode)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.tooManyAttempts(cause: "PRIVATE_RATE_LIMIT")) == .rateLimited)
         precondition(v3ClassifyAuthError(ServerError.underlyingError(
             code: -22411, message: "PRIVATE_RATE_LIMIT_BODY")) == .rateLimited)
         let invalidResponses: [ServerError] = [
@@ -57,12 +19,12 @@ struct AuthClassificationHarness {
             precondition(v3ClassifyAuthError(invalidResponse) == .unknown,
                          "a malformed or incomplete response does not prove service outage")
         }
-        precondition(v3ClassifyAuthError(DeveloperPortalError.invalidAnisetteData) == .anisette)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.invalidAnisetteData(cause: "PRIVATE_ANIS")) == .anisette)
         precondition(v3ClassifyAuthError(SideSign.AnisetteError.noServersConfigured) == .anisette)
         precondition(v3ClassifyAuthError(SideSign.AnisetteError.allServersFailed) == .anisette)
         precondition(v3ClassifyAuthError(SideSign.AnisetteError.badServerResponse(
             statusCode: 503, payload: "PRIVATE_PROVIDER_BODY")) == .anisette)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.accountRepairRequired) == .accountRepairRequired)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.accountRepairRequired(url: nil, message: "PRIVATE_ACCOUNT_REPAIR")) == .accountRepairRequired)
         precondition(v3AuthFailureStage(.anisette) == .authentication,
             "Anisette failures retain the broad wire authentication stage")
         precondition(v3AuthFailureStage(.network) == .network,

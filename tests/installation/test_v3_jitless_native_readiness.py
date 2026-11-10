@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tests.support.product_sources import read_product_source
 import hashlib
 import json
 import shutil
@@ -24,7 +25,7 @@ SWIFTC = shutil.which("swiftc")
 
 
 def current_shell() -> str:
-    local = (ROOT / SHELL_PATH).read_text(encoding="utf-8")
+    local = read_product_source("v3_unified_shell.swift")
     if "LCUtils.certificateFacts(withKeyData:" in local:
         return local
     raise AssertionError("the native-facts V3JITLessStatusReader is missing")
@@ -170,7 +171,7 @@ def setup_revision_slices(shell: str, behavior: str) -> tuple[list[str], list[st
 
 
 def generated_harness(shell: str, handler_shell: str | None = None) -> str:
-    behavior = (ROOT / PRIMITIVES_PATH).read_text(encoding="utf-8")
+    behavior = read_product_source("v3_behavioral_primitives.swift")
     fixture = HARNESS_PATH.read_text(encoding="utf-8")
     replacements = {
         "// {{PRODUCTION_READINESS_SLICES}}": "\n\n".join(production_slices(shell, behavior)),
@@ -210,7 +211,7 @@ class JITLessNativeReadinessTests(unittest.TestCase):
         self.assertIn("LCUtils.getCertTeamId(withKeyData: data, password: password)", old)
         self.assertIn("status.invalidateSetupFacts()", old)
         old_handler = setup_revision_slices(legacy_shell(),
-            (ROOT / PRIMITIVES_PATH).read_text(encoding="utf-8"))[2]
+            read_product_source("v3_behavioral_primitives.swift"))[2]
         self.assertGreater(old_handler.index("status.invalidateSetupFacts()"),
                            old_handler.index("Task {"))
 
@@ -224,7 +225,7 @@ class JITLessNativeReadinessTests(unittest.TestCase):
         self.assertIn("Task {", source)
         self.assertNotIn("SecPKCS12Import", source)
         handler = setup_revision_slices(current_shell(),
-            (ROOT / PRIMITIVES_PATH).read_text(encoding="utf-8"))[2]
+            read_product_source("v3_behavioral_primitives.swift"))[2]
         self.assertLess(handler.index("status.invalidateSetupFacts()"), handler.index("Task {"))
 
     def test_native_facts_cases_pass_and_old_security_reader_fails_behaviorally(self):
@@ -265,7 +266,7 @@ class JITLessNativeReadinessTests(unittest.TestCase):
         old_handler = generated_harness(current_shell(), handler_shell=legacy_shell())
         self.assertIn("status.invalidateSetupFacts()", current)
         handler = setup_revision_slices(current_shell(),
-            (ROOT / PRIMITIVES_PATH).read_text(encoding="utf-8"))[2]
+            read_product_source("v3_behavioral_primitives.swift"))[2]
         self.assertLess(handler.index("status.invalidateSetupFacts()"), handler.index("Task {"))
 
         with tempfile.TemporaryDirectory() as temporary:

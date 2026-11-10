@@ -7,20 +7,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch as mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-SPEC = importlib.util.spec_from_file_location("combined_contract", ROOT / "scripts/patch_combined_refresh_contract.py")
-patch = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(patch)
-SERVICE_SPEC = importlib.util.spec_from_file_location("v3_service_patch", ROOT / "scripts/patch_v3_service.py")
-service = importlib.util.module_from_spec(SERVICE_SPEC)
-SERVICE_SPEC.loader.exec_module(service)
-BACKGROUND_SPEC = importlib.util.spec_from_file_location("background_automation", ROOT / "scripts/patch_background_automation.py")
-background = importlib.util.module_from_spec(BACKGROUND_SPEC)
-BACKGROUND_SPEC.loader.exec_module(background)
-
+from tests.owner_source import owner_source
+from scripts.headless_artifact_contract import verify_keychain_selection_contract
+from tests.support.product_sources import read_product_source, declaration_end
 
 class CombinedRefreshContractTests(unittest.TestCase):
     def test_package_verifier_does_not_require_interpolation_fragments_in_binary(self):
@@ -30,7 +22,7 @@ class CombinedRefreshContractTests(unittest.TestCase):
                            b"[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=process",
                            b"[LC_KEYCHAIN] GROUP_SELECTED service="):
             with self.subTest(diagnostic=diagnostic):
-                patch.verify_keychain_selection_contract(
+                verify_keychain_selection_contract(
                     diagnostic + b"\x00LCSharedKeychainReadyV1")
 
     def test_package_verifier_requires_selection_and_migration_markers(self):
@@ -42,11 +34,11 @@ class CombinedRefreshContractTests(unittest.TestCase):
         )
         for executable, expected in cases:
             with self.subTest(expected=expected), self.assertRaisesRegex(ValueError, expected):
-                patch.verify_keychain_selection_contract(executable)
+                verify_keychain_selection_contract(executable)
 
     @unittest.skipUnless(shutil.which("swiftc"), "optimized Swift diagnostic executes on macOS CI")
     def test_optimized_production_diagnostic_emits_scope_and_passes_link_gate(self):
-        template = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text()
+        template = read_product_source("embedded_shared_keychain.swift")
         diagnostic = next(line.strip() for line in template.splitlines()
                           if 'debugLog("[LC_KEYCHAIN] GROUP_SELECTED' in line)
         # Exercise the shipped interpolation, rather than concatenating an
@@ -72,260 +64,13 @@ print("LCSharedKeychainReadyV1")
                 "[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=shared",
                 "[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=process",
                 "LCSharedKeychainReadyV1"])
-            patch.verify_keychain_selection_contract(executable.read_bytes())
+            verify_keychain_selection_contract(executable.read_bytes())
 
-    def test_standalone_manifest_persists_only_safe_failure_fields(self):
-        original = r'''    private let refreshIdentifier: String = UUID().uuidString
-    private var runningApplications: Set<String> = []
-    init(installedApps: [InstalledApp], context: OperationContext) throws {
-        self.installedApps = installedApps
-        try super.init(context: context)
-    }
-                self.debugLog("Failed to refresh apps in background. \(error)")
-                self.debugLog("Failed to refresh apps in background. \(error.localizedDescription)")
-                content.body = error.localizedDescription
-        guard !self.installedApps.isEmpty else {
-            let error = OperationError.noInstalledApps
-            self.scheduleFinishedRefreshingNotification(for: .failure(error), delay: 0)
-            throw error
-        }
-
-        if UserDefaults.standard.enableEMPforWireguard {
-            let filteredApps = await dbContext.perform {
-                return self.installedApps.filter { !self.runningApplications.contains($0.bundleIdentifier) }
-            }
-            let group = AppManager.shared.refresh(apps, presentingViewController: nil)
-            group.beginInstallationHandler = { [weak self] (installedApp) in
-        }
-            group.completionHandler = { (results) in
-                self.setProgress(100)
-                continuation.resume(returning: results)
-            }
-    private func startListeningForRunningApps() {
-'''
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            operation = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
-            operation.parent.mkdir(parents=True)
-            operation.write_text(original)
-            background.patch_background_operation(root)
-            generated = operation.read_text()
-            background.patch_background_operation(root)
-            self.assertEqual(generated, operation.read_text(), "standalone patch must be idempotent")
-            start = generated.index("    private func automaticRefreshDefaults()")
-            end = generated.index("    private func startListeningForRunningApps()", start)
-            helper = generated[start:end]
-            self.assertIn('"error_category": category, "error_code": (error as NSError).code', helper)
-            self.assertIn('AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)', helper)
-            self.assertNotIn("error.localizedDescription", helper)
-            self.assertNotIn('(error as NSError).domain', helper)
-
-            # Compose the combined-only upgrade over the actual standalone output,
-            # then replay it to check both generated output and provenance idempotence.
-            patch._patch_verified(root)
-            combined = operation.read_text()
-            self.assertIn('CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)', combined)
-            self.assertIn('"error": failure.message, "failure": failure.wire', combined)
-            self.assertIn('content.body = failure.message', combined)
-            self.assertNotIn('AutomaticRefreshFailureCategory', combined,
-                             'the combined headless target does not include the legacy scheduler classifier')
-            self.assertNotIn("error.localizedDescription", combined)
-            self.assertNotIn('(error as NSError).domain', combined)
-            combined_snapshot = operation.read_bytes()
-            patch._patch_verified(root)
-            self.assertEqual(combined_snapshot, operation.read_bytes(), "combined overlay must be idempotent")
-
-            compiler = shutil.which("swiftc")
-            if not compiler:
-                self.skipTest("requires Swift; generated-source checks above passed")
-            HARNESS_FILE_MANAGER = r'''
-
-/// A macOS runner has no App Group entitlement, so the real container lookup
-/// reports every group unavailable and the refresh helpers would correctly
-/// refuse. This answers the same question with a real directory.
-final class HarnessContainerFileManager: FileManager {
-    static var roots: [String: URL] = [:]
-    override func containerURL(forSecurityApplicationGroupIdentifier identifier: String) -> URL? {
-        if let existing = HarnessContainerFileManager.roots[identifier] { return existing }
-        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("v3-harness-store-\(getpid())", isDirectory: true)
-            .appendingPathComponent(identifier.replacingOccurrences(of: "/", with: "_"),
-                                    isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        HarnessContainerFileManager.roots[identifier] = root
-        return root
-    }
-}
-'''
-            shared_group = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
-            swift = shared_group + "\n" + HARNESS_FILE_MANAGER + r'''
-import Foundation
-enum AutomaticRefreshEvent { case failed }
-enum AutomaticRefreshFailureCategory: String {
-    case unknown
-    static func classify(_ error: Error) -> Self { .unknown }
-    static func safeMessage(_ error: Error, event: AutomaticRefreshEvent) -> String {
-        "The refresh failed; no safe underlying cause was available."
-    }
-}
-struct InstalledApp {
-    let bundleIdentifier: String
-    let name: String
-    let refreshedDate: Date
-    let expirationDate: Date
-}
-enum StoreApp { static let altstoreAppID = "com.example.host" }
-final class Harness {
-    let refreshIdentifier = "safe-run-id"
-    var installedApps: [InstalledApp] = []
-    func debugLog(_ message: String) {}
-    func persist(_ error: Error) {
-        persistAutomaticRefreshVerification(results: ["com.example.app": .failure(error)], attemptedAppIDs: ["com.example.app"])
-    }
-HELPER
-}
-let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
-let manifestKey = "liveContainerAutoRefreshVerification"
-let expectedRunKey = "liveContainerAutoRefreshExpectedRunID"
-let previousManifest = defaults.object(forKey: manifestKey)
-let previousExpectedRunID = defaults.object(forKey: expectedRunKey)
-defer {
-    if let previousManifest { defaults.set(previousManifest, forKey: manifestKey) }
-    else { defaults.removeObject(forKey: manifestKey) }
-    if let previousExpectedRunID { defaults.set(previousExpectedRunID, forKey: expectedRunKey) }
-    else { defaults.removeObject(forKey: expectedRunKey) }
-}
-defaults.removeObject(forKey: manifestKey)
-defaults.set("safe-run-id", forKey: "liveContainerAutoRefreshExpectedRunID")
-let harness = Harness()
-let providerError = NSError(domain: "private.invalid/token=SECRET_TOKEN", code: 73,
-    userInfo: [NSLocalizedDescriptionKey: "failed at /private/user/path?access_token=SECRET_TOKEN"])
-V3SharedAppGroup.containerFileManager = HarnessContainerFileManager()
-V3SharedAppGroup.publishRuntimeGroup(V3SharedAppGroup.packagedGroup)
-harness.persist(providerError)
-let manifest = defaults.dictionary(forKey: manifestKey)!
-let rows = manifest["results"] as! [[String: Any]]
-let row = rows[0]
-precondition(row["error_category"] as? String == "unknown")
-precondition(row["error_code"] as? Int == 73)
-precondition(row["error"] as? String == "The refresh failed; no safe underlying cause was available.")
-precondition(row["error_domain"] == nil)
-let data = try PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0)
-let persisted = String(decoding: data, as: UTF8.self)
-precondition(!persisted.contains("SECRET_TOKEN") && !persisted.contains("private.invalid") && !persisted.contains("/private/user/path"))
-print("standalone manifest privacy PASS")
-'''.replace("HELPER", helper)
-            with tempfile.TemporaryDirectory() as swift_directory:
-                source = Path(swift_directory) / "main.swift"
-                executable = Path(swift_directory) / "privacy-test"
-                source.write_text(swift)
-                compiled = subprocess.run([compiler, str(source), "-o", str(executable)], capture_output=True, text=True)
-                self.assertEqual(compiled.returncode, 0, compiled.stderr)
-                result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("standalone manifest privacy PASS", result.stdout)
-
-    def test_full_patch_composition_is_transactional_on_pinned_source(self):
-        source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.getenv("SIDESTORE_TEST_SOURCE")
-        if not source: self.skipTest("pinned embedded SideStore source required")
-        revision = subprocess.check_output(["git", "-C", source, "rev-parse", "HEAD"], text=True).strip()
-        self.assertEqual(revision, patch.PIN)
-        spec = importlib.util.spec_from_file_location("background_automation", ROOT / "scripts/patch_background_automation.py")
-        background = importlib.util.module_from_spec(spec); spec.loader.exec_module(background)
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "side"
-            paths = [
-                "AltStore/Core/Components/Keychain.swift",
-                "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
-                "SideStore/Core/Auth/AuthManager.swift",
-                "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
-                "SideStore/Utils/importexport/ImportExport.swift",
-                "SideStore/Core/Certificates/CertificateManager.swift",
-                "SideStore/Core/Anisette/AnisetteConfigManager.swift",
-                "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
-                "SideStore/Core/Anisette/AnisetteProvider.swift",
-            ]
-            for relative in paths:
-                target = root / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                # Read the pinned commit blob rather than the checkout file: the
-                # test source may be dirty after another patch-generation test.
-                pristine = subprocess.check_output(
-                    ["git", "-C", source, "show", f"{patch.PIN}:{relative}"]
-                )
-                target.write_bytes(pristine)
-            background.patch_background_operation(root)
-            sign_in = root / paths[3]
-            sign_in.write_text(service.patch_sign_in_operation(sign_in.read_text(encoding="utf-8")),
-                               encoding="utf-8")
-            operation = root / paths[1]
-            prepared = operation.read_bytes()
-            def snapshot():
-                return {name: (root / name).read_bytes() for name in paths + [".combined-refresh-contract.json"] if (root / name).exists()}
-            # Shared Keychain transforms successfully in staging, then contract rejects
-            # the changed privacy-safe anchor. Neither Keychain nor operation nor manifest may leak out.
-            operation.write_bytes(prepared.replace(
-                b"let category = AutomaticRefreshFailureCategory.classify(error).rawValue",
-                b"let changedCategory = AutomaticRefreshFailureCategory.classify(error).rawValue"))
-            before = snapshot()
-            with mock.object(patch, "verify_pin", return_value=None):
-                with self.assertRaises(SystemExit):
-                    patch.patch_combined_cli(root)
-            self.assertEqual(before, snapshot())
-            operation.write_bytes(prepared)
-            before = snapshot()
-            with mock.object(patch, "verify_pin", side_effect=SystemExit("wrong pin")):
-                with self.assertRaises(SystemExit):
-                    patch.patch_combined_cli(root)
-            self.assertEqual(before, snapshot())
-            with mock.object(patch, "verify_pin", return_value=None):
-                patch.patch_combined_cli(root)
-            applied = snapshot()
-            self.assertIn(b"Keychain.shared.embeddedAuthenticationFailure(error)", applied[paths[1]])
-            self.assertIn(b"LC_AUTO_REFRESH_CREDENTIAL_SNAPSHOT_V1", applied[paths[1]])
-            self.assertIn(b"LC_AUTH_CREDENTIALS_MISSING_V1", applied[paths[1]])
-            self.assertIn(b'"failure": failure.wire', applied[paths[1]])
-            self.assertIn(b"CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)", applied[paths[1]])
-            self.assertIn(b'"error": failure.message', applied[paths[1]])
-            generated = applied[paths[1]].decode("utf-8")
-            start = generated.index("private func automaticRefreshDefaults()")
-            end = generated.index("private func startListeningForRunningApps()", start)
-            manifestHelper = generated[start:end]
-            self.assertNotIn("error.localizedDescription", manifestHelper,
-                             "the final combined manifest and its failure log must not retain raw provider text")
-            self.assertNotIn("error_domain=\\(nsError.domain)", manifestHelper)
-            with mock.object(patch, "verify_pin", return_value=None):
-                patch.patch_combined_cli(root)
-            self.assertEqual(applied, snapshot())
-            operation.write_bytes(operation.read_bytes() + b"\n// unexpected drift\n")
-            drifted = snapshot()
-            with mock.object(patch, "verify_pin", return_value=None):
-                with self.assertRaises(SystemExit):
-                    patch.patch_combined_cli(root)
-            self.assertEqual(drifted, snapshot())
-
-    def fixture(self, root):
-        tree = ast.parse((ROOT / "scripts/patch_background_automation.py").read_text(encoding="utf-8"))
-        helper = next(node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)
-                      and isinstance(node.value, str) and node.value.startswith("\n    private func automaticRefreshDefaults()"))
-        path = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
-        path.parent.mkdir(parents=True)
-        notification = r'''                self.debugLog("[AUTO_REFRESH] NOTIFICATION_FAILURE failure_category=\(AutomaticRefreshFailureCategory.classify(error).rawValue)")
-                content.body = AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)
-'''
-        path.write_text(notification + helper + "\n    private func startListeningForRunningApps() {}\n")
-        return path
-
-    def apply(self, root):
-        with mock.object(patch.subprocess, "check_output", return_value=patch.PIN):
-            patch.patch(root)
 
     def test_handoff_uses_host_run_and_manifest_counts_expected_apps(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            file = self.fixture(root)
-            self.apply(root)
-            result = file.read_text()
+            result = owner_source("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift", "SideStore")
             self.assertIn('"expected_ids": expectedIDs, "requested_ids": requestedIDs, "skipped_ids": skippedIDs', result)
             self.assertIn('"version": 2', result)
             self.assertIn('"schema": "LiveContainerRefreshManifestV2"', result)
@@ -334,35 +79,16 @@ print("standalone manifest privacy PASS")
             self.assertIn('CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)', result)
             self.assertIn('"error": failure.message, "failure": failure.wire', result)
             self.assertIn('REFRESH_FAILED \\(failure.technicalDetails)', result)
-            self.assertNotIn("error.localizedDescription", result,
+            privacy_helpers = result[result.index("    private func automaticRefreshDefaults()"):result.index("    private func startListeningForRunningApps()") ]
+            self.assertNotIn("error.localizedDescription", privacy_helpers,
                              "the composed output must not persist raw provider response text")
             self.assertNotIn(r"\\(refreshIdentifier)", result)
-            self.apply(root)
-            self.assertEqual(result, file.read_text())
 
-    def test_replay_and_anchor_drift_fail_closed(self):
-        for change in ("anchor", "output", "manifest", "pin"):
-            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory); file = self.fixture(root)
-                if change == "anchor":
-                    file.write_text(file.read_text().replace(
-                        "let category = AutomaticRefreshFailureCategory.classify(error).rawValue",
-                        "let changedCategory = AutomaticRefreshFailureCategory.classify(error).rawValue"))
-                elif change != "pin":
-                    self.apply(root)
-                    if change == "output": file.write_text(file.read_text() + "// unexpected drift")
-                    else: (root / ".combined-refresh-contract.json").write_text("{}")
-                before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
-                with self.assertRaises(SystemExit):
-                    if change == "pin":
-                        with mock.object(patch.subprocess, "check_output", return_value="0" * 40): patch.patch(root)
-                    else: self.apply(root)
-                self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
 
     def test_post_dispatch_connection_loss_retains_refresh_lease_without_matching_callback(self):
-        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        handler = read_product_source("combined_refresh_handler.swift")
         start = handler.index("enum V3RefreshAdmissionFailureResolution")
-        end = handler.index("\n}\n\n@MainActor\nclass RefreshHandler", start) + 2
+        end = declaration_end(handler, start)
         production_policy = handler[start:end]
         production_handler = handler[handler.index("private func performRefresh(identifier: String,", handler.index("class RefreshHandler")):]
         self.assertIn("V3RefreshAdmissionFailureResolution.resolve(", production_handler)
@@ -405,25 +131,25 @@ print("standalone manifest privacy PASS")
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory); file = self.fixture(root); self.apply(root)
+            root = Path(directory)
             # Execute the generated verification helper in isolation. The
             # fixture also carries a separate notification catch block so the
             # combined transform can verify both call sites; that fragment is
             # not part of the Operation class body in this harness.
-            generated = file.read_text()
+            generated = owner_source("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift", "SideStore")
             helper_start = generated.index("    private func automaticRefreshDefaults()")
             helper_end = generated.index("    private func startListeningForRunningApps()")
             helper = generated[helper_start:helper_end]
             self.assertNotIn('"group.com.SideStore.SideStore"', helper,
                              "the helper must resolve its suite from the published group, "
                              "not from a literal that a test can rewrite")
-            wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text()
-            failure = (ROOT / "scripts/templates/combined_failure.swift").read_text()
-            primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
-            bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text()
+            wire = read_product_source("v3_wire_contract.swift")
+            failure = read_product_source("combined_failure.swift")
+            primitives = read_product_source("v3_behavioral_primitives.swift")
+            bridge = read_product_source("v3_service_bridge.swift")
             context = bridge[bridge.index("enum V3CatalogRequestContext {"):]
             context = context[:context.index("\n@MainActor")]
-            runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+            runtime = read_product_source("v3_headless_runtime.swift")
             classifier_start = runtime.index("enum V3HeadlessPairingFailure {")
             classifier_end = runtime.index("\n// V3_HEADLESS_RUNTIME_V1", classifier_start)
             pairing_classifier = runtime[classifier_start:classifier_end]
@@ -449,7 +175,7 @@ final class HarnessContainerFileManager: FileManager {
     }
 }
 '''
-            shared_group = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text()
+            shared_group = read_product_source("v3_shared_app_group.swift")
             swift = shared_group + "\n" + HARNESS_FILE_MANAGER + "\n" + wire + "\n" + failure + "\n" + primitives + "\n" + context + r'''
 enum OperationError: Error {
     case invalidPairingFile(reason: String)
@@ -469,16 +195,22 @@ struct InstalledApp {
     var expirationDate = Date(), refreshedDate = Date()
 }
 enum StoreApp { static let altstoreAppID = "fixture.host" }
+// The native group is external to this manifest serialization harness.
+struct HarnessVerification { let wire: [String: Any] }
+struct RefreshGroup {
+    func verification(for bundleID: String) -> HarnessVerification? { nil }
+    func transportObservationWire(for runID: String) -> [String: Any]? { nil }
+}
 @MainActor final class Operation {
     var installedApps = [InstalledApp()]
     var refreshIdentifier = UUID().uuidString
     func debugLog(_ message: String) { logs.append(message) }
     func record(_ error: Error) {
         persistAutomaticRefreshVerification(results: ["fixture.app": .failure(error)],
-            attemptedAppIDs: ["fixture.app"])
+            attemptedAppIDs: ["fixture.app"], group: RefreshGroup(), runID: (try? automaticRefreshDefaults())?.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier)
     }
     func record(_ results: [String: Result<InstalledApp, Error>], attemptedAppIDs: [String]) {
-        persistAutomaticRefreshVerification(results: results, attemptedAppIDs: attemptedAppIDs)
+        persistAutomaticRefreshVerification(results: results, attemptedAppIDs: attemptedAppIDs, group: RefreshGroup(), runID: (try? automaticRefreshDefaults())?.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier)
     }
 ''' + helper + r'''
 }
@@ -594,8 +326,26 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
         let legacy: [String: Any] = ["run_id": run, "expected_ids": ["fixture.app"], "results": [
             ["bundle_id": "fixture.app", "success": false, "error_domain": "DeviceGatewayError", "error_code": 84,
              "error": "lc_stage=uniqueDeviceID SECRET_TOKEN", "failure": stale] as [String: Any]]]
-        let safe = CombinedVerification.sanitized(["liveContainerAutoRefreshVerification": legacy], runID: run)
-        let manifest = safe["liveContainerAutoRefreshVerification"] as! [String: Any]
+        // Legacy error-row metadata remains supported inside a complete current
+        // manifest, not as permission to bypass the manifest schema boundary.
+        precondition(CombinedVerification.sanitized(
+            ["liveContainerAutoRefreshVerification": legacy], runID: run).isEmpty,
+            "an unversioned manifest must not enter the verified bridge")
+        var currentManifest = legacy
+        currentManifest["version"] = 2
+        currentManifest["schema"] = "LiveContainerRefreshManifestV2"
+        precondition(CombinedVerification.hasCompleteTerminalResults(currentManifest, runID: run))
+        for missing in ["version", "schema"] {
+            var incomplete = currentManifest
+            incomplete.removeValue(forKey: missing)
+            precondition(CombinedVerification.sanitized(
+                ["liveContainerAutoRefreshVerification": incomplete], runID: run).isEmpty,
+                "each manifest schema field is independently required")
+        }
+        let safe = CombinedVerification.sanitized(["liveContainerAutoRefreshVerification": currentManifest], runID: run)
+        guard let manifest = safe["liveContainerAutoRefreshVerification"] as? [String: Any] else {
+            preconditionFailure("a complete manifest with legacy error-row metadata was rejected")
+        }
         let rows = manifest["results"] as! [[String: Any]]
         let failure = CombinedFailure.decode(rows[0]["failure"] as! [String: Any], expectedID: run)!
         precondition(failure.stage == .uniqueDeviceID && failure.underlyingCode == 84)

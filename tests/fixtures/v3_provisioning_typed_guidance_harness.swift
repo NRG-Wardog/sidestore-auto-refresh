@@ -1,57 +1,7 @@
 import Foundation
 
-// V3_PROVISIONING_TYPED_GUIDANCE_HARNESS_V1
-// A local mirror of the pinned SideStore.OperationError declaration, so the
-// production guidance function can be executed in isolation. The case names and
-// associated-value shapes must match
-// SideStore/Core/Operations/Errors/OperationError.swift at the pinned revision.
-//
-// CustomNSError is part of the mirror on purpose. The pinned type conforms to it
-// without implementing errorCode or errorDomain, so the bridged NSError integer
-// carries no stable meaning and cannot be used as a semantic API. Conforming the
-// mirror keeps the harness honest about the shape of that bridge.
-enum OperationError: Error, CustomNSError {
-    case unknown(failureReason: String? = nil)
-    case unknownResult
-    case timedOut
-    case notAuthenticated
-    case appNotFound(name: String? = nil)
-    case unknownUDID
-    case invalidApp(reason: String? = nil)
-    case invalidParameters(String? = nil)
-    case invalidOperationContext(String? = nil)
-    case maximumAppIDLimitReached(appName: String, requiredAppIDs: Int, availableAppIDs: Int, expirationDate: Date)
-    case noSources
-    case noInstalledApps
-    case openAppFailed(name: String? = nil)
-    case missingAppGroup
-    case forbidden(failureReason: String? = nil)
-    case sourceNotAdded(name: String)
-    case serverNotFound
-    case connectionFailed
-    case pledgeInactive(appName: String)
-    case unableToConnectSideJIT
-    case unableToRespondSideJITDevice
-    case SideJITIssue(error: String?)
-    case provisioningError(result: String, message: String? = nil)
-    case certificateRevoked(appName: String)
-    case customCertificateRevoked(appName: String, activeTeam: String)
-    case customCertificateExpired(appName: String, activeTeam: String)
-    case certificateExpired(appName: String)
-    case certificateChanged(appName: String)
-    case cacheClearError(errors: [String])
-    case noConnection(reason: String? = nil)
-    case noVPN(reason: String? = nil)
-    case invalidVPN(reason: String? = nil)
-    case noDevice(reason: String? = nil)
-    case notReachable(reason: String)
-    case invalidPairingFile(reason: String? = nil)
-    case minimuxerNotStarted(reason: String? = nil)
-    case pairingNotComplete(reason: String? = nil)
-    case missingAppBundle
-    case missingInfoPlist
-    case missingProvisioningProfile
-}
+// Current owner enum case declarations are injected by the Python harness.
+// {{CURRENT_OPERATION_ERROR_CASES}}
 
 @main
 struct ProvisioningTypedGuidanceHarness {
@@ -61,16 +11,16 @@ struct ProvisioningTypedGuidanceHarness {
         // A case that declares a default for its associated value is referenced
         // as a function outside a switch, so the payload is always supplied
         // explicitly here.
-        precondition(v3OperationErrorGuidance(OperationError.noConnection(reason: nil)).message
+        precondition(v3OperationErrorGuidance(OperationError.noConnection(reason: "")).message
             == "SideStore could not reach this device to finish provisioning.")
-        precondition(v3OperationErrorGuidance(OperationError.noVPN(reason: nil)).hint.contains("LocalDevVPN"))
-        precondition(v3OperationErrorGuidance(OperationError.invalidVPN(reason: nil)).hint.contains("LocalDevVPN"))
-        precondition(v3OperationErrorGuidance(OperationError.noDevice(reason: nil)).hint.contains("endpoint"))
+        precondition(v3OperationErrorGuidance(OperationError.noVPN(reason: "")).hint.contains("LocalDevVPN"))
+        precondition(v3OperationErrorGuidance(OperationError.invalidVPN(reason: "")).hint.contains("LocalDevVPN"))
+        precondition(v3OperationErrorGuidance(OperationError.noDevice(reason: "")).hint.contains("endpoint"))
         precondition(v3OperationErrorGuidance(OperationError.notReachable(reason: "")).hint.contains("Connection"))
-        precondition(v3OperationErrorGuidance(OperationError.invalidPairingFile(reason: nil)).hint.contains("pairing file"))
-        precondition(v3OperationErrorGuidance(OperationError.minimuxerNotStarted(reason: nil)).hint.contains("pairing"))
-        precondition(v3OperationErrorGuidance(OperationError.pairingNotComplete(reason: nil)).hint.contains("pairing file"))
-        precondition(v3OperationErrorGuidance(OperationError.unknownUDID).message
+        precondition(v3OperationErrorGuidance(OperationError.invalidPairingFile(reason: "")).hint.contains("pairing file"))
+        precondition(v3OperationErrorGuidance(OperationError.minimuxerNotStarted(reason: "")).hint.contains("pairing"))
+        precondition(v3OperationErrorGuidance(OperationError.pairingNotComplete(reason: "")).hint.contains("pairing file"))
+        precondition(v3OperationErrorGuidance(OperationError.unknownUDID(reason: "")).message
             == "SideStore could not identify this device for registration.")
 
         // The account and certificate families.
@@ -82,7 +32,7 @@ struct ProvisioningTypedGuidanceHarness {
             .hint.contains("Certificates"))
         precondition(v3OperationErrorGuidance(.certificateExpired(appName: "X")).hint.contains("Certificates"))
         precondition(v3OperationErrorGuidance(.certificateChanged(appName: "X")).hint.contains("Certificates"))
-        precondition(v3OperationErrorGuidance(.missingProvisioningProfile).hint.contains("Certificates"))
+        precondition(v3OperationErrorGuidance(.missingProvisioningProfile(reason: "")).hint.contains("Certificates"))
         precondition(v3OperationErrorGuidance(.maximumAppIDLimitReached(
             appName: "X", requiredAppIDs: 1, availableAppIDs: 0, expirationDate: Date())
             ).hint.contains("App ID"))
@@ -94,16 +44,16 @@ struct ProvisioningTypedGuidanceHarness {
         // transport layer never reaches the user or the diagnostics.
         let secret = "SECRET-TRANSPORT-REASON-9f2c"
         let payloadPairs: [(OperationError, OperationError)] = [
-            (OperationError.noConnection(reason: secret), OperationError.noConnection(reason: nil)),
-            (OperationError.noVPN(reason: secret), OperationError.noVPN(reason: nil)),
-            (OperationError.invalidVPN(reason: secret), OperationError.invalidVPN(reason: nil)),
-            (OperationError.noDevice(reason: secret), OperationError.noDevice(reason: nil)),
-            (OperationError.invalidPairingFile(reason: secret), OperationError.invalidPairingFile(reason: nil)),
-            (OperationError.minimuxerNotStarted(reason: secret), OperationError.minimuxerNotStarted(reason: nil)),
-            (OperationError.pairingNotComplete(reason: secret), OperationError.pairingNotComplete(reason: nil)),
-            (OperationError.unknown(failureReason: secret), OperationError.unknown(failureReason: nil)),
-            (OperationError.forbidden(failureReason: secret), OperationError.forbidden(failureReason: nil)),
-            (OperationError.SideJITIssue(error: secret), OperationError.SideJITIssue(error: nil)),
+            (OperationError.noConnection(reason: secret), OperationError.noConnection(reason: "")),
+            (OperationError.noVPN(reason: secret), OperationError.noVPN(reason: "")),
+            (OperationError.invalidVPN(reason: secret), OperationError.invalidVPN(reason: "")),
+            (OperationError.noDevice(reason: secret), OperationError.noDevice(reason: "")),
+            (OperationError.invalidPairingFile(reason: secret), OperationError.invalidPairingFile(reason: "")),
+            (OperationError.minimuxerNotStarted(reason: secret), OperationError.minimuxerNotStarted(reason: "")),
+            (OperationError.pairingNotComplete(reason: secret), OperationError.pairingNotComplete(reason: "")),
+            (OperationError.unknown(failureReason: secret), OperationError.unknown(failureReason: "")),
+            (OperationError.forbidden(failureReason: secret), OperationError.forbidden(failureReason: "")),
+            (OperationError.SideJITIssue(error: secret), OperationError.SideJITIssue(error: "")),
             (OperationError.provisioningError(result: secret, message: secret),
              OperationError.provisioningError(result: secret, message: nil))
         ]
@@ -134,14 +84,14 @@ struct ProvisioningTypedGuidanceHarness {
         // be classified from that integer.
         let bridgedCodes = [
             (OperationError.noConnection(reason: secret) as NSError).code,
-            (OperationError.unknownUDID as NSError).code,
+            (OperationError.unknownUDID(reason: "") as NSError).code,
             (OperationError.serverNotFound as NSError).code
         ]
         print("V3_PROVISIONING_BRIDGE_CODES \(bridgedCodes)")
-        precondition(v3OperationErrorGuidance(OperationError.noConnection(reason: nil)).message
-            != v3OperationErrorGuidance(OperationError.unknownUDID).message,
+        precondition(v3OperationErrorGuidance(OperationError.noConnection(reason: "")).message
+            != v3OperationErrorGuidance(OperationError.unknownUDID(reason: "")).message,
             "typed cases must not collapse when the bridged code is identical")
-        precondition(v3OperationErrorGuidance(OperationError.unknownUDID).message
+        precondition(v3OperationErrorGuidance(OperationError.unknownUDID(reason: "")).message
             != v3OperationErrorGuidance(OperationError.serverNotFound).message,
             "typed cases must not collapse when the bridged code is identical")
 

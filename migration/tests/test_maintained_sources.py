@@ -16,6 +16,39 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import maintained_sources as gate
 
 
+def local_fixture_git_environment():
+    """Allow only local transport for one synthetic fixture Git command.
+
+    CI keeps real acquisition HTTPS-only. GIT_ALLOW_PROTOCOL overrides
+    protocol.file.allow, including in submodule child processes, so pass a
+    private environment to fixture transfers without changing os.environ or
+    the environment used by production acquisition and verification calls.
+    """
+    return {**os.environ, 'GIT_ALLOW_PROTOCOL': 'file'}
+
+
+class FixtureGitEnvironmentTests(unittest.TestCase):
+    def test_fixture_environment_is_a_private_file_only_copy(self):
+        for inherited in (None, 'https', 'https:ssh'):
+            with self.subTest(inherited=inherited), mock.patch.dict(
+                    os.environ, {'GIT_TERMINAL_PROMPT': '0'}, clear=True):
+                if inherited is not None:
+                    os.environ['GIT_ALLOW_PROTOCOL'] = inherited
+                original = dict(os.environ)
+                fixture = local_fixture_git_environment()
+                self.assertEqual(fixture, {**original, 'GIT_ALLOW_PROTOCOL': 'file'})
+                fixture['GIT_TERMINAL_PROMPT'] = '1'
+                self.assertEqual(dict(os.environ), original)
+
+    def test_fixture_environment_rejects_remote_transport(self):
+        with mock.patch.dict(os.environ, {'GIT_ALLOW_PROTOCOL': 'https', 'LC_ALL': 'C'}):
+            result = subprocess.run(['git', 'ls-remote', 'https://example.invalid/fixture.git'],
+                                    env=local_fixture_git_environment(), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 128)
+            self.assertIn("transport 'https' not allowed", result.stderr)
+            self.assertEqual(os.environ['GIT_ALLOW_PROTOCOL'], 'https')
+
+
 class PinPolicyTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -95,7 +128,9 @@ class GitInputsTests(unittest.TestCase):
 
     def test_exact_source_tree_passes_without_changing_any_bytes(self):
         before = (self.root / 'source.swift').read_bytes()
-        self.assertEqual(self.verify()['commit'], self.commit)
+        result = self.verify()
+        self.assertEqual(result['commit'], self.commit)
+        self.assertEqual(result['tree'], self.git('rev-parse', 'HEAD^{tree}').strip())
         self.assertEqual(before, (self.root / 'source.swift').read_bytes())
         self.assertEqual(self.git('status', '--porcelain'), '')
 
@@ -120,16 +155,34 @@ class GitInputsTests(unittest.TestCase):
     def test_shallow_owner_is_rejected_even_at_checkpoint(self):
         shallow = self.root.parent / 'shallow'
         subprocess.run(['git', 'clone', '--depth=1', self.root.as_uri(), str(shallow)],
-                       check=True, capture_output=True)
+                       env=local_fixture_git_environment(), check=True, capture_output=True)
         with self.assertRaisesRegex(ValueError, 'shallow owner history'):
             gate.verify_checkout(shallow, self.commit, require_full_history=True)
+
+    def test_fixture_clone_does_not_relax_https_only_acquisition(self):
+        with mock.patch.dict(os.environ, {'GIT_ALLOW_PROTOCOL': 'https', 'LC_ALL': 'C'}):
+            def clone_command(destination):
+                return ['git', '-c', 'protocol.file.allow=always', 'clone',
+                        self.root.as_uri(), str(self.root.parent / destination)]
+
+            for phase in ('before', 'after'):
+                result = subprocess.run(clone_command('denied-' + phase), capture_output=True, text=True)
+                self.assertEqual(result.returncode, 128)
+                self.assertIn("transport 'file' not allowed", result.stderr)
+                if phase == 'before':
+                    subprocess.run(clone_command('allowed-fixture'), env=local_fixture_git_environment(),
+                                   check=True, capture_output=True)
+                    checkout = self.root.parent / 'allowed-fixture'
+                    self.assertEqual(gate.verify_checkout(checkout, self.commit)['commit'], self.commit)
+                    self.assertEqual(os.environ['GIT_ALLOW_PROTOCOL'], 'https')
 
     def test_genuine_submodule_gitfile_is_supported(self):
         parent = self.root.parent / 'parent'
         parent.mkdir()
         subprocess.run(['git', '-C', str(parent), 'init', '-q'], check=True)
         subprocess.run(['git', '-C', str(parent), '-c', 'protocol.file.allow=always',
-                        'submodule', 'add', str(self.root), 'child'], check=True, capture_output=True)
+                        'submodule', 'add', str(self.root), 'child'],
+                       env=local_fixture_git_environment(), check=True, capture_output=True)
         child = parent / 'child'
         self.assertTrue((child / '.git').is_file())
         self.assertEqual(gate.verify_checkout(child, self.commit, require_full_history=True)['commit'], self.commit)
@@ -197,6 +250,20 @@ class GitInputsTests(unittest.TestCase):
         self.commit = self.git('rev-parse', 'HEAD').strip()
         (self.root / 'child').mkdir()
         with self.assertRaisesRegex(ValueError, 'missing actual checkout'): self.verify()
+
+    def test_recursive_child_wrong_commit_is_rejected(self):
+        child = self.root / 'child'
+        subprocess.run(['git', 'clone', '--quiet', str(self.root), str(child)],
+                       env=local_fixture_git_environment(), check=True, capture_output=True)
+        self.git('update-index', '--add', '--cacheinfo', '160000,' + self.commit + ',child')
+        self.git('commit', '-qm', 'Pin child')
+        self.commit = self.git('rev-parse', 'HEAD').strip()
+        self.verify()
+        subprocess.run(['git', '-C', str(child), '-c', 'user.name=Fixture',
+                        '-c', 'user.email=fixture@example.invalid', 'commit',
+                        '--allow-empty', '-qm', 'Unapproved child'], check=True)
+        with self.assertRaises(ValueError):
+            self.verify()
 
     def test_staged_changes_are_rejected_even_when_working_bytes_restored(self):
         file = self.root / 'source.swift'
@@ -326,9 +393,11 @@ class SwiftPMMirrorOriginTests(unittest.TestCase):
         self.commit = self.run_git(source, 'rev-parse', 'HEAD').strip()
         self.mirror.parent.mkdir(parents=True)
         self.checkout.parent.mkdir(parents=True)
-        subprocess.run(['git', 'clone', '--mirror', '--no-hardlinks', str(source), str(self.mirror)], check=True, capture_output=True)
+        subprocess.run(['git', 'clone', '--mirror', '--no-hardlinks', str(source), str(self.mirror)],
+                       env=local_fixture_git_environment(), check=True, capture_output=True)
         self.run_git(self.mirror, 'remote', 'set-url', 'origin', self.url)
-        subprocess.run(['git', 'clone', '--shared', '--no-checkout', str(self.mirror), str(self.checkout)], check=True, capture_output=True)
+        subprocess.run(['git', 'clone', '--shared', '--no-checkout', str(self.mirror), str(self.checkout)],
+                       env=local_fixture_git_environment(), check=True, capture_output=True)
         self.run_git(self.checkout, 'checkout', '--detach', self.commit)
 
     def run_git(self, root, *args):

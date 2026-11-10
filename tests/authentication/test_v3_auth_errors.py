@@ -3,15 +3,16 @@
 The v3 headless handler must preserve the real typed authentication failure
 instead of inferring "bad password" from a repeated credentials prompt.
 """
+from tests.support.product_sources import ProductSource
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-WIRE = ROOT / "scripts/templates/v3_wire_contract.swift"
-BRIDGE = ROOT / "scripts/templates/v3_service_bridge.swift"
-SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
+RUNTIME = ProductSource('v3_headless_runtime.swift')
+SHELL = ProductSource('v3_unified_shell.swift')
+WIRE = ProductSource('v3_wire_contract.swift')
+BRIDGE = ProductSource('v3_service_bridge.swift')
+SERVICE = ProductSource('v3_sidestore_service.swift')
 
 
 def runtime():
@@ -25,7 +26,7 @@ def shell():
 class V3AuthErrorTests(unittest.TestCase):
     def test_missing_auth_session_with_failed_snapshot_stays_unconfirmed(self):
         host_text = shell()
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8")
         self.assertIn('state: "resultUnknown"', primitives)
         self.assertIn("snapshotConfirmed else", primitives)
         self.assertIn("currentAttemptFailure.record(snapshotConfirmed: false", host_text)
@@ -44,13 +45,13 @@ class V3AuthErrorTests(unittest.TestCase):
     def test_provisioning_capacity_rejection_keeps_confirmed_pre_dispatch_guidance(self):
         host_text = shell()
         self.assertIn("V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched", host_text)
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8")
         self.assertIn("failure.safeCause == .authResponseCapacityUnavailable", primitives)
         self.assertIn("SideStore could not start the provisioning retry", primitives)
 
     def test_auth_poll_recovery_calls_follow_swift_argument_declaration_order(self):
         host_text = shell()
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8")
         signature = primitives[primitives.index("static func shouldResume("):]
         signature = signature[:signature.index(") -> Bool")]
         self.assertLess(signature.index("promptSubmissionInProgress"),
@@ -157,7 +158,7 @@ class V3AuthErrorTests(unittest.TestCase):
         post_auth = post_auth[:post_auth.index('} else if cancelled {')]
         self.assertNotIn("v3ClassifyAuthError(error)", post_auth)
         self.assertNotIn('response["failureKind"]', post_auth)
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8")
         self.assertIn('case "authenticatedProvisioningIncomplete"', primitives)
         self.assertIn("V3AuthStatusTextPolicy.label", host)
         self.assertNotIn('message = "Sign-in failed."', host)
@@ -166,7 +167,7 @@ class V3AuthErrorTests(unittest.TestCase):
 
     def test_reconciled_transport_failure_remains_visible_without_claiming_attempt_success(self):
         host = shell()
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8")
         self.assertIn("currentAttemptFailure.record(snapshotConfirmed:", host)
         self.assertIn("auth.currentAttemptFailure.message", host)
         self.assertIn("struct V3AuthAttemptFailureNotice", primitives)
@@ -242,13 +243,13 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("accountAppleIDAtStart", runtime_text)
         self.assertIn("V3AuthAttemptAuthenticationPolicy.confirms", runtime_text)
         self.assertIn('["timedOut", "failed", "cancelled", "resultUnknown", "promptExpired"].contains(state)',
-                      (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+                      (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8"))
         self.assertIn("V3ServiceBridge.authSnapshot(snapshot)", shell_text)
         self.assertIn('V3ServiceBridge.strictBool(reply["resumable"])', shell_text)
         self.assertIn("V3AuthSnapshotAuthorityPolicy.facts(authSnapshot)", shell_text)
         self.assertIn("V3AuthReconciliationPresentationPolicy.resolve", shell_text)
         self.assertIn("The sign-in attempt was cancelled. SideStore currently reports an account as signed in.",
-                      (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+                      (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8"))
         self.assertIn("previousFailure.map { Self.failureMessage(from: $0) }", shell_text)
         self.assertIn("await reconcile(force: true)", shell_text[shell_text.index("func cancel() {", shell_text.index("final class V3AuthStore")):])
 
@@ -262,12 +263,12 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("requestDeadline: sessionDeadline", poll)
         self.assertIn("guard Date() < sessionDeadline", poll)
         self.assertIn("continue", poll)
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8")
         self.assertIn("enum V3AuthPollRecoveryPolicy", primitives)
 
     def test_failed_unconfirmed_cancel_has_an_available_retry_action(self):
         host = shell()
-        self.assertIn('Button(auth.cancellationWasAttempted ? "Retry Cancellation" : "Cancel Unconfirmed Sign-In"', host)
+        self.assertIn('Button(LocalizedStringKey(auth.cancellationWasAttempted ? "Retry Cancellation" : "Cancel Unconfirmed Sign-In"', host)
         self.assertIn("V3AuthCancellationRetryPolicy.canRetry", host)
         cancel = host[host.index("func cancel() {", host.index("final class V3AuthStore")):]
         self.assertIn("canRetryCancellation", cancel)
@@ -280,7 +281,14 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("let authoritative = accountFacts.authenticated", sign_in)
         self.assertNotIn("!account.isEmpty", sign_in)
         self.assertIn("signedIn = false", sign_in)
-        self.assertIn(".task { await auth.reconcile() }", host)
+        self.assertIn("await prepareSignIn()", host)
+        preparation = host[host.index("@MainActor private func prepareSignIn() async {"):]
+        preparation = preparation[:preparation.index("    // The prompt panel")]
+        self.assertIn("let snapshotConfirmed = await auth.reconcile()", preparation)
+        self.assertIn("guard !Task.isCancelled, preparationRetry == retry,", preparation)
+        self.assertIn("preparationGeneration == generation else { return }", preparation)
+        self.assertIn("guard shouldBegin, snapshotConfirmed,", preparation)
+        self.assertLess(preparation.index("await auth.reconcile()"), preparation.index("auth.begin()"))
 
     def test_auth_session_deadline_is_separate_from_xpc_start_deadline(self):
         wire = WIRE.read_text(encoding="utf-8")
@@ -310,10 +318,10 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn('"authenticationActive": activeAuthenticationSessionID != nil', service)
         self.assertIn('response["authenticationSessionID"] = activeSessionID', service)
         self.assertIn('response["authenticationSessionID"] = activeSessionID', service)
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = (ProductSource('v3_headless_runtime.swift')).read_text(encoding="utf-8")
         self.assertIn("V3AuthSessionAdmissionPolicy.mayStartNewSession(hasActiveSession: hasActiveSession)", runtime)
         self.assertIn("var activeSessionIDForSnapshot: String?", runtime)
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        wire = (ProductSource('v3_wire_contract.swift')).read_text(encoding="utf-8")
         self.assertIn("authenticationSessionID: String?", wire)
         self.assertIn("UUID(uuidString: authenticationSessionID)?.uuidString == authenticationSessionID", wire)
         self.assertIn("guard let authSnapshot = V3ServiceBridge.authSnapshot(snapshot) else", host)
@@ -330,7 +338,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("V3AuthPromptResponsePolicy.failureMessage(error)", host)
         self.assertIn("V3AuthPromptResponsePolicy.diagnostics(error)", host)
         self.assertIn("Button(\"Copy Diagnostics\", systemImage: \"doc.on.doc\")", host)
-        self.assertIn("isSubmissionBlocked: auth.promptResponseBlocked", host)
+        self.assertIn("isSubmissionBlocked: showsInitialCredentialDraft || (auth.promptResponseBlocked && (prompt[\"kind\"] as? String == \"twoFactor\"))", " ".join(host.split()))
         retry = host[host.index("private func runProvisioningRetry(previouslyAvailable:"):]
         retry = retry[:retry.index("// V3_FINISH_LATER_PRESERVES_ACCOUNT_V1")]
         self.assertIn("let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)", retry)
@@ -353,7 +361,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("currentAttemptFailure.record(snapshotConfirmed:", run)
 
     def test_correlated_not_dispatched_auth_start_does_not_require_cancellation(self):
-        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        bridge = (ProductSource('v3_service_bridge.swift')).read_text(encoding="utf-8")
         host = shell()
         self.assertIn("authStartNotDispatched", bridge)
         self.assertIn("V3AuthAttemptStartFailurePolicy.confirmedNotDispatched", bridge)
@@ -416,7 +424,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("reconciliationGate.mayApply(ticket, sessionID: session", reconcile)
         self.assertIn("reconciliationGate.invalidate()", sign_in[sign_in.index("func begin()"):
             sign_in.index("var canBegin")])
-        self.assertIn("V3AuthReconciliationGate", (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+        self.assertIn("V3AuthReconciliationGate", (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8"))
         self.assertIn("V3AuthReconciliationSessionPolicy.mayStart", sign_in)
         self.assertIn("expectedSession: requestedSession", sign_in)
         self.assertIn("V3AuthAttemptFailureCommitPolicy.mayCommit", sign_in)

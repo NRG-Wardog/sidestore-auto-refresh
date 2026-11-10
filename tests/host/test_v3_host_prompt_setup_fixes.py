@@ -1,3 +1,4 @@
+from tests.support.product_sources import ProductSource
 import shutil
 import subprocess
 import tempfile
@@ -6,8 +7,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
+SHELL = ProductSource('v3_unified_shell.swift')
+RUNTIME = ProductSource('v3_headless_runtime.swift')
 HARNESS = ROOT / "tests/fixtures/v3_host_prompt_setup_fixes_harness.swift"
 SWIFTC = shutil.which("swiftc")
 

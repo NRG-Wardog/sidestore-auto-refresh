@@ -25,7 +25,17 @@ struct BoundSession: Sendable {
     let appleID: String
     let generation: UInt64
 }
-enum OperationError: Error { case notAuthenticated }
+// External operation errors are input doubles; the owner classifier below is unchanged.
+enum OperationError: Error, Equatable {
+    case notAuthenticated, unknownResult, missingAppBundle, missingProvisioningProfile,
+         certificateExpired, certificateRevoked, customCertificateExpired, customCertificateRevoked,
+         certificateChanged, invalidApp, invalidPairingFile, pairingNotComplete, noConnection, noVPN,
+         notReachable, minimuxerNotStarted, timedOut, unknown
+    case invalidParameters(String), invalidOperationContext(String), noDevice(String), invalidVPN(String)
+}
+enum OCSPValidationError: Error { case verificationUnavailable }
+enum HarnessAppOperation { case install, refresh }
+
 
 actor AuthManagerBindingBoundary {
     static let shared = AuthManagerBindingBoundary()
@@ -98,17 +108,21 @@ $ACTUAL_PATCHED_ADD_APP_ID_METHOD$
 }
 
 enum PipelineStep {
-    case resignApp, fetchProvisioningProfiles, verifyCertificate, sendApp, installApp, other
+    case resignApp, fetchProvisioningProfiles, verifyCertificate, sendApp, installApp, other, updateAppCertificate, cacheResignedMetadata, refreshApp
 }
 struct PipelineCertificate { let serialNumber: String }
 struct PipelineBundle { let appExtensions: [String] }
+struct HarnessVerifiedCertificate { let serial: String; let data: Data }
 struct PipelineContext {
+    var isPreservationRefresh: Bool { false }
+    var verifiedRefreshCertificate: HarnessVerifiedCertificate? { nil }
     let targetAppBundle: PipelineBundle?
     let targetSigningCertificate: PipelineCertificate?
 }
 
 private func pipelineFailure(_ failure: Error, step: PipelineStep) throws -> Never {
     var result: Error?
+    let appOperation = HarnessAppOperation.install
     let context = PipelineContext(targetAppBundle: PipelineBundle(appExtensions: []),
         targetSigningCertificate: PipelineCertificate(serialNumber: "PRIVATE-CERTIFICATE-SERIAL"))
     do {

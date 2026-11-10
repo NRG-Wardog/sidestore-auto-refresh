@@ -1,3 +1,5 @@
+from tests.support.product_sources import ProductSource
+from tests.support.product_sources import read_product_source
 """Regression coverage for the v3 USER-FEEDBACK / OPERATION-STATE audit.
 
 Every user-triggered asynchronous or mutating action must acknowledge,
@@ -13,8 +15,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
+SHELL = ProductSource('v3_unified_shell.swift')
+RUNTIME = ProductSource('v3_headless_runtime.swift')
 
 
 def shell():
@@ -352,7 +354,7 @@ class ProvisioningClassificationTests(unittest.TestCase):
         self.assertNotIn("native.domain", fn)
         self.assertNotIn("native.code", fn)
         self.assertIn('"technical"', fn)
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        failure = read_product_source('combined_failure.swift')
         helper = failure[failure.index("public static func provisioningRetryTechnicalDetails"):]
         helper = helper[:helper.index("\n    }\n") + 6]
         self.assertIn("safeDiagnosticUnderlying", helper)
@@ -392,7 +394,7 @@ class PromptTechnicalTests(unittest.TestCase):
 class SourcesFeedbackTests(unittest.TestCase):
     def test_add_busy_and_success(self):
         text = shell()
-        behavior = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        behavior = read_product_source('v3_behavioral_primitives.swift')
         self.assertIn("addBusy", text)
         self.assertIn("Adding Source...", text)
         self.assertIn("V3SourceAddPersistencePolicy.confirmationMessage(result)", text)
@@ -484,7 +486,7 @@ class ReloadLabelTests(unittest.TestCase):
         self.assertIn("if isLoading {", header)
         self.assertIn("ProgressView()", header)
         self.assertIn("if let updatedAt {", header)
-        self.assertIn('Text("Updated " + updatedAt.formatted', header)
+        self.assertIn('Text(V3Localization.format("Updated %@", V3Localization.date(updatedAt,', header)
         # State is never communicated by colour alone.
         self.assertIn("Label(statusPresentation.title, systemImage: statusPresentation.icon)", header)
         # The semantic name is exposed to assistive technology too.
@@ -500,13 +502,14 @@ class ReloadLabelTests(unittest.TestCase):
         self.assertIn("enum V3StatusSeverity: String, Equatable, CaseIterable {", renderer)
         self.assertIn("extension V3StatusPresentation {", renderer)
         self.assertIn('"import SwiftUI\\n" + severity_model + "\\n" + tint_model + "\\n" + header', renderer)
-        # The model is resolved from the shell or the primitives, and a missing
+        # The model is resolved only from the selected owner shell, and a missing
         # model fails loudly rather than silently rendering a stub.
-        self.assertIn("v3_behavioral_primitives.swift", renderer)
+        self.assertNotIn("scripts/templates/v3_behavioral_primitives.swift", renderer)
+        self.assertIn("source = source or live /", renderer)
         self.assertIn("Semantic status model not found for the Reload Status layout probe", renderer)
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        shell = read_product_source('v3_unified_shell.swift')
         self.assertIn("extension V3StatusPresentation {", shell)
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        primitives = read_product_source('v3_behavioral_primitives.swift')
         self.assertIn("enum V3StatusSeverity", primitives)
         self.assertIn("struct V3StatusPresentation", primitives)
 
@@ -536,7 +539,7 @@ class RefreshAllFeedbackTests(unittest.TestCase):
         self.assertNotIn("active.isEmpty", view)
         self.assertNotIn('liveContainerAutoRefreshVerification', view)
         self.assertIn('Button("Dismiss")', view)
-        self.assertIn('Button(copied ? "Copied" : "Copy Diagnostics")', view)
+        self.assertIn('Button(LocalizedStringKey(copied ? "Copied" : "Copy Diagnostics"))', view)
         self.assertIn(".disabled(isBusy || isTerminal || !activeRun.isEmpty", view)
         self.assertNotIn("%", view)
 
@@ -555,7 +558,7 @@ class MiscBusyStateTests(unittest.TestCase):
         view = text[text.index("struct V3HealthView"):]
         view = view[:view.index("struct V3BackupsView")]
         self.assertIn("Checking...", view)
-        self.assertIn('Button(reloadQueue.isChecking ? "Checking..." : "Re-check")', view)
+        self.assertIn('Button(LocalizedStringKey(reloadQueue.isChecking ? "Checking..." : "Re-check"))', view)
         self.assertIn(".disabled(reloadQueue.isChecking)", view)
 
     def test_anisette_remote_busy_and_notice(self):
@@ -590,7 +593,7 @@ class SafeFailureCopyTests(unittest.TestCase):
         side_jit = side_jit[:side_jit.index("struct V3ReleaseTrackHostView")]
         self.assertIn("ping = V3SideJITReachabilityFeedback.unreachable", side_jit)
         self.assertNotIn("error.localizedDescription", side_jit)
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        runtime = read_product_source('v3_headless_runtime.swift')
         retry_start = runtime.index("private func askProvisioningRetry(")
         retry_end = runtime.index("\n    func resolvePostAuth()", retry_start)
         retry_prompt = runtime[retry_start:retry_end]
@@ -601,9 +604,9 @@ class SafeFailureCopyTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; executable safe-copy harness runs in macOS CI")
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        wire = read_product_source('v3_wire_contract.swift')
+        failure = read_product_source('combined_failure.swift')
+        primitives = read_product_source('v3_behavioral_primitives.swift')
         harness = (ROOT / "tests/fixtures/v3_safe_failure_copy_harness.swift").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
@@ -649,9 +652,9 @@ class AccountSessionRecoveryTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; executable account-state harness runs in macOS CI")
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        wire = read_product_source('v3_wire_contract.swift')
+        failure = read_product_source('combined_failure.swift')
+        primitives = read_product_source('v3_behavioral_primitives.swift')
         harness = (ROOT / "tests/fixtures/v3_account_session_presentation_harness.swift").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
@@ -666,7 +669,7 @@ class AccountSessionRecoveryTests(unittest.TestCase):
             self.assertIn("V3_ACCOUNT_SESSION_PRESENTATION_PASS", result.stdout)
 
     def test_service_snapshot_exports_typed_local_signing_state_facts(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        service = read_product_source('v3_sidestore_service.swift')
         snapshot = service[service.index("private func snapshot() throws -> [String: Any]"):]
         for field, expression in (
             ("activeAccountPresent", "activeAccount != nil"),
@@ -710,9 +713,9 @@ class DeveloperDataAvailabilityTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; executable developer-action policy runs in macOS CI")
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        wire = read_product_source('v3_wire_contract.swift')
+        failure = read_product_source('combined_failure.swift')
+        primitives = read_product_source('v3_behavioral_primitives.swift')
         harness = (ROOT / "tests/fixtures/v3_developer_data_availability_harness.swift").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"

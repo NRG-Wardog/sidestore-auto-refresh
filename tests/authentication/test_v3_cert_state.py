@@ -1,11 +1,13 @@
 """Certificate ownership and canonical LiveContainer JIT-Less routing tests."""
+from tests.support.product_sources import ProductSource
+from tests.owner_source import owner_source
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
-PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
+SHELL = ProductSource('v3_unified_shell.swift')
+RUNTIME = ProductSource('v3_headless_runtime.swift')
+PRIMITIVES = ProductSource('v3_behavioral_primitives.swift')
 
 
 class JITLessOwnershipTests(unittest.TestCase):
@@ -47,7 +49,7 @@ class JITLessOwnershipTests(unittest.TestCase):
         self.assertNotIn("V3JITLessCertificateSyncAssessment", shell + primitives)
         self.assertNotIn("V3JITLessCertificateSyncIssue", shell + primitives)
         self.assertNotIn("Sync JIT-Less Certificate from SideStore", shell)
-        self.assertIn("importCertificateFromSideStore()", (ROOT / "scripts/patch_v3_unified_shell.py").read_text(encoding="utf-8"))
+        self.assertIn("importCertificateFromSideStore()", owner_source("LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"))
 
     def test_quick_setup_gates_ios26_on_jitless_and_rechecks_on_return(self):
         shell = SHELL.read_text(encoding="utf-8")
@@ -81,7 +83,7 @@ class JITLessOwnershipTests(unittest.TestCase):
         self.assertIn("V3JITLessHealthRecoveryPolicy.shouldOfferCanonicalSetup", health)
         self.assertIn('case .unknown:', health)
         unknown = health[health.index('case .unknown:'):health.index('case .activeCertificateMissing', health.index('case .unknown:'))]
-        self.assertIn('Button(reloadQueue.isChecking ? "Checking..." : "Re-check")', unknown)
+        self.assertIn('Button(LocalizedStringKey(reloadQueue.isChecking ? "Checking..." : "Re-check"))', unknown)
         self.assertIn('.disabled(reloadQueue.isChecking)', unknown)
 
 

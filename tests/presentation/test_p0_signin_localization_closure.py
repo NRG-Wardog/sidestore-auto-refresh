@@ -92,7 +92,7 @@ class P0ActualLocalizationClosureTests(unittest.TestCase):
         live = self.source()
         if live is None: return
         shell = live / 'LiveContainerSwiftUI/Views/V3UnifiedShell.swift'
-        sources, hashes = renderer.extract_sources(shell, ROOT / 'scripts/templates')
+        sources, hashes = renderer.extract_sources(shell, ROOT / 'unused-rendering-input')
         for name in renderer.localization.LOCALIZATION_SOURCES:
             path = live / name
             self.assertEqual(sources[path.name].encode(), path.read_bytes())
@@ -116,7 +116,7 @@ class P0ActualLocalizationClosureTests(unittest.TestCase):
             for name in (*renderer.localization.LOCALIZATION_SOURCES, renderer.localization.LOCALIZATION_CATALOG):
                 target = copied / name; raw = target.read_bytes(); target.unlink()
                 with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, 'dependency missing'):
-                    renderer.extract_sources(copied / paths[0], ROOT / 'scripts/templates')
+                    renderer.extract_sources(copied / paths[0], ROOT / 'unused-rendering-input')
                 target.write_bytes(raw)
 
     def prepare_fixture(self, root, mutation=None):
@@ -196,8 +196,8 @@ class P0ActualLocalizationClosureTests(unittest.TestCase):
         shell = (live / 'LiveContainerSwiftUI/Views/V3UnifiedShell.swift').read_text()
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / 'shell.swift'; source.write_text(shell)
-            with self.assertRaisesRegex(ValueError, 'actual SideStore.swift support source'):
-                renderer.extract_sources(source, ROOT / 'scripts/templates')
+            with self.assertRaisesRegex(ValueError, 'actual maintained source tree'):
+                renderer.extract_sources(source, ROOT / 'unused-rendering-input')
 
 
 if __name__ == '__main__': unittest.main()

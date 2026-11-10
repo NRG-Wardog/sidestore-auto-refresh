@@ -1,4 +1,5 @@
 """Exercise the generated ODA catch/recovery path with only native OTP doubled."""
+from tests.support.product_sources import ProductSource
 from pathlib import Path
 import shutil
 import subprocess
@@ -13,6 +14,15 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def integration_source(*, experimental=False):
     source = pair.program().split('@main struct AnisettePairTests', 1)[0]
+    # Observe entry to the actual owner adapters without replacing their body.
+    # A trace-only comparison reads legacy keys but never selects a candidate.
+    for signature, counter in (
+        ('    func observeLegacyAnisetteComparison(_ snapshot: LCEmbeddedAnisetteSnapshot) throws -> LCAnisetteLegacyComparison {', 'diagnosticCalls'),
+        ('    func anisetteRecoveryCandidate(for snapshot: LCEmbeddedAnisetteSnapshot) throws -> LCAnisetteRecoveryCandidate? {', 'candidateCalls')):
+        assert source.count(signature) == 1
+        anchor = signature + '\n        try '
+        assert source.count(anchor) == 1
+        source = source.replace(anchor, signature + '\n        RecoveryIntegrationQueries.' + counter + ' += 1\n        return try ', 1)
     source = source.replace('func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<CFTypeRef?>) -> Int {',
         'func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<CFTypeRef?>) -> Int {\n    RecoveryIntegrationQueries.count += 1', 1)
     source = source.replace('            let value = Store.data[group]?[key]',
@@ -20,7 +30,7 @@ def integration_source(*, experimental=False):
         '                RecoveryIntegrationQueries.cancelOnSnapshotRead = false\n'
         '                withUnsafeCurrentTask { $0?.cancel() }\n'
         '            }\n            let value = Store.data[group]?[key]', 1)
-    source += '\nenum RecoveryIntegrationQueries { static var count = 0; static var cancelOnSnapshotRead = false }\n'  + (ROOT / 'tests/fixtures/anisette_recovery_integration_harness.swift').read_text()
+    source += '\nenum RecoveryIntegrationQueries { static var count = 0; static var diagnosticCalls = 0; static var candidateCalls = 0; static var cancelOnSnapshotRead = false }\n'  + (ROOT / 'tests/fixtures/anisette_recovery_integration_harness.swift').read_text()
     if experimental:
         flag = 'static let automaticRecoveryEnabled = false'
         assert source.count(flag) == 1
@@ -33,7 +43,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
         compiler = shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable; owned temporary probe harness runs in macOS CI')
-        support = (ROOT / 'scripts/templates/anisette_legacy_recovery.swift').read_text()
+        support = (ProductSource('anisette_legacy_recovery.swift')).read_text()
         source = (ROOT / 'tests/fixtures/anisette_recovery_temporary_harness.swift').read_text().replace(
             '__PRODUCTION_TEMPORARY_PROBE__', declaration(support, 'private enum LCAnisetteIsolatedProbe {'))
         with tempfile.TemporaryDirectory() as directory:
@@ -51,7 +61,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
         compiler = shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable; recovery wire harness runs in macOS CI')
-        source = diagnostic_sources() + (ROOT / 'tests/fixtures/anisette_recovery_wire_harness.swift').read_text()
+        source = '\n'.join((diagnostic_sources(), (ROOT / 'tests/fixtures/anisette_recovery_wire_harness.swift').read_text()))
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'main.swift'
             binary = Path(directory) / 'wire'
@@ -67,7 +77,8 @@ class RecoveryIntegrationTests(unittest.TestCase):
         source = integration_source()
         self.assertEqual(source.count('static let automaticRecoveryEnabled = false'), 1)
         self.assertNotIn('__PRODUCTION_', source)
-        self.assertIn('return try await recoverVerifiedLegacyIdentity(', source)
+        self.assertIn('return try await v3LoginStage(.recovery) {', source)
+        self.assertIn('try await recoverVerifiedLegacyIdentity(', source)
         self.assertIn('extension OnDeviceAnisetteManager {', source)
         self.assertIn('func commitAnisetteRecovery(', source)
 
@@ -120,7 +131,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
                     self.assertIn('NORMAL_ANISETTE_STAGING_PASS ' + mode, result.stdout)
 
     def test_isolated_probe_keeps_existing_data_and_cleans_owned_root(self):
-        source = (ROOT / 'scripts/templates/anisette_legacy_recovery.swift').read_text()
+        source = (ProductSource('anisette_legacy_recovery.swift')).read_text()
         self.assertIn('mkdtemp(pointer)', source)
         self.assertEqual(source.count('IsolatedAnisetteOTPProvider.getExistingHeaders('), 1)
         self.assertEqual(source.count('FileManager.default.removeItem(at: root)'), 1)

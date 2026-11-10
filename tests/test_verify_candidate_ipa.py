@@ -16,7 +16,8 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from audit_ipa_signing import signing as inspect_signing
-import patch_v3_service
+import headless_artifact_contract
+from tests.owner_source import owner_root, owner_pin
 
 spec = importlib.util.spec_from_file_location(
     "verify_candidate_ipa", ROOT / "scripts/verify_candidate_ipa.py")
@@ -84,7 +85,7 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
             backend.parent.mkdir(parents=True)
             retired.write_text("// V3_HEADLESS_CONNECTION_CONFIG_MOVED_V1: transport settings now live "
                                "in Core/DeviceApi/ConnectionConfig.swift.\n", encoding="utf-8")
-            backend.write_text(patch_v3_service.HEADLESS_BACKEND_CONNECTION_CONFIG + "\n",
+            backend.write_text(headless_artifact_contract.HEADLESS_BACKEND_CONNECTION_CONFIG + "\n",
                                encoding="utf-8")
 
             def pinned_source(command, **kwargs):
@@ -116,10 +117,10 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
                 self.assertIn("ConnectionConfig", symbols)
 
     def test_pipeline_ui_types_are_discovered_from_production_patch_file_list(self):
-        side_files = (patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
-                      patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES +
-                      patch_v3_service.HEADLESS_SIDESTORE_HANDLER_UI_FILES)
-        pipeline_files = patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES
+        side_files = (headless_artifact_contract.HEADLESS_SIDESTORE_VIEW_FILES +
+                      headless_artifact_contract.HEADLESS_SIDESTORE_AUX_UI_FILES +
+                      headless_artifact_contract.HEADLESS_SIDESTORE_HANDLER_UI_FILES)
+        pipeline_files = headless_artifact_contract.HEADLESS_SIDESTORE_PIPELINE_UI_FILES
         source_by_path = {
             "AltStore/Managing Apps/AppExtensionView.swift": "struct AppExtensionView {}",
             "AltStore/Permissions/ReviewPermissionsViewController.swift":
@@ -151,29 +152,32 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
         # it as AltStore would silently exclude nothing and keep the typealias
         # compiled into the headless target.
         self.assertEqual(
-            [relative for relative in patch_v3_service.HEADLESS_SIDESTORE_HANDLER_UI_FILES],
+            [relative for relative in headless_artifact_contract.HEADLESS_SIDESTORE_HANDLER_UI_FILES],
             ["Handlers/PresenterProvider.swift"])
-        for relative in patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES:
+        for relative in headless_artifact_contract.HEADLESS_SIDESTORE_PIPELINE_UI_FILES:
             self.assertNotIn("Handlers/", relative,
                              "a SideStore handler is not an AltStore pipeline view")
 
-    def test_exact_pinned_source_inventory_resolves_both_pipeline_ui_files(self):
-        side_source_value = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not side_source_value:
-            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the exact pinned SideStore checkout")
-        side_source = Path(side_source_value)
-        pinned = verify_module.SOURCE_PINS[1]
+    def test_historical_exclusion_inventory_resolves_both_pipeline_ui_files(self):
+        side_source = owner_root("SideStore")
         actual = subprocess.check_output(
             ["git", "-C", str(side_source), "rev-parse", "HEAD"], text=True).strip()
-        self.assertEqual(actual, pinned, "test checkout must match the exact embedded SideStore pin")
+        self.assertEqual(actual, owner_pin("SideStore"))
+        # This is the reviewed removal inventory, not the current owner tree.
+        # Removed UI types must still be forbidden in today's binary. The
+        # verifier intentionally reads this exact historical Git object too.
+        pinned = verify_module.SOURCE_PINS[1]
+        resolved = subprocess.check_output(
+            ["git", "-C", str(side_source), "rev-parse", pinned + "^{commit}"], text=True).strip()
+        self.assertEqual(resolved, pinned)
         found = verify_module.excluded_side_store_view_type_names(
             side_source,
-            patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
-            patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES +
-            patch_v3_service.HEADLESS_SIDESTORE_HANDLER_UI_FILES,
+            headless_artifact_contract.HEADLESS_SIDESTORE_VIEW_FILES +
+            headless_artifact_contract.HEADLESS_SIDESTORE_AUX_UI_FILES +
+            headless_artifact_contract.HEADLESS_SIDESTORE_HANDLER_UI_FILES,
             source_ref=pinned,
             additional_source_roots={
-                "AltStore": patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES})
+                "AltStore": headless_artifact_contract.HEADLESS_SIDESTORE_PIPELINE_UI_FILES})
         self.assertIn("AppExtensionView", found)
         self.assertIn("ReviewPermissionsViewController", found)
 
@@ -262,21 +266,21 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
 
                 passed_files = inventory_check.call_args.args[1]
                 self.assertEqual(passed_files,
-                                 patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
-                                 patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES +
-                                 patch_v3_service.HEADLESS_SIDESTORE_HANDLER_UI_FILES)
+                                 headless_artifact_contract.HEADLESS_SIDESTORE_VIEW_FILES +
+                                 headless_artifact_contract.HEADLESS_SIDESTORE_AUX_UI_FILES +
+                                 headless_artifact_contract.HEADLESS_SIDESTORE_HANDLER_UI_FILES)
                 self.assertEqual(inventory_check.call_args.kwargs["additional_source_roots"], {
-                    "AltStore": patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES})
+                    "AltStore": headless_artifact_contract.HEADLESS_SIDESTORE_PIPELINE_UI_FILES})
 
 
 class CandidateArchiveSizeReportTests(unittest.TestCase):
-    def test_pinned_headless_ui_symbol_inventory_includes_replaced_bundle_checkbox(self):
-        source_value = (os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or
-                        os.environ.get("SIDESTORE_TEST_SOURCE"))
-        if not source_value:
-            self.skipTest("pinned embedded SideStore source is supplied by macOS CI")
-        source = Path(source_value)
-        self.assertTrue(source.is_dir(), "configured pinned SideStore source checkout must exist")
+    def test_historical_exclusion_inventory_includes_replaced_bundle_checkbox(self):
+        source = owner_root("SideStore")
+        actual = subprocess.check_output(
+            ["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+        self.assertEqual(actual, owner_pin("SideStore"))
+        # Historical removed-type inventory remains an artifact safety input;
+        # it is not an alternate app implementation or current-owner test.
         symbols = verify_module.excluded_side_store_view_type_names(
             source, source_ref=verify_module.SOURCE_PINS[1])
         self.assertIn("AppendTeamIDCheckboxView", symbols)

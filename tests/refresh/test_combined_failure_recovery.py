@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 
+from tests.support.product_sources import read_product_source
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -14,7 +16,7 @@ class CombinedFailureRecoveryTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift execution runs in macOS CI")
-        common = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        common = read_product_source('combined_failure.swift')
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "recovery.swift"
             binary = Path(directory) / "recovery-test"

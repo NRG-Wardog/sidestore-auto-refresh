@@ -20,7 +20,7 @@ struct ALTTeam { var identifier = "team"; var account: ALTAccount? = ALTAccount(
 struct ALTCertificate { var data: Data? = nil; var serialNumber = "certificate" }
 struct CertificateDetails { var subject = "team"; var issuer = "team" }
 func parseCertificate(derData: Data) -> CertificateDetails { CertificateDetails() }
-struct SignInResult { let team: ALTTeam; let certificate: ALTCertificate?; let session: ALTAppleAPISession }
+struct SignInResult { let team: ALTTeam; let certificate: ALTCertificate?; let session: ALTAppleAPISession; var v3RemoteIdentityHandoff: FixtureRemoteHandoff? = nil }
 struct Credentials {
     var isAuthenticated = true
     var appleIDEmailAddress: String? = "same@example.invalid"
@@ -42,17 +42,30 @@ final class CertificateManager {
     struct Active { var certificate = ALTCertificate() }
     static let shared = CertificateManager()
     var activeCertificate: Active? = Active()
+    // No pending record is present in these injected storage cases.
+    func v3CompletePendingCertificateIfStored(_ certificate: ALTCertificate) throws {
+        precondition(try! Keychain.shared.pendingCertificateCreation() == nil)
+    }
     func setActiveCertificate(_ certificate: ALTCertificate) throws {
         try Harness.visit("activateCertificate")
         activeCertificate = Active(certificate: certificate)
     }
+}
+enum V3PendingCertificateCreationError: Error { case pending }
+final class Keychain {
+    static let shared = Keychain()
+    func pendingCertificateCreation() throws -> String? { nil }
+}
+final class PairingFileManager {
+    static let shared = PairingFileManager()
+    var v3DeviceSetupIsUnconfigured = false
 }
 enum Harness {
     static var visits: [String] = []
     static var failure: String?
     static func visit(_ step: String) throws { visits.append(step); if failure == step { throw HarnessError.injected } }
 }
-enum Decision { case retry, cancel }
+enum Decision { case retry, cancel, skip }
 final class Handler {
     func handleSignInResult(_ result: Result<(ALTAccount, ALTAppleAPISession), Error>) async {}
     func resolveProvisioningError(_ error: Error) async -> Decision { .cancel }
@@ -67,6 +80,8 @@ final class SignInOperation: BaseOperation {
     var v3RequireInteractiveCredentials = false
     var v3ReauthenticateAppleID: String? = "same@example.invalid"
     var v3ReauthenticationIdentityStamp: String? = "stamp:1"
+    var v3FinishPendingCertificateActivation = false
+    var v3DidDeferDeviceSetup = false
     var v3DidCompleteProvisioning = false
     let skipDeviceRegistration = false
     let skipCertificateProvisioning = false

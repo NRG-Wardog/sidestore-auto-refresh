@@ -1,3 +1,4 @@
+from tests.support.product_sources import ProductSource
 """Stable categories are explicit finite evidence, independent of attempt IDs."""
 import copy
 import importlib.util
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 import sys
 sys.path.insert(0, str(ROOT / "tests"))
 from guest_owner_parts import implementations, block
-COMMON = ROOT / 'scripts/templates/combined_failure.swift'
+COMMON = ProductSource('combined_failure.swift')
 
 
 def validate_native_coverage(coverage, root=ROOT):
@@ -82,15 +83,18 @@ class DiagnosticCodeTests(unittest.TestCase):
         declared = set()
         for group in re.findall(r'\bcase\s+([A-Za-z]\w*(?:\s*,\s*[A-Za-z]\w*)*)', kinds):
             declared.update(part.strip() for part in group.split(','))
-        self.assertEqual(set(actual), declared)
+        acquisition = declaration(account, '    enum AcquisitionFailure:')
+        acquisition_values = set(re.findall(r'case \w+ = "(\w+)"', acquisition))
+        self.assertEqual(set(actual), declared | acquisition_values)
         validation = declaration(source, '    public static func validatedSigningContext(')
         allowlist = validation.split('case "typed_error":', 1)[1].split('default:', 1)[0]
         self.assertEqual(set(re.findall(r'"(\w+)"', allowlist)), declared)
+        self.assertIn("V3AccountOperationError.AcquisitionFailure(rawValue: text) != nil else { return nil }", allowlist)
         self.assertEqual(registry['typed']['unknownAccountFailure'], 'T31')
         self.assertEqual(registry['typed']['anisetteIdentityStateInvalid'], 'T32')
         self.assertEqual(registry['authKind']['accountIdentityMismatch'], 'A11')
         self.assertEqual(registry['authKind']['anisetteIdentityStateInvalid'], 'A12')
-        primitives = (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text()
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text()
         self.assertIn('case "anisetteIdentityStateInvalid": kindToken = "A12"', primitives)
 
     def test_native_coverage_has_live_owner_and_evidence_references(self):
@@ -138,7 +142,7 @@ class DiagnosticCodeTests(unittest.TestCase):
         compiler = shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable; stable diagnostic IDs execute in macOS CI')
-        primitives = (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text()
+        primitives = (ProductSource('v3_behavioral_primitives.swift')).read_text()
         source = COMMON.read_text() + '\n' + declaration(primitives, 'enum V3AuthFailureDiagnosticsPolicy {')
         source += r'''
 @main struct StableDiagnosticTests {

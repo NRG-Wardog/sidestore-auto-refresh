@@ -1,3 +1,5 @@
+from tests.owner_source import owner_source
+from tests.support.product_sources import ProductSource
 """Behavioural coverage for the post-authentication provisioning path.
 
 The physical defect this file locks down: Apple authentication succeeded, 2FA
@@ -21,46 +23,13 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
-WIRE = ROOT / "scripts/templates/v3_wire_contract.swift"
-FAILURE = ROOT / "scripts/templates/combined_failure.swift"
-# Exact patch-fixture revisions, independent of retired build recipes.
-# These are not the current application source graph.
-PINNED_SIDESTORE_REF = "ff25922e5c13ccfafd83bda5092910d848ebd409"
-OPERATION_ERROR_RELATIVE_PATH = Path("SideStore/Core/Operations/Errors/OperationError.swift")
-
-
-def pinned_operation_error_source() -> Path:
-    """Return OperationError.swift from the exact SideStore source used by CI.
-
-    CI supplies EMBEDDED_SIDESTORE_TEST_SOURCE after checking out the pinned
-    SideStore revision. A local fallback keeps older developer checkouts useful;
-    absence is a local skip, while an explicitly supplied or present-but-wrong
-    checkout is a hard failure.
-    """
-    override = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-    source = Path(override) if override else ROOT / ".audit/v103-sources/SideStore"
-    if not source.exists():
-        if override:
-            raise AssertionError(f"Embedded SideStore source path does not exist: {source}")
-        raise unittest.SkipTest(
-            "Pinned SideStore source unavailable locally; CI supplies EMBEDDED_SIDESTORE_TEST_SOURCE")
-
-    revision = subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD"],
-                              capture_output=True, text=True)
-    if revision.returncode != 0:
-        raise AssertionError(f"Could not read the SideStore source revision at {source}: {revision.stderr}")
-    actual = revision.stdout.strip()
-    if actual != PINNED_SIDESTORE_REF:
-        raise AssertionError(
-            f"Embedded SideStore source must be pinned to {PINNED_SIDESTORE_REF}, got {actual}")
-
-    path = source / OPERATION_ERROR_RELATIVE_PATH
-    if not path.is_file():
-        raise AssertionError(f"Pinned SideStore source is missing {OPERATION_ERROR_RELATIVE_PATH}")
-    return path
+RUNTIME = ProductSource('v3_headless_runtime.swift')
+SHELL = ProductSource('v3_unified_shell.swift')
+SERVICE = ProductSource('v3_sidestore_service.swift')
+WIRE = ProductSource('v3_wire_contract.swift')
+FAILURE = ProductSource('combined_failure.swift')
+def current_operation_error_source() -> str:
+    return owner_source("SideStore/Core/Operations/Errors/OperationError.swift", "SideStore")
 
 # Every typed case the physical failure can realistically surface after Apple
 # authentication has already succeeded, per the defect report.
@@ -157,7 +126,7 @@ class TypedOperationErrorClassificationTests(unittest.TestCase):
     def test_typed_cases_match_the_pinned_upstream_enum(self):
         # Guards against a case label that does not exist upstream, which is a
         # hard build failure in the SideStore target.
-        pinned = pinned_operation_error_source().read_text(encoding="utf-8")
+        pinned = current_operation_error_source()
         declared = set(re.findall(r"^\s{4}case ([A-Za-z_][A-Za-z0-9_]*)", pinned, re.M))
         used = set(re.findall(r"case \.([A-Za-z_][A-Za-z0-9_]*):", guidance_function()))
         unknown = used - declared
@@ -208,7 +177,7 @@ class RecoveryActionLabelTests(unittest.TestCase):
     def test_host_offers_retry_provisioning_and_finish_later(self):
         view = sign_in_view()
         self.assertIn('Label("Retry Provisioning"', view)
-        self.assertIn('Button("Finish Later")', view)
+        self.assertIn('Button(auth.deviceSetupDeferred ? "Done" : "Finish Later") { finishProvisioningLater() }', view)
         self.assertIn("auth.retryProvisioning()", view)
         # The generic pair must be gone from the provisioning recovery path.
         recovery = view[view.index("Retry Provisioning") - 400:]
@@ -275,8 +244,8 @@ class AuthSuccessIsNotProvisioningSuccessTests(unittest.TestCase):
     def test_visible_state_shows_both_facts(self):
         view = sign_in_view()
         self.assertIn("V3AuthStatusTextPolicy.accountLabel", view)
-        self.assertIn('Text("Provisioning needs attention")', view)
-        self.assertIn('Text("Provisioning could not be completed.")', view)
+        self.assertIn('Text(auth.deviceSetupDeferred ? "Device setup pending" : "Provisioning needs attention")', view)
+        self.assertIn('Text(auth.deviceSetupDeferred ? "Sign-in is complete. Pairing is needed for refresh and installation." : "Provisioning could not be completed.")', view)
         self.assertIn("auth.hasProvisioningProblem", view)
         # The green signed-in fact is not conditional on provisioning failing.
         self.assertIn("if auth.isSignedIn {", view)
@@ -357,30 +326,28 @@ class ResumableProvisioningOperationTests(unittest.TestCase):
         self.assertIn('"authRetryProvisioning": "signIn"', failure)
 
 
-    def test_pinned_cases_with_defaulted_payloads_are_supplied_explicitly(self):
-        # A SideStore.OperationError case that declares a default for its
-        # associated value is exposed as a synthesised static function. Outside a
-        # switch, a bare `.case` reference therefore names that function and does
-        # not compile. The typed harness must always supply the payload, so this
-        # is caught without a Swift round-trip.
-        pinned = pinned_operation_error_source().read_text(encoding="utf-8")
-        defaulted = set()
+    def test_current_associated_payloads_are_supplied_explicitly(self):
+        # Associated-value cases are constructors, including those whose payload
+        # has a default. Expression-position harness calls must supply payloads.
+        # The maintained noConnection case now requires reason explicitly.
+        pinned = current_operation_error_source()
+        associated = set()
         for line in pinned.splitlines():
             match = re.match(r"^\s{4}case ([A-Za-z_][A-Za-z0-9_]*)\((.*)\)\s*$", line)
-            if match and "=" in match.group(2):
-                defaulted.add(match.group(1))
-        self.assertIn("noConnection", defaulted, "pinned enum shape changed")
+            if match:
+                associated.add(match.group(1))
+        self.assertIn("noConnection", associated, "current enum must retain its typed payload")
         harness = (ROOT / "tests/fixtures/v3_provisioning_typed_guidance_harness.swift").read_text(encoding="utf-8")
         offenders = []
-        for name in sorted(defaulted):
+        for name in sorted(associated):
             for match in re.finditer(rf"v3OperationErrorGuidance\(\s*\.{name}\s*\)", harness):
                 offenders.append(name)
         self.assertEqual(offenders, [],
-                         f"a defaulted-payload case is referenced bare: {offenders}")
+                         f"an associated-payload case is referenced bare: {offenders}")
         # Every reference is explicitly qualified or supplies its payload.
         for match in re.finditer(r"v3OperationErrorGuidance\(\s*\.([A-Za-z_][A-Za-z0-9_]*)", harness):
             name = match.group(1)
-            if name in defaulted:
+            if name in associated and harness[match.end():].lstrip().startswith(")"):
                 self.fail(f".{name} needs an explicit payload in the harness")
         # The production switch may use bare patterns; only expression position
         # is affected, so the guidance function is expected to keep them.

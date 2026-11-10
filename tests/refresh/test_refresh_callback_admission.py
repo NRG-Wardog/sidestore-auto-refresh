@@ -1,30 +1,25 @@
-"""Admission identity remains exact in generated callback/dispatch contracts."""
-import importlib.util
-from pathlib import Path
+"""Current owner callback contracts must retain exact admission identity."""
 import unittest
-ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location('callback_admission', ROOT / 'scripts/patch_refresh_callback_admission.py')
-patcher = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(patcher)
+from tests.owner_source import owner_source
+from tests.support.product_sources import read_product_source
+
+HOST_CONTRACTS = ('    private var refreshRunID: String?\n    private var refreshAdmissionID: String?', '              V3ServiceBridge.strictBool(admission["admitted"]) == true,\n              let admissionID = admission["admissionID"] as? String,\n              UUID(uuidString: admissionID)?.uuidString == admissionID else {', '        refreshAdmissionID = admissionID\n        defer { if refreshAdmissionID == admissionID { refreshAdmissionID = nil } }\n        if let directClaimID {\n            sharedDefaults.set(["run_id": directClaimID,', 'client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: run, admissionID: admissionID)', 'private func releaseRefreshAdmission(_ runID: String, admissionID: String, terminalState: String)', 'payload: ["state": terminalState, "admissionID": admissionID])', 'guard reply["runID"] as? String == runID,\n                      reply["admissionID"] as? String == admissionID,\n                      V3ServiceBridge.strictBool(reply["released"]) == true else {', '    fileprivate func updateProgress(_ value: Double, id: UUID) {\n        guard refreshAdmissionID == nil else { return }\n        applyRefreshProgress(value, id: id)\n    }\n    fileprivate func updateHostProgress(_ value: Double, runID: String, admissionID: String, id: UUID) {\n        guard refreshRunID == runID, refreshAdmissionID == admissionID else { return }\n        applyRefreshProgress(value, id: id)\n    }\n    private func applyRefreshProgress(_ value: Double, id: UUID) {\n        guard launchID == id, refreshContinuation != nil, value.isFinite else { return }', '    fileprivate func completedRefresh(_ error: String?, runID: String, verification: Data?, id: UUID) {\n        // A legacy callback cannot settle a host-owned admission.\n        guard refreshAdmissionID == nil else { return }\n        acceptRefreshCompletion(error, runID: runID, verification: verification, id: id)\n    }\n    fileprivate func completedHostRefresh(_ error: String?, runID: String, admissionID: String, verification: Data?, id: UUID) {\n        guard V3RefreshCallbackIdentityPolicy.matches(\n            callbackRunID: runID, callbackAdmissionID: admissionID,\n            activeRunID: refreshRunID, activeAdmissionID: refreshAdmissionID) else { return }\n        acceptRefreshCompletion(error, runID: runID, verification: verification, id: id)\n    }\n    private func acceptRefreshCompletion(_ error: String?, runID: String, verification: Data?, id: UUID) {\n        guard launchID == id, refreshContinuation != nil, refreshRunID == runID else { return }', '    fileprivate func legacyCompletion(_ error: String?, id: UUID) {\n        guard refreshAdmissionID == nil else { return }\n        guard launchID == id,', '    func finishRefresh(_ error: String?, runID: String, verification: Data?) {\n        Task { @MainActor in self.owner?.completedRefresh(error, runID: runID, verification: verification, id: self.identity) }\n    }\n    func finishHostRefresh(_ error: String?, runID: String, admissionID: String, verification: Data?) {\n        Task { @MainActor in self.owner?.completedHostRefresh(error, runID: runID, admissionID: admissionID, verification: verification, id: self.identity) }\n    }\n    func updateHostProgress(_ value: Double, runID: String, admissionID: String) {\n        Task { @MainActor in self.owner?.updateHostProgress(value, runID: runID, admissionID: admissionID, id: self.identity) }\n    }', 'case "refreshAdmissionEnd":\n            return Set(payload.keys) == Set(["state", "admissionID"]) &&\n                canonicalSecretToken(payload["admissionID"]) &&', '// V3_REFRESH_CALLBACK_ADMISSION_V1: a run may contain multiple safe attempts.\nenum V3RefreshCallbackIdentityPolicy {\n    static func matches(callbackRunID: String, callbackAdmissionID: String,\n                        activeRunID: String?, activeAdmissionID: String?) -> Bool {\n        guard UUID(uuidString: callbackRunID)?.uuidString == callbackRunID,\n              UUID(uuidString: callbackAdmissionID)?.uuidString == callbackAdmissionID else { return false }\n        return callbackRunID == activeRunID && callbackAdmissionID == activeAdmissionID\n    }\n}')
+HEADER_CONTRACTS = ('// V3_REFRESH_CALLBACK_ADMISSION_V1\n- (void)finishHostRefresh:(NSString* _Nullable)error runID:(NSString* _Nonnull)runID admissionID:(NSString* _Nonnull)admissionID verification:(NSData* _Nullable)verification NS_SWIFT_NAME(finishHostRefresh(_:runID:admissionID:verification:));\n- (void)updateHostProgress:(double)value runID:(NSString* _Nonnull)runID admissionID:(NSString* _Nonnull)admissionID NS_SWIFT_NAME(updateHostProgress(_:runID:admissionID:));\n- (void)onConnection:(NSXPCConnection*)connection;', '- (void)refreshAllAppsWithIdentifier:(NSString*)identifier mangledTypeName:(NSString *)mangledTypeName refreshRunID:(NSString* _Nullable)refreshRunID;\n- (void)refreshAllAppsWithIdentifier:(NSString*)identifier mangledTypeName:(NSString *)mangledTypeName refreshRunID:(NSString* _Nonnull)refreshRunID admissionID:(NSString* _Nonnull)admissionID NS_SWIFT_NAME(refreshAllApps(withIdentifier:mangledTypeName:refreshRunID:admissionID:));')
 
 class CallbackAdmissionTests(unittest.TestCase):
-    def test_canonical_host_is_idempotent(self):
-        host = (ROOT / 'scripts/templates/combined_refresh_handler.swift').read_text()
-        self.assertEqual(patcher.install_host(host), host)
-        for bad in (host.replace('callbackAdmissionID: admissionID', 'callbackAdmissionID: other'),
-                    host.replace('payload: ["state": terminalState, "admissionID": admissionID]',
-                                 'payload: ["state": terminalState]')):
-            with self.assertRaises(SystemExit): patcher.install_host(bad)
+    def test_host_gates_progress_completion_and_release_on_admission_identity(self):
+        host = owner_source("SideStoreSupport/SideStore.swift")
+        for contract in HOST_CONTRACTS:
+            with self.subTest(contract=contract.splitlines()[0]):
+                self.assertIn(contract, host)
 
-    def test_header_generation_and_drift_rejection(self):
-        source = '- (void)onConnection:(NSXPCConnection*)connection;\n- (void)refreshAllAppsWithIdentifier:(NSString*)identifier mangledTypeName:(NSString *)mangledTypeName refreshRunID:(NSString* _Nullable)refreshRunID;'
-        patched = patcher.install_header(source)
-        self.assertEqual(patcher.install_header(patched), patched)
-        with self.assertRaises(SystemExit):
-            patcher.install_header(patched.replace('finishHostRefresh:', 'finishOtherRefresh:'))
+    def test_objc_dispatch_preserves_admission_identity(self):
+        header = owner_source("SideStoreSupport/XPCServer.h")
+        for contract in HEADER_CONTRACTS:
+            self.assertIn(contract, header)
 
     def test_wire_requires_canonical_admission(self):
-        wire = (ROOT / 'scripts/templates/v3_wire_contract.swift').read_text()
+        wire = read_product_source("v3_wire_contract.swift")
         self.assertIn('Set(payload.keys) == Set(["state", "admissionID"]) &&\n                canonicalSecretToken(payload["admissionID"])', wire)
 
-if __name__ == '__main__': unittest.main()
+if __name__ == "__main__": unittest.main()

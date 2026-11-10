@@ -20,18 +20,18 @@ the real signer invalidates.
 These tests model that signer exactly and assert the architecture, not the text.
 """
 from __future__ import annotations
+from tests.support.product_sources import ProductSource
 
 import re
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES = ROOT / "scripts/templates"
 UPSTREAM = ROOT / ".audit/upstream/LiveContainer/LiveProcess/LiveProcess.entitlements"
 
 
 def read(name: str) -> str:
-    return (TEMPLATES / name).read_text(encoding="utf-8")
+    return ProductSource(name).read_text(encoding="utf-8")
 
 
 class ILoaderSignerModel:

@@ -1,5 +1,4 @@
 """Verify v3 delegates IPA/app metadata parsing to pinned SideStore code."""
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -9,68 +8,20 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
-import patch_v3_service
+from tests.owner_source import owner_source
+from tests.support.product_sources import ProductSource
 
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
+RUNTIME = ProductSource("v3_headless_runtime.swift")
 HARNESS = ROOT / "tests/fixtures/v3_install_metadata_parser_harness.swift"
 SWIFTC = shutil.which("swiftc")
 
 
-def pinned_source_root():
-    override = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-    candidates = [Path(override)] if override else [
-        ROOT.parent / "upstream/SideStore",
-        ROOT / "work/EmbeddedSideStore",
-        ROOT.parent.parent / "work/EmbeddedSideStore",
-        ROOT.parents[3] / ".audit/upstream/SideStore",
-    ]
-    for candidate in candidates:
-        if not (candidate / "AltStore/Managing Apps/AppManager.swift").is_file():
-            continue
-        check = subprocess.run(
-            ["git", "-C", str(candidate), "cat-file", "-e",
-             f"{patch_v3_service.PINS[1]}:AltStore/Managing Apps/AppManager.swift"],
-            capture_output=True, text=True)
-        if check.returncode == 0:
-            return candidate
-        if override:
-            raise AssertionError(f"SideStore source must include pin {patch_v3_service.PINS[1]}")
-    raise unittest.SkipTest("exact pinned SideStore source unavailable")
-
-
 def pinned_app_manager():
-    source_root = pinned_source_root()
-    return subprocess.check_output(
-        ["git", "-C", str(source_root), "show",
-         f"{patch_v3_service.PINS[1]}:AltStore/Managing Apps/AppManager.swift"],
-        text=True, encoding="utf-8")
+    return owner_source("AltStore/Managing Apps/AppManager.swift", "SideStore")
 
 
 def pinned_archive_reader():
-    source_root = pinned_source_root()
-    entry = subprocess.check_output(
-        ["git", "-C", str(source_root), "ls-tree", patch_v3_service.PINS[1],
-         "Dependencies/SideSign"], text=True, encoding="utf-8").strip()
-    fields = entry.split()
-    if len(fields) != 4 or fields[1] != "commit":
-        raise AssertionError("pinned SideStore source must record Dependencies/SideSign as a gitlink")
-    revision = fields[2]
-    override = os.environ.get("SIDESIGN_TEST_SOURCE")
-    candidates = [Path(override)] if override else [source_root / "Dependencies/SideSign"]
-    for candidate in candidates:
-        if not candidate.is_dir():
-            continue
-        actual = subprocess.check_output(
-            ["git", "-C", str(candidate), "rev-parse", "HEAD"],
-            text=True, encoding="utf-8").strip()
-        if actual == revision:
-            return subprocess.check_output(
-                ["git", "-C", str(candidate), "show",
-                 f"{revision}:Sources/Archiver/Archive.swift"],
-                text=True, encoding="utf-8")
-        if override:
-            raise AssertionError(f"SideSign source must match pinned gitlink {revision}, found {actual}")
-    raise unittest.SkipTest("exact pinned SideSign checkout unavailable")
+    return owner_source("Sources/Archiver/Archive.swift", "SideStore/Dependencies/SideSign")
 
 
 def swift_function(source, signature):
@@ -90,23 +41,11 @@ def swift_function(source, signature):
 
 
 class V3InstallMetadataAdapterTests(unittest.TestCase):
-    def test_generated_appmanager_parser_matches_pinned_body_except_visibility(self):
-        original = pinned_app_manager()
-        generated = patch_v3_service.headless_app_manager_metadata_parser(original)
-        self.assertEqual(
-            generated,
-            patch_v3_service.headless_app_manager_metadata_parser(generated),
-            "metadata visibility extraction must be idempotent")
-        upstream_parser = swift_function(
-            original,
-            "private static func readAppMetadata(from url: URL, packageType: PackageType)")
-        generated_parser = swift_function(
-            generated,
-            "static func readAppMetadata(from url: URL, packageType: PackageType)")
-        self.assertEqual(
-            generated_parser,
-            upstream_parser.replace("private static func", "static func", 1),
-            "generated production parser must differ from pinned source only in access level")
+    def test_current_parser_is_available_to_backend_without_private_adapter(self):
+        source = pinned_app_manager()
+        signature = "static func readAppMetadata(from url: URL, packageType: PackageType)"
+        self.assertEqual(source.count(signature), 1)
+        self.assertNotIn("private " + signature, source)
 
     def test_v3_resolution_uses_upstream_parser_for_both_ipa_inputs(self):
         runtime = RUNTIME.read_text(encoding="utf-8")
@@ -125,7 +64,7 @@ class V3InstallMetadataAdapterTests(unittest.TestCase):
         self.assertIn("func goToNextFile() -> Bool { false }", fixture)
         self.assertNotIn("func goToNextFile() throws", fixture)
         parser = swift_function(
-            patch_v3_service.headless_app_manager_metadata_parser(pinned_app_manager()),
+            pinned_app_manager(),
             "static func readAppMetadata(from url: URL, packageType: PackageType)")
         self.assertIn("} while reader.goToNextFile()", parser)
         self.assertNotIn("try reader.goToNextFile()", parser)
@@ -134,9 +73,21 @@ class V3InstallMetadataAdapterTests(unittest.TestCase):
         if not SWIFTC:
             self.skipTest("Swift executable harness runs in macOS CI")
         parser = swift_function(
-            patch_v3_service.headless_app_manager_metadata_parser(pinned_app_manager()),
+            pinned_app_manager(),
             "static func readAppMetadata(from url: URL, packageType: PackageType)")
-        fixture = HARNESS.read_text(encoding="utf-8")
+        info = owner_source("Sources/Models/InfoPlistParser.swift", "SideStore/Dependencies/SideSign")
+        # Compile the exact parser dependency used by both .ipa and .app paths.
+        # Other InfoPlistParser accessors are outside this metadata interface.
+        members = ["    public private(set) var rawDictionary: [String: any Sendable]"]
+        for signature in ("public init(data: Data)", "public init(plistURL: URL)",
+                          "public init(bundleURL: URL)", "public static func resolveInfoPlistURL(",
+                          "public var bundleIdentifier:", "public var appName:",
+                          "public var displayName:", "public var bundleName:"):
+            members.append(swift_function(info, signature))
+        dependency = "\npublic struct InfoPlistParser {\n" + "\n".join(members) + "\n}\n"
+        # Error-only CodeSignKit boundary; no parsing decisions are simulated.
+        dependency += "enum SignerError: Error { case invalidApp(cause: String), missingInfoPlist(path: String) }\n"
+        fixture = HARNESS.read_text(encoding="utf-8") + dependency
         self.assertEqual(fixture.count("__PRODUCTION_METADATA_PARSER__"), 1)
         source = fixture.replace("__PRODUCTION_METADATA_PARSER__", parser)
         with tempfile.TemporaryDirectory(prefix="v3-install-metadata-") as temporary:

@@ -4,12 +4,14 @@ No recovery decision is restated by the harness. Production Swift is extracted
 verbatim; only service IO, Apple IO, and platform rendering are substituted.
 """
 from pathlib import Path
-import importlib.util
-import os
 import shutil
 import subprocess
 import tempfile
 import unittest
+
+from tests.owner_source import owner_source
+from tests.support.local_signin_owner_runtime import members as scope_members, dependencies as scope_dependencies
+from tests.support.product_sources import read_product_source
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,7 +38,7 @@ def declaration(source, signature):
 
 
 def template(name):
-    return (ROOT / 'scripts/templates' / name).read_text()
+    return read_product_source(name)
 
 
 def swift_source(*fragments):
@@ -101,7 +103,7 @@ struct ProvisioningLoginWireHarness {
     }
 }
 '''
-        self.compile_and_run(swift_source(template('v3_wire_contract.swift'), harness),
+        self.compile_and_run(swift_source(template('combined_failure.swift'), template('v3_wire_contract.swift'), harness),
                              'V3_PROVISIONING_LOGIN_WIRE_PASS')
 
     def test_production_store_reloads_and_real_button_starts_same_account_mode(self):
@@ -114,12 +116,17 @@ struct ProvisioningLoginWireHarness {
             'struct V3ProvisioningRetryReadinessOwnership {',
             'enum V3ProvisioningRetryReadinessSettlement:',
         ))
+        helpers += '\n' + declaration(owner_source('LiveContainerSwiftUI/Views/V3UnifiedShell.swift'),
+                                        'enum V3PendingCertificateRecoveryState:')
+        helpers += '\n' + declaration(owner_source('LiveContainerSwiftUI/Views/V3UnifiedShell.swift'),
+                                        'enum V3AuthTimeoutDiagnosticRetentionPolicy {')
         store = '@MainActor\n' + declaration(shell, 'final class V3AuthStore:')
-        branch = declaration(shell, 'if recovery.showReauthenticateProvisioning {')
+        branch = declaration(shell, 'if recovery.showReauthenticateProvisioning && auth.pendingCertificateRecoveryState != .activationRequired {')
         harness = (ROOT / 'tests/fixtures/v3_auth_recovery_store_harness.swift').read_text()
         harness = harness.replace('__PRODUCTION_BUTTON_BRANCH__', branch)
         self.compile_and_run(swift_source('import Combine', template('combined_failure.swift'),
             template('v3_wire_contract.swift'), template('v3_behavioral_primitives.swift'),
+            owner_source('LiveContainerSwiftUI/Models/V3DiagnosticProviderSequence.swift'),
             helpers, store, harness), 'V3_AUTH_RECOVERY_STORE_PASS')
 
     def test_production_completion_evidence_cannot_be_inferred_from_rows(self):
@@ -133,27 +140,23 @@ struct ProvisioningLoginWireHarness {
         self.compile_and_run(swift_source('import Foundation', production, harness),
                              'V3_PROVISIONING_COMPLETION_PASS')
 
-    def test_generation_bypasses_cached_and_silent_paths_and_checks_owner_before_commit(self):
-        path = Path(os.environ.get('EMBEDDED_SIDESTORE_TEST_SOURCE', '/workspace/shared/sidestore-review/SideStore'))
-        pinned = path / 'SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift'
-        if not pinned.is_file():
-            self.skipTest('Pinned SideStore unavailable; set EMBEDDED_SIDESTORE_TEST_SOURCE')
-        spec = importlib.util.spec_from_file_location('audit_recovery_patch', ROOT / 'scripts/patch_v3_service.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        source = module.patch_sign_in_operation(pinned.read_text())
-        self.assertEqual(module.patch_sign_in_operation(source), source)
-        sign_in = declaration(source, 'private func signIn(appleID: String, password: String)')
+    def test_owner_bypasses_cached_and_silent_paths_and_checks_owner_before_commit(self):
+        source = owner_source(
+            'SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift', 'SideStore')
+        sign_in = declaration(source, 'private func performSignIn(appleID: String, password: String,')
         self.assertLess(sign_in.index('v3ValidateReauthenticationIdentity'), sign_in.index('AuthManager.shared.signIn'))
         self.assertLess(sign_in.index('returnedAppleID: account.appleID'), sign_in.index('writeAuthenticationCredentials'))
         self.assertLess(sign_in.index('self.isCancelled || Task.isCancelled'), sign_in.index('writeAuthenticationCredentials'))
         self.assertLess(sign_in.index('AuthManager.shared.signIn'), sign_in.index('self.isCancelled || Task.isCancelled'))
         methods = '\n'.join(declaration(source, sig) for sig in (
             'override func execute(parentProgress:',
+            'private func executeLoginPipeline(parentProgress:',
             'private func startAuthentication(reportProgress:',
             'private func provisioningLoop(account:',
+            'private func performProvisioningLoop(account:',
             'private func v3ValidateReauthenticationIdentity(',
         ))
+        methods += '\n' + scope_members()
         harness = (ROOT / 'tests/fixtures/v3_reauthentication_operation_harness.swift').read_text()
         harness = harness.replace('__PRODUCTION_OPERATION_METHODS__', methods)
         primitives = template('v3_behavioral_primitives.swift')
@@ -161,8 +164,9 @@ struct ProvisioningLoginWireHarness {
             'enum V3AuthIdentityBindingPolicy {', 'enum V3AuthReadStampPolicy {',
             'enum V3ProvisioningReauthenticationIdentityPolicy {',
             'enum V3ProvisioningResumeExecutionPolicy {',
+            'enum V3DeviceSetupDeferralPolicy {',
         ))
-        self.compile_and_run(swift_source('import Foundation\nimport CoreFoundation', policies, harness),
+        self.compile_and_run(swift_source('import Foundation\nimport CoreFoundation', policies, scope_dependencies(), harness),
                              'V3_REAUTHENTICATION_OPERATION_PASS')
 
     def test_actual_snapshot_reports_unknown_and_failed_provisioning_with_existing_account(self):
@@ -184,7 +188,9 @@ struct ProvisioningLoginWireHarness {
         self.assertNotIn('authenticated && activeAccount == nil', snapshot)
         self.assertIn('!activeMutation && operationRecovery == nil && directRecoveryRecord == nil && !recoveryJournalUnreadable', snapshot)
         runtime = template('v3_headless_runtime.swift')
-        run = declaration(runtime, 'func run(id: String)')
+        wrapper = declaration(runtime, 'func run(id: String)')
+        self.assertIn('await self.runLoginPipeline(id: id)', wrapper)
+        run = declaration(runtime, 'private func runLoginPipeline(id: String)')
         self.assertIn('fullProvisioningCompleted: operation.v3DidCompleteProvisioning', run)
         self.assertLess(run.index('try await operation.execute()'), run.index('provisioningCompletion.complete('))
         self.assertIn('ownsActiveSession(id)', run)

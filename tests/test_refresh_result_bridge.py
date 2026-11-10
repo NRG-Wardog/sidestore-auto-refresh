@@ -1,200 +1,132 @@
-import importlib.util
-import os
+"""Current XPC result admission and import, never the retired standalone fragment."""
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.owner_source import owner_source
+from tests.support.product_sources import declaration_end, read_product_source
 
 
-def load(name):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / (name + ".py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-bridge = load("patch_refresh_result_bridge")
-host = load("patch_livecontainer_autorefresh")
+def declaration(source, signature):
+    if source.count(signature) != 1:
+        raise AssertionError("Missing or ambiguous production declaration: " + signature)
+    start = source.index(signature)
+    return source[start:declaration_end(source, start)]
 
 
 class RefreshResultBridgeTests(unittest.TestCase):
-    def test_host_result_import_executes(self):
+    def test_current_host_import_executes(self):
         compiler = shutil.which("swiftc")
         if not compiler:
-            self.skipTest("swiftc unavailable; executable XPC result validation requires CI")
-        # The combined startup patch replaces the whole RefreshHandler class body
-        # with combined_refresh_handler.swift, so the shipped v3 host implements
-        # the same correlation in completedRefresh. The fragment below is what
-        # the standalone combined pipeline installs, and it is executed here
-        # because it is the only way to run it without the whole service target.
-        effective = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
-        self.assertIn("func fileprivate func completedRefresh", effective.replace("fileprivate func completedRefresh", "func fileprivate func completedRefresh"))
-        self.assertIn("V3SharedAppGroup.sharedUserDefaults()", effective)
-        # The host reads the one runtime App Group the host published. The
-        # temporary resolver stands in for it so the executable test stays
-        # isolated while the correlation and uncertainty rules run unchanged.
-        source = '''import Foundation
-''' + (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8") + '''
-setenv("LC_V3_INHERITED_APP_GROUP", "group.com.SideStore.SideStore", 1)
-let sharedGroup = V3SharedAppGroup.runtimeIdentity()!.identifier
-class Host {
-    var c: Int? = 1
+            self.skipTest("Swift execution requires macOS CI")
+        owner = owner_source("SideStoreSupport/SideStore.swift")
+        helpers = "\n".join(declaration(owner, signature) for signature in (
+            "enum V3RefreshTerminalFailurePolicy {", "enum V3RefreshCallbackIdentityPolicy {"))
+        methods = "\n".join(declaration(owner, signature) for signature in (
+            "fileprivate func completedRefresh(", "fileprivate func completedHostRefresh(",
+            "private func acceptRefreshCompletion("))
+        # Only the storage boundary and continuation effect are doubles. The
+        # shipped admission, decoding, sanitization and terminal gates run intact.
+        source = read_product_source("combined_failure.swift") + "\n" + helpers + r'''
+@MainActor enum V3SharedAppGroup { static var defaults: UserDefaults?
+    static func sharedUserDefaults() -> UserDefaults? { defaults }
+}
+@MainActor final class Host {
+    let launchID = UUID()
+    var refreshRunID: String?
+    var refreshAdmissionID: String?
+    var refreshContinuation: Bool? = true
+    var v3RefreshTerminalCallbackRunID: String?
     var completions = 0
-    var lastError: String?
-    func finish(_ error: String?) { completions += 1; lastError = error; c = nil }
-''' + bridge.HOST + r'''
+    var lastFailure: Error?
+    init(run: String, admission: String) { refreshRunID = run; refreshAdmissionID = admission }
+    func finishRefreshContinuation(_ result: Result<Void, Error>) {
+        completions += 1; refreshContinuation = nil
+        if case .failure(let error) = result { lastFailure = error }
+    }
+''' + methods + r'''
 }
-let defaults = UserDefaults(suiteName: sharedGroup)!
-defaults.removePersistentDomain(forName: sharedGroup)
-defer { defaults.removePersistentDomain(forName: sharedGroup) }
-defaults.set("current", forKey: "liveContainerAutoRefreshExpectedRunID")
-func payload(_ run: String) throws -> Data {
-    try PropertyListSerialization.data(fromPropertyList: ["liveContainerAutoRefreshVerification":
-        ["run_id": run, "results": [["bundle_id": "test.app", "success": true]]]], format: .binary, options: 0)
+@main struct ResultBridgeHarness {
+    @MainActor static func main() throws {
+        let suite = "owner-bridge-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        V3SharedAppGroup.defaults = defaults
+        let run = UUID().uuidString, admission = UUID().uuidString
+        defaults.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
+        defaults.set(run, forKey: "liveContainerAutoRefreshActiveRunID")
+        func payload(_ id: String, complete: Bool = true) throws -> Data {
+            let manifest: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2",
+                "run_id": id, "expected_ids": ["fixture.app"],
+                "results": complete ? [["bundle_id": "fixture.app", "success": true]] : []]
+            return try PropertyListSerialization.data(fromPropertyList:
+                ["liveContainerAutoRefreshVerification": manifest], format: .binary, options: 0)
+        }
+        let valid = Host(run: run, admission: admission)
+        let data = try payload(run)
+        valid.completedHostRefresh(nil, runID: run, admissionID: admission, verification: data, id: valid.launchID)
+        precondition(valid.completions == 1 && valid.lastFailure == nil)
+        precondition(defaults.dictionary(forKey: "liveContainerAutoRefreshVerification")?["run_id"] as? String == run)
+        valid.completedHostRefresh(nil, runID: run, admissionID: admission, verification: data, id: valid.launchID)
+        precondition(valid.completions == 1)
+        for wrong in ["run", "admission", "launch", "legacy"] {
+            let host = Host(run: run, admission: admission)
+            if wrong == "legacy" { host.completedRefresh(nil, runID: run, verification: data, id: host.launchID) }
+            else { host.completedHostRefresh(nil, runID: wrong == "run" ? UUID().uuidString : run,
+                admissionID: wrong == "admission" ? UUID().uuidString : admission,
+                verification: data, id: wrong == "launch" ? UUID() : host.launchID) }
+            precondition(host.completions == 0 && host.refreshContinuation != nil)
+        }
+        for bad in [try payload(UUID().uuidString), try payload(run, complete: false), Data([0,1,2]), Data(repeating: 0, count: 262145)] {
+            let host = Host(run: run, admission: admission)
+            host.completedHostRefresh(nil, runID: run, admissionID: admission, verification: bad, id: host.launchID)
+            precondition(host.completions == 1 && host.lastFailure != nil)
+        }
+        let failed = Host(run: run, admission: admission)
+        let failure = CombinedFailure(operation: "refresh", stage: .signing, id: run)
+        failed.completedHostRefresh(failure.encodedString, runID: run, admissionID: admission, verification: nil, id: failed.launchID)
+        precondition((failed.lastFailure as? CombinedFailure)?.stage == .signing)
+        V3SharedAppGroup.defaults = nil
+        let unavailable = Host(run: run, admission: admission)
+        unavailable.completedHostRefresh(nil, runID: run, admissionID: admission, verification: data, id: unavailable.launchID)
+        precondition(unavailable.completions == 1 && unavailable.lastFailure != nil)
+        print("OWNER_RESULT_BRIDGE_PASS")
+    }
 }
-let valid = Host()
-valid.finishRefresh(nil, runID: "current", verification: try payload("current"))
-precondition(valid.completions == 1 && valid.lastError == nil)
-precondition(defaults.dictionary(forKey: "liveContainerAutoRefreshVerification")?["run_id"] as? String == "current")
-valid.finishRefresh(nil, runID: "current", verification: try payload("current"))
-precondition(valid.completions == 1)
-let stale = Host()
-stale.finishRefresh(nil, runID: "old", verification: try payload("old"))
-precondition(stale.completions == 0 && stale.c != nil)
-let mismatch = Host()
-mismatch.finishRefresh(nil, runID: "current", verification: try payload("old"))
-precondition(mismatch.completions == 1 && mismatch.lastError != nil)
-for data in [Data([0, 1, 2]), Data(repeating: 0, count: 262145)] {
-    let bad = Host()
-    bad.finishRefresh(nil, runID: "current", verification: data)
-    precondition(bad.completions == 1 && bad.lastError != nil)
-}
-let failed = Host()
-failed.finishRefresh("Signing failed", runID: "current", verification: nil)
-precondition(failed.lastError == "Signing failed")
-// An unresolved runtime group is an honest unconfirmed result, not a read from
-// a store the embedded service can never have written.
-unsetenv("LC_V3_INHERITED_APP_GROUP")
-let unavailable = Host()
-unavailable.finishRefresh(nil, runID: "current", verification: nil)
-precondition(unavailable.completions == 1 && unavailable.lastError != nil
-             && unavailable.lastError!.contains("refresh-state store"))
-print("RESULT_BRIDGE_TESTS_PASSED")
 '''
         with tempfile.TemporaryDirectory() as directory:
             file = Path(directory) / "main.swift"
             executable = Path(directory) / "result-tests"
             file.write_text(source)
-            subprocess.run([compiler, str(file), "-o", str(executable)], check=True, capture_output=True, text=True)
-            result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
-            self.assertIn("RESULT_BRIDGE_TESTS_PASSED", result.stdout)
+            built = subprocess.run([compiler, "-parse-as-library", str(file), "-o", str(executable)], capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            run = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn("OWNER_RESULT_BRIDGE_PASS", run.stdout)
 
-    def test_the_fragment_and_the_effective_host_agree_on_the_store(self):
-        # The bridge fragment is the transport half; the combined handler is what
-        # the combined build actually ships and it additionally applies the
-        # terminal-completeness gate. The two must not drift apart on the store
-        # they read or on the run they accept.
-        for text, label in ((bridge.HOST, "bridge fragment"),
-                            ((ROOT / "scripts/templates/combined_refresh_handler.swift")
-                             .read_text(encoding="utf-8"), "combined handler")):
-            self.assertNotIn('UserDefaults(suiteName: "group.com.SideStore.SideStore")', text, label)
-            self.assertIn("V3SharedAppGroup.sharedUserDefaults()", text, label)
-            self.assertIn('manifest["run_id"] as? String == runID', text, label)
-            self.assertIn('defaults.set(manifest, forKey: "liveContainerAutoRefreshVerification")', text, label)
-            self.assertIn('"liveContainerAutoRefreshHostHandoffRunID"] as? String == runID', text, label)
-        # Only the shipped handler owns the completeness gate, and it must keep it.
-        effective = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
-        self.assertIn("CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID)", effective)
-        self.assertIn("CombinedVerification.clearUncertainty(defaults, runID: runID)", effective)
-
-    def test_result_is_correlated_before_import_and_completion(self):
-        self.assertLess(bridge.HOST.index('== runID'), bridge.HOST.index('defaults.set(manifest'))
-        self.assertLess(bridge.HOST.index('defaults.set(manifest'), bridge.HOST.rindex('finish(error)'))
-        self.assertIn('verification.count <= 262144', bridge.HOST)
-        self.assertIn('data.count <= 262144', bridge.CLIENT)
-        self.assertNotIn('dictionaryRepresentation', bridge.CLIENT)
-        # Neither side may name a fixed App Group suite: the contract is the one
-        # runtime group the host published.
-        self.assertNotIn('group.com.SideStore.SideStore', bridge.HOST + bridge.CLIENT)
-        self.assertIn("V3SharedAppGroup.sharedUserDefaults()", bridge.HOST + bridge.CLIENT)
-        for secret in ('password', 'token', 'Keychain', 'certificate'):
-            self.assertNotIn(secret, bridge.CLIENT)
-
-    def test_direct_dispatch_generation_is_exact_and_repeatable(self):
-        legacy_protocol = "@protocol V3CommandService\n+ (void)execute:(NSData *)request reply:(void (^)(NSData *))reply;\n@end"
-        category = "                                     server:(id <RefreshServer> _Nonnull)server;"
-        old = legacy_protocol + "\n" + category + "\n" + bridge.LEGACY_HOST_METHOD
-        new = bridge.install_direct_host_objc(old)
-        self.assertIn(bridge.DIRECT_HOST_METHOD, new)
-        self.assertIn(bridge.DIRECT_HOST_PROTOCOL, new)
-        self.assertEqual(bridge.install_direct_host_objc(new), new)
-        for bad in (old.replace('setObject:refreshRunID', 'setObject:other'),
-                    new.replace('[refreshRunID copy]', '[other copy]')):
-            with self.assertRaises(SystemExit): bridge.install_direct_host_objc(bad)
-        anchor = "    @objc(performRefreshForRealWithIdentifier:mangledTypeName:server:)"
-        client = bridge.install_direct_host_client(anchor)
-        self.assertIn(bridge.DIRECT_HOST_FAILURE, client)
-        self.assertEqual(bridge.install_direct_host_client(client), client)
-
-    def test_direct_successor_contract_is_strict_and_idempotent(self):
-        required = [
-            'fileprivate func completedRefresh(_ error: String?, runID: String, verification: Data?, id: UUID)',
-            'guard launchID == id, refreshContinuation != nil, refreshRunID == runID else { return }',
-            'verification.count <= 262144',
-            'CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID)',
-            'finishRefreshContinuation(.failure(failure))']
-        objc = bridge.DIRECT_HOST_PROTOCOL + "\n" + bridge.DIRECT_HOST_METHOD
-        client = bridge.DIRECT_HOST_FAILURE
-        receiver = "\n".join(required + list(bridge.callback_admission_module().HOST_FRAGMENTS))
-        bridge.validate_direct_host_bridge(objc, receiver, client)
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory); folder = root / "SideStoreSupport"; folder.mkdir()
-            sources = {'XPCServer.h': bridge.MARKER + '\n' + '\n'.join(bridge.callback_admission_module().HEADER_FRAGMENTS), 'XPCClient.m': objc,
-                       'SideStore.swift': receiver, 'SideStoreClient.swift': client}
-            for name, value in sources.items(): (folder / name).write_text(value)
-            for _ in range(2): bridge.patch(root)
-            self.assertEqual(sources, {name: (folder / name).read_text() for name in sources})
-        for guard in required:
-            with self.subTest(receiver=guard), self.assertRaises(SystemExit):
-                bridge.validate_direct_host_bridge(objc, receiver.replace(guard, ''), client)
-        for token in ('[refreshRunID copy]', 'runID:runID', 'refreshForHost:runID'):
-            with self.subTest(dispatch=token), self.assertRaises(SystemExit):
-                bridge.validate_direct_host_bridge(objc.replace(token, 'invalid'), receiver, client)
-        with self.assertRaises(SystemExit):
-            bridge.validate_direct_host_bridge(objc, receiver, client.replace('verification: nil', 'verification: Data()'))
-
-    def test_pinned_xpc_patch_idempotence(self):
-        source = Path(os.environ.get("LIVE_CONTAINER_TEST_SOURCE", ROOT / ".audit/upstream/LiveContainer"))
-        if not source.exists():
-            self.skipTest("Pinned LiveContainer source unavailable")
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "SideStoreSupport").mkdir()
-            for name in ('XPCServer.h', 'XPCClient.m', 'SideStore.swift', 'SideStoreClient.swift'):
-                shutil.copy2(source / "SideStoreSupport" / name, root / "SideStoreSupport" / name)
-            host.patch_support(root)
-            bridge.patch(root)
-            first = {p.name: p.read_bytes() for p in (root / "SideStoreSupport").iterdir()}
-            host.patch_support(root)
-            bridge.patch(root)
-            self.assertEqual(first, {p.name: p.read_bytes() for p in (root / "SideStoreSupport").iterdir()})
-            client = (root / "SideStoreSupport/XPCClient.m").read_text()
-            if "V3_DIRECT_HOST_REFRESH_V1" in client:
-                bridge.validate_direct_host_bridge(client,
-                    (root / "SideStoreSupport/SideStore.swift").read_text(),
-                    (root / "SideStoreSupport/SideStoreClient.swift").read_text())
-                body = client.split('- (void)refreshAllAppsWithIdentifier:', 1)[1]
-                self.assertNotIn('NSUserDefaults', body)
-                self.assertNotIn('performRefreshForRealWithIdentifier:', body)
-                self.assertIn('[server finishHostRefresh:error runID:runID admissionID:dispatchAdmissionID verification:verification]', body)
-                self.assertIn('[server updateHostProgress:value runID:runID admissionID:dispatchAdmissionID]', body)
-            else:
-                self.assertLess(client.index('setObject:refreshRunID'), client.index('[self performRefreshForRealWithIdentifier:'))
-                self.assertIn('removeObjectForKey:@"liveContainerAutoRefreshVerification"', client)
+    def test_result_import_and_dispatch_keep_current_contracts(self):
+        host = owner_source("SideStoreSupport/SideStore.swift")
+        body = declaration(host, "private func acceptRefreshCompletion(")
+        for required in ("guard launchID == id, refreshContinuation != nil, refreshRunID == runID else { return }",
+                         "verification.count <= 262144", "V3SharedAppGroup.sharedUserDefaults()",
+                         "CombinedVerification.sanitized(rawPayload, runID: runID)",
+                         "CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID)",
+                         "CombinedVerification.clearUncertainty(defaults, runID: runID)"):
+            self.assertIn(required, body)
+        self.assertLess(body.index("guard launchID == id"), body.index("defaults.set(manifest"))
+        self.assertLess(body.index("defaults.set(manifest"), body.rindex("finishRefreshContinuation(.success"))
+        client = owner_source("SideStoreSupport/SideStoreClient.swift")
+        self.assertIn("data.count <= 262144", client)
+        self.assertIn("verification: nil", client)
+        dispatch = owner_source("SideStoreSupport/XPCClient.m")
+        self.assertIn("[refreshRunID copy]", dispatch)
+        self.assertIn("[server finishHostRefresh:error runID:runID admissionID:dispatchAdmissionID verification:verification]", dispatch)
+        self.assertIn("[server updateHostProgress:value runID:runID admissionID:dispatchAdmissionID]", dispatch)
+        method = dispatch.split("- (void)refreshAllAppsWithIdentifier:", 1)[1]
+        self.assertNotIn("NSUserDefaults", method)
+        self.assertNotIn("performRefreshForRealWithIdentifier:", method)
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()

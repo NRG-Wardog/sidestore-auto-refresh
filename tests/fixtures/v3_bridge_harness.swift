@@ -106,6 +106,7 @@ final class FakeClient {
 @MainActor
 final class RefreshHandler {
     static let shared = RefreshHandler()
+    var startupDiagnostics = V3StartupDiagnosticLog()
     var sideStorePid: Int32 = 123
     var v3ServiceIdentity: UUID? = UUID()
     var v3RefreshToken: UUID?

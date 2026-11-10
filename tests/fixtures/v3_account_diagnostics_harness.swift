@@ -178,7 +178,16 @@
                 precondition(failure.signingContext["http_status"] == "unavailable")
                 precondition(failure.signingContext["server_code"] == (index == 2 ? "9120" : "unknown"))
                 let decoded = CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)!
-                precondition(decoded.sourceStep == step && decoded.signingContext == failure.signingContext)
+                var expectedContext = failure.signingContext
+                if expectedContext[V3ProvisioningCauseDiagnostic.contextKey] != nil {
+                    expectedContext["auth_diagnostic_state"] = "recorded"
+                }
+                precondition((failure.wire["signingContext"] as? [String: String]) == expectedContext)
+                precondition(decoded.sourceStep == step && decoded.signingContext == expectedContext)
+                precondition(decoded.code == failure.code && decoded.stage == failure.stage)
+                precondition(decoded.operation == failure.operation && decoded.correlationID == failure.correlationID)
+                precondition(decoded.underlyingDomain == failure.underlyingDomain && decoded.underlyingCode == failure.underlyingCode)
+                precondition(decoded.retryable == failure.retryable && decoded.safeCause == failure.safeCause)
                 let copy = V3AuthFailureDiagnosticsPolicy.render(decoded.wire,
                     underlyingCode: decoded.underlyingCode, retryableValue: decoded.retryable)
                 let prompt = CombinedFailure.provisioningRetryTechnicalDetails(for: typed, correlationID: id)
@@ -209,7 +218,7 @@
         }
         let conflict = v3AccountOperationFailure(NSError(domain: "LiveContainerRefresh.Configuration", code: 1008), step: .credentialCommit)
         precondition(conflict.kind == .legacyMigrationConflict)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectCredentials) == .invalidCredentials)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectCredentials()) == .invalidCredentials)
         precondition(CombinedFailure.validatedSigningContext(["typed_error": secret]) == nil)
         precondition(CombinedFailure.validatedSigningContext(["server_code": "9120 HTTP 503"]) == nil)
         let suite = "V3AccountDiagnostics-" + UUID().uuidString

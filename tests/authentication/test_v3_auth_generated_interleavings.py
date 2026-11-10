@@ -1,6 +1,8 @@
 """Execute identity-race cases against the generated pinned AuthManager source."""
 
 from __future__ import annotations
+from tests.support.product_sources import ProductSource
+from tests.support.auth_interleaving_owner import source as admission_source
 
 import os
 import importlib.util
@@ -13,17 +15,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def load_module(name: str):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
-    if spec is None or spec.loader is None:
-        raise AssertionError(f"unable to load production patch module {name}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-service = load_module("patch_v3_service")
-PINNED_REF = service.PINS[1]
+from tests.owner_source import owner_source, owner_pin, owner_root
+PINNED_REF = owner_pin("SideStore")
 AUTH_PATH = "SideStore/Core/Auth/AuthManager.swift"
 SIGN_IN_PATH = "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
 COALESCER_PATH = "SideStore/Utils/concurrency/TaskChainCoalescer.swift"
@@ -61,25 +54,17 @@ def swift_declaration(source: str, signature: str) -> str:
 
 
 def pinned_source(checkout: Path, relative: str) -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(checkout), "show", f"{PINNED_REF}:{relative}"],
-        text=True,
-        encoding="utf-8",
-    )
+    if checkout.resolve() != owner_root("SideStore").resolve():
+        raise AssertionError("auth fixture must use the verified maintained owner")
+    return owner_source(relative, "SideStore")
 
 
 def generated_auth_manager(checkout: Path) -> str:
-    source = pinned_source(checkout, AUTH_PATH)
-    source = service.headless_auth_manager(source)
-    source = service.apply_embedded_credential_snapshot_patch(source, "patch_auth_manager")
-    return service.patch_auth_identity_generation(source)
+    return pinned_source(checkout, AUTH_PATH)
 
 
 def generated_sign_in_operation(checkout: Path) -> str:
-    source = pinned_source(checkout, SIGN_IN_PATH)
-    source = service.patch_sign_in_operation(source)
-    source = service.apply_embedded_credential_snapshot_patch(source, "patch_sign_in_operation")
-    return service.headless_certificate_serial_log_redaction(source, "SignInOperation")
+    return pinned_source(checkout, SIGN_IN_PATH)
 
 
 def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
@@ -104,24 +89,38 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
         swift_declaration(auth, "    public func getAuthenticatedSession()"),
     ]
     state = swift_declaration(
-        (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"),
+        (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8"),
         "final class V3AuthIdentityStampState",
     )
-    behavior = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+    behavior = (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8")
     production_policies = [
         swift_declaration(behavior, "enum V3AuthReadStampPolicy"),
         swift_declaration(behavior, "enum V3AuthSessionCoalescerKey"),
         swift_declaration(behavior, "enum V3AuthIdentityBindingPolicy"),
         swift_declaration(behavior, "enum V3ProvisioningResumeExecutionPolicy"),
     ]
-    runtime_template = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+    runtime_template = (ProductSource('v3_headless_runtime.swift')).read_text(encoding="utf-8")
     provisioning_resume_error = swift_declaration(
         runtime_template, "struct V3ProvisioningResumeUnavailableError",
     )
-    keychain_template = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
+    keychain_template = (ProductSource('embedded_shared_keychain.swift')).read_text(encoding="utf-8")
     snapshot = swift_declaration(keychain_template, "struct LCEmbeddedAuthenticationSnapshot")
-    cached_execute = swift_declaration(sign_in, "    override func execute(parentProgress: Progress?) async throws -> SignInResult")
+    cached_execute = "\n".join(swift_declaration(sign_in, anchor) for anchor in (
+        "    override func execute(parentProgress: Progress?) async throws -> SignInResult",
+        "    private func executeLoginPipeline(",
+        "    private func v3RemoteContextSnapshot()",
+        "    private func v3OwnedODAContextSnapshot()",
+        "    private func v3WithOwnedODA<T>",
+    ))
     sign_in_fields = """
+    let loginDiagnosticTrace = LoginDiagnosticTrace()
+    let authenticationDiagnosticTrace = AuthenticationDiagnosticTrace()
+    let v3RemoteAnisetteLock = NSLock()
+    var v3RemoteAnisetteContext: ILoaderRemoteAuthenticationContext? = nil
+    var v3RemoteAnisetteAttempt: V3RemoteAnisetteAttempt? = nil
+    var v3OwnedODAAttempt: V3OwnedODAAttempt? = nil
+    var v3DiagnosticProvider: V3DiagnosticProvider? = nil
+    let v3FinishPendingCertificateActivation = false
     let v3ForceProvisioningRetry = false
     let v3RequireFullProvisioning = false
     let v3RequireInteractiveCredentials = false
@@ -146,6 +145,7 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
     return "\n".join([
         "import Foundation\nimport CoreFoundation",
         snapshot,
+        admission_source(),
         *production_policies,
         provisioning_resume_error,
         state,
@@ -153,8 +153,8 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
         """
         struct ALTAnisetteData: Sendable { let value: String }
         struct ALTAppleAPISession: Sendable {
-            let dsid: String?
-            let authToken: String?
+            let dsid: String
+            let authToken: String
             var anisetteData: ALTAnisetteData
             let xcodeVersion: String
         }
@@ -162,7 +162,7 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
         struct ALTAccount { let appleID: String }
         struct ALTCertificate: Equatable { let marker: String }
         struct CertificateRecord: Equatable { let certificate: ALTCertificate }
-        struct SignInResult { let team: ALTTeam; let certificate: ALTCertificate?; let session: ALTAppleAPISession }
+        struct SignInResult { let team: ALTTeam; let certificate: ALTCertificate?; let session: ALTAppleAPISession; var v3RemoteIdentityHandoff: V3RemoteIdentityHandoff? = nil }
         enum HarnessError: Error { case authenticationFallback }
         enum OperationError: Error { case notAuthenticated; case cancelled }
 
@@ -219,6 +219,24 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
                 email = nil; passwordValue = nil; dsidValue = nil; tokenValue = nil
             }
             func embeddedAuthenticationFailure(_ error: Error) -> NSError { error as NSError }
+            // Synthetic OS storage publishes a valid local route bound to each
+            // atomically-read fixture credential snapshot. Product validates it.
+            func remoteIdentityRouteMarker() throws -> V3RemoteRouteMarker? {
+                let value = snapshot()
+                guard value.hasTokenCredentials else { return nil }
+                return try V3RemoteRouteMarker(mode: .local,
+                    binding: V3RemoteIdentityRecord.credentialBinding(appleID: value.appleIDEmailAddress,
+                        dsid: value.appleIDAdsid, token: value.appleIDXcodeToken),
+                    generation: "11111111-1111-1111-1111-111111111111")
+            }
+            func remoteIdentityRouteBytes() throws -> Data? { try remoteIdentityRouteMarker()?.encoded }
+            func remoteIdentityRecord() throws -> V3RemoteIdentityRecord? { nil }
+            func commitRemoteIdentity(_ record: V3RemoteIdentityRecord, replacing: V3RemoteIdentityRecord?,
+                credentials: LCEmbeddedAuthenticationSnapshot, expectedRoute: Data) throws {
+                fatalError("unexpected remote identity write")
+            }
+            func resetRemoteIdentity() throws { fatalError("unexpected remote reset") }
+
             var appleIDEmailAddress: String? { get { snapshot().appleIDEmailAddress } set { lock.lock(); email = newValue; lock.unlock() } }
             var appleIDPassword: String? { get { snapshot().appleIDPassword } set { lock.lock(); passwordValue = newValue; lock.unlock() } }
             var appleIDAdsid: String? { get { snapshot().appleIDAdsid } set { lock.lock(); dsidValue = newValue; lock.unlock() } }
@@ -278,6 +296,7 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
             static func expectNotAuthenticated(_ task: Task<ALTAppleAPISession, Error>, _ label: String) async throws {
                 do { _ = try await task.value; fatalError("\\(label): stale operation returned a session") }
                 catch is OperationError { }
+                catch V3RemoteIdentityError.stateChanged { }
             }
             static func main() async throws {
                 let auth = AuthManager.shared
@@ -334,10 +353,7 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
 
 
 def source_checkout() -> Path:
-    return Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or
-                os.environ.get("SIDESTORE_TEST_SOURCE") or
-                str(ROOT.parents[2] / "v3-side-upstream"))
-
+    return owner_root("SideStore")
 
 class GeneratedAuthInterleavingTests(unittest.TestCase):
     def test_generated_sources_are_pinned_and_expose_executable_auth_paths(self):
@@ -356,7 +372,9 @@ class GeneratedAuthInterleavingTests(unittest.TestCase):
         self.assertIn("AuthManager.shared.v3CachedSessionMatchesCurrentRoute(session)", sign_in)
         self.assertIn("actor TaskChainCoalescer", coalescer)
         executable_source = declarations_for_harness(auth, sign_in, coalescer)
-        self.assertIn("return try await TaskChainCoalescer.shared.coalesce", executable_source)
+        self.assertIn("let session = try await TaskChainCoalescer.shared.coalesce", executable_source)
+        self.assertIn("try admission.check()", executable_source)
+        self.assertIn("try await self.executeLoginPipeline(parentProgress: parentProgress)", executable_source)
         self.assertIn("v3InstallSessionIfCurrent", executable_source)
         self.assertIn("override func execute(parentProgress:", executable_source)
 

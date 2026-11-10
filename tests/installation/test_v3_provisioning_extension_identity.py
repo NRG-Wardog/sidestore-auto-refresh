@@ -1,4 +1,4 @@
-"""Run the generated pinned provisioning method against mocked DB/portal edges."""
+"""Run maintained provisioning plus a child-identity mutant against DB/portal doubles."""
 
 from __future__ import annotations
 
@@ -15,86 +15,31 @@ SOURCE_PATH = "SideStore/Core/Operations/PipelineOperations/FetchProvisioningPro
 HARNESS_PATH = ROOT / "tests/fixtures/v3_provisioning_extension_identity_harness.swift"
 
 
-def load_module(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise AssertionError(f"Unable to load production patch module: {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def startup_patcher():
-    module = load_module(ROOT / "scripts/patch_combined_service_startup.py", "patch_combined_service_startup")
-    if not hasattr(module, "patch_provisioning_profile_requests"):
-        raise AssertionError("local production provisioning patch helper is missing")
-    return module
-
-
-def source_checkout() -> Path | None:
-    configured = os.environ.get("SIDESTORE_TEST_SOURCE") or os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-    return Path(configured) if configured else None
-
-
-def pinned_source(checkout: Path, reference: str) -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(checkout), "show", f"{reference}:{SOURCE_PATH}"],
-        text=True,
-        encoding="utf-8",
-    )
+import sys
+sys.path.insert(0, str(ROOT / "tests"))
+from owner_source import owner_source
+from support.product_sources import declaration_end
 
 
 def swift_declaration(source: str, signature: str) -> str:
-    start = source.find(signature)
-    if start < 0:
-        raise AssertionError(f"Generated/pinned Swift declaration missing: {signature}")
-    opening = source.find("{", start)
-    if opening < 0:
-        raise AssertionError(f"Swift declaration has no body: {signature}")
-
-    depth = 0
-    in_string = False
-    escaped = False
-    for index in range(opening, len(source)):
-        character = source[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == '"':
-                in_string = False
-            continue
-        if character == '"':
-            in_string = True
-        elif character == "{":
-            depth += 1
-        elif character == "}":
-            depth -= 1
-            if depth == 0:
-                return source[start:index + 1]
-    raise AssertionError(f"Unterminated Swift declaration: {signature}")
+    if source.count(signature) != 1:
+        raise AssertionError(f"Expected one production declaration: {signature}")
+    start = source.index(signature)
+    return source[start:declaration_end(source, start)]
 
 
-def harness_source(checkout: Path) -> tuple[str, str, str]:
-    patcher = startup_patcher()
-    reference = patcher.PINS[1]
-    pinned = pinned_source(checkout, reference)
-    generated = patcher.patch_provisioning_profile_requests(pinned)
-    pinned_method = swift_declaration(pinned, "    private func provisionAndFetchProfile(")
-    generated_method = swift_declaration(generated, "    private func provisionAndFetchProfile(")
-    preferred_lookup = swift_declaration(generated, "    private func getPreferredBundleID(")
-
-    # Preserve the complete production method body; only rename the two method
-    # declarations so old and generated implementations can run side by side.
-    pinned_method = pinned_method.replace(
-        "private func provisionAndFetchProfile(",
-        "func provisionAndFetchProfilePinned(", 1,
-    )
-    generated_method = generated_method.replace(
-        "private func provisionAndFetchProfile(",
-        "func provisionAndFetchProfileGenerated(", 1,
-    )
+def harness_source() -> tuple[str, str, str]:
+    source = owner_source(SOURCE_PATH, "SideStore")
+    production = swift_declaration(source, "    private func provisionAndFetchProfile(")
+    preferred_lookup = swift_declaration(source, "    private func getPreferredBundleID(")
+    # Explicit negative control: restore the preferred-parent child-ID bug in
+    # a copy of the current method. No historical generated implementation.
+    anchor = "bundleID = parentID + suffix"
+    if production.count(anchor) != 1:
+        raise AssertionError("Current child identity mutation anchor changed")
+    mutant = production.replace(anchor, "bundleID = preferredBundleID ?? (parentID + suffix)")
+    pinned_method = mutant.replace("private func provisionAndFetchProfile(", "func provisionAndFetchProfilePinned(", 1)
+    generated_method = production.replace("private func provisionAndFetchProfile(", "func provisionAndFetchProfileGenerated(", 1)
     fixture = HARNESS_PATH.read_text(encoding="utf-8")
     program = fixture.replace("// {{PINNED_PROVISION_AND_FETCH_PROFILE}}", pinned_method)
     program = program.replace("// {{GENERATED_PROVISION_AND_FETCH_PROFILE}}", generated_method)
@@ -105,20 +50,8 @@ def harness_source(checkout: Path) -> tuple[str, str, str]:
 
 
 class ProvisioningExtensionIdentityTests(unittest.TestCase):
-    def test_production_generator_extracts_full_pinned_and_generated_methods(self):
-        checkout = source_checkout()
-        if checkout is None or not checkout.is_dir():
-            self.skipTest("Pinned SideStore checkout unavailable; set SIDESTORE_TEST_SOURCE in macOS CI")
-        patcher = startup_patcher()
-        revision = subprocess.check_output(
-            ["git", "-C", str(checkout), "rev-parse", "HEAD"],
-            text=True,
-            encoding="utf-8",
-        ).strip()
-        self.assertEqual(patcher.PINS[1], revision,
-                         "the generated method must come from the exact pinned SideStore source")
-
-        program, pinned_method, generated_method = harness_source(checkout)
+    def test_current_method_and_explicit_identity_mutant_are_complete(self):
+        program, pinned_method, generated_method = harness_source()
         self.assertIn("let preferredBundleID = await self.getPreferredBundleID", pinned_method)
         self.assertIn("parentID + suffix", generated_method)
         self.assertIn("targetAppBundle.bundleIdentifier.hasPrefix(parentAppBundle.bundleIdentifier + \".\")",
@@ -131,19 +64,7 @@ class ProvisioningExtensionIdentityTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("swiftc unavailable; execute production Swift harness in macOS CI")
-        checkout = source_checkout()
-        if checkout is None or not checkout.is_dir():
-            self.skipTest("Pinned SideStore checkout unavailable; set SIDESTORE_TEST_SOURCE in macOS CI")
-
-        patcher = startup_patcher()
-        revision = subprocess.check_output(
-            ["git", "-C", str(checkout), "rev-parse", "HEAD"],
-            text=True,
-            encoding="utf-8",
-        ).strip()
-        self.assertEqual(patcher.PINS[1], revision,
-                         "the executable harness must use the exact pinned SideStore source")
-        program, _, _ = harness_source(checkout)
+        program, _, _ = harness_source()
 
         with tempfile.TemporaryDirectory() as temporary:
             swift = Path(temporary) / "ProvisioningExtensionIdentityHarness.swift"

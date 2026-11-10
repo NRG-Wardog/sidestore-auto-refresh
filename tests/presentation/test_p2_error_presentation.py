@@ -35,7 +35,12 @@ class ErrorPresentationTests(unittest.TestCase):
   catalog=json.loads((HOST/'Resources/Localizable.xcstrings').read_text())['strings']
   keys=['Some details are unavailable in the selected language.','Install %@','Update %@','Back up %@','Restore %@','Enable JIT for %@','Remove %@ from library and erase its backups','Delete %@ and erase its data and backups','%@ completed successfully.','%@, expires %@','SideStore status: %@, %@']
   for key in keys:
-   for language in ['en','he','zh-Hans','zh-Hant']:
+   helper=(HOST/'LiveContainerSwiftUI/Utilities/V3Localization.swift').read_text()
+   language_cases=helper.split('enum V3AppLanguage:',1)[1].split('static let storageKey',1)[0]
+   languages=re.findall(r'=\s*"([^"]+)"',language_cases)
+   self.assertTrue(languages)
+   self.assertEqual(len(languages),len(set(languages)))
+   for language in languages:
     value=catalog[key]['localizations'][language]['stringUnit']['value']
     self.assertEqual(value.count('%@'),key.count('%@'))
     self.assertTrue(value)
@@ -55,9 +60,11 @@ class ErrorPresentationTests(unittest.TestCase):
   self.assertIn('if state.detailIsOpaque { Text(state.detail) }',shell)
   self.assertIn('if accountPresent == true { opaqueHealthRows.insert("Account") }',shell)
   self.assertIn('if teamPresent == true { opaqueHealthRows.insert("Team") }',shell)
-  runtime=(ROOT/'scripts/templates/v3_headless_runtime.swift').read_text()
+  from tests.support.product_sources import read_product_source
+  runtime=read_product_source('v3_headless_runtime.swift')
   health=runtime.split('static func health()',1)[1].split('static func ',1)[0]
-  self.assertIn('"activeAccountPresent": activeAccount != nil, "activeTeamPresent": team != nil',health)
+  self.assertIn('"activeAccountPresent": activeAccount != nil',health)
+  self.assertIn('"activeTeamPresent": team != nil',health)
   self.assertIn('"account": account, "team": team?.name ?? "No active team"',health)
  def test_historical_compiled_translations_are_preserved_by_current_source(self):
   import sys
@@ -132,11 +139,15 @@ class ErrorPresentationTests(unittest.TestCase):
    root=Path(tmp);bundle=root/'Fixture.bundle';bundle.mkdir()
    (bundle/'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':'org.fixture.p2-errors','CFBundleDevelopmentRegion':'en'}))
    catalog=json.loads((HOST/'Resources/Localizable.xcstrings').read_text())['strings']
-   for language in ['en','he','zh-Hans','zh-Hant']:
+   helper=(HOST/'LiveContainerSwiftUI/Utilities/V3Localization.swift').read_text()
+   language_cases=helper.split('enum V3AppLanguage:',1)[1].split('static let storageKey',1)[0]
+   languages=re.findall(r'=\s*"([^"]+)"',language_cases)
+   self.assertTrue(languages)
+   self.assertEqual(len(languages),len(set(languages)))
+   for language in languages:
     folder=bundle/(language+'.lproj');folder.mkdir()
     values={key:entry['localizations'][language]['stringUnit']['value'] for key,entry in catalog.items() if 'stringUnit' in entry['localizations'][language]}
     (folder/'Localizable.strings').write_bytes(plistlib.dumps(values))
-   helper=(HOST/'LiveContainerSwiftUI/Utilities/V3Localization.swift').read_text()
    harness=r'''
 let bundle = Bundle(path: CommandLine.arguments[1])!
 let oldSelection = UserDefaults.standard.object(forKey: V3AppLanguage.storageKey)
@@ -152,6 +163,7 @@ let zeroArgument = V3DisplayMessage.localized(unsafeProviderFormat)
 precondition(zeroArgument.original == unsafeProviderFormat)
 let collidingName = V3DisplayMessage.localized("Install %@", "Cancel")
 for language in V3AppLanguage.allCases + [.english] {
+    FileHandle.standardError.write(Data(("locale-check: " + language.rawValue + "\n").utf8))
     V3AppLanguage.persist(language)
     precondition(V3AppLanguage.selected == language)
     precondition(UserDefaults.standard.string(forKey: V3AppLanguage.storageKey) == language.rawValue)
@@ -196,7 +208,9 @@ for language in V3AppLanguage.allCases + [.english] {
 print("native-error-presentation-passed")
 '''
    source=root/'main.swift';source.write_text(helper+'\n'+harness)
-   subprocess.run(['swiftc',str(source),'-o',str(root/'test')],check=True,capture_output=True,text=True,timeout=120)
-   result=subprocess.run([str(root/'test'),str(bundle)],check=True,capture_output=True,text=True,timeout=30)
+   compiled=subprocess.run(['swiftc',str(source),'-o',str(root/'test')],capture_output=True,text=True,timeout=120)
+   self.assertEqual(compiled.returncode,0,compiled.stdout+'\n'+compiled.stderr)
+   result=subprocess.run([str(root/'test'),str(bundle)],capture_output=True,text=True,timeout=30)
+   self.assertEqual(result.returncode,0,result.stdout+'\n'+result.stderr)
    self.assertIn('native-error-presentation-passed',result.stdout)
 if __name__=='__main__':unittest.main()

@@ -1,4 +1,6 @@
+from tests.test_v3_service import startup_diagnostic_source
 """Execute the production peer admission and bridge against external IPC stubs."""
+from tests.support.product_sources import ProductSource
 from pathlib import Path
 import shutil
 import subprocess
@@ -43,15 +45,15 @@ class PromptTransportTests(unittest.TestCase):
         mocks = fixture[:fixture.index("@main")]
         names = ["combined_failure.swift", "v3_behavioral_primitives.swift", "combined_service_connection.swift",
                  "v3_wire_contract.swift", "v3_service_bridge.swift"]
-        source = mocks + "\n".join((ROOT / "scripts/templates" / name).read_text(encoding="utf-8") for name in names)
+        source = startup_diagnostic_source() + "\n" + mocks + "\n".join(ProductSource(name).read_text(encoding="utf-8") for name in names)
         source += (ROOT / "tests/fixtures/v3_prompt_transport_harness.swift").read_text(encoding="utf-8")
         self.execute(source, "V3_PROMPT_TRANSPORT_PASS")
 
     def test_peer_admission_checks_actual_launched_pid_in_both_callback_orders(self):
-        production = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        production = (ProductSource('combined_refresh_handler.swift')).read_text(encoding="utf-8")
         methods = declaration(production, "    fileprivate func accepted(") + "\n" + declaration(
             production, "    private func confirmLaunchedPeer(")
-        source = (ROOT / "scripts/templates/combined_failure.swift").read_text() + '''
+        source = startup_diagnostic_source() + '\n' + (ProductSource('combined_failure.swift')).read_text() + '''
 import Foundation
 protocol RefreshClient: AnyObject {}
 final class DummyClient: RefreshClient {}
@@ -69,6 +71,7 @@ final class NSXPCConnection {
     }
 }
 @MainActor final class Owner {
+    var startupDiagnostics = V3StartupDiagnosticLog()
     var launchID: UUID? = UUID(); var sideStorePid: Int32 = 0
     var connection: NSXPCConnection?; var client: RefreshClient?
     var pendingPeerConnections: [NSXPCConnection] = []

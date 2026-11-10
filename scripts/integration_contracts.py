@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_REGISTRY = ROOT / 'ci/issue52-integration/contracts.json'
+DEFAULT_REGISTRY = (ROOT/'ci/contracts/integration/contracts.json')
 
 
 def require(condition, message):

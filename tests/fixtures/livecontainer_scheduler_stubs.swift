@@ -26,10 +26,20 @@ final class HarnessContainerFileManager: FileManager {
     static var error: Error?
     static var checks = 0
     static var runIDs: [String] = []
-    static func check(allowForegroundActivation: Bool, runID: String) async throws {
+    static func check(allowForegroundActivation: Bool, runID: String,
+                      ownsRun: @escaping @MainActor () -> Bool) async throws -> Bool {
+        guard ownsRun() else { throw CancellationError() }
         checks += 1
         runIDs.append(runID)
         if let error { throw error }
+        return false
+    }
+    static func enableInForeground(runID: String) async throws {
+        // These are OS-effect doubles, not a second implementation of retry policy.
+        if let error { throw error }
+    }
+    static func settleAfterActivation(ownsRun: @escaping @MainActor () -> Bool) async throws {
+        guard ownsRun() else { throw CancellationError() }
     }
     static func consumePendingReturn() -> Bool { false }
 }
@@ -67,11 +77,18 @@ struct UNAuthorizationOptions: OptionSet {
 }
 struct UNNotificationSettings { var authorizationStatus: UNAuthorizationStatus = .authorized }
 struct UNNotificationSound { static let `default` = Self() }
-class UNMutableNotificationContent { var title = ""; var body = ""; var sound: UNNotificationSound?; var userInfo: [AnyHashable: Any] = [:] }
+class UNMutableNotificationContent {
+    var title = ""; var body = ""; var sound: UNNotificationSound?; var userInfo: [AnyHashable: Any] = [:]
+    func mutableCopy() -> Any {
+        let copy = UNMutableNotificationContent()
+        copy.title = title; copy.body = body; copy.sound = sound; copy.userInfo = userInfo
+        return copy
+    }
+}
 class UNTimeIntervalNotificationTrigger { init(timeInterval: TimeInterval, repeats: Bool) {} }
-class UNNotificationRequest {
-    let identifier: String; let content: UNMutableNotificationContent
-    init(identifier: String, content: UNMutableNotificationContent, trigger: UNTimeIntervalNotificationTrigger?) { self.identifier = identifier; self.content = content }
+public class UNNotificationRequest {
+    let identifier: String; let content: UNMutableNotificationContent; let trigger: UNTimeIntervalNotificationTrigger?
+    init(identifier: String, content: UNMutableNotificationContent, trigger: UNTimeIntervalNotificationTrigger?) { self.identifier = identifier; self.content = content; self.trigger = trigger }
 }
 @MainActor class UNUserNotificationCenter {
     static let shared = UNUserNotificationCenter()
@@ -98,6 +115,16 @@ func checkCodeSignature(_ path: UnsafePointer<CChar>) -> Bool { true }
 enum LiveContainerRefreshBridge {
     static var calls = 0
     static var fails = false
+    // Synthetic producer observations, decoded and adjudicated by the real owner.
+    static let renewedEvidence: [String: Any] = ["version": 1,
+        "mutationDispatched": true, "installAcknowledged": true,
+        "profileStore": "matched", "renewal": "extended", "certificate": "valid"]
+    static var verificationEvidence: [String: Any]? = renewedEvidence
+    static func successfulResult(_ bundleID: String) -> [String: Any] {
+        var result: [String: Any] = ["bundle_id": bundleID, "success": true]
+        if let verificationEvidence { result["verification"] = verificationEvidence }
+        return result
+    }
     static var incomplete = false
     static var uncertain = false
     static var resultFailure: CombinedFailure.Stage?
@@ -107,7 +134,7 @@ enum LiveContainerRefreshBridge {
     static func refreshAllApps(runID: UUID) async throws {
         calls += 1
         if uncertain {
-            LiveContainerAutoRefreshScheduler.defaults.set(UUID().uuidString, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
+            LiveContainerAutoRefreshScheduler.defaults.set(runID.uuidString, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
             throw NSError(domain: "test.refresh", code: 42, userInfo: [NSLocalizedDescriptionKey: "completion timed out"])
         }
         if fails { throw NSError(domain: "test.refresh", code: 42, userInfo: [NSLocalizedDescriptionKey: "transport failed"]) }
@@ -129,7 +156,7 @@ enum LiveContainerRefreshBridge {
                       "requested_ids": incomplete ? ["spotify", "other"] : ["spotify"],
                       "expected_ids": incomplete ? ["spotify", "other"] : ["spotify"],
                       "skipped_ids": [],
-                      "results": [["bundle_id": "spotify", "success": true]]],
+                      "results": [successfulResult("spotify")]],
                      forKey: "liveContainerAutoRefreshVerification")
     }
 }

@@ -1,4 +1,5 @@
 """TEMPORARY DEBUG trace: execute actual wire/render/privacy/ownership contracts."""
+from tests.support.product_sources import ProductSource
 from pathlib import Path
 import re
 import shutil
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class TemporaryAnisetteTraceTests(unittest.TestCase):
     def test_release_switch_and_value_owned_finite_contract(self):
-        source = (ROOT / 'scripts/templates/combined_failure.swift').read_text()
+        source = (ProductSource('combined_failure.swift')).read_text()
         trace = declaration(source, 'public struct V3TemporaryAnisetteTrace:')
         self.assertEqual(source.count('    public static let temporaryAnisetteTraceEnabled = true'), 1)
         self.assertNotIn('#if DEBUG', trace)
@@ -27,11 +28,12 @@ class TemporaryAnisetteTraceTests(unittest.TestCase):
         native = declaration(trace, '    private enum NativeEvent:')
         values = re.findall(r'case \w+ = "([^"]+)"', native)
         self.assertEqual(len(values), len(set(values)))
-        self.assertEqual(len(values), 57)
+        self.assertEqual(len(values), 61)
         self.assertTrue(all(re.fullmatch(r'[a-z_.]+', value) for value in values))
+        self.assertTrue({'native.start.ok', 'native.start.failed', 'native.end.ok', 'native.end.failed'} <= set(values))
         self.assertIn('native.output.not_checked', values)
         self.assertIn('trace.truncated', values)
-        renderer = (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text()
+        renderer = (ProductSource('v3_behavioral_primitives.swift')).read_text()
         display = declaration(renderer, '    static func display(_ message:')
         self.assertIn('CombinedFailure.validatedSigningContext', display)
         self.assertIn('DEBUG TEMPORARY failed step:', display)

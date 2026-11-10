@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SIGN = "SideStore/Dependencies/SideSign"
 SIDE_LOG = "SideStore/Core/Logging/SideStoreLogging.swift"
 OPERATIONS_LOG = "SideStore/Core/Logging/OperationLogging.swift"
-V3_SERVICE_SPEC = importlib.util.spec_from_file_location("v3_service_patch", ROOT/"scripts/patch_v3_service.py")
+V3_SERVICE_SPEC = importlib.util.spec_from_file_location("headless_artifact_contract", ROOT/"scripts/headless_artifact_contract.py")
 v3_service_patch = importlib.util.module_from_spec(V3_SERVICE_SPEC)
 V3_SERVICE_SPEC.loader.exec_module(v3_service_patch)
 

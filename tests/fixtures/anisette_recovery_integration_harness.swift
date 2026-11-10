@@ -66,7 +66,7 @@
             precondition(mode == "success" || mode == "current_success")
             precondition(Store.data[selected]?["identifier"] == Data((mode == "success" ? a : b).uuidString.utf8))
             if mode == "current_success" {
-                precondition(Store.data == before && RecoveryIntegrationQueries.count == 0 && Store.writes == 0)
+                precondition(Store.data == before && RecoveryIntegrationQueries.candidateCalls == 0 && RecoveryIntegrationQueries.count == (V3TemporaryAnisetteTrace.temporaryAnisetteTraceEnabled ? 2 : 0) && Store.writes == 0)
                 precondition(Store.logs.contains { $0.contains("outcome=isolated_current_pair") })
             }
             precondition(Store.data[selected]?["adiPb"] == original[selected]?["adiPb"])
@@ -114,14 +114,20 @@
             if !["changed", "current_changed", "fresh_commit_state_changed"].contains(mode) { precondition(Store.data == before) }
             else { precondition(error.underlying is LCAnisettePairError) }
             if ["current_changed", "control_wrong_code", "control_wrong_phase"].contains(mode) {
-                precondition(RecoveryIntegrationQueries.count == 0 && Store.writes == 0)
+                precondition(RecoveryIntegrationQueries.candidateCalls == 0 && RecoveryIntegrationQueries.count == (V3TemporaryAnisetteTrace.temporaryAnisetteTraceEnabled ? 2 : 0) && Store.writes == 0)
             }
         } catch is CancellationError {
             precondition(["cancelled", "current_cancel"].contains(mode) && Store.data == before)
-            precondition(Store.writes == 0 && RecoveryIntegrationQueries.count == 0)
+            precondition(Store.writes == 0 && RecoveryIntegrationQueries.candidateCalls == 0 && RecoveryIntegrationQueries.count == (V3TemporaryAnisetteTrace.temporaryAnisetteTraceEnabled ? 2 : 0))
         }
         let expectedCalls = ["fresh", "wrong_operation", "wrong_code", "keychain_read_failure", "orphaned_pair", "fresh_commit_failure", "fresh_commit_state_changed"].contains(mode) ? 0 :
             (["success", "rejected", "changed"].contains(mode) ? 2 : 1)
+        let traceComparisonExpected = V3TemporaryAnisetteTrace.temporaryAnisetteTraceEnabled &&
+            !["fresh", "wrong_operation", "wrong_code", "keychain_read_failure", "orphaned_pair", "fresh_commit_failure", "fresh_commit_state_changed"].contains(mode)
+        precondition(RecoveryIntegrationQueries.diagnosticCalls == (traceComparisonExpected ? 1 : 0),
+            "trace comparison admission changed")
+        precondition(RecoveryIntegrationQueries.candidateCalls == (["success", "no_candidate", "rejected", "changed"].contains(mode) ? 1 : 0),
+            "diagnostic observation must not become candidate selection")
         precondition(LCAnisetteIsolatedProbe.calls == expectedCalls)
         precondition(PairTest.providerCalls == (["keychain_read_failure", "orphaned_pair"].contains(mode) ? 0 : 1))
         precondition(!Store.logs.joined().contains(otp) && !Store.logs.joined().contains(mid))

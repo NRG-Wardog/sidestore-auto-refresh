@@ -1,5 +1,7 @@
 """Execute the generated canonical certificate importer against bounded mocks."""
 from pathlib import Path
+from tests.support.product_sources import read_product_source
+from tests.owner_source import owner_source
 import importlib.util
 import shutil
 import subprocess
@@ -15,8 +17,7 @@ EXISTING_TEST.loader.exec_module(fixture_module)
 
 
 def production_method_parts():
-    with tempfile.TemporaryDirectory() as directory:
-        settings = fixture_module.generated_settings(Path(directory))
+    settings = fixture_module.current_settings()
     start = settings.index("    func importCertificateFromSideStore() async {")
     wrapper_start = settings.index(
         "    private func v3CompleteSideStoreCertificateImport", start)
@@ -24,7 +25,7 @@ def production_method_parts():
         "    func onSideStoreCertificateCallback(certificateData: Data, password: String)",
         wrapper_start)
     return (settings[start:wrapper_start], settings[wrapper_start:callback_start],
-            fixture_module.patch.IMPORT_OWNERSHIP_SWIFT)
+            fixture_module.import_ownership())
 
 
 @unittest.skipUnless(shutil.which("swiftc"), "swiftc unavailable; executable importer harness runs on macOS CI")
@@ -100,6 +101,7 @@ enum LCUtils {
 @MainActor final class ImporterHarness {
     let certificateImportFromBuiltInSideStoreAlert = ConfirmationBoundary()
     var errorInfo = ""
+    var certificateImportDiagnostic: (message: String, details: String)?
     var errorShow = false
     var committed: [(Data, String)] = []
 
@@ -224,7 +226,9 @@ enum LCUtils {
 '''
         method = textwrap.dedent(importer).rstrip()
         wrapper = textwrap.dedent(completion).rstrip()
-        source_text = (prelude + "\n" + ownership + "\n" + ownership_test_hooks + "\n" +
+        diagnostic = fixture_module.swift_function(fixture_module.current_settings(), "enum V3CertificateImportFailureDetails {")
+        dependencies = read_product_source("combined_failure.swift") + "\n" + read_product_source("v3_wire_contract.swift") + "\n" + diagnostic + "\n"
+        source_text = (dependencies + prelude + "\n" + ownership + "\n" + ownership_test_hooks + "\n" +
                        method + "\n" + wrapper + "\n" +
                        runner)
         with tempfile.TemporaryDirectory() as directory:

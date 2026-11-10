@@ -66,13 +66,13 @@ struct AuthErrorNuanceHarness {
             }
         }
 
-        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectCredentials) == .invalidCredentials)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.appSpecificPasswordRequired) == .appSpecificPasswordRequired)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectVerificationCode) == .invalidCode)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.tooManyAttempts) == .rateLimited)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.invalidAnisetteData) == .anisette)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectCredentials()) == .invalidCredentials)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.appSpecificPasswordRequired()) == .appSpecificPasswordRequired)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectVerificationCode()) == .invalidCode)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.tooManyAttempts(cause: "PRIVATE_REASON")) == .rateLimited)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.invalidAnisetteData(cause: "PRIVATE_REASON")) == .anisette)
         precondition(v3ClassifyAuthError(SideSign.AnisetteError.noServersConfigured) == .anisette)
-        precondition(v3ClassifyAuthError(DeveloperPortalError.accountRepairRequired) == .accountRepairRequired)
+        precondition(v3ClassifyAuthError(DeveloperPortalError.accountRepairRequired(url: nil, message: "PRIVATE_REASON")) == .accountRepairRequired)
         precondition(v3ClassifyAuthError(ServerError.underlyingError(
             code: -22411, message: "PRIVATE_RATE_LIMIT_BODY")) == .rateLimited)
         precondition(v3ClassifyAuthError(URLError(.networkConnectionLost)) == .network)

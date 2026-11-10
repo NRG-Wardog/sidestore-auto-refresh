@@ -6,10 +6,16 @@ struct ALTCertificate { let data: Data? = nil }
 struct ALTDevice { let identifier = "private-device" }
 struct CertificateDetails { let subject = ""; let issuer = "" }
 func parseCertificate(derData: Data) -> CertificateDetails { CertificateDetails() }
-enum ProvisioningErrorDecision { case retry, cancel }
+enum ProvisioningErrorDecision { case retry, cancel, skip }
 struct ALTSigner { init(team: ALTTeam, certificate: ALTCertificate) {} }
 struct SignInResult { var team = ALTTeam(); var certificate: ALTCertificate? = ALTCertificate(); var session = ALTAppleAPISession() }
-enum OperationError: Error { case cancelled }
+// Cancellation comes from the actual owner OperationError.cancelled property.
+// Pairing is configured in these scenarios. Pending-certificate/proof flows
+// are separate harnesses: they must not succeed silently if reached here.
+final class PairingFileManager {
+    static let shared = PairingFileManager()
+    var v3DeviceSetupIsUnconfigured = false
+}
 final class AuthManager {
     static let shared = AuthManager()
     var session: ALTAppleAPISession?
@@ -23,13 +29,16 @@ final class AuthManager {
 final class Keychain {
     static let shared = Keychain()
     var injected: Error?
+    func pendingCertificateCreation() throws -> Int? { nil } // Explicit no-pending fixture state.
     var writes = 0, verifiedWrites = 0
     func writeVerifiedAuthentication(_ candidate: LCEmbeddedAuthenticationCandidate,
-                                     appleID: String, dsid: String, authToken: String) throws {
+                                     appleID: String, dsid: String, authToken: String, remoteProvider: Bool) throws {
+        precondition(!remoteProvider, "unexpected remote credential route")
         verifiedWrites += 1
         if let injected { throw injected }
     }
-    func writeAuthenticationCredentials(appleID: String, password: String, dsid: String, authToken: String) throws {
+    func writeAuthenticationCredentials(appleID: String, password: String, dsid: String, authToken: String, remoteProvider: Bool) throws {
+        precondition(!remoteProvider, "unexpected remote credential route")
         writes += 1
         if let injected { throw injected }
     }
@@ -39,6 +48,10 @@ final class CertificateManager {
     static let shared = CertificateManager()
     var activeCertificate: Active?
     var failuresRemaining = 0, activations = 0, errorCode = 1009
+    func v3CompletePendingCertificateIfStored(_ certificate: ALTCertificate) throws {
+        let pending = try Keychain.shared.pendingCertificateCreation()
+        precondition(pending == nil)
+    }
     func setActiveCertificate(_ certificate: ALTCertificate) throws {
         activations += 1
         if failuresRemaining > 0 { failuresRemaining -= 1; throw NSError(domain: "com.SideStore.Keychain", code: errorCode) }
@@ -60,6 +73,17 @@ final class Handler {
     func resolvePostAuth() async {}
 }
 final class Operation {
+    // CURRENT_LOCAL_ROUTE_MEMBERS
+    var v3RequireInteractiveCredentials = false
+    var v3RequireFullProvisioning = false
+    var v3ForceProvisioningRetry = false
+    var v3ReauthenticateAppleID: String? = nil
+    var v3FinishPendingCertificateActivation = false
+    var v3DidDeferDeviceSetup = false
+    var skipResign = false, skipHowTos = false
+    func v3ValidateDeferredIdentity(_ result: SignInResult, capturedStamp: String) throws {
+        fatalError("unexpected deferred-device proof path in configured-device fixture")
+    }
     let signInHandler = Handler()
     var v3DidCompleteProvisioning = false
     var isCancelled = false

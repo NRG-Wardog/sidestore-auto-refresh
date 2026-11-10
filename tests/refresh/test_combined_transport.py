@@ -9,6 +9,8 @@ import tempfile
 import unittest
 
 
+from tests.support.product_sources import read_product_source
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 from tests.owner_source import owner_source, owner_root
@@ -497,8 +499,8 @@ for modern in [false, true] {
 
 class RuntimeAuthenticationSourceTests(unittest.TestCase):
     def test_runtime_uses_authoritative_authentication_graph(self):
-        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+        service = read_product_source('v3_sidestore_service.swift')
+        runtime = read_product_source('v3_headless_runtime.swift')
         self.assertNotIn("AuthFlowHandler", service + runtime)
         self.assertNotIn("AuthenticatedOperationContext", service + runtime)
         self.assertNotIn("presentingViewController", service + runtime)

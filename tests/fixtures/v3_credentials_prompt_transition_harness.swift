@@ -1,3 +1,13 @@
+// External provider configuration only; plan validation and eligibility use owner code.
+extension UserDefaults {
+    var menuAnisetteList: String { "https://example.invalid/fixture" }
+    var useOnDeviceAnisette: Bool { false }
+}
+enum AnisetteServersManager { static let defaultSource = "https://example.invalid/fixture" }
+final class OnDeviceAnisetteManager {
+    static let shared = OnDeviceAnisetteManager()
+    var baseAnisetteDirectory: URL? { nil }
+}
 // Provider request/response types are IO doubles. Prompt creation, answer
 // admission, continuation ownership, cleanup, and host revision rules below are
 // extracted verbatim from production; this does not exercise SRP or Apple IO.
@@ -32,7 +42,10 @@ enum TwoFactorResponse {
     let prompts = V3PromptCenter()
 }
 @MainActor final class V3AuthCenter {
+    enum Mode { case interactive }
     struct Session {
+        var mode: Mode = .interactive
+        var diagnosticProviderResults: [[String: Any]] = []
         var terminal = V3TerminalResponse()
         var prompt: [String: Any]?
         var attempts = 0
@@ -49,6 +62,10 @@ enum TwoFactorResponse {
     __PRODUCTION_CENTER_METHODS__
 }
 @MainActor final class V3HeadlessAuthHandler {
+    var diagnosticProviderPlan: V3DiagnosticProviderPlan?
+    var diagnosticOwnedODASource: String?
+    var remoteMacAnisetteSelection: Bool?
+    var diagnosticAttemptClock: V3DiagnosticAttemptClock?
     let sessionID: String
     init(sessionID: String) { self.sessionID = sessionID }
     __PRODUCTION_HANDLER_METHODS__

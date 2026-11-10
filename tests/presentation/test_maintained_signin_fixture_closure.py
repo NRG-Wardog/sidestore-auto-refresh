@@ -23,7 +23,7 @@ class MaintainedFixtureClosureTests(unittest.TestCase):
             if configured:
                 self.fail('Explicit maintained LiveContainer source is missing')
             self.skipTest('Acquired diagnostic host is exercised in required maintained CI')
-        self.sources, self.hashes = renderer.extract_sources(self.shell, ROOT / 'scripts/templates')
+        self.sources, self.hashes = renderer.extract_sources(self.shell, ROOT / 'unused-rendering-input')
 
 
     def test_actual_support_and_namespace_members_are_retained_exactly(self):
@@ -60,11 +60,11 @@ class MaintainedFixtureClosureTests(unittest.TestCase):
                 if mutation is not None:
                     support.write_text(mutation)
                 with self.assertRaises((ValueError, FileNotFoundError)):
-                    renderer.extract_sources(shell, ROOT / 'scripts/templates')
+                    renderer.extract_sources(shell, ROOT / 'unused-rendering-input')
         with tempfile.TemporaryDirectory() as temporary:
             shell = Path(temporary) / 'shell.swift'; shell.write_bytes(self.shell.read_bytes())
-            with self.assertRaisesRegex(ValueError, 'actual SideStore.swift'):
-                renderer.extract_sources(shell, ROOT / 'scripts/templates')
+            with self.assertRaisesRegex(ValueError, 'actual maintained source tree'):
+                renderer.extract_sources(shell, ROOT / 'unused-rendering-input')
 
     def test_actual_diagnostic_closure_compiles_and_renders_consumption(self):
         compiler = shutil.which('swiftc')

@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 
-from packaging_adapters import COMBINED_PACKAGING_RULES, apply_rules, configure_anchors, patch_surface
+from packaging_adapters import COMBINED_PACKAGING_RULES, apply_rules, combined_packaging_rules, configure_anchors, patch_surface
 
 UPSTREAM_PATH = '.github/build_github.sh'
 
@@ -50,6 +50,8 @@ def rehearse_bytes(original, commit, anchor_profile=None):
             raise ValueError('Anchor profile provenance differs')
         rules = configure_anchors(rules, anchor_profile['anchor_overrides'])
         profile_sha = hashlib.sha256(json.dumps(anchor_profile, sort_keys=True).encode()).hexdigest()
+    if anchor_profile is None:
+        rules = combined_packaging_rules(original.decode('utf-8'))
     transformed = ('set -eu\n' + apply_rules(original.decode('utf-8'), rules)).encode('utf-8')
     return dict(schema_version=1, source_commit=commit, source_path=UPSTREAM_PATH,
                 source_identity_verification='caller_supplied_acquired_bytes',

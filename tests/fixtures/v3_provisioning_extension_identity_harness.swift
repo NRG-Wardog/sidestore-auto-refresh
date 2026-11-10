@@ -22,15 +22,27 @@ struct ALTProvisioningProfile {
     let name: String
     let uuid: String
     let expirationDate = Date.distantFuture
+    let teamIdentifier = "TEAM42"
+    let certificates: [HarnessCertificate] = []
+}
+
+struct HarnessCertificate { let serialNumber: String; let data: Data }
+struct HarnessReplacementBinding {
+    let teamID: String; let originalBundleID: String; let resignedBundleID: String
+    let extensionIdentities: [String: String]; let certificateSerial: String; let certificateDER: Data
 }
 
 enum OperationError: Error {
+    case invalidParameters(String)
     case invalidApp(reason: String)
 }
 
 struct MockInstallContext {
     let targetBundleIdentifier: String
     let appendTeamID: Bool
+    // This suite covers ordinary install identities, not replacement admission.
+    let legacyReplacementBinding: HarnessReplacementBinding? = nil
+    func validateLegacyReplacementAdmission() async throws {}
 }
 
 final class MockManagedObjectContext {

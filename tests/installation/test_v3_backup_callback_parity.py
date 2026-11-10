@@ -10,10 +10,8 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES = ROOT / "scripts/templates"
-spec = importlib.util.spec_from_file_location("backup_service_patch", ROOT / "scripts/patch_v3_service.py")
-PATCH = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(PATCH)
+from tests.support.product_sources import ProductSource
+from tests.owner_source import owner_source
 
 
 def declaration(source, signature):
@@ -31,10 +29,7 @@ def declaration(source, signature):
 
 
 def pinned_source(relative):
-    root = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.environ.get("SIDESTORE_TEST_SOURCE")
-    if not root:
-        raise unittest.SkipTest("pinned SideStore source unavailable")
-    return subprocess.check_output(["git", "-C", root, "show", PATCH.PINS[1] + ":" + relative], text=True)
+    return owner_source(relative, "SideStore")
 
 
 def production_owner_methods(runtime):
@@ -57,7 +52,7 @@ def run_harness_command(command):
 
 class BackupCallbackParityTests(unittest.TestCase):
     def test_harness_extracts_callback_methods_from_operation_center(self):
-        runtime = (TEMPLATES / "v3_headless_runtime.swift").read_text()
+        runtime = ProductSource("v3_headless_runtime.swift").read_text()
         methods = production_owner_methods(runtime)
         owner = declaration(runtime, 'final class V3OperationCenter {')
         self.assertIn(declaration(owner, '    func endBackupCallback(_ identity:'), methods)
@@ -71,8 +66,7 @@ class BackupCallbackParityTests(unittest.TestCase):
 
     def test_producer_preserves_callback_correlation_and_failure_destination(self):
         source = pinned_source("SideBackup/SideBackupApp.swift")
-        patched = PATCH.headless_sidebackup_response(source)
-        self.assertEqual(PATCH.headless_sidebackup_response(patched), patched)
+        patched = source
         self.assertIn('components.queryItems = callbackItems', patched)
         self.assertIn('let queryTargetBundleID = queryItems["targetBundleID"]', patched)
         self.assertIn('var callbackItems = (components.queryItems ?? []).filter', patched)
@@ -84,8 +78,7 @@ class BackupCallbackParityTests(unittest.TestCase):
 
     def test_pipeline_patch_binds_observer_and_keeps_external_cancellation_unknown(self):
         original = pinned_source("SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift")
-        patched = PATCH.headless_backup_operation(original)
-        self.assertEqual(PATCH.headless_backup_operation(patched), patched)
+        patched = original
         self.assertLess(patched.index('beginBackupCallback(action:'), patched.index('let backupRespObs'))
         self.assertLess(patched.index('let backupRespObs'), patched.index('let openedSuccessfully'))
         self.assertIn('callback?.queryItems ?? []', patched)
@@ -95,12 +88,12 @@ class BackupCallbackParityTests(unittest.TestCase):
         self.assertEqual(patched.count("!handler.backupCallbackMayOpen()"), 2)
         self.assertNotIn('openURL.absoluteString), returnURL:', patched)
         self.assertNotIn('UserInfo: \\(String(describing: notification.userInfo))', patched)
-        runtime = (TEMPLATES / "v3_headless_runtime.swift").read_text()
+        runtime = ProductSource("v3_headless_runtime.swift").read_text()
         cancellation = declaration(runtime, '    func cancelAndWait(id: String, knownStarted:')
         self.assertIn('if settledSession.backupCallback != nil, task != nil', cancellation)
         self.assertLess(cancellation.index('return poll(id: id)'), cancellation.index('await task.value'))
         self.assertNotIn('mutationRegistry.finish', cancellation)
-        shell = (TEMPLATES / "v3_unified_shell.swift").read_text()
+        shell = ProductSource("v3_unified_shell.swift").read_text()
         host_cancel = declaration(shell, '    private func cancelAttempt()')
         self.assertIn('state = "reconciling"', host_cancel)
         self.assertIn('needsDeviceConfirmation = true', host_cancel)
@@ -109,15 +102,15 @@ class BackupCallbackParityTests(unittest.TestCase):
 
 
     def test_both_entrypoints_require_pending_nonce_and_keep_owner(self):
-        service = (TEMPLATES / "v3_sidestore_service.swift").read_text()
-        bridge = (TEMPLATES / "v3_service_bridge.swift").read_text()
-        local_url = (TEMPLATES / "v3_headless_url_handler.swift").read_text()
+        service = ProductSource("v3_sidestore_service.swift").read_text()
+        bridge = ProductSource("v3_service_bridge.swift").read_text()
+        local_url = ProductSource("v3_headless_url_handler.swift").read_text()
         self.assertIn('operations.ownsBackupCallback($0)', service)
         self.assertEqual(service.count('backupCallbackControl: backupCallbackControl'), 2)
         self.assertIn('operations.acceptBackupCallback(result)', service)
         self.assertIn('operations.acceptBackupCallback(result)', local_url)
         self.assertNotIn('NotificationCenter.default.post', local_url)
-        runtime = (TEMPLATES / "v3_headless_runtime.swift").read_text()
+        runtime = ProductSource("v3_headless_runtime.swift").read_text()
         accept = declaration(runtime, '    func acceptBackupCallback(')
         self.assertIn('try? V3OperationRecoveryJournal.current()', accept)
         self.assertIn('recovery.phase == .dispatched', accept)
@@ -133,7 +126,7 @@ class BackupCallbackParityTests(unittest.TestCase):
         session_lookup = declaration(bridge, '    private func operationSessionID(')
         self.assertIn('"backupResult"', session_lookup)
 
-        wire = (TEMPLATES / "v3_wire_contract.swift").read_text()
+        wire = ProductSource("v3_wire_contract.swift").read_text()
         reads = wire[wire.index('static let readOperations'):wire.index('static func decodeRequest')]
         self.assertNotIn('"backupResult"', reads)
 
@@ -163,9 +156,9 @@ class BackupCallbackParityTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; production callback harness runs in macOS CI")
-        primitives = (TEMPLATES / "v3_behavioral_primitives.swift").read_text()
-        runtime = (TEMPLATES / "v3_headless_runtime.swift").read_text()
-        producer = PATCH.headless_sidebackup_response(pinned_source("SideBackup/SideBackupApp.swift"))
+        primitives = ProductSource("v3_behavioral_primitives.swift").read_text()
+        runtime = ProductSource("v3_headless_runtime.swift").read_text()
+        producer = pinned_source("SideBackup/SideBackupApp.swift")
         callback_response = producer[producer.index('        var callbackItems ='):producer.index('\n        guard let responseURL', producer.index('        var callbackItems ='))]
         declarations = "\n".join(declaration(primitives, signature) for signature in (
             'struct V3BackupCallbackIdentity:', 'struct V3BackupCallbackResult:',

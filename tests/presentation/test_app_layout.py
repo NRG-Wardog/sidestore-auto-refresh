@@ -1,7 +1,7 @@
 """Maintained App Layout presentation contracts; no historical patch replay.
 
 Static accessibility/dynamic-type contracts and Swift syntax checks are not a
-visual rendering claim. Issue25 rendering still consumes retained grid templates.
+visual rendering claim. Rendering sources are read from the current production owner.
 """
 from pathlib import Path
 import re
@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import unittest
 from tests.owner_source import owner_source
+from tests.support.product_sources import read_product_source
 
 ROOT = Path(__file__).resolve().parents[2]
 LC_PATHS = {
@@ -39,10 +40,10 @@ class AppLayoutOwnerTests(unittest.TestCase):
         for source in self.sources.values():
             self.assertNotIn('UserDefaults(suiteName: "group.', source)
 
-    def test_retained_rendering_templates_match_the_production_owner(self):
+    def test_rendering_inputs_match_the_production_owner(self):
         for name, filename in (("grid", "livecontainer_grid_app_cell.swift"),
                                ("model", "livecontainer_app_layout_style.swift")):
-            self.assertEqual((ROOT/"scripts/templates"/filename).read_text(), self.sources[name])
+            self.assertEqual(read_product_source(filename), self.sources[name])
         for style in ("list", "grid", "compactList"):
             self.assertIn(f'case {style} = "{style}"', self.sources["model"])
 

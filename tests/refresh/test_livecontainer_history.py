@@ -5,8 +5,10 @@ import subprocess
 import tempfile
 import unittest
 
+from tests.support.product_sources import read_product_source, declaration_end
+
 ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE = ROOT / "scripts/templates/livecontainer_refresh_settings.swift"
+TEMPLATE = 'livecontainer_refresh_settings.swift'
 
 HARNESS = r'''
 final class CountingDefaults: UserDefaults {
@@ -150,7 +152,7 @@ struct HistoryTests {
 
 class HistorySourceTests(unittest.TestCase):
     def test_ui_uses_stable_ids_and_latest_store(self):
-        text = TEMPLATE.read_text(encoding="utf-8")
+        text = read_product_source(TEMPLATE)
         self.assertIn("ForEach(history)", text)
         self.assertIn("selectedHistoryIDs: Set<String>", text)
         self.assertIn("selectedHistoryIDs.formIntersection", text)
@@ -169,7 +171,10 @@ class HistorySourceTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("swiftc unavailable; native UI parse not verified")
-        result = subprocess.run([compiler, "-frontend", "-parse", str(TEMPLATE)], capture_output=True, text=True, timeout=30)
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory)/"RefreshView.swift"
+            file.write_text(read_product_source(TEMPLATE))
+            result = subprocess.run([compiler, "-frontend", "-parse", str(file)], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
@@ -181,9 +186,10 @@ class HistoryExecutionTests(unittest.TestCase):
             raise unittest.SkipTest("swiftc unavailable; real history store not executed")
         cls.temp = tempfile.TemporaryDirectory(prefix="lc-history-tests-")
         cls.addClassCleanup(cls.temp.cleanup)
-        source = TEMPLATE.read_text(encoding="utf-8")
-        start = source.index("// LC_REFRESH_HISTORY_STORE_V1_BEGIN")
-        end = source.index("// LC_REFRESH_HISTORY_STORE_V1_END")
+        source = read_product_source(TEMPLATE)
+        start = source.index("struct LiveContainerRefreshHistoryEntry:")
+        store = source.index("enum LiveContainerRefreshHistoryStore {")
+        end = declaration_end(source, store)
         file = Path(cls.temp.name) / "HistoryTests.swift"
         file.write_text("import Foundation\n" + source[start:end] + HARNESS, encoding="utf-8")
         cls.executable = Path(cls.temp.name) / "history-test"

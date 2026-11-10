@@ -6,12 +6,13 @@ and failure propagation. Upstream SideSign owns the actual Apple requests
 (makeTwoFactorAuthRequest carries "Connection: close"); the v3 layer must
 pass the selected delivery method through without cancelling or resending.
 """
+from tests.support.product_sources import ProductSource
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
+RUNTIME = ProductSource('v3_headless_runtime.swift')
+SHELL = ProductSource('v3_unified_shell.swift')
 
 
 def runtime():
@@ -152,7 +153,7 @@ class V3TwoFactorTests(unittest.TestCase):
         # source in test_sidesign_privacy, rather than inspecting a generator.
         self.assertIn("case .enterVerificationCode", host)
         self.assertIn("accepted ? .completed : .enterVerificationCode",
-                      (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+                      (ProductSource('v3_behavioral_primitives.swift')).read_text(encoding="utf-8"))
         self.assertIn("auth.deliveryProgressMessage", host)
 
     def test_duplicate_accepted_prompt_response_remains_pending_until_terminal_reply(self):

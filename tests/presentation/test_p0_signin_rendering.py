@@ -14,6 +14,9 @@ import unittest
 import zlib
 from unittest.mock import Mock, patch
 
+from tests.owner_source import owner_source
+from tests.support.product_sources import read_product_source
+from tests.support.presentation_owner import materialize_host
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("p0_rendering", ROOT / "scripts/run_p0_signin_rendering.py")
 renderer = importlib.util.module_from_spec(spec)
@@ -83,7 +86,7 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
     def test_queries_use_short_ids_and_teardown_preserves_early_failure(self):
         ui = (ROOT / "tests/fixtures/p0_signin_ui_tests.swift").read_text()
         app = (ROOT / "tests/fixtures/p0_signin_app.swift").read_text()
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text()
+        shell = read_product_source("v3_unified_shell.swift")
         self.assertNotIn('app.staticTexts[expected]', ui)
         self.assertIn('app.staticTexts["signin.prompt.previous-error-body"]', ui)
         self.assertIn('.accessibilityIdentifier("signin.prompt.previous-error-body")', shell)
@@ -356,12 +359,14 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
             self.assertFalse(renderer.valid_png(good[:start] + chunk + good[start + 12 + old_length:]))
 
     def test_project_covers_every_exact_production_declaration(self):
-        project = (ROOT / "tests/fixtures/p0_signin_project/project.pbxproj").read_text()
+
         with tempfile.TemporaryDirectory() as temporary:
-            source = Path(temporary) / "generated.swift"
-            source.write_text((ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text() + "\n" +
-                              (ROOT / "scripts/templates/v3_unified_shell.swift").read_text())
-            sources, hashes = renderer.extract_sources(source, ROOT / "scripts/templates")
+            source = materialize_host(Path(temporary) / "host")
+            sources, hashes = renderer.extract_sources(source, Path(temporary) / "unused")
+            project_path = Path(temporary) / "P0SignIn.xcodeproj"
+            shutil.copytree(ROOT / "tests/fixtures/p0_signin_project", project_path)
+            renderer.configure_localized_project(project_path, source.parents[2], p2=True)
+            project = (project_path / "project.pbxproj").read_text()
         expected = {name for name in sources if name.endswith(".swift")}
         expected.update({"p0_signin_app.swift", "p0_signin_ui_tests.swift"})
         actual = {line.split("path = ", 1)[1].split(";", 1)[0] for line in project.splitlines()
@@ -371,8 +376,8 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertIn("TEST_TARGET_NAME = P0SignIn", project)
         self.assertIn("V3SignInView.full-production", hashes)
         self.assertIn("V3AuthStore.static func failureDetails", hashes)
-        self.assertEqual(sources["CombinedFailure.swift"], (ROOT / "scripts/templates/combined_failure.swift").read_text())
-        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text()
+        self.assertEqual(sources["CombinedFailure.swift"].strip(), read_product_source("combined_failure.swift").strip())
+        shell = read_product_source("v3_unified_shell.swift")
         for signature in renderer.VIEW_MEMBERS:
             snippet = renderer.member(renderer.declaration(shell, "struct V3SignInView"), signature)
             self.assertIn(snippet, sources["V3SignInView.swift"])
@@ -472,20 +477,19 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
             with self.assertRaises(ValueError): renderer.member(bad, "var body: some View")
 
     def test_optional_diagnostic_id_helper_is_extracted_exactly_when_present(self):
-        templates = ROOT / "scripts/templates"
-        shell = (templates / "v3_unified_shell.swift").read_text()
+        shell = owner_source("LiveContainerSwiftUI/Views/V3UnifiedShell.swift")
         needle = "    static func failureMessage(from failure: [String: Any]) -> String {"
         if "private static func failureMessageWithoutDiagnosticCode" not in shell:
             shell = shell.replace(needle, needle + '\n        failureMessageWithoutDiagnosticCode(from: failure)\n    }\n\n    private static func failureMessageWithoutDiagnosticCode(from failure: [String: Any]) -> String {', 1)
         with tempfile.TemporaryDirectory() as temporary:
-            source = Path(temporary) / "generated.swift"
-            source.write_text((templates / "v3_behavioral_primitives.swift").read_text() + "\n" + shell)
-            sources, hashes = renderer.extract_sources(source, templates)
+            source = materialize_host(Path(temporary) / "host")
+            source.write_text(shell)
+            sources, hashes = renderer.extract_sources(source, Path(temporary) / "unused")
             self.assertIn("private static func failureMessageWithoutDiagnosticCode", sources["V3AuthStoreDiagnostics.swift"])
             self.assertIn("V3AuthStore.private static func failureMessageWithoutDiagnosticCode", hashes)
 
     def test_credentials_fixture_matches_real_producer_without_fabricated_options(self):
-        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+        runtime = read_product_source("v3_headless_runtime.swift")
         producer = renderer.member(runtime, "func credentials")
         fixture = (ROOT / "tests/fixtures/p0_signin_app.swift").read_text()
         prompt = fixture[fixture.index("@Published var prompt:"):fixture.index("@Published var previousFailure:")]
@@ -506,23 +510,13 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertIn('clearingAfterSubmission(', fixture)
 
     def test_prepare_preserves_source_identities_and_tags_actual_builder(self):
-        templates = ROOT / "scripts/templates"
+        from tests.presentation.test_p0_signin_localization_closure import P0ActualLocalizationClosureTests
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / "generated.swift"
-            source.write_text((templates / "v3_behavioral_primitives.swift").read_text() + "\n" +
-                              (templates / "v3_unified_shell.swift").read_text())
-            output = root / "evidence"; output.mkdir()
-            commit = "0123456789abcdef0123456789abcdef01234567"
-            def command(*args, **kwargs):
-                if args[0] == "git": return commit
-                self.assertEqual(args[:2], ("xcodebuild", "build-for-testing"))
-                self.assertEqual(kwargs["timeout"], 300)
-                products = output / "p0-build/DerivedData/Build/Products"
-                products.mkdir(parents=True)
-                (products / "fixture.xctestrun").write_text("fixture only, never native evidence")
-                return ""
-            prepared = renderer.prepare(output, source, command)
+            fixture = P0ActualLocalizationClosureTests()
+            source = fixture.source() / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift"
+            output, prepared, calls = fixture.prepare_fixture(root)
+            commit = "0" * 40
             identity = json.loads((output / "p0-signin/source-identity.json").read_text())
             self.assertEqual(identity["sourceSHA256"], prepared["sourceSHA256"])
             self.assertEqual(identity["sourceSHA256"]["generated-shell"], renderer.digest(source))

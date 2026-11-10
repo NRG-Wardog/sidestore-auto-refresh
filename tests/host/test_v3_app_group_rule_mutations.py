@@ -13,6 +13,7 @@ green build.
 from __future__ import annotations
 
 from pathlib import Path
+from tests.support.product_sources import read_product_source
 import shutil
 import subprocess
 import tempfile
@@ -20,7 +21,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = ROOT / "tests" / "fixtures" / "v3_app_group_identity_rules_harness.c"
-RULES = ROOT / "scripts" / "templates" / "LCAppGroupIdentityRules.h"
+RULES_INPUT = Path("scripts/templates/LCAppGroupIdentityRules.h")
 QUOTE = chr(39)
 BACKSLASH = chr(92)
 
@@ -84,7 +85,7 @@ class AppGroupRuleMutationTests(unittest.TestCase):
     def test_every_rule_mutation_is_detected_by_the_real_harness(self):
         if not toolchain():
             self.skipTest("no C toolchain available; mutation check runs in macOS CI")
-        original = RULES.read_text(encoding="utf-8")
+        original = read_product_source("LCAppGroupIdentityRules.h")
         for label, anchor, replacement in MUTATIONS:
             with self.subTest(mutation=label):
                 self.assertEqual(original.count(anchor), 1,
@@ -96,8 +97,7 @@ class AppGroupRuleMutationTests(unittest.TestCase):
                     (workspace / "tests" / "fixtures").mkdir(parents=True)
                     (workspace / "scripts" / "templates").mkdir(parents=True)
                     shutil.copy(HARNESS, workspace / HARNESS.relative_to(ROOT))
-                    staged = workspace / RULES.relative_to(ROOT)
-                    shutil.copy(RULES, staged)
+                    staged = workspace / RULES_INPUT
                     staged.write_text(original.replace(anchor, replacement), encoding="utf-8")
                     code, output = compile_and_run(workspace)
                     self.assertNotEqual(code, 0,
@@ -113,7 +113,7 @@ class AppGroupRuleMutationTests(unittest.TestCase):
             (workspace / "tests" / "fixtures").mkdir(parents=True)
             (workspace / "scripts" / "templates").mkdir(parents=True)
             shutil.copy(HARNESS, workspace / HARNESS.relative_to(ROOT))
-            shutil.copy(RULES, workspace / RULES.relative_to(ROOT))
+            (workspace / RULES_INPUT).write_text(read_product_source("LCAppGroupIdentityRules.h"))
             code, output = compile_and_run(workspace)
             self.assertEqual(code, 0, output)
             self.assertIn("V3_APP_GROUP_IDENTITY_PASS", output)

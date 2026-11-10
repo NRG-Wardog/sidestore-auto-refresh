@@ -21,10 +21,22 @@ python3 -B -m unittest discover -s tests -v
 - `host/`: startup, guest lifecycle, app groups and cross-feature host behavior.
 - `support/` contains shared test helpers; `fixtures/` contains harness inputs.
 
-Domain suites mostly exercise retained patch templates and historical source
-graphs. They do not qualify the current upstream app or a release by themselves.
-Native tests require their documented Swift, macOS/Xcode or exact source pins.
-A prerequisite skip is not a pass. Current required CI gates remain unchanged.
+Product suites read maintained owner commits through `owner_source.py` and
+`support/product_sources.py`. These readers verify the graph pin and exact Git
+blob before extracting source; there is no template fallback. Test discovery
+can enumerate modules without owner checkouts, but execution requires their
+sources. Native harnesses execute owner code with explicit platform or service
+IO doubles, not reconstructed product implementations.
+
+Historical inputs remain only for explicit counterfactuals and artifact safety
+inventories. For example, the verifier derives forbidden UI symbols from the
+immutable pre-removal SideStore tree; that reference is not a current app source.
+Anisette native fault tests execute a temporary snapshot of its pinned owner
+suite rather than a second copy of the VM harness.
+
+Source assertions alone do not qualify a release. Native tests require Swift,
+macOS/Xcode and their exact owner sources. A prerequisite skip is not a pass;
+full builds and device behavior remain separate qualification boundaries.
 
 For a required lane, the existing runner rejects zero tests and unexpected skips:
 
@@ -52,7 +64,7 @@ The retired packaging/current-entry workflow wrappers no longer duplicate these
 jobs. Full native builds and compiled-catalog qualification remain separate.
 
 The Dead10cc lifecycle suite now reads the current LiveContainer owner commit
-from `ci/issues-native/candidate-graph.json`. It rejects a different checkout or
+from `ci/build/candidate-graph.json`. It rejects a different checkout or
 a modified source blob, then executes its C descriptor and transition blocks.
 Set `MAINTAINED_LIVE_CONTAINER_TEST_SOURCE` to that acquired checkout for local
 runs. CI supplies the same pinned source already acquired for integration

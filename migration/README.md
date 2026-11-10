@@ -7,7 +7,7 @@ been retired. Their input values now fail closed before acquisition or writes.
 
 The compatibility CLI requires explicit `--pins`; it has no default source graph.
 Do not use the test fixture as a production build default. Current builds use
-`ci/issues-native/candidate-graph.json` through `ci/current-build/`.
+`ci/build/candidate-graph.json` through `ci/build/contracts/`.
 
 Run the retained checks with:
 

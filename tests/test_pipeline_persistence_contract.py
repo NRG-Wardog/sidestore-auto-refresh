@@ -1,24 +1,13 @@
-"""Execute the generated SideStore persistence policy and its v3 error mapping."""
+"""Execute the current owned SideStore persistence policy and its v3 error mapping."""
 from pathlib import Path
-import importlib.util
-import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-PIN = "ff25922e5c13ccfafd83bda5092910d848ebd409"
-
-
-def module(name):
-    directory = "tests" if name.startswith("test_") else "scripts"
-    spec = importlib.util.spec_from_file_location(name, ROOT / directory / (name + ".py"))
-    value = importlib.util.module_from_spec(spec)
-    sys.modules[name] = value
-    spec.loader.exec_module(value)
-    return value
+from tests.owner_source import owner_source
+from tests.support.product_sources import read_product_source
 
 
 def swift_declaration(source: str, signature: str) -> str:
@@ -39,50 +28,23 @@ def swift_declaration(source: str, signature: str) -> str:
 
 class PipelinePersistenceContractTests(unittest.TestCase):
     def pinned(self, relative: str) -> str:
-        source_root = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.getenv("SIDESTORE_TEST_SOURCE")
-        if not source_root:
-            self.skipTest("Pinned SideStore source is supplied by the macOS CI fixture")
-        return subprocess.check_output(
-            ["git", "-C", source_root, "show", f"{PIN}:{relative}"],
-            text=True, encoding="utf-8")
+        return owner_source(relative, "SideStore")
 
     def test_pinned_pipeline_runner_calls_durable_policy_before_success_callback(self):
-        service = module("patch_v3_service")
         source = self.pinned("SideStore/Core/Operations/PipelineRunner.swift")
-        patched = service.headless_pipeline_persistence_contract(source)
-        self.assertEqual(service.headless_pipeline_persistence_contract(patched), patched)
-        method = swift_declaration(patched, "func performOperation(for operation:")
+        method = swift_declaration(source, "func performOperation(for operation:")
         marker_at = method.index("V3_POST_MUTATION_PERSISTENCE_CONTRACT_V1")
         self.assertLess(method.index("V3MutationPersistencePolicy.persistResult"), method.index("group.set(.success(result)", marker_at))
         self.assertNotIn("Failed to save InstalledApp to database. \\(error.localizedDescription)", method)
         self.assertIn("try dbContext.save()", method)
-
-    def test_previous_generated_manifest_fails_closed_at_new_patch_version(self):
-        service = module("patch_v3_service")
-        service_tests = module("test_v3_service")
-        fixture = service_tests.ServicePatchTests("test_featured_sort_startup_skip_matches_exact_pin_and_keeps_backend_startup")
-        prepared_version = service.PATCH_VERSION - 1
-        with tempfile.TemporaryDirectory() as name:
-            directory = Path(name)
-            roots = fixture.fixture(directory)
-            fixture.apply(roots)
-            manifest_path = roots[0] / ".v3-command-patch.json"
-            manifest = __import__("json").loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["patchVersion"] = prepared_version
-            manifest_path.write_text(__import__("json").dumps(manifest, indent=2) + "\n", encoding="utf-8")
-            before = fixture.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit,
-                    f"prepared patch version {prepared_version} cannot be migrated safely to v{service.PATCH_VERSION}"):
-                fixture.apply(roots)
-            self.assertEqual(before, fixture.snapshot(directory))
 
     def test_persistence_failure_survives_upstream_error_mapping_and_refresh_verification(self):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Executable Swift behavior runs in macOS CI")
 
-        combined = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        combined = read_product_source("combined_failure.swift")
+        primitives = read_product_source("v3_behavioral_primitives.swift")
         verifier = swift_declaration(primitives, "enum V3RefreshResultVerifier {")
         delete_contract = swift_declaration(primitives, "struct V3DeleteCompletionContract {")
 
@@ -93,6 +55,7 @@ class PipelinePersistenceContractTests(unittest.TestCase):
         get_mapped_error = swift_declaration(
             app_manager, "func getMappedError(for operation: AppOperation, error: Error) -> Error")
 
+        pairing = swift_declaration(read_product_source("v3_headless_runtime.swift"), "enum V3HeadlessPairingFailure {")
         source = """
 import Foundation
 import CoreData
@@ -108,9 +71,14 @@ extension NSError {
 protocol AppProtocol { var name: String { get }; var bundleIdentifier: String { get } }
 struct FakeApp: AppProtocol { var name = "Example"; var bundleIdentifier = "example.bundle" }
 enum AppOperation {
-    case install, refresh, update, activate, deactivate, deleteApp, backup, restore, resign, removeApp, removeDeactivatedApp
+    case install, reinstall, refresh, update, activate, deactivate, deleteApp, backup, restore, resign, removeApp, removeDeactivatedApp
     var app: AppProtocol { FakeApp() }
 }
+// External error type shapes only; tag/walk/classification stays owner code.
+enum OperationError: Error { case invalidPairingFile(reason: String) }
+enum MinimuxerError: Error { case invalidPairing(protocol: String, reason: String) }
+struct MinimuxerServiceError: Error { let error: Error }
+""" + pairing + """
 struct ProductionErrorMapper {
 """ + get_mapped_error + """
 }

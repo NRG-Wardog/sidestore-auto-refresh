@@ -1,3 +1,4 @@
+from tests.support.product_sources import ProductSource
 """Execute async request ownership scenarios against the production Swift helper."""
 import shutil
 import subprocess
@@ -8,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
+PRIMITIVES = ProductSource('v3_behavioral_primitives.swift')
 HARNESS = ROOT / "tests/fixtures/v3_async_owner_interleavings_harness.swift"
 
 

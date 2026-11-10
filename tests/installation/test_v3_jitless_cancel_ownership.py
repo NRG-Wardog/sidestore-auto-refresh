@@ -12,14 +12,14 @@ OWNERSHIP_TEST_SPEC = importlib.util.spec_from_file_location(
     "v3_existing_import_ownership_test", ROOT / "tests/installation/test_v3_jitless_import_ownership.py")
 ownership_test = importlib.util.module_from_spec(OWNERSHIP_TEST_SPEC)
 OWNERSHIP_TEST_SPEC.loader.exec_module(ownership_test)
-patch = ownership_test.patch
+
 
 
 class JITLessCancellationOwnershipTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.settings = ownership_test.generated_settings(self.root)
+        self.settings = ownership_test.current_settings()
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -44,23 +44,9 @@ class JITLessCancellationOwnershipTests(unittest.TestCase):
         self.assertLess(declined, importer.index("return", declined))
         self.assertLess(importer.index("UserDefaults.sideStoreExist()"), importer.index("Embedded SideStore is unavailable"))
 
-    def test_patcher_is_idempotent_for_prepared_livecontainer_sources(self):
-        live = self.root / "LiveContainer"
-        side = self.root / "SideStore"
-        before = {
-            path.relative_to(self.root): path.read_bytes()
-            for tree in (live, side) for path in tree.rglob("*") if path.is_file()
-        }
-        patch.patch(live, side)
-        after = {
-            path.relative_to(self.root): path.read_bytes()
-            for tree in (live, side) for path in tree.rglob("*") if path.is_file()
-        }
-        self.assertEqual(after, before)
-
     @unittest.skipUnless(shutil.which("swiftc"), "swiftc unavailable; Swift ownership harness runs on macOS CI")
     def test_exact_request_cancel_remove_replacement_expiry_and_reload_interleavings(self):
-        helper = textwrap.dedent(patch.IMPORT_OWNERSHIP_SWIFT)
+        helper = textwrap.dedent(ownership_test.import_ownership())
         helper = "\n".join(
             line for line in helper.splitlines()
             if "V3_CERTIFICATE_IMPORT_OWNERSHIP_V1" not in line)

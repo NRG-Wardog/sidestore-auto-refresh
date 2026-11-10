@@ -5,17 +5,18 @@ by the Swift harnesses in tests/host/test_v3_behavioral_harnesses.py; this modul
 covers the wiring, routing and structural contracts that live in the host views
 and the generated output.
 """
+from tests.support.product_sources import ProductSource
+from tests.owner_source import owner_source
 import re
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
-SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
-WIRE = ROOT / "scripts/templates/v3_wire_contract.swift"
-PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
-FAILURE = ROOT / "scripts/templates/combined_failure.swift"
-PATCH = ROOT / "scripts/patch_v3_unified_shell.py"
+SHELL = ProductSource("v3_unified_shell.swift")
+SERVICE = ProductSource("v3_sidestore_service.swift")
+WIRE = ProductSource("v3_wire_contract.swift")
+PRIMITIVES = ProductSource("v3_behavioral_primitives.swift")
+FAILURE = ProductSource("combined_failure.swift")
 
 
 def shell():
@@ -735,17 +736,14 @@ class HiddenNavigationRowTests(unittest.TestCase):
     """P2: the programmatic route must not create a Form row."""
 
     def test_route_is_attached_outside_the_row_structure(self):
-        patch = PATCH.read_text(encoding="utf-8")
-        self.assertIn("V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1", patch)
-        # A background, not a Form child.
-        self.assertIn(".background(", patch)
-        block = patch[patch.index("V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1"):]
-        block = block[:block.index('"canonical JIT-Less diagnose navigation")')]
+        settings = owner_source("LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift")
+        block = settings.split("// V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1:", 1)[1]
+        block = block.split(".navigationBarTitle(", 1)[0]
+        self.assertIn(".background(", block)
         self.assertIn("NavigationLink(destination: LCJITLessDiagnoseView()", block)
-        # The old Form-child injection is gone.
-        self.assertNotIn("'            Form {\\n'\n", block)
-        # The verifier enforces the stronger contract.
-        self.assertIn('die("canonical JIT-Less route is not row-neutralized', patch)
+        self.assertIn(".hidden()", block)
+        self.assertNotIn("Form {", block)
+
 
 
 class NoRegressionOfWorkingSystemsTests(unittest.TestCase):

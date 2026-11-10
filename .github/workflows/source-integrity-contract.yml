@@ -17,16 +17,19 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Reject source drift and malformed manifests
-        run: python3 -B -m unittest discover -s ci/source-integrity -p 'test_*.py' -v
+        run: python3 -B -m unittest discover -s tests/ci/integrity -p 'test_*.py' -v
       - name: Verify reviewed current source boundaries
-        run: python3 -B ci/source-integrity/verify.py
+        run: python3 -B ci/contracts/integrity/verify.py
       - name: Verify current entry and receipt failure controls
         run: |
           set -euo pipefail
-          python3 -B -m unittest discover -s ci/current-build -p 'test_*.py' -v
-          python3 -B -m unittest discover -s ci/issues-native -p test_workflow_failure_collection.py -v
-          python3 -B -m unittest discover -s ci/cold-vpn -p 'test_*.py' -v
-          python3 -B -m unittest discover -s ci/issue56-startup -p test_same_run_size.py -v
+          python3 -B -m unittest discover -s tests/ci/build -p 'test_*.py' -v
+          python3 -B -m unittest discover -s tests/ci/native -p test_workflow_failure_collection.py -v
+          python3 -B -m unittest discover -s tests/ci/native -p test_openssl_local_packaging.py -v
+          python3 -B -m unittest discover -s tests/ci/native -p test_unsigned_widget_workflow.py -v
+          python3 -B -m unittest discover -s tests/ci/native -p test_russian_setup_projection.py -v
+          python3 -B -m unittest discover -s tests/ci/vpn -p 'test_*.py' -v
+          python3 -B -m unittest discover -s tests/ci/size -p test_same_run_size.py -v
       - name: Verify portable packaging contracts without skips
         run: |
           set -euo pipefail
@@ -37,101 +40,65 @@ jobs:
     needs: source-integrity
     if: github.repository == 'NRG-Wardog/sidestore-auto-refresh'
     runs-on: macos-26
-    timeout-minutes: 15
+    timeout-minutes: 60
     env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
       PYTHONDONTWRITEBYTECODE: '1'
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_ALLOW_PROTOCOL: https
+      GIT_NO_REPLACE_OBJECTS: '1'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Run bounded portable and native converter regressions
+      - name: Acquire exact current owners before any product suite
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python3 -B ci/build/record.py acquire 2>&1 | tee evidence/owner-acquisition.log
+          python3 -B ci/build/verify_candidate_graph.py 2>&1 | tee evidence/owner-identity.log
+      - name: Acquire immutable removed-UI inventory without changing current owner
+        run: |
+          set -euo pipefail
+          historical_pin=ff25922e5c13ccfafd83bda5092910d848ebd409
+          current_pin=$(python3 -c 'import json; print(json.load(open("ci/build/candidate-graph.json"))["owners"]["SideStore"][1])')
+          test "$(git -C sources/SideStore rev-parse HEAD)" = "$current_pin"
+          git -C sources/SideStore -c core.hooksPath=/dev/null fetch --no-tags origin "$historical_pin"
+          test "$(git -C sources/SideStore rev-parse "$historical_pin^{commit}")" = "$historical_pin"
+          test "$(git -C sources/SideStore rev-parse HEAD)" = "$current_pin"
+          git -C sources/SideStore rev-parse "$historical_pin^{commit}" HEAD 'HEAD^{tree}' > evidence/removed-ui-inventory-identity.txt
+      - name: Require complete product inventory and native regressions without skips
         run: |
           set -euo pipefail
           command -v xcrun
           xcrun --find clang
-          for name in test_packaging_adapters.py test_ipa_size_report.py test_repository.py test_combined_packaging.py test_compiled_localization.py test_required_test_runner.py test_combined_build_evidence.py test_merged_rendering_contract.py test_dylibify_source_build.py; do
-            python3 -B -m unittest discover -s tests -p "$name" -v
-          done
-          python3 -B -m unittest discover -s migration/tests -p 'test_*.py' -v
-      - name: Acquire maintained owner and require native certificate and dock regressions
-        run: |
-          set -euo pipefail
-          pin=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["LiveContainer"][1])')
-          repository=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["LiveContainer"][0])')
-          git init -q sources/LiveContainer
-          git -C sources/LiveContainer remote add origin "https://github.com/$repository.git"
-          git -C sources/LiveContainer -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$pin"
-          git -C sources/LiveContainer -c core.hooksPath=/dev/null checkout --detach "$pin"
+          xcrun --find swiftc
           brew list openssl@3 >/dev/null || brew install openssl@3
-          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" REQUIRE_LC_CERTIFICATE_NATIVE_TESTS=1 \
-            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_lc_certificate_observation.py \
-              --allowlist scripts/required_test_skip_allowlist.json
-          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
-            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_multitask_dock.py \
-              --allowlist scripts/required_test_skip_allowlist.json
-      - name: Require maintained presentation source contracts and Swift syntax
-        run: |
-          set -euo pipefail
-          pin=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore"][1])')
-          repository=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore"][0])')
-          git init -q sources/SideStore
-          git -C sources/SideStore remote add origin "https://github.com/$repository.git"
-          git -C sources/SideStore -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$pin"
-          git -C sources/SideStore -c core.hooksPath=/dev/null checkout --detach "$pin"
-          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore" \
-            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_app_layout.py \
-              --allowlist scripts/required_test_skip_allowlist.json
-      - name: Require maintained privacy and typed-2FA runtime controls
-        run: |
-          set -euo pipefail
-          pin=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/SideSign"][1])')
-          repository=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/SideSign"][0])')
-          git init -q sources/SideStore/Dependencies/SideSign
-          git -C sources/SideStore/Dependencies/SideSign remote add origin "https://github.com/$repository.git"
-          git -C sources/SideStore/Dependencies/SideSign -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$pin"
-          git -C sources/SideStore/Dependencies/SideSign -c core.hooksPath=/dev/null checkout --detach "$pin"
-          MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore" MAINTAINED_SIDESIGN_TEST_SOURCE="$PWD/sources/SideStore/Dependencies/SideSign" \
-            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_sidesign_privacy.py \
-              --allowlist scripts/required_test_skip_allowlist.json
-      - name: Require maintained transport and ownership regressions
-        run: |
-          set -euo pipefail
-          pin=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/minimuxer"][1])')
-          repository=$(python3 -c 'import json; print(json.load(open("ci/issues-native/candidate-graph.json"))["owners"]["SideStore/Dependencies/minimuxer"][0])')
-          git init -q sources/SideStore/Dependencies/minimuxer
-          git -C sources/SideStore/Dependencies/minimuxer remote add origin "https://github.com/$repository.git"
-          git -C sources/SideStore/Dependencies/minimuxer -c core.hooksPath=/dev/null fetch --no-tags --depth=1 origin "$pin"
-          git -C sources/SideStore/Dependencies/minimuxer -c core.hooksPath=/dev/null checkout --detach "$pin"
+          export MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer"
           export MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore"
+          export MAINTAINED_SIDESIGN_TEST_SOURCE="$PWD/sources/SideStore/Dependencies/SideSign"
           export MAINTAINED_MINIMUXER_TEST_SOURCE="$PWD/sources/SideStore/Dependencies/minimuxer"
-          for suite in test_combined_transport.py test_combined_failure_execution.py test_issue24_udid_error_propagation.py; do
-            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
-          done
-      - name: Require maintained startup, CFBundle runtime and real iPhoneOS SDK controls
+          export MAINTAINED_IDEVICE_TEST_SOURCE="$PWD/sources/idevice"
+          export MAINTAINED_ANISETTEKIT_TEST_SOURCE="$PWD/sources/AnisetteKit"
+          export REQUIRE_LC_CERTIFICATE_NATIVE_TESTS=1
+          python3 -B ci/contracts/verify_product_tests.py
+          python3 -B scripts/run_required_tests.py --start-directory tests --pattern 'test_*.py' \
+            --allowlist scripts/required_test_skip_allowlist.json --timings-output evidence/product-test-timings.json \
+            2>&1 | tee evidence/product-tests.log
+      - name: Require maintained source acquisition regression controls
         run: |
           set -euo pipefail
-          export MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer"
-          export MAINTAINED_SIDESTORE_TEST_SOURCE="$PWD/sources/SideStore"
-          for suite in test_cf_bundle_scan.py test_embedded_sidestore_startup.py test_v3_ui_cleanup_contracts.py; do
-            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
-          done
-      - name: Require maintained native error presenter contracts and runtime controls
-        run: |
-          set -euo pipefail
-          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
-            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_native_error_presenters.py \
-              --allowlist scripts/required_test_skip_allowlist.json
-      - name: Require maintained guest owner pilot and negative runtime controls
-        run: |
-          set -euo pipefail
-          MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer" \
-            python3 -B scripts/run_required_tests.py --start-directory tests --pattern test_guest_owner.py \
-              --allowlist scripts/required_test_skip_allowlist.json
-      - name: Require maintained guest return, registry and terminal-path regressions
-        run: |
-          set -euo pipefail
-          export MAINTAINED_LIVE_CONTAINER_TEST_SOURCE="$PWD/sources/LiveContainer"
-          for suite in test_guest_return.py test_guest_launch_completion.py test_v3_diagnostic_codes.py; do
-            python3 -B scripts/run_required_tests.py --start-directory tests --pattern "$suite" --allowlist scripts/required_test_skip_allowlist.json
-          done
+          python3 -B scripts/run_required_tests.py --start-directory migration/tests --pattern 'test_*.py' \
+            --allowlist scripts/required_test_skip_allowlist.json --timings-output evidence/acquisition-test-timings.json \
+            2>&1 | tee evidence/acquisition-tests.log
+      - name: Retain regression evidence including failures
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: product-regression-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14

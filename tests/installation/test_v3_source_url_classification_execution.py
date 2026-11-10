@@ -1,3 +1,5 @@
+from tests.owner_source import owner_source
+from tests.support.product_sources import ProductSource
 import os
 import re
 import shutil
@@ -8,12 +10,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FAILURE = ROOT / "scripts/templates/combined_failure.swift"
-HEADLESS = ROOT / "scripts/templates/v3_headless_runtime.swift"
-SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
-SIDESTORE_SOURCE_SHA = "ff25922e5c13ccfafd83bda5092910d848ebd409"
-STANDALONE_SIDESTORE_SHA = "c6f28864dc99ed03ad35f2ca58967247036b7b53"
-R6_FIXTURE_SIDESTORE_SHA = "10ffa01ecdfe4203a7ad5d7f41c0d5de03bd8abb"
+FAILURE = ProductSource('combined_failure.swift')
+HEADLESS = ProductSource('v3_headless_runtime.swift')
+SERVICE = ProductSource('v3_sidestore_service.swift')
 PINNED_SOURCE_ERROR_CAUSES = {
     "unsupported": "sourceUnsupported",
     "duplicateBundleID": "sourceValidationFailed",
@@ -37,80 +36,13 @@ def extracted(source, start, end):
     return source[begin:source.index(end, begin)]
 
 
-def pinned_source_root(embedded_source, standalone_source, revision,
-                       source_error_exists=True, require_pinned=False):
-    if require_pinned and not embedded_source:
-        raise ValueError("candidate classifier test requires an embedded SideStore checkout")
-    if embedded_source:
-        if revision != SIDESTORE_SOURCE_SHA:
-            if require_pinned:
-                raise ValueError("embedded SideStore source does not match the pinned revision")
-            return None
-        if not source_error_exists:
-            if require_pinned:
-                raise ValueError("pinned SourceError.swift is missing from the candidate embedded source")
-            return None
-        return Path(embedded_source)
-    if standalone_source and revision == SIDESTORE_SOURCE_SHA and source_error_exists:
-        return Path(standalone_source)
-    return None
-
-
 class SourceURLClassificationExecutionTests(unittest.TestCase):
-    def test_nonpinned_source_revisions_skip_unless_candidate_requires_pin(self):
-        self.assertEqual(pinned_source_root(
-            embedded_source=None, standalone_source="C:/standalone/SideStore",
-            revision=SIDESTORE_SOURCE_SHA), Path("C:/standalone/SideStore"))
-        self.assertIsNone(pinned_source_root(
-            embedded_source=None, standalone_source="C:/standalone/SideStore",
-            revision=STANDALONE_SIDESTORE_SHA))
-        self.assertIsNone(pinned_source_root(
-            embedded_source="C:/fixture/EmbeddedSideStore", standalone_source=None,
-            revision=R6_FIXTURE_SIDESTORE_SHA))
-        with self.assertRaisesRegex(ValueError, "embedded SideStore source"):
-            pinned_source_root("C:/candidate/EmbeddedSideStore", None,
-                revision=R6_FIXTURE_SIDESTORE_SHA, require_pinned=True)
-        with self.assertRaisesRegex(ValueError, "requires an embedded"):
-            pinned_source_root(None, "C:/standalone/SideStore",
-                revision=STANDALONE_SIDESTORE_SHA, require_pinned=True)
-        with self.assertRaisesRegex(ValueError, "SourceError.swift is missing"):
-            pinned_source_root("C:/candidate/EmbeddedSideStore", None,
-                revision=SIDESTORE_SOURCE_SHA, source_error_exists=False, require_pinned=True)
-        self.assertEqual(pinned_source_root("C:/candidate/EmbeddedSideStore", None,
-            revision=SIDESTORE_SOURCE_SHA, require_pinned=True), Path("C:/candidate/EmbeddedSideStore"))
-
     def test_production_helper_and_both_source_classifiers(self):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift execution runs in macOS CI")
 
-        embedded_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        standalone_source = os.environ.get("SIDESTORE_TEST_SOURCE")
-        require_pinned = os.environ.get("REQUIRE_PINNED_SOURCE_CLASSIFIER_TEST") == "1"
-        source_value = embedded_source or standalone_source
-        if not source_value:
-            if require_pinned:
-                self.fail("candidate classifier test requires an embedded SideStore checkout")
-            self.skipTest("Pinned SideStore source is supplied by macOS CI")
-        source_path = Path(source_value)
-        source_error_path = source_path / "SideStore/Core/Operations/Errors/SourceError.swift"
-        revision = subprocess.run(
-            ["git", "-C", str(source_path), "rev-parse", "HEAD"],
-            capture_output=True, text=True,
-        )
-        if revision.returncode != 0:
-            if require_pinned:
-                self.fail(revision.stderr or "candidate embedded SideStore checkout is unavailable")
-            self.skipTest("Configured SideStore source checkout is unavailable")
-        try:
-            side_store_root = pinned_source_root(
-                embedded_source, standalone_source, revision.stdout.strip(),
-                source_error_exists=source_error_path.is_file(), require_pinned=require_pinned)
-        except ValueError as error:
-            self.fail(str(error))
-        if side_store_root is None:
-            self.skipTest("Configured SideStore source is not the embedded classifier-test pin")
-        source_error_text = read(source_error_path)
+        source_error_text = owner_source("SideStore/Core/Operations/Errors/SourceError.swift", "SideStore")
         code_start = source_error_text.index("    enum Code: Int, ALTErrorCode")
         code_end = source_error_text.index("    static func unsupported", code_start)
         pinned_code_declaration = source_error_text[code_start:code_end].rstrip()
@@ -123,7 +55,7 @@ class SourceURLClassificationExecutionTests(unittest.TestCase):
             f".{name}: .{PINNED_SOURCE_ERROR_CAUSES[name]}" for name in pinned_case_names)
 
         failure = read(FAILURE)
-        wire = read(ROOT / "scripts/templates/v3_wire_contract.swift")
+        wire = read(ProductSource('v3_wire_contract.swift'))
         headless = read(HEADLESS)
         service = read(SERVICE)
         source_classifier = extracted(
@@ -136,7 +68,7 @@ class SourceURLClassificationExecutionTests(unittest.TestCase):
             "private struct V3KnownSourcePolicyFailure: Error {",
             "\n@MainActor\n@objc(V3SideStoreService)",
         )
-        primitives = read(ROOT / "scripts/templates/v3_behavioral_primitives.swift")
+        primitives = read(ProductSource('v3_behavioral_primitives.swift'))
         harness = r'''
 import Foundation
 

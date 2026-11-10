@@ -53,7 +53,11 @@ extension String { var loc: String { self } }
 final class ImportSettingsHarness {
     let scenario: ImportScenario
     var certificateDataFound = false
-    var errorInfo = ""
+    var errorDisplay = V3DisplayMessage.raw("")
+    var errorInfo: String {
+        get { errorDisplay.original }
+        set { errorDisplay = .raw(newValue) }
+    }
     var errorShow = false
     var certificateImportAlert: BoolAlert { BoolAlert(scenario: scenario) }
     var certificateImportFileAlert: FileAlert { FileAlert(scenario: scenario) }

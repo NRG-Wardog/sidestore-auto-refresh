@@ -1,3 +1,5 @@
+from tests.support.product_sources import ProductSource
+from tests.support.product_sources import read_product_source
 import shutil
 import subprocess
 import tempfile
@@ -6,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
+SERVICE = ProductSource('v3_sidestore_service.swift')
 
 
 def source_text():
@@ -38,7 +40,7 @@ class KnownSourcePolicyExecutionTests(unittest.TestCase):
 import Foundation
 import CFNetwork
 
-""" + (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8") + "\n" + production_classifier + """
+""" + read_product_source('combined_failure.swift') + "\n" + production_classifier + """
 
 @main struct Tests {
     static func main() {
