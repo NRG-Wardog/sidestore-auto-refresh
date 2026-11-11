@@ -28,6 +28,7 @@ jobs:
           python3 -B -m unittest discover -s tests/ci/native -p test_openssl_local_packaging.py -v
           python3 -B -m unittest discover -s tests/ci/native -p test_unsigned_widget_workflow.py -v
           python3 -B -m unittest discover -s tests/ci/native -p test_russian_setup_projection.py -v
+          python3 -B -m unittest discover -s tests/ci/native -p test_portal_owner_successor.py -v
           python3 -B -m unittest discover -s tests/ci/vpn -p 'test_*.py' -v
           python3 -B -m unittest discover -s tests/ci/size -p test_same_run_size.py -v
       - name: Verify portable packaging contracts without skips

@@ -9,7 +9,7 @@
     ".github/workflows/openssl-size.yml": "95d24ab987af7aadbccb3eec90761c07793c9763fa509147e76603eecfbc0ee5",
     ".github/workflows/openssl-symbols.yml": "db4b12d8915e373414d3ac2eff13e179561ea04e1cd405bf024a33c514b00886",
     ".github/workflows/package-optimization.yml": "555cfc6e86f1b8f01c8abc57c95da11e4ad7babfdc861250556e4a6453ec2891",
-    ".github/workflows/source-integrity-contract.yml": "efc9aa2efbf9b31a8e2fa1473bb319862d1e9cf4c9f2aa25d83280aebf85715b",
+    ".github/workflows/source-integrity-contract.yml": "6301ccd8c52071ccdbffb32e4fc491fd297cecdb9b1b213cfdaa20f6089fb966",
     "ci/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "ci/artifacts/github_artifacts.py": "7c6e473f17533788dfc9b5b587270e6ada125c08aedc165f0de949716a0ec1b2",
     "ci/build/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
