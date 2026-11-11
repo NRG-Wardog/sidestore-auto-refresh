@@ -231,7 +231,7 @@
     "tests/test_repository.py": "2d237da4cb09449ba5e5b773cc2f9044e39a2de14974f2ad63acb9f61b1634d3",
     "tests/test_v3_auth_recovery_audit.py": "82d218216bd3ef6351ae544c45a5b97dfff4796051d6170a6bc9213455bbc8af",
     "tests/test_v3_diagnostic_codes.py": "193a72fce8a3439742c0e895bb54721ddc1818e920182212dd54ac262c860c32",
-    "tests/test_v3_service.py": "524ed05f6b08381b5cdc8b3f04e66c2da915d1ba3360bb25e80c611e990c82a9",
+    "tests/test_v3_service.py": "1ac19a0ddf829f3f694215dc7f3694f72a859459cee0d6062a75c37c009401ac",
     "tests/test_verify_candidate_ipa.py": "f397debc025910e0d7cff79d865f5403362779c0eba838f99ebabfac5404318b"
   },
   "schema": "current-source-integrity-v1"
