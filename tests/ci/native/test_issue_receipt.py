@@ -78,6 +78,65 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
         for changed in invalid:
             with self.assertRaises(ValueError): verify_owned_receipt(changed)
 
+    def test_strict_portal_inverse_is_required_and_must_match_committed_source(self):
+        owner = 'SideStore/Dependencies/SideSign'
+        name = '.ci/owned-oda/strict-appid-portal-projection.json'
+        self.assertIn((owner, '.ci/owned-oda', 'test_sources.py'), SUITES)
+        self.assertIn(name, OWNED_INPUTS[owner])
+        value = owned_receipt()
+        provenance = {key: copy.deepcopy(value[key]) for key in ('source_graph', 'source_sha256')}
+        missing = copy.deepcopy(value); missing['source_sha256'].pop(owner+'/'+name)
+        with self.assertRaisesRegex(ValueError, 'closure'):
+            verify_owned_receipt(missing, provenance)
+        tampered = copy.deepcopy(value); tampered['source_sha256'][owner+'/'+name] = 'b'*64
+        with self.assertRaisesRegex(ValueError, 'actual committed inputs'):
+            verify_owned_receipt(tampered, provenance)
+
+    def test_portal_inverse_missing_changed_linked_and_foreign_commit_files_fail_both_collectors(self):
+        import subprocess
+        from unittest.mock import patch
+        from ci.qualification.native import run_issue_tests as issue
+        from ci.qualification.native import refresh_truth_receipt as refresh
+        owner = 'SideStore/Dependencies/SideSign'
+        names = ('.ci/owned-oda/test_sources.py', '.ci/owned-oda/strict-appid-portal-projection.json')
+        for name in names:
+            self.assertIn(name, issue.OWNED_INPUTS[owner])
+            self.assertIn(name, refresh.INPUTS[owner])
+        with tempfile.TemporaryDirectory() as directory:
+            sources = Path(directory).resolve(); root = sources/owner; root.mkdir(parents=True)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), '-c', 'core.hooksPath=/dev/null', *args], text=True).strip()
+            git('init', '-q'); git('config', 'user.name', 'Synthetic fixture'); git('config', 'user.email', 'fixture@example.invalid')
+            for name in names:
+                path = root/name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('{}\n')
+            git('add', '.'); git('commit', '-qm', 'Synthetic committed inverse input')
+            commit, tree = git('rev-parse', 'HEAD'), git('rev-parse', 'HEAD^{tree}')
+            graph = {'owners': {owner: ['NRG-Wardog/SideSign', commit]}, 'reviewed_deltas': {owner: {'tree': tree}}}
+            expected = {owner: {'commit': commit, 'tree': tree}}
+            with patch.object(issue, 'OWNED_INPUTS', {owner: names}), \
+                 patch.object(issue, 'owned_expected_graph', return_value=expected), \
+                 patch.object(refresh, 'INPUTS', {owner: names}):
+                before_issue = issue.collect_owned_sources(sources)
+                before_refresh = refresh.collect(sources, graph)
+                self.assertEqual(before_issue['source_sha256'], before_refresh['source_sha256'])
+                for name in names:
+                    path = root/name
+                    for mutation in ('missing', 'changed', 'linked'):
+                        if mutation == 'missing': path.unlink()
+                        elif mutation == 'changed': path.write_text('{"unreviewed":true}\n')
+                        else:
+                            path.unlink(); path.symlink_to(root/names[1 if name == names[0] else 0])
+                        for collector in (lambda: issue.collect_owned_sources(sources), lambda: refresh.collect(sources, graph)):
+                            with self.subTest(name=name,mutation=mutation), self.assertRaises(ValueError): collector()
+                        if path.is_symlink(): path.unlink()
+                        path.write_text('{}\n')
+                    self.assertEqual(issue.collect_owned_sources(sources), before_issue)
+                    self.assertEqual(refresh.collect(sources, graph), before_refresh)
+                (root/names[1]).write_text('{"unreviewed":true}\n')
+                git('add', '.'); git('commit', '-qm', 'Foreign inverse fixture')
+                for collector in (lambda: issue.collect_owned_sources(sources), lambda: refresh.collect(sources, graph)):
+                    with self.assertRaisesRegex(ValueError, 'graph differs|HEAD differs'): collector()
+
     def test_receipt_must_match_current_committed_inputs(self):
         value = owned_receipt()
         provenance = {k: value[k] for k in ('source_graph', 'source_sha256')}

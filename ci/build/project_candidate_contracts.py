@@ -145,6 +145,7 @@ PROJECTION_RUNTIME_SOURCES = (
     'ci/__init__.py', 'ci/build/__init__.py',
     'ci/native_paths.py', 'ci/build/project_candidate_contracts.py',
     'ci/qualification/native/portal_identity_projection.py',
+    'ci/qualification/native/portal_owner_successor.py',
     'ci/qualification/native/portal-identity-source-delta.json',
     'ci/qualification/native/preservation_selection_projection.py',
     'ci/qualification/native/owner_fixes_projection.py',
@@ -172,6 +173,8 @@ def verify_projection_receipt(path, expected):
 
 
 def contracts(sources, output, verify=False):
+    from ci.qualification.native.portal_owner_successor import validate_sources as validate_portal_owners
+    owner_binding = validate_portal_owners(sources)
     from ci.qualification.native.portal_identity_projection import validate_owner_chain as validate_owner_fixes
     validate_owner_fixes(Path(sources))
     from ci.qualification.native.direct_refresh_projection import validate_source as validate_direct_refresh_source
@@ -262,6 +265,7 @@ def contracts(sources, output, verify=False):
                           'preservation_cache_successor': projected.get('reviewed_preservation_registry_cache_host_change')}
     receipt = {'schema': 'reviewed-candidate-contract-projection-v1',
                'projection_runtime_sha256': projection_source_hashes(),
+               'portal_owner_binding': owner_binding,
                'graph_sha256': sha(((HERE.parents[1]/'build/candidate-graph.json')).read_bytes()),
                'existing_behavioral_expectations_preserved': True,
                'additive_case_expectations': {'host-refresh-bundle': preservation_host.expected_cases(projected, list(HOST_ADDITIONAL_CASES))},

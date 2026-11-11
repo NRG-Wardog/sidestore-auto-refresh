@@ -46,6 +46,28 @@ class ReceiptTests(unittest.TestCase):
   v=copy.deepcopy(self.value);change(v)
   if rehash:v['part_sha256']={k:C.digest(p) for k,p in v['parts'].items()}
   with self.assertRaises((ValueError,TypeError,KeyError)):self.verify(v)
+ def test_owned_portal_inverse_and_validator_are_required_in_both_parts(self):
+  owner='SideStore/Dependencies/SideSign'
+  for name in ('.ci/owned-oda/test_sources.py','.ci/owned-oda/strict-appid-portal-projection.json'):
+   self.assertIn(name,C.INPUTS[owner])
+   for kind in ('swift','rust'):
+    value=copy.deepcopy(self.value)
+    value['parts'][kind]['source']=copy.deepcopy(value['parts'][kind]['source'])
+    value['parts'][kind]['source']['source_sha256'].pop(owner+'/'+name)
+    value['part_sha256']={k:C.digest(part) for k,part in value['parts'].items()}
+    with self.subTest(name=name,kind=kind),self.assertRaisesRegex(ValueError,'source input closure'):
+     self.verify(value)
+ def test_rehashed_portal_inverse_claims_cannot_replace_actual_committed_inputs(self):
+  owner='SideStore/Dependencies/SideSign'
+  for name in ('.ci/owned-oda/test_sources.py','.ci/owned-oda/strict-appid-portal-projection.json'):
+   value=copy.deepcopy(self.value)
+   for part in value['parts'].values():part['source']['source_sha256'][owner+'/'+name]='e'*64
+   value['part_sha256']={k:C.digest(part) for k,part in value['parts'].items()}
+   with tempfile.TemporaryDirectory() as directory:
+    path=Path(directory)/'receipt.json';path.write_text(json.dumps(value))
+    with mock.patch.object(C,'collect',return_value=self.value['parts']['swift']['source']):
+     with self.subTest(name=name),self.assertRaisesRegex(ValueError,'current compiler source differs'):
+      C.verify_local(path,Path(directory),{'owners':self.value['source_graph']},self.value['identity'])
  def test_origin_transport_visibility_records_and_claims_exact(self):
   owner='SideStore-preservation-origin';original=self.value['parts']['swift']['logs'][owner]
   self.assertEqual(C.SUITES[owner],('tests/preservation_origin/run.sh',5));self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')

@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 from ci.qualification.native import owner_fixes_projection as P
 from ci.qualification.native import portal_identity_projection as portal
+from ci.qualification.native import portal_owner_successor as current_owner
 from ci.qualification.native import direct_host_projection as host
 from ci.qualification.native import direct_service_projection as service
 from ci.qualification.native import preservation_host_projection as preservation_host
@@ -31,9 +32,8 @@ class OwnerFixProjectionTests(unittest.TestCase):
             'LiveContainer/LiveContainerSwiftUI/App/AppDelegate.swift'})
         for path, spec in specs.items():
             owner, relative = path.split('/', 1)
-            current = graph['owners'][owner][1]
-            self.assertIn(current, portal.OWNER_COMMITS[owner])
-            expected = portal.specifications().get(path, spec) if current == portal.OWNER_COMMITS[owner][1] else spec
+            proof = current_owner.proof_commit(graph, owner)
+            expected = portal.specifications().get(path, spec) if proof == portal.OWNER_COMMITS[owner][1] else spec
             self.assertEqual(expected['after_blob'], graph['reviewed_deltas'][owner]['files'][relative])
             self.assertTrue(spec['edits'])
         for direct in (host, service):
@@ -119,6 +119,7 @@ def actual_source_controls(sources):
     """Explicit source-required lane: no synthetic fallback or prerequisite skip."""
     class ActualSourceControls(unittest.TestCase):
         def test_actual_owner_blobs_invert_and_reject_unrelated_mutations(self):
+            current_owner.validate_sources(sources)
             for path, spec in P.specifications().items():
                 with self.subTest(path=path):
                     owner, relative = path.split('/', 1)
@@ -127,7 +128,7 @@ def actual_source_controls(sources):
                         return subprocess.check_output(['git', '-C', str(root), *args])
                     graph = json.loads((ROOT / 'ci/build/candidate-graph.json').read_text())
                     self.assertEqual(git('rev-parse', 'HEAD').decode().strip(), graph['owners'][owner][1])
-                    self.assertIn(graph['owners'][owner][1], portal.OWNER_COMMITS[owner])
+                    self.assertIn(current_owner.proof_commit(graph, owner), portal.OWNER_COMMITS[owner])
                     data = (sources / path).read_bytes()
                     self.assertEqual(data, git('show', 'HEAD:' + relative))
                     owner_data = portal.restore_if_successor(path, data) if path in portal.specifications() else data

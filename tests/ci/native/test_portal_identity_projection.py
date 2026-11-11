@@ -15,6 +15,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from ci.qualification.native import portal_identity_projection as P
+from ci.qualification.native import portal_owner_successor as current_owner
 from ci.qualification.native import owner_fixes_projection as owner
 from ci.qualification.native import preservation_selection_projection as selection
 from ci.qualification.native import direct_host_projection as host
@@ -36,8 +37,9 @@ class PortalIdentityProjectionTests(unittest.TestCase):
         graph = json.loads((ROOT / 'ci/build/candidate-graph.json').read_text())
         for path, spec in specs.items():
             component, relative = path.split('/', 1)
-            self.assertIn(graph['owners'][component][1], P.OWNER_COMMITS[component])
-            era = 'after' if graph['owners'][component][1] == spec['after_commit'] else 'before'
+            proof = current_owner.proof_commit(graph, component)
+            self.assertIn(proof, P.OWNER_COMMITS[component])
+            era = 'after' if proof == spec['after_commit'] else 'before'
             self.assertEqual(graph['reviewed_deltas'][component]['files'][relative], spec[era + '_blob'])
             for key in ('before_sha256', 'after_sha256'):
                 self.assertRegex(spec[key], '^[a-f0-9]{64}$')
@@ -161,7 +163,7 @@ class PortalIdentityProjectionTests(unittest.TestCase):
         value = projection_source_hashes()
         for name in ('portal_identity_projection.py', 'portal-identity-source-delta.json',
                      'preservation_selection_projection.py', 'owner_fixes_projection.py',
-                     'owner-fixes-source-delta.json'):
+                     'owner-fixes-source-delta.json', 'portal_owner_successor.py'):
             relative = 'ci/qualification/native/' + name
             self.assertEqual(value[relative], P.sha((ROOT / relative).read_bytes()))
 
@@ -177,12 +179,14 @@ class PortalIdentityProjectionTests(unittest.TestCase):
 def actual_source_controls(sources):
     class ActualSourceControls(unittest.TestCase):
         def test_exact_owner_git_blobs_invert_with_repinned_negative_controls(self):
+            binding = current_owner.validate_sources(sources)
             for path, spec in P.specifications().items():
                 component, relative = path.split('/', 1)
                 def git(*args):
                     return subprocess.check_output(['git', '-C', str(sources / component), *args])
                 with self.subTest(path=path):
-                    self.assertEqual(git('rev-parse', 'HEAD').decode().strip(), spec['after_commit'])
+                    self.assertEqual(git('rev-parse', 'HEAD').decode().strip(), binding['current_owners'][component])
+                    self.assertEqual(binding['proof_owners'][component], spec['after_commit'])
                     data = P.read_source(sources, path)
                     self.assertEqual(data, git('show', 'HEAD:' + relative))
                     self.assertEqual(P.blob(data), spec['after_blob'])

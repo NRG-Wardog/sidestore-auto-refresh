@@ -22,11 +22,11 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "0eba6008c724c9f86a287b696748a74aef25f289"
+      "b61990276f574c0f5a3dee95fd816ba957d50c6c"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
-      "f4a1f10f1cfc404d241d563a06b21f0de07f7505"
+      "082571590a6019972045a41a886caf4f27e66683"
     ],
     "SideStore/Dependencies/minimuxer": [
       "NRG-Wardog/minimuxer",
@@ -262,7 +262,7 @@
         "AltStore/Core/Model/DatabaseManager/PersistentContainer.swift": "5c0b21210a81bb2d47cb484797eec686a33d7817",
         "AltStore/Core/Model/InstalledApp.swift": "563d41026d95e73d797dda1fb0902a930dbe6504",
         "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift": "06f691fd6788b30f9fec1e3126a0e24997837835",
-        "Dependencies/SideSign": "f4a1f10f1cfc404d241d563a06b21f0de07f7505",
+        "Dependencies/SideSign": "082571590a6019972045a41a886caf4f27e66683",
         "Dependencies/minimuxer": "49c430dc46d87a330b45fa07d467b821983ccbfd",
         "Makefile": "7dd3d09d57c12e733bfcb0f2de343854e1dd9ee5",
         "SideStore/Core/Anisette/AnisetteProvider.swift": "9899b064e45a6d8f005c000f15453b3b11730452",
@@ -409,7 +409,7 @@
         "tests/vpn_transport_recovery/generate_fixture.py": "ac0087b25c74408501b324f5e7675cfb0f884858",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "6ef65a5885339ada820b5239f3bd47b8fa54f863"
+      "tree": "5d93215f7bb4bb0cdc6bda9f359727ad18d948af"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",
@@ -437,14 +437,15 @@
         ".ci/owned-oda/authentication-projection.json": "bbb04da73deeb9df5f8f1e49fb4b7c4888e643ed",
         ".ci/owned-oda/qualification-inputs.json": "2057527310a5f374d07a3a58e8131d02408e6f88",
         ".ci/owned-oda/run.sh": "d4fc1432b93db35a993ab4779011b4fdf0bc809e",
-        ".ci/owned-oda/test_sources.py": "646a37048f81154b05f89631639378fcf5b0f0e7",
+        ".ci/owned-oda/strict-appid-portal-projection.json": "3ed7e7ccb4fc28a9816019478961919b880e9382",
+        ".ci/owned-oda/test_sources.py": "4a7ffc78877b050c7938de611218a00acc54908d",
         ".ci/reuse-main/Cases.swift": "00a9d472f1ccbae09d671f012a8b5e8bbeae57ea",
         ".ci/reuse-main/README.md": "2b4da3e1eb44aa404000eb9301b2bfc2a085e7f4",
         ".ci/reuse-main/SignerCases.swift": "b2939d25f8ca3f9210c175185e87a2a453dc3c77",
         ".ci/reuse-main/SignerDoubles.swift": "42042ca751c40b033ffb00e8653ae66ba9c73958",
         ".ci/reuse-main/run.sh": "2d667b03c0819230709f9dd44efea57ca2f06f73",
         ".ci/reuse-main/test_source.py": "6658702c092c4c644722f20ffb95a6b8e3e8b3db",
-        ".github/workflows/appid-lookup-qualification.yml": "82509e9f20bdded64e43eb1030d69bc7c513d09e",
+        ".github/workflows/appid-lookup-qualification.yml": "42697102c6f02ee6a4b0dfafc366fe28939a0935",
         ".github/workflows/build-all.yml": "d59dc771185f70a1d0d79975a02e6d065e490ac0",
         ".github/workflows/owned-oda-qualification.yml": "2e7abe31ed9ae57c5c9d9c1ecb92e608640b5e8c",
         ".github/workflows/reviewed-branch-cleanup.yml": "32e136f1df8c9adbb5e1f3b03cc88937bb8223cc",
@@ -466,7 +467,7 @@
         "Sources/Models/ProvisioningProfile.swift": "d1d81ba80ecaea28bd0e97f507e9720d9198272d",
         "Tests/SideSignTests/ILoaderRemoteHTTPTransportTests.swift": "3f06fd743c9adf1e5d90636b531c76f008ae8669"
       },
-      "tree": "4975619dd934ba909aef08144a9d3416280b155f"
+      "tree": "24df8b96c0ea06c9f454bd04a3321968e7b960f4"
     },
     "SideStore/Dependencies/minimuxer": {
       "baseline": "4ca3af5270de8aa48e8bc100eadf1b3550260ea2",
