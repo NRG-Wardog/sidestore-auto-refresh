@@ -11,7 +11,7 @@ import json
 import re
 
 ROOT = (_CIPath(__file__).resolve().parents[3])
-MANIFEST_SHA256 = '980ac986176edd4f2daba381e0b29919a83e31f15d86bdac7b9256beca261cf3'
+MANIFEST_SHA256 = '1754ccdea6f7866bdcc3398acf936ff6918d53f3b99f332788361cc5d38117ab'
 
 
 def require(ok, message):

@@ -22,6 +22,39 @@ import source_selection as policy
 ROOT = (_CIPath(__file__).resolve().parents[3])
 WORKFLOW = ROOT / '.github/workflows/native-build.yml'
 
+# This successor adds only these two mandatory commands at their reviewed sites.
+# The inverse must restore the previous fingerprint, not merely accept a new hash.
+PORTAL_ADDITIONS = (
+    ('          python3 -B harness/tests/ci/native/test_owner_fixes_projection.py --sources sources\n',
+     '          python3 -B harness/tests/ci/native/test_portal_identity_projection.py --sources sources\n'),
+    ('          python3 -B harness/tests/ci/native/test_refresh_truth_orchestration.py\n',
+     '          python3 -B harness/tests/ci/native/test_portal_native_gates.py --sources sources\n'),
+)
+PRE_PORTAL_STEPS_SHA256 = 'e1a25c2437f70abe138d8cfd37e3172e23c19babb9e1f47d989075c37b3f93bb'
+
+
+def reviewed_steps(text):
+    steps = text[text.index('    steps:\n'):]
+    for first, following in (
+        ('Identify the exact maintained source graph before building', 'Check sync guards with source-owned synthetic fixtures only'),
+        ('Verify PR merge tree equals the reviewed head tree', 'Record candidate harness identity'),
+    ):
+        start = steps.index('      - name: ' + first + '\n')
+        end = steps.index('      - name: ' + following + '\n', start)
+        steps = steps[:start] + steps[end:]
+    return steps.replace('record.py receipt-current', 'record.py receipt')
+
+
+def inverse_portal_additions(steps):
+    for preceding, added in PORTAL_ADDITIONS:
+        if steps.count(added) != 1 or steps.count(preceding + added) != 1:
+            raise ValueError('Portal command missing, duplicated, changed or relocated')
+        steps = steps.replace(preceding + added, preceding, 1)
+    if hashlib.sha256(steps.encode()).hexdigest() != PRE_PORTAL_STEPS_SHA256:
+        raise ValueError('Unreviewed change outside the two portal additions')
+    return steps
+
+
 class CurrentBuildTests(unittest.TestCase):
     def test_current_entry_uses_explicit_committed_graph_and_receipt_gate(self):
         workflow = (ROOT / '.github/workflows/native-build.yml').read_text()
@@ -71,20 +104,44 @@ class CurrentBuildTests(unittest.TestCase):
         self.assertNotIn('record.py receipt\n',text)
 
     def test_reviewed_build_and_package_steps_preserved(self):
-        text=WORKFLOW.read_text();steps=text[text.index('    steps:\n'):]
-        start=steps.index('      - name: Identify the exact maintained source graph before building\n')
-        end=steps.index('      - name: Check sync guards with source-owned synthetic fixtures only\n',start)
-        steps=steps[:start]+steps[end:]
-        start=steps.index('      - name: Verify PR merge tree equals the reviewed head tree\n')
-        end=steps.index('      - name: Record candidate harness identity\n',start)
-        steps=steps[:start]+steps[end:]
-        steps=steps.replace('record.py receipt-current','record.py receipt')
+        current = reviewed_steps(WORKFLOW.read_text())
+        self.assertEqual(hashlib.sha256(current.encode()).hexdigest(),
+                         'd4787df1038af1e7bf9dfa86b597ca1683599499a1ba18c7b01dc929d0357525')
+        steps = inverse_portal_additions(current)
         self.assertEqual(hashlib.sha256(steps.encode()).hexdigest(),
                          'e1a25c2437f70abe138d8cfd37e3172e23c19babb9e1f47d989075c37b3f93bb')
         added = '          python3 -B harness/tests/ci/native/test_owner_fixes_projection.py --sources sources\n'
         self.assertEqual(steps.count(added), 1)
         self.assertEqual(hashlib.sha256(steps.replace(added, '', 1).encode()).hexdigest(),
                          '08ed1cd77a0420a2efd3f3de488d38ccc13168794a2ddfa0853add20a2db03a9')
+
+    def test_portal_step_inverse_rejects_missing_duplicate_changed_and_relocated_commands(self):
+        current = reviewed_steps(WORKFLOW.read_text())
+        for preceding, added in PORTAL_ADDITIONS:
+            mutations = (
+                current.replace(added, '', 1),
+                current.replace(added, added + added, 1),
+                current.replace(added, added.replace('--sources sources', '--sources other'), 1),
+                current.replace(added, '', 1) + added,
+                current.replace(preceding + added, added + preceding, 1),
+            )
+            for changed in mutations:
+                with self.subTest(added=added, mutation=changed[-80:]):
+                    with self.assertRaises(ValueError):
+                        inverse_portal_additions(changed)
+
+    def test_portal_step_inverse_rejects_unrelated_build_receipt_and_packaging_changes(self):
+        current = reviewed_steps(WORKFLOW.read_text())
+        for before, after in (
+            ('record.py receipt', 'record.py receipt-current'),
+            ('--same-run-qualified-size', '--unreviewed-size'),
+            ('id: livecontainer_build', 'id: bypassed_livecontainer_build'),
+            ('          set -euo pipefail\n', '          set -eu\n'),
+        ):
+            self.assertIn(before, current)
+            changed = current.replace(before, after, 1)
+            with self.subTest(before=before), self.assertRaisesRegex(ValueError, 'Unreviewed change'):
+                inverse_portal_additions(changed)
 
     def test_current_mode_requires_cms_without_historical_branch(self):
         # Execute the real receipt preamble, stopping before unrelated native

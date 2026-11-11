@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from ci.qualification.native import owner_fixes_projection as P
+from ci.qualification.native import portal_identity_projection as portal
 from ci.qualification.native import direct_host_projection as host
 from ci.qualification.native import direct_service_projection as service
 from ci.qualification.native import preservation_host_projection as preservation_host
@@ -30,8 +31,10 @@ class OwnerFixProjectionTests(unittest.TestCase):
             'LiveContainer/LiveContainerSwiftUI/App/AppDelegate.swift'})
         for path, spec in specs.items():
             owner, relative = path.split('/', 1)
-            self.assertEqual(spec['after_commit'], graph['owners'][owner][1])
-            self.assertEqual(spec['after_blob'], graph['reviewed_deltas'][owner]['files'][relative])
+            current = graph['owners'][owner][1]
+            self.assertIn(current, portal.OWNER_COMMITS[owner])
+            expected = portal.specifications().get(path, spec) if current == portal.OWNER_COMMITS[owner][1] else spec
+            self.assertEqual(expected['after_blob'], graph['reviewed_deltas'][owner]['files'][relative])
             self.assertTrue(spec['edits'])
         for direct in (host, service):
             self.assertEqual(specs[direct.PATH]['before_sha256'], direct.specification()['after_sha256'])
@@ -122,13 +125,16 @@ def actual_source_controls(sources):
                     root = sources / owner
                     def git(*args):
                         return subprocess.check_output(['git', '-C', str(root), *args])
-                    self.assertEqual(git('rev-parse', 'HEAD').decode().strip(), spec['after_commit'])
+                    graph = json.loads((ROOT / 'ci/build/candidate-graph.json').read_text())
+                    self.assertEqual(git('rev-parse', 'HEAD').decode().strip(), graph['owners'][owner][1])
+                    self.assertIn(graph['owners'][owner][1], portal.OWNER_COMMITS[owner])
                     data = (sources / path).read_bytes()
                     self.assertEqual(data, git('show', 'HEAD:' + relative))
-                    self.assertEqual(P.blob(data), spec['after_blob'])
-                    prior = P.restore_bytes(path, data)
+                    owner_data = portal.restore_if_successor(path, data) if path in portal.specifications() else data
+                    self.assertEqual(P.blob(owner_data), spec['after_blob'])
+                    prior = P.restore_bytes(path, owner_data)
                     self.assertEqual(prior, git('show', spec['before_commit'] + ':' + relative))
-                    for mutation in (data + b'\n', data.replace(b' ', b'  ', 1)):
+                    for mutation in (owner_data + b'\n', owner_data.replace(b' ', b'  ', 1)):
                         with self.assertRaises(ValueError): P.restore_bytes(path, mutation)
                         repinned = copy.deepcopy(P.specifications())
                         repinned[path].update(after_sha256=P.sha(mutation), after_blob=P.blob(mutation))
@@ -160,7 +166,7 @@ def actual_source_controls(sources):
                     inventory(sources, contract)
                     for path, spec in P.specifications().items():
                         if path in contract['input_sha256']:
-                            self.assertEqual(contract['input_sha256'][path], spec['after_sha256'])
+                            self.assertEqual(contract['input_sha256'][path], P.sha((sources / path).read_bytes()))
                     self.assertEqual(receipt['contracts'][name]['frozen_contract_sha256'],
                                      P.sha((ROOT / 'ci/qualification/native' / name).read_bytes()))
     return unittest.defaultTestLoader.loadTestsFromTestCase(ActualSourceControls)

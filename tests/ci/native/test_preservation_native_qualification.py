@@ -10,6 +10,8 @@ from pathlib import Path as _WorkflowPath
 _workflow_sys.path.insert(0, str((_CIPath(__file__).resolve().parents[3]/'ci')))
 from workflow_jobs import workflow_job
 import copy
+import importlib.util
+import os
 import json
 from pathlib import Path
 import unittest
@@ -48,7 +50,8 @@ class NativeQualificationControls(unittest.TestCase):
         # These workflow controls run after exact source acquisition. Local
         # reviewed worktrees use SS; native workflows use sources/SideStore.
         harness = (_CIPath(__file__).resolve().parents[3])
-        roots = (harness.parent/'sources'/'SideStore', harness.parent/'SS')
+        configured = os.environ.get('MAINTAINED_SIDESTORE_TEST_SOURCE')
+        roots = ((Path(configured),) if configured else ()) + (harness.parent/'sources'/'SideStore', harness.parent/'SS')
         source = next((p for p in roots if (p/'tests/preservation_serialization/generate_fixture.py').is_file()), None)
         self.assertIsNotNone(source, 'actual acquired SideStore generator is required')
         with tempfile.TemporaryDirectory() as tmp:
@@ -76,6 +79,16 @@ class NativeQualificationControls(unittest.TestCase):
         self.assertEqual(row['cases'], list(C.PRESERVATION_INTEGRATION_CASES))
         good = self.value['parts']['swift']['logs']['SideStore-preservation']
         old = next(x for x in good.splitlines() if x.startswith('{') and json.loads(x)['schema']=='preservation-refresh-integration-v1')
+        log = good.replace(old, json.dumps(row))
+        # The frozen 80-case artifact remains historical proof under its frozen
+        # validator. It must never satisfy the successor's additional native gate.
+        spec = importlib.util.spec_from_file_location('historical_refresh_truth',
+            _CIPath(__file__).resolve().parents[3]/'ci/packaging/zopfli/reviewed-native/refresh_truth_receipt.py')
+        historical = importlib.util.module_from_spec(spec); spec.loader.exec_module(historical)
+        historical.suite_tests('SideStore-preservation', log.replace('Ran 6 tests', 'Ran 5 tests'))
+        self.reject_log('SideStore-preservation', log)
+        # Only the synthetic fixture below extends that schema to current cases.
+        row = {**row, 'cases': list(C.CURRENT_PRESERVATION_INTEGRATION_CASES)}
         log = good.replace(old, json.dumps(row))
         C.suite_tests('SideStore-preservation', log)
         for key in ('cms_verified','platform_tls_executed','portal_executed'):
@@ -150,7 +163,8 @@ class NativeQualificationControls(unittest.TestCase):
         expected = {
             'LiveContainer':6, 'LiveContainer-postdispatch-wire':2,
             'LiveContainer-observations':5, 'LiveContainer-legacy':4,
-            'SideStore':8, 'SideStore-preservation':5,
+            'SideStore':8, 'SideStore-preservation':6,
+            'SideSign-portal-parser':3, 'LiveContainer-portal-wire':2,
             'SideStore-preservation-origin':5, 'SideStore-preservation-der':6,
             'SideStore-preservation-outcome':3,
             'SideStore-preservation-serialization':None,
@@ -162,7 +176,8 @@ class NativeQualificationControls(unittest.TestCase):
         for owner in ('SideStore-preservation','SideStore-preservation-origin'):
             log=self.value['parts']['swift']['logs'][owner]
             C.suite_tests(owner,log)
-            self.reject_log(owner,log.replace('Ran 5 tests','Ran 4 tests'))
+            count=C.SUITES[owner][1]
+            self.reject_log(owner,log.replace('Ran '+str(count)+' tests','Ran '+str(count-1)+' tests'))
 
     def test_successor_inventory_remains_exact_and_source_owned(self):
         self.assertEqual((len(C.PRESERVATION_POLICY_CASES),len(C.PRESERVATION_INTEGRATION_CASES),len(C.ORIGIN_TRANSPORT_CASES)),(55,80,58))

@@ -9,6 +9,7 @@ import hashlib
 import json
 from pathlib import Path
 from ci.qualification.native import owner_fixes_projection as owner_fixes
+from ci.qualification.native import portal_identity_projection as portal_identity
 PATH = 'LiveContainer/SideStoreSupport/SideStore.swift'
 MANIFEST = (Path(__file__).parent / 'direct-host-source-delta.json')
 
@@ -19,6 +20,7 @@ def require(ok, why):
     if not ok: raise ValueError(why)
 
 def validate_bytes(data):
+    data = portal_identity.restore_if_successor(PATH, data)
     data = owner_fixes.restore_if_successor(PATH, data)
     spec = specification()
     digest = hashlib.sha256(data).hexdigest()
@@ -38,6 +40,7 @@ def validate_source(sources):
     return validate_bytes((sources / PATH).read_bytes())
 
 def normalize(contract):
+    contract = portal_identity.normalize(contract, PATH)
     contract = owner_fixes.normalize(contract, PATH)
     spec = specification()
     if contract.get('input_sha256', {}).get(PATH) != spec['after_sha256']: return contract

@@ -18,9 +18,11 @@ def fixture():
   logs={o:('\nRan '+str(n)+' tests in 0.123s\n\nOK\n' if n is not None else '') for o,(_,n) in C.SUITES.items()} if kind=='swift' else {'idevice':'\n'.join('test '+name+' ... ok' for name in C.RUST_CASES)+'\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'}
   parts[kind]={'schema':C.SCHEMA+'-part','kind':kind,'status':'PASS','identity':identity,'source_graph':graph,'source':source,'logs':logs,'compiler':{'path_sha256':'e'*64,'version':'synthetic compiler model'},'physical_device_execution':False}
   if kind=='swift':
+   logs['SideSign-portal-parser']+=C.PORTAL_PARSER_MARKER+'\n'
+   logs['LiveContainer-portal-wire']+='\n'.join('PASS '+name for name in C.PORTAL_WIRE_CASES)+'\nPORTAL_WIRE_PASS\n'
    logs['SideStore-preservation-origin']+=json.dumps({'schema':'preservation-origin-transport-v1','status':'PASS','cases':list(C.ORIGIN_TRANSPORT_CASES),'network_executed':False,'platform_tls_executed':False,'cms_verified':False,'device_executed':False})+'\n'+json.dumps({'schema':'preservation-origin-visibility-v1','status':'PASS','cases':list(C.ORIGIN_VISIBILITY_CASES),'device_executed':False})+'\n'
    logs['SideStore-preservation-der']+=json.dumps({'schema':'preservation-der-parser-v1','status':'PASS','cases':list(C.PRESERVATION_DER_CASES),'cms_verified':False,'device_executed':False})+'\n'
-   logs['SideStore-preservation']+=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False,**({'cms_verified':False,'platform_tls_executed':False,'portal_executed':False} if name=='integration' else {})})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.PRESERVATION_INTEGRATION_CASES)])
+   logs['SideStore-preservation']+=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False,**({'cms_verified':False,'platform_tls_executed':False,'portal_executed':False} if name=='integration' else {})})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.CURRENT_PRESERVATION_INTEGRATION_CASES)])
    logs['SideStore-reuse-lifecycle']+='\n'.join(C.REUSE_LIFECYCLE_MARKERS)+'\n'
    logs['SideStore-reuse-lifecycle']+=json.dumps({'schema':'reuse-main-producer-consumer-v1','status':'PASS','cases':list(C.REUSE_PRODUCER_CONSUMER_CASES),'device_executed':False})+'\n'
   if kind=='swift':
@@ -30,7 +32,7 @@ def fixture():
    logs['SideStore-preservation-outcome']+='PASS 7 actual outcome cases and SS-to-LC wire\n'
    logs['LiveContainer-postdispatch-wire']+=json.dumps({'schema':'ss-lc-postdispatch-wire-v1','status':'PASS','cases':list(C.POSTDISPATCH_CASES),'device_executed':False,'network_executed':False,'inputs':{key:'d'*64 for key in C.POSTDISPATCH_INPUTS}})+'\n'
   if kind=='swift':parts[kind]['logs']['SideStore-refresh-failure']+='CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\nAPPLE_PROFILE_ORIGIN_REAL_SIGNING_BRIDGE_PASS\nPRESERVATION_POSTDISPATCH_REAL_BRIDGE_PASS\n'
-  if kind=='swift':parts[kind]['logs']['LiveContainer-observations']+='\n'.join('PASS '+name for name in C.OBSERVATION_CASES)+'\nREFRESH_OBSERVATIONS_PASS\n'
+  if kind=='swift':parts[kind]['logs']['LiveContainer-observations']+='\n'.join('PASS '+name for name in C.CURRENT_OBSERVATION_CASES)+'\nREFRESH_OBSERVATIONS_PASS\n'
   if kind=='swift':
    for owner,(schema,cases) in C.LEGACY_NATIVE.items():parts[kind]['logs'][owner]+=json.dumps({'schema':schema,'status':'PASS','cases':list(cases)})+'\n'
   if kind=='swift':parts[kind]['logs']['SideStore-legacy-coordinator']+='\n'.join(C.LEGACY_COORDINATOR_MARKERS)+'\n'
@@ -107,7 +109,7 @@ class ReceiptTests(unittest.TestCase):
    with self.subTest(case=case):
     self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',v['parts']['swift']['logs']['LiveContainer-observations'].replace('PASS '+case+'\n','')))
  def test_signer_diagnostic_integration_and_static_controls_mandatory(self):
-  self.assertEqual(C.SUITES['SideStore-preservation'],('tests/preservation_refresh/run.sh',5))
+  self.assertEqual(C.SUITES['SideStore-preservation'],('tests/preservation_refresh/run.sh',6))
   for case in C.PRESERVATION_INTEGRATION_CASES[38:]:
    def change(v):
     log=v['parts']['swift']['logs']['SideStore-preservation']
