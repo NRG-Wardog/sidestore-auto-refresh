@@ -27,7 +27,7 @@
     "ci/native_paths.py": "d0925be4528ab852a06591d36f56c8f3a074df58bcfe8aa7de912d81034750d1",
     "ci/packaging/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "ci/packaging/native/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "ci/packaging/patch-surface.json": "bee74714263361fb2179b77e9413b3d45f3c8282b959e8370f8213b450ae2fac",
+    "ci/packaging/patch-surface.json": "34e288bdeae7d36ba292ffbb4dfdf09a9a4057ff2c3a442f5254f07775187de7",
     "ci/packaging/zopfli/pinned_native_admission.py": "f9d63bb271020a03890175d8ed1b2092b74c9c7fd2222b4a6323ec5fbbddfaf0",
     "ci/packaging/zopfli/reviewed-native/pinned-input/attachment_contract.py": "7b69b8effdfbe21e32ff347bdeeebc67c436a5319cd906b9ad58588aed308205",
     "ci/packaging/zopfli/reviewed-native/pinned-input/diagnostics_contract.py": "375692a8695764c3d3275701fdd4e4600bf6cf21ec50dd5044cbf353e0201670",

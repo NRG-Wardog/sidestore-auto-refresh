@@ -83,7 +83,7 @@
     }
   ],
   "reviewed_owner_variant": {
-    "source_commit": "12e77fad6517288de544e766fb0e84594c2a1912",
+    "source_commit": "511e25b647c80bd070bef31e80b1020cfd4a5b7b",
     "source_path": ".github/build_github.sh",
     "source_sha256": "de3b76fc8f19e6afd4e02d9c96872347fda092128a09bb8a9ca9140a87ada341",
     "rules": [
