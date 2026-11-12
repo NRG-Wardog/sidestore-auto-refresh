@@ -85,7 +85,7 @@ class NativeQualificationControls(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('historical_refresh_truth',
             _CIPath(__file__).resolve().parents[3]/'ci/packaging/zopfli/reviewed-native/refresh_truth_receipt.py')
         historical = importlib.util.module_from_spec(spec); spec.loader.exec_module(historical)
-        historical.suite_tests('SideStore-preservation', log.replace('Ran 6 tests', 'Ran 5 tests'))
+        historical.suite_tests('SideStore-preservation', log.replace('Ran 7 tests', 'Ran 5 tests'))
         self.reject_log('SideStore-preservation', log)
         # Only the synthetic fixture below extends that schema to current cases.
         row = {**row, 'cases': list(C.CURRENT_PRESERVATION_INTEGRATION_CASES)}
@@ -163,7 +163,7 @@ class NativeQualificationControls(unittest.TestCase):
         expected = {
             'LiveContainer':6, 'LiveContainer-postdispatch-wire':2,
             'LiveContainer-observations':5, 'LiveContainer-legacy':4,
-            'SideStore':8, 'SideStore-preservation':6,
+            'SideStore':8, 'SideStore-preservation':7,
             'SideSign-portal-parser':3, 'LiveContainer-portal-wire':2,
             'SideStore-preservation-origin':5, 'SideStore-preservation-der':6,
             'SideStore-preservation-outcome':3,

@@ -1,0 +1,460 @@
+{
+  "files": {
+    "LiveContainer/SideStoreSupport/SideStore.swift": {
+      "after_blob": "9a426029063f4e454d4acdbe3a8beb1be73091fa",
+      "after_commit": "f59be2462026a70a957d309963ef91a9f29d893b",
+      "after_sha256": "b467580e7da1d104725d8fae7e46d41197731d0ede64d8b3d9d129100ac8afd1",
+      "before_blob": "75a5e44cefae0c8715ecd452c9d195172148eb46",
+      "before_commit": "511e25b647c80bd070bef31e80b1020cfd4a5b7b",
+      "before_sha256": "05e95a5e41650d77622773cbbe95e5601498c6f94249897f43791d64973d9441",
+      "edits": [
+        {
+          "after": "            if selection, token == \"preservationEvidenceUnavailable\",\n               failure?.stage == .signing, failure?.sourceStep == .provisioningProfileFetch,\n               evidence?.mutationDispatched == false,\n               let reason = failure?.signingContext[\"preservation_evidence\"],\n               CombinedFailure.preservationEvidenceKinds.contains(reason) {\n                row[\"preservationEvidence\"] = reason\n            }\n",
+          "after_lines": [
+            471,
+            478
+          ],
+          "before": ""
+        },
+        {
+          "after": "            guard rowKeys.isSubset(of: Set(row.keys)), Set(row.keys).isSubset(of: rowKeys.union([\"preservationConflict\", \"cmsSignerDiagnostic\", \"appleProfileOrigin\", \"preservationPortalIdentity\", \"preservationEvidence\"])), let target = row[\"target\"] as? NSNumber,\n",
+          "after_lines": [
+            500,
+            501
+          ],
+          "before": "            guard rowKeys.isSubset(of: Set(row.keys)), Set(row.keys).isSubset(of: rowKeys.union([\"preservationConflict\", \"cmsSignerDiagnostic\", \"appleProfileOrigin\", \"preservationPortalIdentity\"])), let target = row[\"target\"] as? NSNumber,\n"
+        },
+        {
+          "after": "            let evidenceSuffix: String\n            if operation == \"failed\", scope == \"nonHost\", dispatched == \"no\",\n               token == \"preservationEvidenceUnavailable\", kind == \"invalidParameters\",\n               let reason = row[\"preservationEvidence\"] as? String,\n               CombinedFailure.preservationEvidenceKinds.contains(reason) {\n                evidenceSuffix = \" preservation_evidence=\\(reason)\"\n            } else { evidenceSuffix = \"\" }\n",
+          "after_lines": [
+            529,
+            536
+          ],
+          "before": ""
+        },
+        {
+          "after": "            lines.append(\"target_\\(index + 1): scope=\\(scope) operation_status=\\(operation) selection_guard=\\(token) failure_kind=\\(kind) mutation_dispatched=\\(dispatched) install_acknowledged=\\(acknowledged) profile_store=\\(store) renewal=\\(renewal) certificate=\\(certificate)\" + conflictSuffix + signerSuffix + originSuffix + portalSuffix + evidenceSuffix)\n",
+          "after_lines": [
+            543,
+            544
+          ],
+          "before": "            lines.append(\"target_\\(index + 1): scope=\\(scope) operation_status=\\(operation) selection_guard=\\(token) failure_kind=\\(kind) mutation_dispatched=\\(dispatched) install_acknowledged=\\(acknowledged) profile_store=\\(store) renewal=\\(renewal) certificate=\\(certificate)\" + conflictSuffix + signerSuffix + originSuffix + portalSuffix)\n"
+        },
+        {
+          "after": "        // Local profile evidence observations describe only this signing guard.\n        if !preservationScope ||\n            (self.safeCause != nil && self.safeCause != .unknownSigningCause) ||\n            context[\"local_precondition\"] != \"preservationEvidenceUnavailable\" {\n            context.removeValue(forKey: \"preservation_evidence\")\n        }\n",
+          "after_lines": [
+            1150,
+            1156
+          ],
+          "before": ""
+        },
+        {
+          "after": "        if fields[\"preservation_evidence\"] != nil &&\n            (!(fields[\"preservation_evidence\"] is String) || fields.count > 20) {\n            fields.removeValue(forKey: \"preservation_evidence\")\n        }\n",
+          "after_lines": [
+            1182,
+            1186
+          ],
+          "before": ""
+        },
+        {
+          "after": "    public static let preservationEvidenceKinds: Set<String> = [\"incompatibleMode\", \"missingCertificate\", \"missingReader\", \"readFailed\", \"emptyInventory\", \"noMatchingProfile\", \"inventoryCountLimit\", \"emptyProfile\", \"profileSizeLimit\", \"inventorySizeLimit\", \"processingTimeLimit\", \"missingOrigin\", \"candidateMismatch\"]\n",
+          "after_lines": [
+            1218,
+            1219
+          ],
+          "before": ""
+        },
+        {
+          "after": "        if supplied.count > 20 { supplied.removeValue(forKey: \"preservation_evidence\") }\n",
+          "after_lines": [
+            1226,
+            1227
+          ],
+          "before": ""
+        },
+        {
+          "after": "        }\n        if let reason = fields[\"preservation_evidence\"],\n           !Self.preservationEvidenceKinds.contains(reason) ||\n           fields[\"refresh_target_scope\"] != \"nonHost\" ||\n           fields[\"local_precondition\"] != \"preservationEvidenceUnavailable\" ||\n           fields[\"refresh_failure_kind\"] != \"invalidParameters\" {\n            fields.removeValue(forKey: \"preservation_evidence\")\n",
+          "after_lines": [
+            1259,
+            1266
+          ],
+          "before": ""
+        },
+        {
+          "after": "            case \"preservation_evidence\":\n                guard Self.preservationEvidenceKinds.contains(text),\n                      fields[\"refresh_target_scope\"] == \"nonHost\",\n                      fields[\"local_precondition\"] == \"preservationEvidenceUnavailable\",\n                      fields[\"refresh_failure_kind\"] == \"invalidParameters\" else { return nil }\n",
+          "after_lines": [
+            1367,
+            1372
+          ],
+          "before": ""
+        },
+        {
+          "after": "\n",
+          "after_lines": [
+            13494,
+            13495
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/AltStore/AppDelegate.swift": {
+      "after_blob": "3ca1ca1694df28f5905422e5bb461d0a6047ec81",
+      "after_commit": "d2bf28820367a882fe0f1db93184a830db83c243",
+      "after_sha256": "ecbbeee965963ba1155cc2d91d3121063834b03d887338d2928839e1a54c00a3",
+      "before_blob": "826efb141b893118e1b5f526cf3f3b90e3d7c75a",
+      "before_commit": "b61990276f574c0f5a3dee95fd816ba957d50c6c",
+      "before_sha256": "eb48aa5865a8dbcf376c6bd957d4a300c4eb7c4b310bc892cc3bc058b4d98997",
+      "edits": [
+        {
+          "after": "        // Local profile evidence observations describe only this signing guard.\n        if !preservationScope ||\n            (self.safeCause != nil && self.safeCause != .unknownSigningCause) ||\n            context[\"local_precondition\"] != \"preservationEvidenceUnavailable\" {\n            context.removeValue(forKey: \"preservation_evidence\")\n        }\n",
+          "after_lines": [
+            15783,
+            15789
+          ],
+          "before": ""
+        },
+        {
+          "after": "        if fields[\"preservation_evidence\"] != nil &&\n            (!(fields[\"preservation_evidence\"] is String) || fields.count > 20) {\n            fields.removeValue(forKey: \"preservation_evidence\")\n        }\n",
+          "after_lines": [
+            15815,
+            15819
+          ],
+          "before": ""
+        },
+        {
+          "after": "    public static let preservationEvidenceKinds: Set<String> = [\"incompatibleMode\", \"missingCertificate\", \"missingReader\", \"readFailed\", \"emptyInventory\", \"noMatchingProfile\", \"inventoryCountLimit\", \"emptyProfile\", \"profileSizeLimit\", \"inventorySizeLimit\", \"processingTimeLimit\", \"missingOrigin\", \"candidateMismatch\"]\n",
+          "after_lines": [
+            15851,
+            15852
+          ],
+          "before": ""
+        },
+        {
+          "after": "        if supplied.count > 20 { supplied.removeValue(forKey: \"preservation_evidence\") }\n",
+          "after_lines": [
+            15859,
+            15860
+          ],
+          "before": ""
+        },
+        {
+          "after": "        }\n        if let reason = fields[\"preservation_evidence\"],\n           !Self.preservationEvidenceKinds.contains(reason) ||\n           fields[\"refresh_target_scope\"] != \"nonHost\" ||\n           fields[\"local_precondition\"] != \"preservationEvidenceUnavailable\" ||\n           fields[\"refresh_failure_kind\"] != \"invalidParameters\" {\n            fields.removeValue(forKey: \"preservation_evidence\")\n",
+          "after_lines": [
+            15892,
+            15899
+          ],
+          "before": ""
+        },
+        {
+          "after": "            case \"preservation_evidence\":\n                guard Self.preservationEvidenceKinds.contains(text),\n                      fields[\"refresh_target_scope\"] == \"nonHost\",\n                      fields[\"local_precondition\"] == \"preservationEvidenceUnavailable\",\n                      fields[\"refresh_failure_kind\"] == \"invalidParameters\" else { return nil }\n",
+          "after_lines": [
+            16000,
+            16005
+          ],
+          "before": ""
+        },
+        {
+          "after": "\n",
+          "after_lines": [
+            19155,
+            19156
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": {
+      "after_blob": "a1ae507fa25929f06999fbe2b6a582e19ad44672",
+      "after_commit": "d2bf28820367a882fe0f1db93184a830db83c243",
+      "after_sha256": "31b5bea8f6c6b196a835c20b4ad6e3bf004f93c8a3b8fa9bc3c48e4ae16a5cf4",
+      "before_blob": "685d5ece25c97b9a1606a610e71f138a779bb443",
+      "before_commit": "b61990276f574c0f5a3dee95fd816ba957d50c6c",
+      "before_sha256": "311c83aceb029a95b67c03f9dd59cffa7dd4672cda51b04116370f3c2cb55b98",
+      "edits": [
+        {
+          "after": "        guard !context.isCellularRefreshGroup, context.legacyReplacementBinding == nil else {\n            throw V3PreservationRefreshState.evidenceFailure(\"incompatibleMode\")\n        }\n        guard let certificate = context.verifiedRefreshCertificate, !certificate.data.isEmpty else {\n            throw V3PreservationRefreshState.evidenceFailure(\"missingCertificate\")\n        }\n        guard let read = context.readInstalledProvisioningProfiles else {\n            throw V3PreservationRefreshState.evidenceFailure(\"missingReader\")\n",
+          "after_lines": [
+            174,
+            182
+          ],
+          "before": "        guard !context.isCellularRefreshGroup, context.legacyReplacementBinding == nil,\n              let certificate = context.verifiedRefreshCertificate, !certificate.data.isEmpty,\n              let read = context.readInstalledProvisioningProfiles else {\n            throw V3PreservationRefreshState.failure(.preservationEvidenceUnavailable)\n"
+        },
+        {
+          "after": "            throw V3PreservationRefreshState.evidenceFailure(\"readFailed\")\n",
+          "after_lines": [
+            202,
+            203
+          ],
+          "before": "            throw V3PreservationRefreshState.failure(.preservationEvidenceUnavailable)\n"
+        },
+        {
+          "after": "            throw V3PreservationRefreshState.evidenceFailure(\"missingOrigin\")\n",
+          "after_lines": [
+            291,
+            292
+          ],
+          "before": "            throw V3PreservationRefreshState.failure(.preservationEvidenceUnavailable)\n"
+        },
+        {
+          "after": "\n",
+          "after_lines": [
+            782,
+            783
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift": {
+      "after_blob": "c78b6925cc19fa28a43ab6a6942158603db12e21",
+      "after_commit": "d2bf28820367a882fe0f1db93184a830db83c243",
+      "after_sha256": "b3def657b17963d97cca73835aabb228cc7b3b87a66886fbe06f39fa77990a7c",
+      "before_blob": "9b8b2ce06f1b8e9fca1e1a4836d7c29bbcac4e8e",
+      "before_commit": "b61990276f574c0f5a3dee95fd816ba957d50c6c",
+      "before_sha256": "98f6be0777cb33cbaaa4699d35dbb230884b72e3a5ce0a78809719989747cab0",
+      "edits": [
+        {
+          "after": "    let preservationEvidence: String?\n",
+          "after_lines": [
+            33,
+            34
+          ],
+          "before": ""
+        },
+        {
+          "after": "          appleProfileOrigin: String? = nil, portalIdentity: String? = nil, preservationEvidence: String? = nil) {\n",
+          "after_lines": [
+            35,
+            36
+          ],
+          "before": "          appleProfileOrigin: String? = nil, portalIdentity: String? = nil) {\n"
+        },
+        {
+          "after": "        self.preservationEvidence = preservationEvidence\n",
+          "after_lines": [
+            40,
+            41
+          ],
+          "before": ""
+        },
+        {
+          "after": "    static let preservationEvidenceKinds: Set<String> = [\"incompatibleMode\", \"missingCertificate\", \"missingReader\",\n        \"readFailed\", \"emptyInventory\", \"noMatchingProfile\", \"inventoryCountLimit\", \"emptyProfile\",\n        \"profileSizeLimit\", \"inventorySizeLimit\", \"processingTimeLimit\", \"missingOrigin\", \"candidateMismatch\"]\n",
+          "after_lines": [
+            61,
+            64
+          ],
+          "before": ""
+        },
+        {
+          "after": "        }\n        if reason == .preservationEvidenceUnavailable, scope == .nonHost,\n           let detail = preservationEvidence, detail.utf8.count <= 32, Self.preservationEvidenceKinds.contains(detail) {\n            result[\"preservation_evidence\"] = detail\n",
+          "after_lines": [
+            70,
+            74
+          ],
+          "before": ""
+        },
+        {
+          "after": "            throw V3PreservationRefreshState.evidenceFailure(\"candidateMismatch\")\n",
+          "after_lines": [
+            861,
+            862
+          ],
+          "before": "            throw V3PreservationRefreshState.failure(.preservationEvidenceUnavailable)\n"
+        },
+        {
+          "after": "        guard !inventory.isEmpty else { throw evidenceFailure(\"emptyInventory\") }\n",
+          "after_lines": [
+            893,
+            894
+          ],
+          "before": ""
+        },
+        {
+          "after": "        guard let origin else { throw evidenceFailure(\"missingOrigin\") }\n",
+          "after_lines": [
+            917,
+            918
+          ],
+          "before": "        guard let origin else { throw failure(.preservationEvidenceUnavailable) }\n"
+        },
+        {
+          "after": "        guard inventory.count <= 512 else { throw evidenceFailure(\"inventoryCountLimit\") }\n",
+          "after_lines": [
+            979,
+            980
+          ],
+          "before": "        guard inventory.count <= 512 else { throw failure(.preservationEvidenceUnavailable) }\n"
+        },
+        {
+          "after": "            guard !bytes.isEmpty else { throw evidenceFailure(\"emptyProfile\") }\n            guard bytes.count <= 1_048_576 else { throw evidenceFailure(\"profileSizeLimit\") }\n            guard !overflow, next <= 32 * 1024 * 1024 else { throw evidenceFailure(\"inventorySizeLimit\") }\n",
+          "after_lines": [
+            983,
+            986
+          ],
+          "before": "            guard !overflow, !bytes.isEmpty, bytes.count <= 1_048_576, next <= 32 * 1024 * 1024 else {\n                throw failure(.preservationEvidenceUnavailable)\n            }\n"
+        },
+        {
+          "after": "            throw evidenceFailure(\"processingTimeLimit\")\n",
+          "after_lines": [
+            1004,
+            1005
+          ],
+          "before": "            throw failure(.preservationEvidenceUnavailable)\n"
+        },
+        {
+          "after": "    // Diagnostic only: fixed categories do not authorize recovery or mutation.\n    static func evidenceFailure(_ detail: String) -> V3RefreshSelectionFailure {\n        V3RefreshSelectionFailure(reason: .preservationEvidenceUnavailable, scope: .nonHost, preservationEvidence: detail)\n    }\n\n",
+          "after_lines": [
+            1074,
+            1079
+          ],
+          "before": ""
+        },
+        {
+          "after": "        case .missingInstalledProfile: return evidenceFailure(\"noMatchingProfile\")\n",
+          "after_lines": [
+            1102,
+            1103
+          ],
+          "before": "        case .missingInstalledProfile: reason = .preservationEvidenceUnavailable\n"
+        },
+        {
+          "after": "\n",
+          "after_lines": [
+            1120,
+            1121
+          ],
+          "before": ""
+        }
+      ]
+    }
+  },
+  "owners": {
+    "LiveContainer": {
+      "after_commit": "f59be2462026a70a957d309963ef91a9f29d893b",
+      "after_tree": "df1cd10173c77c0ce87b466839e8542bc1be5957",
+      "before_commit": "511e25b647c80bd070bef31e80b1020cfd4a5b7b",
+      "before_reviewed_delta_sha256": "e2730f5a0eb9a7e3ddbbf7d24fccaf210f05045132f69183a97c17cca2f552b3",
+      "before_tree": "75bc1290dabddeb77211506f8c81994936a88266",
+      "changes": {
+        ".github/workflows/portal-identity-contract.yml": {
+          "after_blob": "6b78bc37bbe76c845f27db7e44cae531561651eb",
+          "after_sha256": "898429f5c6308ff18152b040fdead78cd1a90be7031016bce5c2cf8446f79733",
+          "before_blob": "0006d5014ed07aec6b0fa85c7a61a7ba4ea3176e"
+        },
+        "SideStoreSupport/SideStore.swift": {
+          "after_blob": "9a426029063f4e454d4acdbe3a8beb1be73091fa",
+          "after_sha256": "b467580e7da1d104725d8fae7e46d41197731d0ede64d8b3d9d129100ac8afd1",
+          "before_blob": "75a5e44cefae0c8715ecd452c9d195172148eb46"
+        },
+        "tests/portal_identity/cases.swift": {
+          "after_blob": "3a321245b88629d2c72271eb7ecad463b4f40489",
+          "after_sha256": "1a023a20477d52719a4ca6191a92887556a1e4a0c2dbbd896d2064ac3c150e27",
+          "before_blob": "a178a6ba0214f75740deb1c5a6fc76d5c590071c"
+        },
+        "tests/portal_identity/test_contract.py": {
+          "after_blob": "896632cef22370f5273c5ca069ccaefadb3278db",
+          "after_sha256": "0134c0402843ce34d2782c359780fca222bc84f1a6662f79fc55ae5ce09d4e2f",
+          "before_blob": "eb538a8a689179ca8199ecfa655dd1a531b01281"
+        }
+      },
+      "commit_chain": [
+        {
+          "commit": "f59be2462026a70a957d309963ef91a9f29d893b",
+          "parents": [
+            "e939e2132aad47f97e800e27375c0fa59a36516f"
+          ],
+          "tree": "df1cd10173c77c0ce87b466839e8542bc1be5957"
+        },
+        {
+          "commit": "e939e2132aad47f97e800e27375c0fa59a36516f",
+          "parents": [
+            "511e25b647c80bd070bef31e80b1020cfd4a5b7b"
+          ],
+          "tree": "a212072e222cb206c7b7edc75e19cceb92e98007"
+        }
+      ],
+      "delta": [
+        ":100644 100644 0006d5014ed07aec6b0fa85c7a61a7ba4ea3176e 6b78bc37bbe76c845f27db7e44cae531561651eb M\t.github/workflows/portal-identity-contract.yml",
+        ":100644 100644 75a5e44cefae0c8715ecd452c9d195172148eb46 9a426029063f4e454d4acdbe3a8beb1be73091fa M\tSideStoreSupport/SideStore.swift",
+        ":100644 100644 a178a6ba0214f75740deb1c5a6fc76d5c590071c 3a321245b88629d2c72271eb7ecad463b4f40489 M\ttests/portal_identity/cases.swift",
+        ":100644 100644 eb538a8a689179ca8199ecfa655dd1a531b01281 896632cef22370f5273c5ca069ccaefadb3278db M\ttests/portal_identity/test_contract.py"
+      ]
+    },
+    "SideStore": {
+      "after_commit": "d2bf28820367a882fe0f1db93184a830db83c243",
+      "after_tree": "054277310f546b189c9deae0bf843493e66ac9d8",
+      "before_commit": "b61990276f574c0f5a3dee95fd816ba957d50c6c",
+      "before_reviewed_delta_sha256": "398d0844b470b89cd198efaf91bbe87b67108d22e48ddb9b13d19cdb571a01a9",
+      "before_tree": "5d93215f7bb4bb0cdc6bda9f359727ad18d948af",
+      "changes": {
+        "AltStore/AppDelegate.swift": {
+          "after_blob": "3ca1ca1694df28f5905422e5bb461d0a6047ec81",
+          "after_sha256": "ecbbeee965963ba1155cc2d91d3121063834b03d887338d2928839e1a54c00a3",
+          "before_blob": "826efb141b893118e1b5f526cf3f3b90e3d7c75a"
+        },
+        "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": {
+          "after_blob": "a1ae507fa25929f06999fbe2b6a582e19ad44672",
+          "after_sha256": "31b5bea8f6c6b196a835c20b4ad6e3bf004f93c8a3b8fa9bc3c48e4ae16a5cf4",
+          "before_blob": "685d5ece25c97b9a1606a610e71f138a779bb443"
+        },
+        "SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift": {
+          "after_blob": "c78b6925cc19fa28a43ab6a6942158603db12e21",
+          "after_sha256": "b3def657b17963d97cca73835aabb228cc7b3b87a66886fbe06f39fa77990a7c",
+          "before_blob": "9b8b2ce06f1b8e9fca1e1a4836d7c29bbcac4e8e"
+        },
+        "tests/preservation_refresh/AuthenticatedAdapterCases.swift": {
+          "after_blob": "42005b57872282b01695bec25d468a4ac607f410",
+          "after_sha256": "dd9546ef0b30b94a0fa158bebff61adf12112eb5e17eeb174cc2c8a9e4ad1185",
+          "before_blob": "321e31276376992bf1c998b5ade08d40e9d252b1"
+        },
+        "tests/preservation_refresh/IntegrationCases.swift": {
+          "after_blob": "09b10de6f288e78e2639d4cea2bd93defc87bdef",
+          "after_sha256": "2e446062f25612088636a1d0c7e676923f63403dada3c4d802fe9cc7f42bf21d",
+          "before_blob": "c58ea3d22d4f355b8a6072dd78015787e9b162df"
+        },
+        "tests/preservation_refresh/README.md": {
+          "after_blob": "12523396b19a512b2401cc6a7ed61f1113533b74",
+          "after_sha256": "c10137d2e9ed284ddf5eaf6f46fd37b7682e5e2f95a1255d8056375e013fe52a",
+          "before_blob": "f9051534c4e6e24394b01c4d8d88bff6b467de69"
+        },
+        "tests/preservation_refresh/expected-cases.json": {
+          "after_blob": "b8693a3f1169f1dc063d5d46129339c8497076c1",
+          "after_sha256": "b741bb030708605419cd8bea826613a0580ac0816b19835eb38b436577fd30c9",
+          "before_blob": "cb0e4371a09f951beb25535409a673e014ba7db9"
+        },
+        "tests/preservation_refresh/historical-case-reconciliation.json": {
+          "after_blob": "3a6e96009351491ce0a450aa8436fe0705129cf1",
+          "after_sha256": "44af35700d9d81db9e4c872062d951054f1daf93a75eac79592c16df533f09b1",
+          "before_blob": "1661d57aa2944a8d2c4b7fc392df843dd9bc2cb0"
+        },
+        "tests/preservation_refresh/test_contract.py": {
+          "after_blob": "8cdd12071632a660663cd4e421efcddde5aa9939",
+          "after_sha256": "c06b91a7561661fc1455b90705e9509638f2ab0841eac5247e66ac43d6ffc31b",
+          "before_blob": "9777be689f976008f1c55f1dade7022b2950a0cc"
+        }
+      },
+      "commit_chain": [
+        {
+          "commit": "d2bf28820367a882fe0f1db93184a830db83c243",
+          "parents": [
+            "b61990276f574c0f5a3dee95fd816ba957d50c6c"
+          ],
+          "tree": "054277310f546b189c9deae0bf843493e66ac9d8"
+        }
+      ],
+      "delta": [
+        ":100644 100644 826efb141b893118e1b5f526cf3f3b90e3d7c75a 3ca1ca1694df28f5905422e5bb461d0a6047ec81 M\tAltStore/AppDelegate.swift",
+        ":100644 100644 685d5ece25c97b9a1606a610e71f138a779bb443 a1ae507fa25929f06999fbe2b6a582e19ad44672 M\tSideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
+        ":100644 100644 9b8b2ce06f1b8e9fca1e1a4836d7c29bbcac4e8e c78b6925cc19fa28a43ab6a6942158603db12e21 M\tSideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift",
+        ":100644 100644 321e31276376992bf1c998b5ade08d40e9d252b1 42005b57872282b01695bec25d468a4ac607f410 M\ttests/preservation_refresh/AuthenticatedAdapterCases.swift",
+        ":100644 100644 c58ea3d22d4f355b8a6072dd78015787e9b162df 09b10de6f288e78e2639d4cea2bd93defc87bdef M\ttests/preservation_refresh/IntegrationCases.swift",
+        ":100644 100644 f9051534c4e6e24394b01c4d8d88bff6b467de69 12523396b19a512b2401cc6a7ed61f1113533b74 M\ttests/preservation_refresh/README.md",
+        ":100644 100644 cb0e4371a09f951beb25535409a673e014ba7db9 b8693a3f1169f1dc063d5d46129339c8497076c1 M\ttests/preservation_refresh/expected-cases.json",
+        ":100644 100644 1661d57aa2944a8d2c4b7fc392df843dd9bc2cb0 3a6e96009351491ce0a450aa8436fe0705129cf1 M\ttests/preservation_refresh/historical-case-reconciliation.json",
+        ":100644 100644 9777be689f976008f1c55f1dade7022b2950a0cc 8cdd12071632a660663cd4e421efcddde5aa9939 M\ttests/preservation_refresh/test_contract.py"
+      ]
+    }
+  },
+  "schema": "reviewed-preservation-evidence-source-delta-v1"
+}

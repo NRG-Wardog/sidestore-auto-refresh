@@ -21,10 +21,14 @@ from ci.workflow_jobs import workflow_job
 
 PORTAL_INPUTS = {
     'LiveContainer': ('tests/portal_identity/test_contract.py', 'tests/portal_identity/cases.swift',
-                      '.ci/comprehensive-diagnostics/generate_wire_fixture.py'),
+                      '.ci/comprehensive-diagnostics/generate_wire_fixture.py', 'SideStoreSupport/SideStore.swift'),
     'SideStore': ('tests/preservation_refresh/PortalRequestDoubles.swift',
                   'SideStore/Core/Operations/PipelineExecutor.swift',
-                  'tests/refresh_failure/pipeline_harness.swift'),
+                  'tests/refresh_failure/pipeline_harness.swift', 'AltStore/AppDelegate.swift',
+                  'SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift',
+                  'SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift',
+                  'tests/preservation_refresh/generate_fixture.py', 'tests/preservation_refresh/test_contract.py',
+                  'tests/preservation_refresh/expected-cases.json', 'tests/preservation_refresh/IntegrationCases.swift'),
     'SideStore/Dependencies/SideSign': ('Sources/Models/AppID.swift',
         'Sources/DeveloperPortal/AppIDLookupResponse.swift', 'Sources/DeveloperPortal/AppIDs.swift',
         'Sources/DeveloperPortal/DeveloperPortalAPI.swift', '.ci/appid-lookup/run.sh',
@@ -57,8 +61,10 @@ class PortalGateTests(unittest.TestCase):
         self.assertEqual(C.SUITE_OWNERS['SideSign-portal-parser'], 'SideStore/Dependencies/SideSign')
         self.assertEqual(C.SUITES['LiveContainer-portal-wire'], ('tests/portal_identity/test_contract.py', 2))
         self.assertEqual(C.SUITE_OWNERS['LiveContainer-portal-wire'], 'LiveContainer')
-        self.assertEqual(C.SUITES['SideStore-preservation'], ('tests/preservation_refresh/run.sh', 6))
+        self.assertEqual(C.SUITES['SideStore-preservation'], ('tests/preservation_refresh/run.sh', 7))
         self.assertEqual(len(C.PORTAL_WIRE_CASES), 32)
+        self.assertEqual(len(C.EVIDENCE_WIRE_CASES), 35)
+        self.assertEqual(len(C.CURRENT_PORTAL_WIRE_CASES), 67)
         self.assertEqual(C.PORTAL_PARSER_MARKER, 'PASS: 172 strict App ID parser assertions')
         for owner in ('SideSign-portal-parser', 'LiveContainer-portal-wire', 'SideStore-preservation'):
             value = copy.deepcopy(self.value)
@@ -73,8 +79,19 @@ class PortalGateTests(unittest.TestCase):
         self.assertEqual(len(C.LEGACY_HOST_CASES), 81)
         self.assertEqual(C.CURRENT_PRESERVATION_INTEGRATION_CASES[:80], C.PRESERVATION_INTEGRATION_CASES)
         self.assertEqual(C.CURRENT_OBSERVATION_CASES[:189], C.OBSERVATION_CASES)
-        self.assertEqual(len(C.CURRENT_PRESERVATION_INTEGRATION_CASES), 98)
+        self.assertEqual(len(C.CURRENT_PRESERVATION_INTEGRATION_CASES), 110)
         self.assertEqual(len(C.CURRENT_OBSERVATION_CASES), 216)
+        self.assertEqual(len(C.EVIDENCE_INTEGRATION_CASES), 12)
+        self.assertEqual(C.CURRENT_PRESERVATION_INTEGRATION_CASES[98:], C.EVIDENCE_INTEGRATION_CASES)
+        self.assertEqual(C.CURRENT_PORTAL_WIRE_CASES[:32], C.PORTAL_WIRE_CASES)
+        self.assertEqual(C.CURRENT_PORTAL_WIRE_CASES[32:], C.EVIDENCE_WIRE_CASES)
+        # Exact previously qualified inventories, never re-pinned for the successor.
+        self.assertEqual(C.digest(C.CURRENT_PRESERVATION_INTEGRATION_CASES[:98]),
+                         '4d3aabdb763b102689cccbfe6c001cd97962219b0b23d6b9400764cead44309b')
+        self.assertEqual(C.digest(C.PORTAL_WIRE_CASES),
+                         'a9b00010903bc1c2f86373221950c0ce4745e1e9dd1b66142b7bf6fe04471a1a')
+        self.assertEqual(C.digest(C.CURRENT_OBSERVATION_CASES),
+                         'a6d2cafcedf8e48ac7eb193469162965d79c7028c0dcc9a2ed2f2cf86a145e13')
         for cases in (C.CURRENT_PRESERVATION_INTEGRATION_CASES, C.CURRENT_OBSERVATION_CASES):
             self.assertEqual(len(cases), len(set(cases)))
 
@@ -93,7 +110,7 @@ class PortalGateTests(unittest.TestCase):
     def test_wire_each_emitted_case_and_completion_must_execute_exactly(self):
         owner = 'LiveContainer-portal-wire'
         good = self.value['parts']['swift']['logs'][owner]
-        for case in C.PORTAL_WIRE_CASES:
+        for case in C.CURRENT_PORTAL_WIRE_CASES:
             with self.subTest(case=case):
                 self.reject_log(owner, good.replace('PASS ' + case + '\n', '', 1))
                 self.reject_log(owner, good + 'PASS ' + case + '\n')
@@ -109,15 +126,41 @@ class PortalGateTests(unittest.TestCase):
         good = self.value['parts']['swift']['logs'][owner]
         before = next(line for line in good.splitlines() if line.startswith('{') and
                       json.loads(line)['schema'] == 'preservation-refresh-integration-v1')
-        for case in C.PORTAL_INTEGRATION_CASES:
+        for case in C.PORTAL_INTEGRATION_CASES + C.EVIDENCE_INTEGRATION_CASES:
             row = json.loads(before); row['cases'].remove(case)
             with self.subTest(case=case):
                 self.reject_log(owner, good.replace(before, json.dumps(row)))
-        self.reject_log(owner, good.replace('Ran 6 tests', 'Ran 5 tests'))
+        self.reject_log(owner, good.replace('Ran 7 tests', 'Ran 6 tests'))
         owner = 'LiveContainer-observations'; good = self.value['parts']['swift']['logs'][owner]
         for case in C.PORTAL_OBSERVATION_CASES:
             with self.subTest(case=case):
                 self.reject_log(owner, good.replace('PASS ' + case + '\n', '', 1))
+
+    def test_prior_portal_success_cannot_substitute_for_evidence_native_execution(self):
+        owner = 'LiveContainer-portal-wire'
+        good = self.value['parts']['swift']['logs'][owner]
+        prior = good
+        for case in C.EVIDENCE_WIRE_CASES:
+            prior = prior.replace('PASS ' + case + '\n', '', 1)
+        self.reject_log(owner, prior)
+        self.reject_log(owner, prior + 'PASS evidence_static_only\n')
+        # Moving a new case before a previously qualified case is also invalid.
+        first_new = 'PASS ' + C.EVIDENCE_WIRE_CASES[0] + '\n'
+        self.reject_log(owner, first_new + good.replace(first_new, '', 1))
+        owner = 'SideStore-preservation'
+        good = self.value['parts']['swift']['logs'][owner]
+        before = next(line for line in good.splitlines() if line.startswith('{') and
+                      json.loads(line)['schema'] == 'preservation-refresh-integration-v1')
+        original = json.loads(before)
+        for cases in (list(C.CURRENT_PRESERVATION_INTEGRATION_CASES[:98]),
+                      list(reversed(C.CURRENT_PRESERVATION_INTEGRATION_CASES)),
+                      list(C.CURRENT_PRESERVATION_INTEGRATION_CASES) + [C.EVIDENCE_INTEGRATION_CASES[0]]):
+            changed = {**original, 'cases': cases}
+            self.reject_log(owner, good.replace(before, json.dumps(changed)))
+        for count in (5, 6, 8):
+            self.reject_log(owner, good.replace('Ran 7 tests', 'Ran ' + str(count) + ' tests'))
+        for status in ('OK (skipped=1)', 'OK (expected failures=1)'):
+            self.reject_log(owner, good.replace('OK\n', status + '\n'))
 
     def test_all_cross_owner_inputs_required_in_both_native_parts(self):
         for owner, paths in PORTAL_INPUTS.items():
@@ -136,7 +179,7 @@ class PortalGateTests(unittest.TestCase):
                 R.compiler('swiftc')
 
     def test_new_runtime_failure_preserves_log_runs_other_suites_and_never_seals(self):
-        for failing in ('SideSign-portal-parser', 'LiveContainer-portal-wire'):
+        for failing in ('SideSign-portal-parser', 'LiveContainer-portal-wire', 'SideStore-preservation'):
             calls = []; value = self.value
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory).resolve(); sources = root/'sources'; sources.mkdir()
@@ -207,9 +250,18 @@ class PortalSourceClosureTests(unittest.TestCase):
 
     def test_preservation_generated_input_manifest_is_inside_receipt_closure(self):
         generator = load(SOURCES/'SideStore/tests/preservation_refresh/generate_fixture.py', 'portal_preservation')
+        reads = set(); original = Path.read_text
+        def read(path, *args, **kwargs):
+            reads.add(path.resolve().relative_to(SOURCES/'SideStore').as_posix())
+            return original(path, *args, **kwargs)
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
-            generator.generate(Path(directory))
+            with mock.patch.object(Path, 'read_text', read):
+                generator.generate(Path(directory))
             inputs = json.loads((Path(directory)/'sources.json').read_text())['inputs']
+        self.assertTrue(reads <= set(inputs), 'every actual extracted input must be declared')
+        self.assertIn('SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift', reads)
+        self.assertIn('SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift', reads)
+        self.assertIn('tests/preservation_refresh/IntegrationCases.swift', reads)
         self.assertIn('tests/preservation_refresh/PortalRequestDoubles.swift', inputs)
         for path, digest in inputs.items():
             self.assertIn(path, C.INPUTS['SideStore'])
@@ -232,6 +284,43 @@ class PortalSourceClosureTests(unittest.TestCase):
         self.assertIn('portal_all_fourteen_actual_producer_wrapper_manifest_whole_log', cases)
         self.assertIn('func lcStructuredSigningFailure(', generated)
         self.assertIn('enum V3RefreshAllFailureDiagnostics {', generated)
+
+    def test_evidence_wire_extraction_and_peer_parity_use_bound_actual_sources(self):
+        owner = SOURCES/'LiveContainer'
+        module = load(owner/'tests/portal_identity/test_contract.py', 'evidence_wire_contract')
+        reads = set(); original = Path.read_text
+        def read(path, *args, **kwargs):
+            reads.add(path.resolve().relative_to(SOURCES).as_posix())
+            return original(path, *args, **kwargs)
+        self.assertTrue((SOURCES/'SideStore/AltStore/AppDelegate.swift').is_file())
+        with mock.patch.dict('os.environ', {'SIDESTORE_SOURCE_ROOT': str(SOURCES/'SideStore')}), \
+             mock.patch.object(Path, 'read_text', read):
+            module.PortalIdentityTests().test_source_contract()
+            generated = module.g.pure_model(module.HOST.read_text())
+            cases = (owner/'tests/portal_identity/cases.swift').read_text()
+        self.assertEqual(reads, {'LiveContainer/SideStoreSupport/SideStore.swift',
+                                'LiveContainer/tests/portal_identity/cases.swift',
+                                'SideStore/AltStore/AppDelegate.swift'})
+        self.assertTrue(reads <= {key+'/'+path for key, paths in C.INPUTS.items() for path in paths})
+        for witness in ('preservation_evidence', 'preservationEvidenceKinds',
+                        'evidence?.mutationDispatched == false'):
+            self.assertIn(witness, generated)
+        # These source checks are mandatory alongside, never instead of, Swift.
+        self.assertIn('Native Swift toolchain required, do not skip in CI',
+                      (owner/'tests/portal_identity/test_contract.py').read_text())
+        names = re.findall(r'"(evidence_[a-z0-9_]+)"\)', cases)
+        expanded = []
+        counts = {'evidence_invalid_optional_row_preserves_primary': 3,
+                  'evidence_mismatched_row_does_not_manufacture_diagnosis': 6}
+        for name in names:
+            expanded.extend([name] * counts.get(name, 1))
+        self.assertEqual(tuple(expanded), C.EVIDENCE_WIRE_CASES)
+        self.assertIn('let evidenceInvalidValues: [Any] = ["SECRET", true, ["account": "SECRET"]]', cases)
+        self.assertIn('for value in evidenceInvalidValues {', cases)
+        for pair in ('("scope", "host")', '("dispatched", "yes")', '("dispatched", "unknown")',
+                     '("operation", "completed")', '("guard", "preservationPortalIdentityUnavailable")',
+                     '("failureKind", "noVPN")'):
+            self.assertIn(pair, cases[cases.index('for (key, value) in', cases.index('for value in evidenceInvalidValues')):])
 
     def test_native_owner_commands_and_wire_expansion_are_bound(self):
         sign = SOURCES/'SideStore/Dependencies/SideSign'

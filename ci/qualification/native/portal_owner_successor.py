@@ -87,12 +87,30 @@ def validate_sources(sources, graph=None):
         from ci.build.verify_candidate_graph import load_candidate_graph
         graph = load_candidate_graph()
     sources = Path(sources).resolve(strict=True)
+    for owner in portal.OWNER_COMMITS:
+        proof_commit(graph, owner)
+        root = source_root(sources, owner)
+        require(git(root, 'rev-parse', 'HEAD').decode().strip() == graph['owners'][owner][1],
+                'Portal owner checkout pin differs: ' + owner)
+    inputs = {path: portal.read_source(sources, path) for path in portal.specifications()}
+    return validate_committed_sources(sources, graph, inputs)
+
+
+def validate_committed_sources(sources, graph, proof_inputs):
+    """Validate explicit predecessor bytes against actual committed Git provenance.
+
+    This does not assert checkout HEAD. The current-source entry point above
+    checks it separately; reviewed successors must prove their current HEAD,
+    exact deltas and byte inverse before calling this historical validator.
+    """
+    sources = Path(sources).resolve(strict=True)
+    require(set(proof_inputs) == set(portal.specifications())
+            and all(type(value) is bytes for value in proof_inputs.values()),
+            'Portal committed proof input closure differs')
     proofs = {owner: proof_commit(graph, owner) for owner in portal.OWNER_COMMITS}
     for owner in proofs:
         root = source_root(sources, owner)
-        current = graph['owners'][owner][1]
-        require(git(root, 'rev-parse', 'HEAD').decode().strip() == current, 'Portal owner checkout pin differs: ' + owner)
-        tree, _ = commit_info(root, current)
+        tree, _ = commit_info(root, graph['owners'][owner][1])
         require(tree == graph['reviewed_deltas'][owner]['tree'], 'Portal owner graph tree differs: ' + owner)
 
     spec = specification()
@@ -132,7 +150,7 @@ def validate_sources(sources, graph=None):
         proof = proofs[owner]
         era = 'after' if proof == file_spec['after_commit'] else 'before'
         require(proof == file_spec[era + '_commit'], 'Portal owner source provenance differs: ' + path)
-        data = portal.read_source(sources, path)
+        data = proof_inputs[path]
         require(portal.sha(data) == file_spec[era + '_sha256'] and portal.blob(data) == file_spec[era + '_blob'],
                 'Portal owner proof working bytes differ: ' + path)
         root = source_root(sources, owner)

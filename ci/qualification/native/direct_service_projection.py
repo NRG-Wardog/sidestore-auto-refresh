@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from ci.qualification.native import owner_fixes_projection as owner_fixes
 from ci.qualification.native import portal_identity_projection as portal_identity
+from ci.qualification.native import preservation_evidence_projection as preservation_evidence
 PATH = 'SideStore/AltStore/AppDelegate.swift'
 MANIFEST = (Path(__file__).parent / 'direct-service-source-delta.json')
 
@@ -20,6 +21,7 @@ def require(ok, why):
     if not ok: raise ValueError(why)
 
 def validate_bytes(data):
+    data = preservation_evidence.restore_if_successor(PATH, data)
     data = portal_identity.restore_if_successor(PATH, data)
     data = owner_fixes.restore_if_successor(PATH, data)
     spec = specification()
@@ -48,6 +50,7 @@ def validate_source(sources):
     return validate_bytes((sources / PATH).read_bytes())
 
 def normalize(contract):
+    contract = preservation_evidence.normalize(contract, PATH)
     contract = portal_identity.normalize(contract, PATH)
     contract = owner_fixes.normalize(contract, PATH)
     spec = specification()

@@ -113,6 +113,27 @@ class OwnerSuccessorControls(unittest.TestCase):
             self.assertEqual(result['inputs'][path]['sha256'], portal.sha(data))
             self.assertEqual(result['inputs'][path]['git_blob'], portal.blob(data))
 
+    def test_committed_predecessor_inputs_require_exact_closure_and_git_bytes(self):
+        expected = P.validate_sources(self.sources, self.graph)
+        self.assertEqual(P.validate_committed_sources(self.sources, self.graph, self.files), expected)
+        for path in self.files:
+            for value in (None, self.files[path].decode(), self.files[path] + b'unreviewed\n'):
+                inputs = dict(self.files)
+                if value is None:
+                    inputs.pop(path)
+                else:
+                    inputs[path] = value
+                with self.subTest(path=path, value=value), self.assertRaises(ValueError):
+                    P.validate_committed_sources(self.sources, self.graph, inputs)
+        with self.assertRaises(ValueError):
+            P.validate_committed_sources(self.sources, self.graph, {**self.files, 'extra': b'new'})
+        changed = dict(self.files)
+        changed[portal.SERVICE] += b'unreviewed\n'
+        self.file_specs[portal.SERVICE].update(after_sha256=portal.sha(changed[portal.SERVICE]),
+                                             after_blob=portal.blob(changed[portal.SERVICE]))
+        with self.assertRaisesRegex(ValueError, 'proof Git bytes differ'):
+            P.validate_committed_sources(self.sources, self.graph, changed)
+
     def test_unknown_or_mismatched_graph_pin_tree_and_blob_fail(self):
         for mutate in (
             lambda g: g['owners']['SideStore'].__setitem__(1, '0' * 40),
