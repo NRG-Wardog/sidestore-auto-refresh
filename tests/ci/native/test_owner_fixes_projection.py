@@ -11,7 +11,8 @@ import unittest
 from unittest.mock import patch
 from ci.qualification.native import owner_fixes_projection as P
 from ci.qualification.native import portal_identity_projection as portal
-from ci.qualification.native import preservation_evidence_projection as current_owner
+from ci.qualification.native import preservation_evidence_owner_successor as current_owner
+from ci.qualification.native import preservation_evidence_projection as evidence_proof
 from ci.qualification.native import direct_host_projection as host
 from ci.qualification.native import direct_service_projection as service
 from ci.qualification.native import preservation_host_projection as preservation_host
@@ -34,8 +35,8 @@ class OwnerFixProjectionTests(unittest.TestCase):
             owner, relative = path.split('/', 1)
             proof = current_owner.proof_commit(graph, owner)
             expected = portal.specifications().get(path, spec) if proof == portal.OWNER_COMMITS[owner][1] else spec
-            evidence = current_owner.specifications()['files'].get(path)
-            if evidence is not None and graph['owners'][owner][1] == evidence['after_commit']:
+            evidence = evidence_proof.specifications()['files'].get(path)
+            if evidence is not None and current_owner.evidence_commit(graph, owner) == evidence['after_commit']:
                 expected = evidence
             self.assertEqual(expected['after_blob'], graph['reviewed_deltas'][owner]['files'][relative])
             self.assertTrue(spec['edits'])
@@ -134,7 +135,7 @@ def actual_source_controls(sources):
                     self.assertIn(current_owner.proof_commit(graph, owner), portal.OWNER_COMMITS[owner])
                     data = (sources / path).read_bytes()
                     self.assertEqual(data, git('show', 'HEAD:' + relative))
-                    restored = current_owner.restore_if_successor(path, data)
+                    restored = evidence_proof.restore_if_successor(path, data)
                     owner_data = portal.restore_if_successor(path, restored) if path in portal.specifications() else restored
                     self.assertEqual(P.blob(owner_data), spec['after_blob'])
                     prior = P.restore_bytes(path, owner_data)

@@ -15,7 +15,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from ci.qualification.native import portal_identity_projection as P
-from ci.qualification.native import preservation_evidence_projection as current_owner
+from ci.qualification.native import preservation_evidence_owner_successor as current_owner
+from ci.qualification.native import preservation_evidence_projection as evidence_proof
 from ci.qualification.native import owner_fixes_projection as owner
 from ci.qualification.native import preservation_selection_projection as selection
 from ci.qualification.native import direct_host_projection as host
@@ -40,8 +41,8 @@ class PortalIdentityProjectionTests(unittest.TestCase):
             proof = current_owner.proof_commit(graph, component)
             self.assertIn(proof, P.OWNER_COMMITS[component])
             era = 'after' if proof == spec['after_commit'] else 'before'
-            evidence = current_owner.specifications()['files'][path]
-            expected_blob = evidence['after_blob'] if graph['owners'][component][1] == evidence['after_commit'] else spec[era + '_blob']
+            evidence = evidence_proof.specifications()['files'][path]
+            expected_blob = evidence['after_blob'] if current_owner.evidence_commit(graph, component) == evidence['after_commit'] else spec[era + '_blob']
             self.assertEqual(graph['reviewed_deltas'][component]['files'][relative], expected_blob)
             for key in ('before_sha256', 'after_sha256'):
                 self.assertRegex(spec[key], '^[a-f0-9]{64}$')
@@ -166,7 +167,8 @@ class PortalIdentityProjectionTests(unittest.TestCase):
         for name in ('portal_identity_projection.py', 'portal-identity-source-delta.json',
                      'preservation_selection_projection.py', 'owner_fixes_projection.py',
                      'owner-fixes-source-delta.json', 'portal_owner_successor.py',
-                     'preservation_evidence_projection.py', 'preservation-evidence-source-delta.json'):
+                     'preservation_evidence_projection.py', 'preservation-evidence-source-delta.json',
+                     'preservation_evidence_owner_successor.py', 'preservation-evidence-owner-successor.json'):
             relative = 'ci/qualification/native/' + name
             self.assertEqual(value[relative], P.sha((ROOT / relative).read_bytes()))
 
@@ -192,7 +194,7 @@ def actual_source_controls(sources):
                     self.assertEqual(binding['proof_owners'][component], spec['after_commit'])
                     data = P.read_source(sources, path)
                     self.assertEqual(data, git('show', 'HEAD:' + relative))
-                    portal_data = current_owner.restore_if_successor(path, data)
+                    portal_data = evidence_proof.restore_if_successor(path, data)
                     self.assertEqual(P.blob(portal_data), spec['after_blob'])
                     prior = P.restore_bytes(path, portal_data)
                     self.assertEqual(prior, git('show', spec['before_commit'] + ':' + relative))
@@ -215,8 +217,8 @@ def actual_source_controls(sources):
         def test_current_selection_and_mapper_pass_exact_existing_upstream_route(self):
             result = selection.validate_upstream_dependencies(sources)
             expected = {'preservation': selection.descriptor(), 'portal_identity': P.selection_descriptor()}
-            if P.sha((sources / P.SELECTION).read_bytes()) == current_owner.specifications()['files'][P.SELECTION]['after_sha256']:
-                expected['preservation_evidence'] = current_owner.selection_descriptor()
+            if P.sha((sources / P.SELECTION).read_bytes()) == evidence_proof.specifications()['files'][P.SELECTION]['after_sha256']:
+                expected['preservation_evidence'] = evidence_proof.selection_descriptor()
             self.assertEqual(result, expected)
             self.assertEqual(current_owner.validate_owner_chain(sources),
                              {path: spec['before_sha256'] for path, spec in owner.specifications().items()})

@@ -6,7 +6,7 @@
     ],
     "LiveContainer": [
       "NRG-Wardog/LiveContainer",
-      "f59be2462026a70a957d309963ef91a9f29d893b"
+      "c82033f094a57bcc86166c14b0297f0607321c69"
     ],
     "LiveContainer/OpenSSL": [
       "krzyzanowskim/OpenSSL",
@@ -22,7 +22,7 @@
     ],
     "SideStore": [
       "NRG-Wardog/SideStore",
-      "d2bf28820367a882fe0f1db93184a830db83c243"
+      "9ba862f47d8a32e0548924d4a087b0e1e853b0d0"
     ],
     "SideStore/Dependencies/SideSign": [
       "NRG-Wardog/SideSign",
@@ -119,7 +119,7 @@
         ".ci/owned-oda-note/test_source.py": "47858793600ed76f6dd220b899a733744bad33ab",
         ".ci/refresh-observations/cases.swift": "aa58d1d51315a5a97868ebd31a373cf6ef37a5c1",
         ".ci/refresh-observations/localization_keys.json": "2844fee75cebb3434f1fc373b3b52c066673d1dd",
-        ".ci/refresh-observations/test_refresh_observations.py": "7690fbd3190fc29d6e4302dd9bcebe1dec381ae5",
+        ".ci/refresh-observations/test_refresh_observations.py": "3a1a8f51ca9cb27499f784dfaa6f444e2ad274b8",
         ".ci/refresh-truth/localization_keys.json": "be905b6f7662f900fd5f475a91dceef3ae041986",
         ".ci/refresh-truth/notification_cases.swift": "752d5ab00cc311e7787ed2efa5f5321ce025dde2",
         ".ci/refresh-truth/runtime_cases.swift": "b8d77d1515a93cfeedc4c634a7e4159738e76f22",
@@ -139,7 +139,7 @@
         ".github/workflows/build.yml": "b9f033f81681b7d845f604605f760cf945860688",
         ".github/workflows/native-app-compile.yml": "704a7faf9d48b8b586a70f0c2d935aa35ba85d80",
         ".github/workflows/package-diagnostic.yml": "fe77d4c7665195b7703dd05d65fdb8f081261eae",
-        ".github/workflows/portal-identity-contract.yml": "6b78bc37bbe76c845f27db7e44cae531561651eb",
+        ".github/workflows/portal-identity-contract.yml": "4fa5b9ccd905b04221a760ef1528fbc573c3b186",
         ".github/workflows/reviewed-branch-cleanup.yml": "ca5bbae8d856a8bc28b7899ac02e3790faa708ee",
         ".github/workflows/scheduler-preflight-regression.yml": "b1acb621318d11e31b1210926dc0c289c04802b3",
         "LiveContainer.xcodeproj/project.pbxproj": "15db64d7850e96db256404bc1693c2c24e03b1be",
@@ -220,7 +220,7 @@
         "tests/test_startup_diagnosis_card.py": "64f5d544c21d538342c988797b94c3c4da856c71",
         "tests/test_startup_diagnostics.py": "ca6d8634f460aea00ceb274d777a8fdff2ff8b49"
       },
-      "tree": "df1cd10173c77c0ce87b466839e8542bc1be5957"
+      "tree": "993e83442e5caa59e4f5c5ffade144e2589025dd"
     },
     "SideStore": {
       "baseline": "5afdedc3e50be60082ac1d405a456274920b8eab",
@@ -252,7 +252,7 @@
         ".github/workflows/health-snapshot-contract.yml": "a4eba0ef9297e5a67fc97acd60bbb225f228d2a9",
         ".github/workflows/nightly.yml": "0a4831356302661ed391de04eb400ba01fad8570",
         ".github/workflows/pr.yml": "123661b48aa10f534d99bc4ad6d12f5b3ebdbc78",
-        ".github/workflows/preservation-portal-contract.yml": "7a75cc82acd87b595bd88b2497193693fa04f827",
+        ".github/workflows/preservation-portal-contract.yml": "32071bcfe5b5da99e3a2b5d995ac0b14773e9f6a",
         ".github/workflows/reviewed-branch-cleanup.yml": "3c84d751489af85c66ac56f934b557fc083ac6d8",
         "AGENTS.md": null,
         "AltStore.xcodeproj/project.pbxproj": "53a042b65192b1d6c2ed27926fdab69d4a09d51e",
@@ -355,9 +355,9 @@
         "tests/preservation_origin/SDKDoubles.swift": "65cbb4cf82991a2f96f710626a622ebd97115e66",
         "tests/preservation_origin/TransportCases.swift": "942174da07dbb4a76bd84b68e771d359445de8c7",
         "tests/preservation_origin/expected-cases.json": "dc98795bd0fab8451163fb9cbe4de3fa789fc219",
-        "tests/preservation_origin/generate_fixture.py": "4d6f7a1e7f09a1c31654279b7e62ddbdc422402b",
+        "tests/preservation_origin/generate_fixture.py": "df059706518338abeeb1844edbff20095e28d7b0",
         "tests/preservation_origin/run.sh": "cf7fb770a1b262b210f48225a14a0c6e79c11f7e",
-        "tests/preservation_origin/test_contract.py": "fe8e4e31029e7f49a2d52be7b56603e68eb62881",
+        "tests/preservation_origin/test_contract.py": "453516b789b210a0b2c34d00f1144a62c6fabe5b",
         "tests/preservation_outcome/test_contract.py": "ee6c7fd07cfdc4596f3201f3fd3208d00b619a93",
         "tests/preservation_refresh/AuthenticatedAdapterCases.swift": "42005b57872282b01695bec25d468a4ac607f410",
         "tests/preservation_refresh/BoundaryDoubles.swift": "a30283bb204a4810d8b59d8b5a4984589eb36f6a",
@@ -409,7 +409,7 @@
         "tests/vpn_transport_recovery/generate_fixture.py": "ac0087b25c74408501b324f5e7675cfb0f884858",
         "tests/vpn_transport_recovery/test_contract.py": "cbb0944b5975911488e726b9d297017158d0ce14"
       },
-      "tree": "054277310f546b189c9deae0bf843493e66ac9d8"
+      "tree": "170d3a678dd75fa3cbf2ee80545d0c582622a9ec"
     },
     "SideStore/Dependencies/SideSign": {
       "baseline": "483c626d6e5004b45298518352307eb492fe1ccd",

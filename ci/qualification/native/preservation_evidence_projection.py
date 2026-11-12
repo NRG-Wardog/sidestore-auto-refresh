@@ -139,6 +139,27 @@ def validate_sources(sources, graph=None):
     for owner, spec in value['owners'].items():
         root = prior.source_root(sources, owner)
         require(prior.git(root, 'rev-parse', 'HEAD').decode().strip() == spec['after_commit'], 'Preservation-evidence checkout pin differs: ' + owner)
+    inputs = {owner + '/' + path: portal.read_source(sources, owner + '/' + path)
+              for owner, spec in value['owners'].items() for path in spec['changes']}
+    return validate_committed_sources(sources, graph, inputs)
+
+
+def validate_committed_sources(sources, graph, proof_inputs):
+    """Replay explicit historical bytes, never claim the current checkout HEAD.
+
+    The public current-source entry point binds HEAD and working bytes above.
+    A separately reviewed successor must validate its exact current owner tree,
+    complete test-only delta and all raw inputs before supplying predecessors.
+    """
+    sources = Path(sources).resolve(strict=True)
+    previous = normalized_graph(graph)
+    require(previous != graph, 'Committed preservation-evidence graph differs')
+    value = specifications()
+    paths = {owner + '/' + path for owner, spec in value['owners'].items() for path in spec['changes']}
+    require(set(proof_inputs) == paths and all(type(data) is bytes for data in proof_inputs.values()),
+            'Committed preservation-evidence input closure differs')
+    for owner, spec in value['owners'].items():
+        root = prior.source_root(sources, owner)
         expected_commit = spec['after_commit']
         for node in spec['commit_chain']:
             require(node['commit'] == expected_commit and len(node['parents']) == 1, 'Preservation-evidence parent chain differs')
@@ -150,13 +171,13 @@ def validate_sources(sources, graph=None):
                             '-r', spec['before_commit'], spec['after_commit']).decode().splitlines()
         require(changes == spec['delta'], 'Preservation-evidence complete owner delta differs: ' + owner)
         for path, change in spec['changes'].items():
-            data = portal.read_source(sources, owner + '/' + path)
+            data = proof_inputs[owner + '/' + path]
             require(blob(data) == change['after_blob'] and sha(data) == change['after_sha256']
                     and data == prior.git(root, 'cat-file', 'blob', spec['after_commit'] + ':' + path),
                     'Preservation-evidence owner working bytes differ: ' + owner + '/' + path)
     restored = {}
     for path, spec in value['files'].items():
-        data = portal.read_source(sources, path)
+        data = proof_inputs[path]
         restored[path] = restore_bytes(path, data)
         owner, relative = path.split('/', 1)
         require(restored[path] == prior.git(sources / owner, 'cat-file', 'blob', spec['before_commit'] + ':' + relative),

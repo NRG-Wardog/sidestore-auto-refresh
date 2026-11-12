@@ -196,6 +196,7 @@ jobs:
           python3 -B harness/tests/ci/native/test_owner_fixes_projection.py --sources sources
           python3 -B harness/tests/ci/native/test_portal_identity_projection.py --sources sources
           python3 -B harness/tests/ci/native/test_preservation_evidence_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_preservation_evidence_owner_successor.py --sources sources
           python3 -B harness/ci/build/project_candidate_contracts.py
           python3 -B harness/ci/diagnostics/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
           { xcodebuild -version; swift --version; xcrun --sdk iphonesimulator --show-sdk-version; } > evidence/toolchain.log
@@ -391,6 +392,7 @@ jobs:
           python3 -B harness/tests/ci/native/test_owner_fixes_projection.py --sources sources
           python3 -B harness/tests/ci/native/test_portal_identity_projection.py --sources sources
           python3 -B harness/tests/ci/native/test_preservation_evidence_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_preservation_evidence_owner_successor.py --sources sources
           python3 -B harness/ci/build/project_candidate_contracts.py
           python3 -B harness/ci/diagnostics/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
           python3 -B harness/tests/ci/native/test_refresh_truth_receipt.py

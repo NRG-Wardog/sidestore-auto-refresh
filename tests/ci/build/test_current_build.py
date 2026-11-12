@@ -38,6 +38,13 @@ EVIDENCE_ADDITION = (
 )
 
 
+PRE_TEST_OWNER_STEPS_SHA256 = '176a534e0d29d523300e47bfe576b586fe4ead1c8bd7f76845daa9aa6c3a65b2'
+TEST_OWNER_ADDITION = (
+    '          python3 -B harness/tests/ci/native/test_preservation_evidence_projection.py --sources sources\n',
+    '          python3 -B harness/tests/ci/native/test_preservation_evidence_owner_successor.py --sources sources\n',
+)
+
+
 def reviewed_steps(text):
     steps = text[text.index('    steps:\n'):]
     for first, following in (
@@ -67,6 +74,16 @@ def inverse_evidence_addition(steps):
     steps = steps.replace(preceding + added, preceding, 1)
     if hashlib.sha256(steps.encode()).hexdigest() != PRE_EVIDENCE_STEPS_SHA256:
         raise ValueError('Unreviewed change outside the evidence addition')
+    return steps
+
+
+def inverse_test_owner_addition(steps):
+    preceding, added = TEST_OWNER_ADDITION
+    if steps.count(added) != 1 or steps.count(preceding + added) != 1:
+        raise ValueError('Evidence-owner command missing, duplicated, changed or relocated')
+    steps = steps.replace(preceding + added, preceding, 1)
+    if hashlib.sha256(steps.encode()).hexdigest() != PRE_TEST_OWNER_STEPS_SHA256:
+        raise ValueError('Unreviewed change outside the evidence-owner addition')
     return steps
 
 
@@ -121,8 +138,10 @@ class CurrentBuildTests(unittest.TestCase):
     def test_reviewed_build_and_package_steps_preserved(self):
         current = reviewed_steps(WORKFLOW.read_text())
         self.assertEqual(hashlib.sha256(current.encode()).hexdigest(),
-                         '176a534e0d29d523300e47bfe576b586fe4ead1c8bd7f76845daa9aa6c3a65b2')
-        prior = inverse_evidence_addition(current)
+                         'b1ccfea335445decd62af1641efbe19a63f2ac1617625037a7a436317adee9cd')
+        evidence_steps = inverse_test_owner_addition(current)
+        self.assertEqual(hashlib.sha256(evidence_steps.encode()).hexdigest(), PRE_TEST_OWNER_STEPS_SHA256)
+        prior = inverse_evidence_addition(evidence_steps)
         self.assertEqual(hashlib.sha256(prior.encode()).hexdigest(), PRE_EVIDENCE_STEPS_SHA256)
         steps = inverse_portal_additions(prior)
         self.assertEqual(hashlib.sha256(steps.encode()).hexdigest(),
@@ -132,8 +151,26 @@ class CurrentBuildTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(steps.replace(added, '', 1).encode()).hexdigest(),
                          '08ed1cd77a0420a2efd3f3de488d38ccc13168794a2ddfa0853add20a2db03a9')
 
-    def test_evidence_step_inverse_rejects_missing_duplicate_changed_relocated_and_unrelated_changes(self):
+    def test_test_owner_step_inverse_rejects_missing_duplicate_changed_relocated_and_unrelated_changes(self):
         current = reviewed_steps(WORKFLOW.read_text())
+        preceding, added = TEST_OWNER_ADDITION
+        mutations = (
+            current.replace(added, '', 1),
+            current.replace(added, added + added, 1),
+            current.replace(added, added.replace('--sources sources', '--sources other'), 1),
+            current.replace(added, '', 1) + added,
+            current.replace(preceding + added, added + preceding, 1),
+            current.replace('--same-run-qualified-size', '--unreviewed-size', 1),
+            current.replace('record.py receipt', 'record.py receipt-current', 1),
+            current.replace('          set -euo pipefail\n', '          set -eu\n', 1),
+        )
+        for changed in mutations:
+            self.assertNotEqual(current, changed)
+            with self.assertRaises(ValueError):
+                inverse_test_owner_addition(changed)
+
+    def test_evidence_step_inverse_rejects_missing_duplicate_changed_relocated_and_unrelated_changes(self):
+        current = inverse_test_owner_addition(reviewed_steps(WORKFLOW.read_text()))
         preceding, added = EVIDENCE_ADDITION
         mutations = (
             current.replace(added, '', 1),
@@ -151,7 +188,7 @@ class CurrentBuildTests(unittest.TestCase):
                 inverse_evidence_addition(changed)
 
     def test_portal_step_inverse_rejects_missing_duplicate_changed_and_relocated_commands(self):
-        current = inverse_evidence_addition(reviewed_steps(WORKFLOW.read_text()))
+        current = inverse_evidence_addition(inverse_test_owner_addition(reviewed_steps(WORKFLOW.read_text())))
         for preceding, added in PORTAL_ADDITIONS:
             mutations = (
                 current.replace(added, '', 1),
@@ -166,7 +203,7 @@ class CurrentBuildTests(unittest.TestCase):
                         inverse_portal_additions(changed)
 
     def test_portal_step_inverse_rejects_unrelated_build_receipt_and_packaging_changes(self):
-        current = inverse_evidence_addition(reviewed_steps(WORKFLOW.read_text()))
+        current = inverse_evidence_addition(inverse_test_owner_addition(reviewed_steps(WORKFLOW.read_text())))
         for before, after in (
             ('record.py receipt', 'record.py receipt-current'),
             ('--same-run-qualified-size', '--unreviewed-size'),

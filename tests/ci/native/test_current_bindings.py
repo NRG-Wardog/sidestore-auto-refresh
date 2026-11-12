@@ -101,7 +101,7 @@ class CurrentBindingsTests(unittest.TestCase):
         shutil.copy2(REPO_ROOT/'ci/native_paths.py', self.harness/'ci/native_paths.py')
         for name in ('owner_fixes_projection.py', 'owner-fixes-source-delta.json',
                      'portal_identity_projection.py', 'portal-identity-source-delta.json',
-                     'portal_owner_successor.py', 'preservation_evidence_projection.py',
+                     'portal_owner_successor.py', 'preservation_evidence_owner_successor.py', 'preservation-evidence-owner-successor.json', 'preservation_evidence_projection.py',
                      'preservation-evidence-source-delta.json'):
             shutil.copy2(REPO_ROOT/'ci/qualification/native'/name,
                          self.harness/'ci/qualification/native'/name)
