@@ -144,6 +144,7 @@ def project(contract, graph, sources, additional_inputs=()):
 PROJECTION_RUNTIME_SOURCES = (
     'ci/__init__.py', 'ci/build/__init__.py',
     'ci/native_paths.py', 'ci/build/project_candidate_contracts.py',
+    'ci/qualification/native/setup_prompt_fixture_projection.py',
     'ci/qualification/native/functional_recovery_projection.py',
     'ci/qualification/native/functional-recovery-source-delta.json',
     'ci/qualification/native/preservation_evidence_owner_successor.py',

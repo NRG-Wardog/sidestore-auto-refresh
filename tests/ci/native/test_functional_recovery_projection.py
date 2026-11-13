@@ -13,6 +13,7 @@ from ci.qualification.native import preservation_evidence_owner_successor as pre
 from ci.qualification.native import preservation_evidence_projection as evidence
 from ci.qualification.native import portal_identity_projection as portal
 from ci.qualification.native import portal_owner_successor as G
+from ci.qualification.native import setup_prompt_fixture_projection as prompt_fixture
 
 COMMITS = {
     'LiveContainer': ('c82033f094a57bcc86166c14b0297f0607321c69', '68561eb6dbbc5b6e0bfe4591401af1cb4f500d04'),
@@ -148,6 +149,48 @@ class FunctionalRecoveryTests(unittest.TestCase):
         self.assertIn('python3 -B -m unittest discover -s tests/ci/native -p test_preservation_evidence_owner_successor.py -v\n          '
                       'python3 -B -m unittest discover -s tests/ci/native -p test_functional_recovery_projection.py -v', text)
 
+    def test_setup_prompt_wrapper_exact_pins_command_and_descriptor_guards(self):
+        W = prompt_fixture
+        self.assertEqual(W.PINS, {
+            W.TEST: '1222f013816035a0ec590c6557cb7b07e6a37983d0cb77dd5ecf5ca1f0e1b655',
+            W.GENERATOR: '154c18a26e69a8be402ff61a563f57c28991f48d1fe690a02252406a70874e36'})
+        contract = {'input_sha256': {P.LOCALIZATION: W.descriptor()['current_sha256']}}
+        original = [sys.executable, '-B', ROOT / 'sources' / W.TEST]
+        expected = [sys.executable, '-B', Path(W.__file__).resolve(), '--sources', ROOT / 'sources']
+        self.assertEqual(W.command(contract, original), expected)
+        self.assertEqual(W.command({'input_sha256': {P.LOCALIZATION: W.descriptor()['historical_sha256']}}, original), original)
+        for bad in ([sys.executable, str(original[2])], [sys.executable, '-O', original[2]],
+                    [sys.executable, '-B', ROOT / 'other.py'], original + ['--extra']):
+            with self.subTest(command=bad), self.assertRaises(ValueError): W.command(contract, bad)
+        valid = {W.KEY: W.descriptor(), 'strict_prose_and_original_copy': W.CLAIM}
+        W.verify_static(valid, contract)
+        for kind in ('missing', 'extra', 'sha', 'claim'):
+            bad = copy.deepcopy(valid)
+            if kind == 'missing': bad.pop(W.KEY)
+            elif kind == 'extra': bad[W.KEY]['extra'] = True
+            elif kind == 'sha': bad[W.KEY]['current_sha256'] = '0' * 64
+            else: bad['strict_prose_and_original_copy'] = 'unchanged'
+            with self.subTest(kind=kind), self.assertRaises(ValueError): W.verify_static(bad, contract)
+        with self.assertRaises(ValueError): W.verify_static(valid, {'input_sha256': {P.LOCALIZATION: '0' * 64}})
+        W.verify_static({}, {'input_sha256': {}})
+        from ci.build.project_candidate_contracts import projection_source_hashes
+        relative = 'ci/qualification/native/setup_prompt_fixture_projection.py'
+        self.assertEqual(projection_source_hashes()[relative], P.sha((ROOT / relative).read_bytes()))
+
+    def test_setup_prompt_renderer_requires_current_bytes_and_exact_inverse(self):
+        W = prompt_fixture
+        before, after = b'old\nkept\n', b'new\nkept\n'
+        spec = {'before_sha256': P.sha(before), 'after_sha256': P.sha(after),
+                'before_blob': P.blob(before), 'after_blob': P.blob(after),
+                'edits': [{'after_lines': [0, 1], 'before': 'old\n', 'after': 'new\n'}]}
+        with patch.object(P, 'specifications', return_value={'files': {P.LOCALIZATION: spec}}):
+            self.assertEqual(W.restore_renderer(after.decode()), before.decode())
+            for bad in (before, after + b'new mutation\n'):
+                with self.assertRaises(ValueError): W.restore_renderer(bad.decode())
+            mutation = after.replace(b'kept', b'unrelated')
+            spec.update(after_sha256=P.sha(mutation), after_blob=P.blob(mutation))
+            with self.assertRaisesRegex(ValueError, 'historical source'): W.restore_renderer(mutation.decode())
+
     def test_owner_chain_must_validate_current_binding(self):
         with patch.object(P, 'validate_sources', side_effect=ValueError('current binding rejected')):
             with self.assertRaisesRegex(ValueError, 'current binding rejected'): P.validate_owner_chain(ROOT)
@@ -155,6 +198,79 @@ class FunctionalRecoveryTests(unittest.TestCase):
 
 def actual_source_controls(sources):
     class ActualSourceControls(unittest.TestCase):
+        def test_setup_prompt_exact_test_transform_rejects_tamper_and_repinned_boundaries(self):
+            W = prompt_fixture; raw = portal.read_source(sources, W.TEST)
+            projected = W.project_test(raw)
+            self.assertEqual(projected, raw.decode().replace(W.ORIGINAL, W.REVIEWED, 1))
+            self.assertEqual(projected.replace(W.REVIEWED, W.ORIGINAL, 1).encode(), raw)
+            self.assertIn("guard depth < 9 else { return nil }", W.REVIEWED)
+            with self.assertRaises(ValueError): W.project_test(raw + b'\n')
+            for mutation in (raw.replace(W.ORIGINAL.encode(), b'pass\n', 1), raw + W.ORIGINAL.encode(),
+                             raw + W.REVIEWED.encode()):
+                with patch.dict(W.PINS, {W.TEST: P.sha(mutation)}), self.assertRaises(ValueError): W.project_test(mutation)
+
+        def test_setup_prompt_run_enforces_current_binding_roots_and_pinned_git_bytes(self):
+            W = prompt_fixture; original_read = portal.read_source
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / 'output'; baseline = Path(tmp)
+                with patch.object(P, 'validate_sources', side_effect=ValueError('current binding required')):
+                    with self.assertRaisesRegex(ValueError, 'current binding required'):
+                        W.run(sources, sources / 'LiveContainer', baseline, out)
+                with self.assertRaisesRegex(ValueError, 'candidate root'):
+                    W.run(sources, sources / 'SideStore', baseline, out)
+                with self.assertRaisesRegex(ValueError, 'fresh and outside'):
+                    W.run(sources, sources / 'LiveContainer', baseline, sources / 'forbidden-output')
+                for target in W.PINS:
+                    changed = original_read(sources, target) + b'\n# unreviewed caller mutation\n'
+                    def read(root, path): return changed if path == target else original_read(root, path)
+                    # Bypass only the separately tested outer guard to reach the wrapper's own Git comparison.
+                    with patch.object(P, 'validate_sources', return_value={}), patch.object(portal, 'read_source', side_effect=read):
+                        with self.subTest(path=target), self.assertRaisesRegex(ValueError, 'working/Git bytes'):
+                            W.run(sources, sources / 'LiveContainer', baseline, out)
+                        with patch.dict(W.PINS, {target: P.sha(changed)}), self.assertRaisesRegex(ValueError, 'working/Git bytes'):
+                            W.run(sources, sources / 'LiveContainer', baseline, out)
+                self.assertFalse(out.exists())
+
+        def test_setup_prompt_generated_fixture_keeps_actual_prefix_hashes_and_case_counts(self):
+            W = prompt_fixture
+            frozen = json.loads((ROOT / 'ci/qualification/native/setup-state-recovery-contract.json').read_text())
+            baseline_spec = frozen['delivered_baseline']
+            baseline_commit = baseline_spec['owners']['LiveContainer']['commit']
+            paths = {'ui': 'LiveContainerSwiftUI/Views/V3UnifiedShell.swift',
+                     'localization': 'LiveContainerSwiftUI/Utilities/V3Localization.swift',
+                     'catalog': 'Resources/Localizable.xcstrings',
+                     'display': 'LiveContainerSwiftUI/Utilities/V3LanguageSettings.swift',
+                     'identity_diagnostics': 'SideStoreSupport/SideStore.swift'}
+            with tempfile.TemporaryDirectory() as tmp:
+                baseline = Path(tmp) / 'baseline'; baseline.mkdir()
+                output = Path(tmp) / 'output'
+                for relative in paths.values():
+                    data = G.git(sources / 'LiveContainer', 'cat-file', 'blob', baseline_commit + ':' + relative)
+                    self.assertEqual(P.sha(data), baseline_spec['input_sha256']['LiveContainer/' + relative])
+                    target = baseline / relative; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
+                W.run(sources, sources / 'LiveContainer', baseline, output)
+                manifest = json.loads((output / 'sources.json').read_text())
+                static = json.loads((output / 'static-contract.json').read_text())
+                current = portal.read_source(sources, P.LOCALIZATION)
+                self.assertTrue((output / 'fixture.swift').read_bytes().startswith(current + b'\n'))
+                self.assertNotEqual(P.sha(current), W.descriptor()['historical_sha256'])
+                expected_hashes = {key: P.sha(portal.read_source(sources, 'LiveContainer/' + path)) for key, path in paths.items()}
+                self.assertEqual(manifest['source_sha256'], expected_hashes)
+                self.assertEqual(static['source_sha256'], expected_hashes)
+                self.assertEqual(manifest['expected_native_case_count'], 2079)
+                self.assertEqual(len(set(manifest['expected_case_names'])), 2079)
+                self.assertEqual((manifest['key_count'], manifest['localized_value_count']), (216, 1080))
+                self.assertEqual(manifest['status'], 'generated_not_compiled')
+                self.assertEqual(static['native_renderer_cases'], 'generated_not_executed')
+                self.assertEqual(static['swift_build'], 'not_run')
+                W.verify_static(static, {'input_sha256': {P.LOCALIZATION: P.sha(current)}})
+                for name, digest in manifest['output_sha256'].items():
+                    self.assertEqual(P.sha((output / name).read_bytes()), digest)
+                for name in ('generate_setup_localization_fixture.py', 'test_setup_localization_contract.py'):
+                    path = 'LiveContainer/.ci/comprehensive-diagnostics/' + name
+                    self.assertEqual(manifest['fixture_inputs'][name], W.PINS[path])
+                self.assertFalse((output / 'cases.json').exists())
+
         def test_full_current_closure_parent_chain_delta_and_inverse_git_equality(self):
             specs = P.specifications(); before, after = graph_pair()
             binding = P.validate_sources(sources, after)
