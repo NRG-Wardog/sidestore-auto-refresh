@@ -18,9 +18,12 @@ def fixture():
   logs={o:('\nRan '+str(n)+' tests in 0.123s\n\nOK\n' if n is not None else '') for o,(_,n) in C.SUITES.items()} if kind=='swift' else {'idevice':'\n'.join('test '+name+' ... ok' for name in C.RUST_CASES)+'\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'}
   parts[kind]={'schema':C.SCHEMA+'-part','kind':kind,'status':'PASS','identity':identity,'source_graph':graph,'source':source,'logs':logs,'compiler':{'path_sha256':'e'*64,'version':'synthetic compiler model'},'physical_device_execution':False}
   if kind=='swift':
+   logs['LiveContainer-extension-prompt']+='test_actual_adapter (__main__.ExtensionPromptLocalization.test_actual_adapter) ... ok\ntest_closed_owned_vocabulary (__main__.ExtensionPromptLocalization.test_closed_owned_vocabulary) ... ok\n'
+   logs['SideSign-portal-parser']+=C.PORTAL_PARSER_MARKER+'\n'
+   logs['LiveContainer-portal-wire']+='\n'.join('PASS '+name for name in C.CURRENT_PORTAL_WIRE_CASES)+'\nPORTAL_WIRE_PASS\n'
    logs['SideStore-preservation-origin']+=json.dumps({'schema':'preservation-origin-transport-v1','status':'PASS','cases':list(C.ORIGIN_TRANSPORT_CASES),'network_executed':False,'platform_tls_executed':False,'cms_verified':False,'device_executed':False})+'\n'+json.dumps({'schema':'preservation-origin-visibility-v1','status':'PASS','cases':list(C.ORIGIN_VISIBILITY_CASES),'device_executed':False})+'\n'
    logs['SideStore-preservation-der']+=json.dumps({'schema':'preservation-der-parser-v1','status':'PASS','cases':list(C.PRESERVATION_DER_CASES),'cms_verified':False,'device_executed':False})+'\n'
-   logs['SideStore-preservation']+=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False,**({'cms_verified':False,'platform_tls_executed':False,'portal_executed':False} if name=='integration' else {})})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.PRESERVATION_INTEGRATION_CASES)])
+   logs['SideStore-preservation']+=''.join(json.dumps({'schema':'preservation-refresh-'+name+'-v1','status':'PASS','cases':list(cases),'device_executed':False,**({'cms_verified':False,'platform_tls_executed':False,'portal_executed':False} if name=='integration' else {})})+'\n' for name,cases in [('policy',C.PRESERVATION_POLICY_CASES),('integration',C.CURRENT_PRESERVATION_INTEGRATION_CASES)])
    logs['SideStore-reuse-lifecycle']+='\n'.join(C.REUSE_LIFECYCLE_MARKERS)+'\n'
    logs['SideStore-reuse-lifecycle']+=json.dumps({'schema':'reuse-main-producer-consumer-v1','status':'PASS','cases':list(C.REUSE_PRODUCER_CONSUMER_CASES),'device_executed':False})+'\n'
   if kind=='swift':
@@ -30,7 +33,7 @@ def fixture():
    logs['SideStore-preservation-outcome']+='PASS 7 actual outcome cases and SS-to-LC wire\n'
    logs['LiveContainer-postdispatch-wire']+=json.dumps({'schema':'ss-lc-postdispatch-wire-v1','status':'PASS','cases':list(C.POSTDISPATCH_CASES),'device_executed':False,'network_executed':False,'inputs':{key:'d'*64 for key in C.POSTDISPATCH_INPUTS}})+'\n'
   if kind=='swift':parts[kind]['logs']['SideStore-refresh-failure']+='CMS_SIGNER_REAL_SIGNING_BRIDGE_PASS\nAPPLE_PROFILE_ORIGIN_REAL_SIGNING_BRIDGE_PASS\nPRESERVATION_POSTDISPATCH_REAL_BRIDGE_PASS\n'
-  if kind=='swift':parts[kind]['logs']['LiveContainer-observations']+='\n'.join('PASS '+name for name in C.OBSERVATION_CASES)+'\nREFRESH_OBSERVATIONS_PASS\n'
+  if kind=='swift':parts[kind]['logs']['LiveContainer-observations']+='\n'.join('PASS '+name for name in C.CURRENT_OBSERVATION_CASES)+'\nREFRESH_OBSERVATIONS_PASS\n'
   if kind=='swift':
    for owner,(schema,cases) in C.LEGACY_NATIVE.items():parts[kind]['logs'][owner]+=json.dumps({'schema':schema,'status':'PASS','cases':list(cases)})+'\n'
   if kind=='swift':parts[kind]['logs']['SideStore-legacy-coordinator']+='\n'.join(C.LEGACY_COORDINATOR_MARKERS)+'\n'
@@ -44,6 +47,66 @@ class ReceiptTests(unittest.TestCase):
   v=copy.deepcopy(self.value);change(v)
   if rehash:v['part_sha256']={k:C.digest(p) for k,p in v['parts'].items()}
   with self.assertRaises((ValueError,TypeError,KeyError)):self.verify(v)
+ def test_extension_prompt_actual_source_and_native_methods_are_mandatory(self):
+  owner='LiveContainer-extension-prompt'
+  self.assertEqual(C.SUITES[owner],('tests/test_extension_prompt_localization.py',2))
+  self.assertEqual(C.SUITE_OWNERS[owner],'LiveContainer')
+  self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
+  good=self.value['parts']['swift']['logs'][owner]
+  for before,after in [('Ran 2 tests','Ran 1 test'),('OK\n','OK (skipped=1)\n'),
+                       ('test_actual_adapter','test_static_substitute'),
+                       ('test_closed_owned_vocabulary','test_other_source')]:
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,good.replace(before,after)))
+  methods=[line+'\n' for line in good.splitlines() if line.startswith('test_')]
+  for line in methods:
+   for bad in (good.replace(line,''),good+line):
+    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+  self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,good.replace(''.join(methods),''.join(reversed(methods)))))
+ def test_mapping_lifecycle_requires_all_nine_methods_without_skips(self):
+  owner='SideStore-reuse-lifecycle'
+  self.assertEqual(C.SUITES[owner],('tests/reuse_main/run.sh',9))
+  good=self.value['parts']['swift']['logs'][owner]
+  for count in (7,8,10):
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,good.replace('Ran 9 tests','Ran '+str(count)+' tests')))
+  self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,good.replace('OK\n','OK (skipped=1)\n')))
+ def test_functional_prompt_and_signer_fixture_inputs_bound_in_both_parts(self):
+  required={'LiveContainer':('LiveContainerSwiftUI/Utilities/V3Localization.swift','tests/test_extension_prompt_localization.py'),
+            'SideStore':('SideStore/Core/Operations/OperationContexts.swift',
+             'SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift',
+             'SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift',
+             'SideStore/Core/Operations/PipelineOperations/PrepareAppExtensionBundleIDsOperation.swift'),
+            'SideStore/Dependencies/SideSign':('Sources/CodeSigning/CodeSignerAPI.swift','Sources/CodeSigning/ExtensionSigningPolicy.swift',
+             '.ci/reuse-main/run.sh','.ci/reuse-main/test_source.py','.ci/reuse-main/Cases.swift','.ci/reuse-main/SignerDoubles.swift','.ci/reuse-main/SignerCases.swift')}
+  for owner,names in required.items():
+   for name in names:
+    self.assertIn(name,C.INPUTS[owner])
+    for kind in ('swift','rust'):
+     def remove(value):
+      value['parts'][kind]['source']=copy.deepcopy(value['parts'][kind]['source'])
+      value['parts'][kind]['source']['source_sha256'].pop(owner+'/'+name)
+     with self.subTest(owner=owner,name=name,kind=kind):self.reject(remove)
+ def test_owned_portal_inverse_and_validator_are_required_in_both_parts(self):
+  owner='SideStore/Dependencies/SideSign'
+  for name in ('.ci/owned-oda/test_sources.py','.ci/owned-oda/strict-appid-portal-projection.json'):
+   self.assertIn(name,C.INPUTS[owner])
+   for kind in ('swift','rust'):
+    value=copy.deepcopy(self.value)
+    value['parts'][kind]['source']=copy.deepcopy(value['parts'][kind]['source'])
+    value['parts'][kind]['source']['source_sha256'].pop(owner+'/'+name)
+    value['part_sha256']={k:C.digest(part) for k,part in value['parts'].items()}
+    with self.subTest(name=name,kind=kind),self.assertRaisesRegex(ValueError,'source input closure'):
+     self.verify(value)
+ def test_rehashed_portal_inverse_claims_cannot_replace_actual_committed_inputs(self):
+  owner='SideStore/Dependencies/SideSign'
+  for name in ('.ci/owned-oda/test_sources.py','.ci/owned-oda/strict-appid-portal-projection.json'):
+   value=copy.deepcopy(self.value)
+   for part in value['parts'].values():part['source']['source_sha256'][owner+'/'+name]='e'*64
+   value['part_sha256']={k:C.digest(part) for k,part in value['parts'].items()}
+   with tempfile.TemporaryDirectory() as directory:
+    path=Path(directory)/'receipt.json';path.write_text(json.dumps(value))
+    with mock.patch.object(C,'collect',return_value=self.value['parts']['swift']['source']):
+     with self.subTest(name=name),self.assertRaisesRegex(ValueError,'current compiler source differs'):
+      C.verify_local(path,Path(directory),{'owners':self.value['source_graph']},self.value['identity'])
  def test_origin_transport_visibility_records_and_claims_exact(self):
   owner='SideStore-preservation-origin';original=self.value['parts']['swift']['logs'][owner]
   self.assertEqual(C.SUITES[owner],('tests/preservation_origin/run.sh',5));self.assertEqual(C.SUITE_OWNERS[owner],'SideStore')
@@ -107,7 +170,7 @@ class ReceiptTests(unittest.TestCase):
    with self.subTest(case=case):
     self.reject(lambda v:v['parts']['swift']['logs'].__setitem__('LiveContainer-observations',v['parts']['swift']['logs']['LiveContainer-observations'].replace('PASS '+case+'\n','')))
  def test_signer_diagnostic_integration_and_static_controls_mandatory(self):
-  self.assertEqual(C.SUITES['SideStore-preservation'],('tests/preservation_refresh/run.sh',5))
+  self.assertEqual(C.SUITES['SideStore-preservation'],('tests/preservation_refresh/run.sh',7))
   for case in C.PRESERVATION_INTEGRATION_CASES[38:]:
    def change(v):
     log=v['parts']['swift']['logs']['SideStore-preservation']

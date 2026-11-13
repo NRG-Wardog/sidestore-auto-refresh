@@ -4,6 +4,7 @@ from pathlib import Path as _NativePath
 _native_root = next((p for p in _NativePath(__file__).resolve().parents if (p / 'ci/native_paths.py').is_file()), None)
 if _native_root is not None:
     _native_sys.path.insert(0, str(_native_root))
+from ci.qualification.native import functional_recovery_projection as functional
 import copy
 import hashlib
 import json
@@ -29,7 +30,7 @@ def extension():
 def add(contract):
     value, original, digest = extension(); result=copy.deepcopy(contract)
     require(result['case_names']['setup-localization'] == original, 'Russian projection requires original ordered cases unchanged')
-    require(all(result.get('input_sha256',{}).get(p)==sha for p,sha in value['candidate_inputs'].items()), 'Russian projection source inputs not exactly bound')
+    require(all(functional.normalize(result, functional.LOCALIZATION).get('input_sha256',{}).get(p)==sha for p,sha in value['candidate_inputs'].items()), 'Russian projection source inputs not exactly bound')
     result['case_names']['setup-localization'] = sorted(original + value['additional_cases'])
     require([c for c in result['case_names']['setup-localization'] if c in set(original)] == original, 'Russian projection reordered original cases')
     result['russian_setup_extension']={'manifest_sha256':digest}
@@ -41,5 +42,5 @@ def variant(contract):
     value, original, digest=extension()
     require(contract['russian_setup_extension']=={'manifest_sha256':digest}, 'Russian extension identity differs')
     require(contract.get('case_names',{}).get('setup-localization') == sorted(original + value['additional_cases']), 'Russian exact ordered case extension differs')
-    require(all(contract.get('input_sha256',{}).get(p)==sha for p,sha in value['candidate_inputs'].items()), 'Russian extension source hashes differ')
+    require(all(functional.normalize(contract, functional.LOCALIZATION).get('input_sha256',{}).get(p)==sha for p,sha in value['candidate_inputs'].items()), 'Russian extension source hashes differ')
     return {'cases':1759,'values':920,'baseline_missing':344}

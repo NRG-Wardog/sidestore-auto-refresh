@@ -10,6 +10,10 @@ from pathlib import Path as _WorkflowPath
 _workflow_sys.path.insert(0, str((_CIPath(__file__).resolve().parents[3]/'ci')))
 from workflow_jobs import workflow_job
 import copy
+import ast
+import re
+import importlib.util
+import os
 import json
 from pathlib import Path
 import unittest
@@ -48,7 +52,8 @@ class NativeQualificationControls(unittest.TestCase):
         # These workflow controls run after exact source acquisition. Local
         # reviewed worktrees use SS; native workflows use sources/SideStore.
         harness = (_CIPath(__file__).resolve().parents[3])
-        roots = (harness.parent/'sources'/'SideStore', harness.parent/'SS')
+        configured = os.environ.get('MAINTAINED_SIDESTORE_TEST_SOURCE')
+        roots = ((Path(configured),) if configured else ()) + (harness.parent/'sources'/'SideStore', harness.parent/'SS')
         source = next((p for p in roots if (p/'tests/preservation_serialization/generate_fixture.py').is_file()), None)
         self.assertIsNotNone(source, 'actual acquired SideStore generator is required')
         with tempfile.TemporaryDirectory() as tmp:
@@ -76,6 +81,16 @@ class NativeQualificationControls(unittest.TestCase):
         self.assertEqual(row['cases'], list(C.PRESERVATION_INTEGRATION_CASES))
         good = self.value['parts']['swift']['logs']['SideStore-preservation']
         old = next(x for x in good.splitlines() if x.startswith('{') and json.loads(x)['schema']=='preservation-refresh-integration-v1')
+        log = good.replace(old, json.dumps(row))
+        # The frozen 80-case artifact remains historical proof under its frozen
+        # validator. It must never satisfy the successor's additional native gate.
+        spec = importlib.util.spec_from_file_location('historical_refresh_truth',
+            _CIPath(__file__).resolve().parents[3]/'ci/packaging/zopfli/reviewed-native/refresh_truth_receipt.py')
+        historical = importlib.util.module_from_spec(spec); spec.loader.exec_module(historical)
+        historical.suite_tests('SideStore-preservation', log.replace('Ran 7 tests', 'Ran 5 tests'))
+        self.reject_log('SideStore-preservation', log)
+        # Only the synthetic fixture below extends that schema to current cases.
+        row = {**row, 'cases': list(C.CURRENT_PRESERVATION_INTEGRATION_CASES)}
         log = good.replace(old, json.dumps(row))
         C.suite_tests('SideStore-preservation', log)
         for key in ('cms_verified','platform_tls_executed','portal_executed'):
@@ -150,11 +165,13 @@ class NativeQualificationControls(unittest.TestCase):
         expected = {
             'LiveContainer':6, 'LiveContainer-postdispatch-wire':2,
             'LiveContainer-observations':5, 'LiveContainer-legacy':4,
-            'SideStore':8, 'SideStore-preservation':5,
+            'SideStore':8, 'SideStore-preservation':7,
+            'SideSign-portal-parser':3, 'LiveContainer-portal-wire':2,
+            'LiveContainer-extension-prompt':2,
             'SideStore-preservation-origin':5, 'SideStore-preservation-der':6,
             'SideStore-preservation-outcome':3,
             'SideStore-preservation-serialization':None,
-            'SideStore-reuse-lifecycle':7, 'SideStore-refresh-failure':6,
+            'SideStore-reuse-lifecycle':9, 'SideStore-refresh-failure':6,
             'SideStore-direct':4, 'SideStore-legacy-hooks':4,
             'SideStore-legacy-coordinator':4, 'SideStore/Dependencies/minimuxer':6,
         }
@@ -162,7 +179,39 @@ class NativeQualificationControls(unittest.TestCase):
         for owner in ('SideStore-preservation','SideStore-preservation-origin'):
             log=self.value['parts']['swift']['logs'][owner]
             C.suite_tests(owner,log)
-            self.reject_log(owner,log.replace('Ran 5 tests','Ran 4 tests'))
+            count=C.SUITES[owner][1]
+            self.reject_log(owner,log.replace('Ran '+str(count)+' tests','Ran '+str(count-1)+' tests'))
+
+    def test_functional_counts_match_actual_owner_methods_and_signer_cases(self):
+        from ci.qualification.native.run_issue_tests import verify_reuse_main_fixture_inventory
+        parent = _CIPath(__file__).resolve().parents[3].parent
+        side = Path(os.environ.get('MAINTAINED_SIDESTORE_TEST_SOURCE', parent/'sources/SideStore')).resolve()
+        live = Path(os.environ.get('MAINTAINED_LIVE_CONTAINER_TEST_SOURCE', parent/'sources/LiveContainer')).resolve()
+        specs = (
+            ('SideStore-refresh-failure', side/'tests/refresh_failure/test_contract.py',
+             'test_actual_swift_boundary_capture_and_wire_roundtrip'),
+            ('SideStore-reuse-lifecycle', side/'tests/reuse_main/test_contract.py',
+             'test_group_mapping_actor_native_run_isolation'),
+            ('LiveContainer-extension-prompt', live/'tests/test_extension_prompt_localization.py',
+             'test_actual_adapter'),
+        )
+        for owner, path, native_method in specs:
+            self.assertTrue(path.is_file(), 'actual owner entrypoint required: '+str(path))
+            methods = [node.name for node in ast.walk(ast.parse(path.read_text()))
+                       if isinstance(node, ast.FunctionDef) and node.name.startswith('test_')]
+            with self.subTest(owner=owner):
+                self.assertEqual(len(methods), C.SUITES[owner][1])
+                self.assertEqual(len(methods), len(set(methods)))
+                self.assertIn(native_method, methods)
+        reuse_inputs = set(re.findall(r"ROOT\s*/\s*'([^']+)'", (side/'tests/reuse_main/test_contract.py').read_text()))
+        self.assertTrue(reuse_inputs <= set(C.INPUTS['SideStore']), 'reuse source dependency missing from receipt')
+        signer_source = side/'Dependencies/SideSign/.ci/reuse-main/test_source.py'
+        self.assertTrue(signer_source.is_file())
+        methods = [node.name for node in ast.walk(ast.parse(signer_source.read_text()))
+                   if isinstance(node, ast.FunctionDef) and node.name.startswith('test_')]
+        self.assertEqual(methods, ['test_default_is_unchanged', 'test_policy_is_conservative'])
+        # Native execution is separately mandatory; this inventory is not a substitute.
+        verify_reuse_main_fixture_inventory(side/'Dependencies/SideSign')
 
     def test_successor_inventory_remains_exact_and_source_owned(self):
         self.assertEqual((len(C.PRESERVATION_POLICY_CASES),len(C.PRESERVATION_INTEGRATION_CASES),len(C.ORIGIN_TRANSPORT_CASES)),(55,80,58))

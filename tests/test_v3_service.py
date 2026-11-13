@@ -2084,30 +2084,95 @@ print("V3 headless wire contract PASS")
         gate = source[source.index("enum V3PromptAnswerDisposition:"):]
         gate = gate[:gate.index("\n@MainActor\nfinal class V3HeadlessRuntime")]
         program = "import Foundation\n" + gate + r'''
+// Control only scheduling, not prompt state or continuation implementation.
+// park removes its settled box when its resumed job runs. A duplicate is
+// alreadySettled before that cleanup and unavailable afterward, so sleeps
+// cannot establish the state required by either assertion.
+@available(macOS 15.0, *)
+final class PromptGateTestExecutor: TaskExecutor, @unchecked Sendable {
+    private let lock = NSLock()
+    private var jobs: [UnownedJob] = []
+
+    func enqueue(_ job: consuming ExecutorJob) {
+        lock.lock()
+        jobs.append(UnownedJob(job))
+        lock.unlock()
+    }
+
+    func runUntilIdle() {
+        // Swift versions may enqueue an additional job at a continuation
+        // boundary. Drain all runnable work instead of assuming one hop.
+        for _ in 0..<100 {
+            let job = lock.withLock { jobs.isEmpty ? nil : jobs.removeFirst() }
+            guard let job else { return }
+            job.runSynchronously(on: asUnownedTaskExecutor())
+        }
+        preconditionFailure("prompt task failed to suspend or complete")
+    }
+}
+
+@available(macOS 15.0, *)
 @main struct PromptGateTests {
     static func main() async throws {
         let center = V3PromptCenter()
-        let first = Task { try await center.park(promptID: "p1") }
-        try await Task.sleep(nanoseconds: 20_000_000)
+        let executor = PromptGateTestExecutor()
+        let first = Task.detached(executorPreference: executor) {
+            try await center.park(promptID: "p1")
+        }
+        executor.runUntilIdle()
+        precondition(center.pendingCount == 1, "first prompt must be parked before answering")
         precondition(center.answer(promptID: "p1", answer: ["choice": "proceed"]) == .accepted)
-        precondition(center.answer(promptID: "p1", answer: ["choice": "proceed"]) == .alreadySettled)
+        precondition(center.answer(promptID: "p1", answer: ["choice": "proceed"]) == .alreadySettled,
+                     "a duplicate before cleanup must be alreadySettled")
         precondition(center.answer(promptID: "missing", answer: [:]) == .unavailable)
+        precondition(!center.cancel(promptID: "p1"), "an accepted answer must settle only once")
+        executor.runUntilIdle()
         let firstAnswer = try await first.value
         precondition(firstAnswer["choice"] == "proceed")
-        let second = Task { try await center.park(promptID: "p2") }
-        try await Task.sleep(nanoseconds: 10_000_000)
+        precondition(center.pendingCount == 0, "answered prompt must be removed after resumption")
+        precondition(center.answer(promptID: "p1", answer: [:]) == .unavailable,
+                     "a duplicate after cleanup must not recreate a completed prompt")
+
+        let second = Task.detached(executorPreference: executor) {
+            try await center.park(promptID: "p2")
+        }
+        executor.runUntilIdle()
+        precondition(center.pendingCount == 1, "second prompt must be parked before cancellation")
         second.cancel()
+        precondition(!center.cancel(promptID: "p2"), "task cancellation must settle only once")
+        precondition(center.answer(promptID: "p2", answer: [:]) == .unavailable)
+        executor.runUntilIdle()
         do {
             _ = try await second.value
             preconditionFailure("cancelled park resumed")
         } catch is CancellationError {}
-        let third = Task { try await center.park(promptID: "p3") }
-        try await Task.sleep(nanoseconds: 10_000_000)
+        precondition(center.pendingCount == 0, "cancelled prompt must be removed after resumption")
+
+        let third = Task.detached(executorPreference: executor) {
+            try await center.park(promptID: "p3")
+        }
+        executor.runUntilIdle()
+        precondition(center.pendingCount == 1, "third prompt must be parked before cancellation")
         third.cancel()
+        executor.runUntilIdle()
         do {
             _ = try await third.value
             preconditionFailure("task cancel did not resume")
         } catch is CancellationError {}
+        precondition(center.pendingCount == 0)
+
+        // Cancellation before the task starts must not install a box at all.
+        let fourth = Task.detached(executorPreference: executor) {
+            try await center.park(promptID: "p4")
+        }
+        fourth.cancel()
+        executor.runUntilIdle()
+        do {
+            _ = try await fourth.value
+            preconditionFailure("pre-cancelled task parked")
+        } catch is CancellationError {}
+        precondition(center.pendingCount == 0)
+        precondition(center.answer(promptID: "p4", answer: [:]) == .unavailable)
         print("V3 prompt gate PASS")
     }
 }
@@ -2119,9 +2184,39 @@ print("V3 headless wire contract PASS")
             executable = directory / "prompt-gate-tests"
             compiled = subprocess.run([compiler, "-parse-as-library", str(swift), "-o", str(executable)], capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
-            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("V3 prompt gate PASS", result.stdout)
+            for attempt in range(10):
+                with self.subTest(attempt=attempt):
+                    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("V3 prompt gate PASS", result.stdout)
+
+            # Execute the same assertions against narrowly broken owner copies.
+            # Controls must compile and fail at the intended invariant, rather
+            # than turning a fixture/compiler problem into a false rejection.
+            controls = (
+                ("duplicate-settlement",
+                 "guard boxes[promptID] === pending, case nil = pending.result else {",
+                 "guard boxes[promptID] === pending else {",
+                 "a duplicate before cleanup must be alreadySettled"),
+                ("missing-cleanup",
+                 "if boxes[promptID] === pending { boxes.removeValue(forKey: promptID) }",
+                 "// Negative control: omit completed-prompt cleanup.",
+                 "answered prompt must be removed after resumption"),
+                ("missing-task-cancellation",
+                 "self.settle(promptID: promptID, pending: pending, result: .failure(CancellationError()))",
+                 "// Negative control: omit the task cancellation callback.",
+                 "task cancellation must settle only once"),
+            )
+            for label, before, after, diagnostic in controls:
+                with self.subTest(control=label):
+                    self.assertEqual(gate.count(before), 1, label)
+                    swift.write_text(program.replace(before, after, 1))
+                    compiled = subprocess.run([compiler, "-parse-as-library", str(swift), "-o", str(executable)],
+                                              capture_output=True, text=True)
+                    self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+                    self.assertNotEqual(result.returncode, 0, label)
+                    self.assertIn(diagnostic, result.stderr)
 
 
 class GsaOwnerTests(unittest.TestCase):

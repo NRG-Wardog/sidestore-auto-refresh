@@ -14,7 +14,14 @@ from pathlib import Path
 import tempfile
 import unittest
 from ci.qualification.native.run_issue_tests import (SUITES, HARNESS_SUITES, verify_issue_receipt, OWNED_INPUTS,
-    OWNED_SWIFT_SUITES, INITIAL_REJECTION_INPUTS, INITIAL_REJECTION_MARKERS, owned_expected_graph, verify_owned_receipt, run_owned_swift_suites)
+    OWNED_SWIFT_SUITES, INITIAL_REJECTION_INPUTS, INITIAL_REJECTION_MARKERS, owned_expected_graph, verify_owned_receipt, run_owned_swift_suites,
+    REUSE_MAIN_INPUTS, REUSE_MAIN_MARKERS, REUSE_MAIN_MAPPING_POLICY_CASES, REUSE_MAIN_MAPPING_SIGNER_CASES,
+    REUSE_MAIN_MAPPING_SUCCESS_CALLS, verify_reuse_main_fixture_inventory,
+    verify_reuse_main_signer_log, run_reuse_main_signer)
+
+
+def signer_log():
+    return 'Ran 2 tests in 0.001s\n\nOK\n' + '\n'.join(REUSE_MAIN_MARKERS) + '\n'
 
 
 def test_owned_graph():
@@ -41,6 +48,7 @@ class IssueReceiptTests(unittest.TestCase):
         value = {'owned_authentication': owned_receipt(), 'suites': [{'owner': o, 'suite': d + '/' + p, 'status': 'PASS_NO_SKIPS'} for o, d, p in SUITES],
                  'harness_suites': list(HARNESS_SUITES), 'registry_runtime_double': 'PASS',
                  'signer_policy_and_production_body_double': 'PASS', 'target_device_execution': False,
+                 'reuse_main_signer_log': signer_log(),
                  'all_suites_passed_no_skips': True}
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'receipt.json'
@@ -48,6 +56,7 @@ class IssueReceiptTests(unittest.TestCase):
             self.assertEqual(verify_issue_receipt(path), value)
             for key, bad in [('suites', value['suites'][:-1]), ('harness_suites', []),
                              ('owned_authentication', {}), ('registry_runtime_double', 'SKIP'), ('signer_policy_and_production_body_double', 'FAIL'),
+                             ('reuse_main_signer_log', None), ('reuse_main_signer_log', ''),
                              ('target_device_execution', True), ('all_suites_passed_no_skips', 1)]:
                 with self.subTest(key=key):
                     changed = copy.deepcopy(value)
@@ -55,6 +64,92 @@ class IssueReceiptTests(unittest.TestCase):
                     path.write_text(json.dumps(changed))
                     with self.assertRaises(ValueError):
                         verify_issue_receipt(path)
+
+class ReuseMainSignerReceiptTests(unittest.TestCase):
+    def test_exact_policy_count_and_actual_signer_completion_required(self):
+        good = signer_log()
+        self.assertEqual(verify_reuse_main_signer_log(good), good)
+        invalid = [None, '', good.replace('Ran 2 tests', 'Ran 1 test'),
+                   good.replace('OK\n', 'OK (skipped=1)\n'),
+                   good.replace('33 checks', '32 checks'), good.replace('33 checks', '34 checks'),
+                   good + 'ReuseMain static substitute\n',
+                   good.replace('\n'.join(REUSE_MAIN_MARKERS), '\n'.join(reversed(REUSE_MAIN_MARKERS)))]
+        for marker in REUSE_MAIN_MARKERS:
+            invalid += [good.replace(marker + '\n', ''), good + marker + '\n']
+        for bad in invalid:
+            with self.subTest(log=bad), self.assertRaises(ValueError): verify_reuse_main_signer_log(bad)
+
+    def test_mapping_case_inventory_rejects_each_missing_or_duplicate_case(self):
+        self.assertEqual(len(REUSE_MAIN_MAPPING_POLICY_CASES), 9)
+        self.assertEqual(len(REUSE_MAIN_MAPPING_SIGNER_CASES), 5)
+        self.assertEqual(len(REUSE_MAIN_MAPPING_SUCCESS_CALLS), 2)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/'SideStore/Dependencies/SideSign/.ci/reuse-main'
+            root.mkdir(parents=True)
+            inventory = {'Cases.swift': tuple('"'+case+'"' for case in REUSE_MAIN_MAPPING_POLICY_CASES),
+                         'SignerCases.swift': tuple('"'+case+'"' for case in REUSE_MAIN_MAPPING_SIGNER_CASES)+tuple('        '+call for call in REUSE_MAIN_MAPPING_SUCCESS_CALLS)}
+            for name, cases in inventory.items(): (root/name).write_text('\n'.join(cases)+'\n')
+            verify_reuse_main_fixture_inventory(root.parents[1])
+            for name, cases in inventory.items():
+                original = (root/name).read_text()
+                for case in cases:
+                    for replacement in ('', case+'\n'+case):
+                        (root/name).write_text(original.replace(case, replacement))
+                        with self.subTest(name=name,case=case), self.assertRaises(ValueError):
+                            verify_reuse_main_fixture_inventory(root.parents[1])
+                    (root/name).write_text(original)
+
+    def test_native_command_is_bounded_and_preserves_failure_log(self):
+        import subprocess
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            for returncode, output in ((0, signer_log()), (0, 'static checks only\n'), (1, 'Swift compilation failed\n')):
+                with patch('ci.qualification.native.run_issue_tests.verify_reuse_main_fixture_inventory') as inventory, \
+                     patch('ci.qualification.native.run_issue_tests.subprocess.run',
+                           return_value=subprocess.CompletedProcess([], returncode, stdout=output)) as run:
+                    if returncode == 0 and output == signer_log():
+                        self.assertEqual(run_reuse_main_signer(directory, directory), output)
+                    else:
+                        with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                            run_reuse_main_signer(directory, directory)
+                    inventory.assert_called_once_with(Path(directory)/'SideStore/Dependencies/SideSign')
+                    self.assertEqual(run.call_args.args[0], ['bash', '.ci/reuse-main/run.sh'])
+                    self.assertEqual(run.call_args.kwargs['timeout'], 300)
+                    self.assertEqual((Path(directory)/'reuse-main-signer.log').read_text(), output)
+
+    def test_signer_failure_cannot_leave_an_aggregate_success_receipt(self):
+        import os
+        import subprocess
+        from unittest.mock import patch
+        from ci.qualification.native.run_issue_tests import main
+        old = Path.cwd()
+        provenance = {key: value for key, value in owned_receipt().items()
+                      if key in ('source_graph', 'source_sha256')}
+        with tempfile.TemporaryDirectory() as directory:
+            try:
+                os.chdir(directory)
+                for owner, folder, pattern in SUITES:
+                    path = Path('sources')/owner/folder/pattern
+                    path.parent.mkdir(parents=True, exist_ok=True); path.write_text('synthetic fixture')
+                Path('evidence').mkdir(); Path('evidence/issue-tests.json').write_text('stale success')
+                with patch('ci.qualification.native.run_issue_tests.shutil.which', return_value='/synthetic/swiftc'), \
+                     patch('ci.qualification.native.run_issue_tests.collect_owned_sources', return_value=provenance), \
+                     patch('ci.qualification.native.run_issue_tests.subprocess.run', return_value=subprocess.CompletedProcess([], 0)), \
+                     patch('ci.qualification.native.run_issue_tests.run_reuse_main_signer', side_effect=ValueError('native signer missing')) as signer, \
+                     patch('ci.qualification.native.run_issue_tests.run_owned_swift_suites') as owned:
+                    with self.assertRaisesRegex(ValueError, 'native signer missing'): main()
+                    signer.assert_called_once_with('sources', 'evidence')
+                    owned.assert_not_called()
+                self.assertFalse(Path('evidence/issue-tests.json').exists())
+            finally: os.chdir(old)
+
+    def test_signer_mapping_inputs_are_bound_to_issue_source_receipt(self):
+        from ci.qualification.native import refresh_truth_receipt as refresh
+        owner = 'SideStore/Dependencies/SideSign'
+        for name in REUSE_MAIN_INPUTS:
+            self.assertIn(name, OWNED_INPUTS[owner])
+            self.assertIn(name, refresh.INPUTS[owner])
+
 
 class OwnedAuthenticationReceiptTests(unittest.TestCase):
     def setUp(self):
@@ -77,6 +172,65 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
         changed = copy.deepcopy(value); changed['source_sha256'][next(iter(changed['source_sha256']))] = 'invalid'; invalid.append(changed)
         for changed in invalid:
             with self.assertRaises(ValueError): verify_owned_receipt(changed)
+
+    def test_strict_portal_inverse_is_required_and_must_match_committed_source(self):
+        owner = 'SideStore/Dependencies/SideSign'
+        name = '.ci/owned-oda/strict-appid-portal-projection.json'
+        self.assertIn((owner, '.ci/owned-oda', 'test_sources.py'), SUITES)
+        self.assertIn(name, OWNED_INPUTS[owner])
+        value = owned_receipt()
+        provenance = {key: copy.deepcopy(value[key]) for key in ('source_graph', 'source_sha256')}
+        missing = copy.deepcopy(value); missing['source_sha256'].pop(owner+'/'+name)
+        with self.assertRaisesRegex(ValueError, 'closure'):
+            verify_owned_receipt(missing, provenance)
+        tampered = copy.deepcopy(value); tampered['source_sha256'][owner+'/'+name] = 'b'*64
+        with self.assertRaisesRegex(ValueError, 'actual committed inputs'):
+            verify_owned_receipt(tampered, provenance)
+
+    def test_portal_inverse_missing_changed_linked_and_foreign_commit_files_fail_both_collectors(self):
+        import subprocess
+        from unittest.mock import patch
+        from ci.qualification.native import run_issue_tests as issue
+        from ci.qualification.native import refresh_truth_receipt as refresh
+        owner = 'SideStore/Dependencies/SideSign'
+        names = ('.ci/owned-oda/test_sources.py', '.ci/owned-oda/strict-appid-portal-projection.json')
+        for name in names:
+            self.assertIn(name, issue.OWNED_INPUTS[owner])
+            self.assertIn(name, refresh.INPUTS[owner])
+        with tempfile.TemporaryDirectory() as directory:
+            sources = Path(directory).resolve(); root = sources/owner; root.mkdir(parents=True)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), '-c', 'core.hooksPath=/dev/null', *args], text=True).strip()
+            git('init', '-q'); git('config', 'user.name', 'Synthetic fixture'); git('config', 'user.email', 'fixture@example.invalid')
+            for name in names:
+                path = root/name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('{}\n')
+            git('add', '.'); git('commit', '-qm', 'Synthetic committed inverse input')
+            commit, tree = git('rev-parse', 'HEAD'), git('rev-parse', 'HEAD^{tree}')
+            graph = {'owners': {owner: ['NRG-Wardog/SideSign', commit]}, 'reviewed_deltas': {owner: {'tree': tree}}}
+            expected = {owner: {'commit': commit, 'tree': tree}}
+            with patch.object(issue, 'OWNED_INPUTS', {owner: names}), \
+                 patch.object(issue, 'owned_expected_graph', return_value=expected), \
+                 patch.object(refresh, 'INPUTS', {owner: names}):
+                before_issue = issue.collect_owned_sources(sources)
+                before_refresh = refresh.collect(sources, graph)
+                self.assertEqual(before_issue['source_sha256'], before_refresh['source_sha256'])
+                for name in names:
+                    path = root/name
+                    for mutation in ('missing', 'changed', 'linked'):
+                        if mutation == 'missing': path.unlink()
+                        elif mutation == 'changed': path.write_text('{"unreviewed":true}\n')
+                        else:
+                            path.unlink(); path.symlink_to(root/names[1 if name == names[0] else 0])
+                        for collector in (lambda: issue.collect_owned_sources(sources), lambda: refresh.collect(sources, graph)):
+                            with self.subTest(name=name,mutation=mutation), self.assertRaises(ValueError): collector()
+                        if path.is_symlink(): path.unlink()
+                        path.write_text('{}\n')
+                    self.assertEqual(issue.collect_owned_sources(sources), before_issue)
+                    self.assertEqual(refresh.collect(sources, graph), before_refresh)
+                (root/names[1]).write_text('{"unreviewed":true}\n')
+                git('add', '.'); git('commit', '-qm', 'Foreign inverse fixture')
+                for collector in (lambda: issue.collect_owned_sources(sources), lambda: refresh.collect(sources, graph)):
+                    with self.assertRaisesRegex(ValueError, 'graph differs|HEAD differs'): collector()
 
     def test_receipt_must_match_current_committed_inputs(self):
         value = owned_receipt()
@@ -185,6 +339,7 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
                 with patch('ci.qualification.native.run_issue_tests.shutil.which', return_value='/synthetic/swiftc'), \
                      patch('ci.qualification.native.run_issue_tests.collect_owned_sources', return_value=provenance) as seal, \
                      patch('ci.qualification.native.run_issue_tests.subprocess.run') as execute, \
+                     patch('ci.qualification.native.run_issue_tests.run_reuse_main_signer', return_value=signer_log()), \
                      patch('ci.qualification.native.run_issue_tests.run_owned_swift_suites', return_value=value):
                     with self.assertRaisesRegex(ValueError, 'actual committed inputs'): main()
                     seal.assert_called_once_with('sources')
@@ -233,7 +388,7 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
                         with self.assertRaises(ValueError): run_owned_swift_suites(temp, Path(temp) / 'evidence')
 
     def test_generated_input_owner_classification_normalizes_sibling_checkout(self):
-        import sys
+        import os, sys
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -250,13 +405,15 @@ class OwnedAuthenticationReceiptTests(unittest.TestCase):
             generator.write_text('import argparse,json\nfrom pathlib import Path\n'
                 'p=argparse.ArgumentParser();p.add_argument("--output");p.add_argument("--sidesign-root");a=p.parse_args()\n'
                 + 'Path(a.output,"source-evidence.json").write_text(json.dumps({"inputs":'+repr(inputs)+'}))\n')
-            with patch.object(sys.modules[__name__], '__file__', str(harness_file)):
+            with patch.object(sys.modules[__name__], '__file__', str(harness_file)), \
+                 patch.dict(os.environ, {'MAINTAINED_SIDESTORE_TEST_SOURCE': ''}):
                 self.test_actual_generated_initial_rejection_inputs_are_all_sealed()
 
     def test_actual_generated_initial_rejection_inputs_are_all_sealed(self):
-        import subprocess, sys
+        import os, subprocess, sys
         root = (_CIPath(__file__).resolve().parents[3]/'..').resolve()
-        side = root / 'SS'
+        configured = os.environ.get('MAINTAINED_SIDESTORE_TEST_SOURCE')
+        side = Path(configured).resolve() if configured else root / 'SS'
         if not side.is_dir():
             side = root / 'sources/SideStore'
         script = side / '.ci/initial-provider-rejection/generate.py'

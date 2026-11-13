@@ -1,0 +1,195 @@
+{
+  "files": {
+    "LiveContainer/SideStoreSupport/SideStore.swift": {
+      "after_blob": "75a5e44cefae0c8715ecd452c9d195172148eb46",
+      "after_commit": "511e25b647c80bd070bef31e80b1020cfd4a5b7b",
+      "after_sha256": "05e95a5e41650d77622773cbbe95e5601498c6f94249897f43791d64973d9441",
+      "before_blob": "db4a86a8fb101368d3ab7d457cf46dbffd23a2b8",
+      "before_commit": "12e77fad6517288de544e766fb0e84594c2a1912",
+      "before_sha256": "eec64cca637207acd76e13ea1e0ff32017379a9867d28cc153be2028b02a25ca",
+      "edits": [
+        {
+          "after": "            if selection, token == \"preservationPortalIdentityUnavailable\",\n               failure?.stage == .signing, failure?.sourceStep == .provisioningProfileFetch,\n               evidence?.mutationDispatched == false,\n               let reason = failure?.signingContext[\"preservation_portal_identity\"],\n               CombinedFailure.preservationPortalIdentityKinds.contains(reason) {\n                row[\"preservationPortalIdentity\"] = reason\n            }\n",
+          "after_lines": [
+            471,
+            478
+          ],
+          "before": ""
+        },
+        {
+          "after": "            guard rowKeys.isSubset(of: Set(row.keys)), Set(row.keys).isSubset(of: rowKeys.union([\"preservationConflict\", \"cmsSignerDiagnostic\", \"appleProfileOrigin\", \"preservationPortalIdentity\"])), let target = row[\"target\"] as? NSNumber,\n",
+          "after_lines": [
+            493,
+            494
+          ],
+          "before": "            guard rowKeys.isSubset(of: Set(row.keys)), Set(row.keys).isSubset(of: rowKeys.union([\"preservationConflict\", \"cmsSignerDiagnostic\", \"appleProfileOrigin\"])), let target = row[\"target\"] as? NSNumber,\n"
+        },
+        {
+          "after": "            let portalSuffix: String\n            if operation == \"failed\", scope == \"nonHost\", dispatched == \"no\",\n               token == \"preservationPortalIdentityUnavailable\", kind == \"invalidParameters\",\n               let reason = row[\"preservationPortalIdentity\"] as? String,\n               CombinedFailure.preservationPortalIdentityKinds.contains(reason) {\n                portalSuffix = \" preservation_portal_identity=\\(reason)\"\n            } else { portalSuffix = \"\" }\n            lines.append(\"target_\\(index + 1): scope=\\(scope) operation_status=\\(operation) selection_guard=\\(token) failure_kind=\\(kind) mutation_dispatched=\\(dispatched) install_acknowledged=\\(acknowledged) profile_store=\\(store) renewal=\\(renewal) certificate=\\(certificate)\" + conflictSuffix + signerSuffix + originSuffix + portalSuffix)\n",
+          "after_lines": [
+            522,
+            530
+          ],
+          "before": "            lines.append(\"target_\\(index + 1): scope=\\(scope) operation_status=\\(operation) selection_guard=\\(token) failure_kind=\\(kind) mutation_dispatched=\\(dispatched) install_acknowledged=\\(acknowledged) profile_store=\\(store) renewal=\\(renewal) certificate=\\(certificate)\" + conflictSuffix + signerSuffix + originSuffix)\n"
+        },
+        {
+          "after": "        // Portal-list observations are optional and only describe this signing guard.\n        if !preservationScope ||\n            (self.safeCause != nil && self.safeCause != .unknownSigningCause) ||\n            context[\"local_precondition\"] != \"preservationPortalIdentityUnavailable\" {\n            context.removeValue(forKey: \"preservation_portal_identity\")\n        }\n",
+          "after_lines": [
+            1136,
+            1142
+          ],
+          "before": ""
+        },
+        {
+          "after": "        if fields[\"preservation_portal_identity\"] != nil &&\n            (!(fields[\"preservation_portal_identity\"] is String) || fields.count > 20) {\n            fields.removeValue(forKey: \"preservation_portal_identity\")\n        }\n",
+          "after_lines": [
+            1162,
+            1166
+          ],
+          "before": ""
+        },
+        {
+          "after": "    public static let preservationPortalIdentityKinds: Set<String> = [\"invalidHTTPResponse\", \"httpFailure\", \"missingStatus\", \"unsuccessfulStatus\", \"missingList\", \"nullList\", \"malformedList\", \"malformedRecord\", \"conflictingRecord\", \"requestUnavailable\", \"emptyList\", \"noExactMatch\", \"ambiguousMatch\", \"caseOnlyMatch\"]\n",
+          "after_lines": [
+            1194,
+            1195
+          ],
+          "before": ""
+        },
+        {
+          "after": "        if supplied.count > 20 { supplied.removeValue(forKey: \"preservation_portal_identity\") }\n",
+          "after_lines": [
+            1201,
+            1202
+          ],
+          "before": ""
+        },
+        {
+          "after": "        }\n        if let reason = fields[\"preservation_portal_identity\"],\n           !Self.preservationPortalIdentityKinds.contains(reason) ||\n           fields[\"refresh_target_scope\"] != \"nonHost\" ||\n           fields[\"local_precondition\"] != \"preservationPortalIdentityUnavailable\" ||\n           fields[\"refresh_failure_kind\"] != \"invalidParameters\" {\n            fields.removeValue(forKey: \"preservation_portal_identity\")\n",
+          "after_lines": [
+            1233,
+            1240
+          ],
+          "before": ""
+        },
+        {
+          "after": "            case \"preservation_portal_identity\":\n                guard Self.preservationPortalIdentityKinds.contains(text),\n                      fields[\"refresh_target_scope\"] == \"nonHost\",\n                      fields[\"local_precondition\"] == \"preservationPortalIdentityUnavailable\",\n                      fields[\"refresh_failure_kind\"] == \"invalidParameters\" else { return nil }\n",
+          "after_lines": [
+            1334,
+            1339
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/AltStore/AppDelegate.swift": {
+      "after_blob": "826efb141b893118e1b5f526cf3f3b90e3d7c75a",
+      "after_commit": "0eba6008c724c9f86a287b696748a74aef25f289",
+      "after_sha256": "eb48aa5865a8dbcf376c6bd957d4a300c4eb7c4b310bc892cc3bc058b4d98997",
+      "before_blob": "5a04b994d7f0f06c0d6840dd610b62c8b9144726",
+      "before_commit": "d0fc537310c921cd5732e16e16f2037d215ecde2",
+      "before_sha256": "64f496c4ae34a89e7df07be1cd4b8c6f54a7f08944ea2da4bbfab053dd7bd746",
+      "edits": [
+        {
+          "after": "        // Portal-list observations are optional and only describe this signing guard.\n        if !preservationScope ||\n            (self.safeCause != nil && self.safeCause != .unknownSigningCause) ||\n            context[\"local_precondition\"] != \"preservationPortalIdentityUnavailable\" {\n            context.removeValue(forKey: \"preservation_portal_identity\")\n        }\n",
+          "after_lines": [
+            15783,
+            15789
+          ],
+          "before": ""
+        },
+        {
+          "after": "        if fields[\"preservation_portal_identity\"] != nil &&\n            (!(fields[\"preservation_portal_identity\"] is String) || fields.count > 20) {\n            fields.removeValue(forKey: \"preservation_portal_identity\")\n        }\n",
+          "after_lines": [
+            15809,
+            15813
+          ],
+          "before": ""
+        },
+        {
+          "after": "    public static let preservationPortalIdentityKinds: Set<String> = [\"invalidHTTPResponse\", \"httpFailure\", \"missingStatus\", \"unsuccessfulStatus\", \"missingList\", \"nullList\", \"malformedList\", \"malformedRecord\", \"conflictingRecord\", \"requestUnavailable\", \"emptyList\", \"noExactMatch\", \"ambiguousMatch\", \"caseOnlyMatch\"]\n",
+          "after_lines": [
+            15841,
+            15842
+          ],
+          "before": ""
+        },
+        {
+          "after": "        if supplied.count > 20 { supplied.removeValue(forKey: \"preservation_portal_identity\") }\n",
+          "after_lines": [
+            15848,
+            15849
+          ],
+          "before": ""
+        },
+        {
+          "after": "        }\n        if let reason = fields[\"preservation_portal_identity\"],\n           !Self.preservationPortalIdentityKinds.contains(reason) ||\n           fields[\"refresh_target_scope\"] != \"nonHost\" ||\n           fields[\"local_precondition\"] != \"preservationPortalIdentityUnavailable\" ||\n           fields[\"refresh_failure_kind\"] != \"invalidParameters\" {\n            fields.removeValue(forKey: \"preservation_portal_identity\")\n",
+          "after_lines": [
+            15880,
+            15887
+          ],
+          "before": ""
+        },
+        {
+          "after": "            case \"preservation_portal_identity\":\n                guard Self.preservationPortalIdentityKinds.contains(text),\n                      fields[\"refresh_target_scope\"] == \"nonHost\",\n                      fields[\"local_precondition\"] == \"preservationPortalIdentityUnavailable\",\n                      fields[\"refresh_failure_kind\"] == \"invalidParameters\" else { return nil }\n",
+          "after_lines": [
+            15981,
+            15986
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/SideStore/Core/Operations/PipelineOperations/RefreshAppOperation.swift": {
+      "after_blob": "9b8b2ce06f1b8e9fca1e1a4836d7c29bbcac4e8e",
+      "after_commit": "0eba6008c724c9f86a287b696748a74aef25f289",
+      "after_sha256": "98f6be0777cb33cbaaa4699d35dbb230884b72e3a5ce0a78809719989747cab0",
+      "before_blob": "fb79b3c1fdc35ec7fc553a2d7d2b3ad6847491b5",
+      "before_commit": "d0fc537310c921cd5732e16e16f2037d215ecde2",
+      "before_sha256": "745adc1bc1d04b887b77e31ed5790cca6ceeb9074cdeed51cf46125653154ebd",
+      "edits": [
+        {
+          "after": "    let portalIdentity: String?\n",
+          "after_lines": [
+            32,
+            33
+          ],
+          "before": ""
+        },
+        {
+          "after": "          appleProfileOrigin: String? = nil, portalIdentity: String? = nil) {\n",
+          "after_lines": [
+            34,
+            35
+          ],
+          "before": "         appleProfileOrigin: String? = nil) {\n"
+        },
+        {
+          "after": "        self.portalIdentity = portalIdentity\n",
+          "after_lines": [
+            38,
+            39
+          ],
+          "before": ""
+        },
+        {
+          "after": "    static let portalIdentityKinds: Set<String> = [\"invalidHTTPResponse\", \"httpFailure\", \"missingStatus\", \"unsuccessfulStatus\",\n        \"missingList\", \"nullList\", \"malformedList\", \"malformedRecord\", \"conflictingRecord\", \"requestUnavailable\",\n        \"emptyList\", \"noExactMatch\", \"ambiguousMatch\", \"caseOnlyMatch\"]\n",
+          "after_lines": [
+            56,
+            59
+          ],
+          "before": ""
+        },
+        {
+          "after": "        if reason == .preservationPortalIdentityUnavailable, scope == .nonHost,\n           let detail = portalIdentity, detail.utf8.count <= 32, Self.portalIdentityKinds.contains(detail) {\n            result[\"preservation_portal_identity\"] = detail\n        }\n",
+          "after_lines": [
+            62,
+            66
+          ],
+          "before": ""
+        }
+      ]
+    }
+  },
+  "schema": "reviewed-portal-identity-source-delta-v1"
+}

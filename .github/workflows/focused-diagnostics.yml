@@ -194,6 +194,10 @@ jobs:
           python3 -B harness/tests/ci/native/test_preservation_native_qualification.py
           python3 -B sources/LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py
           python3 -B harness/tests/ci/native/test_owner_fixes_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_portal_identity_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_preservation_evidence_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_preservation_evidence_owner_successor.py --sources sources
+          python3 -B harness/tests/ci/native/test_functional_recovery_projection.py --sources sources
           python3 -B harness/ci/build/project_candidate_contracts.py
           python3 -B harness/ci/diagnostics/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
           { xcodebuild -version; swift --version; xcrun --sdk iphonesimulator --show-sdk-version; } > evidence/toolchain.log
@@ -387,11 +391,16 @@ jobs:
           python3 -B harness/tests/ci/native/test_issue_receipt.py
           python3 -B sources/LiveContainer/.ci/comprehensive-diagnostics/test_preservation_localization_inventory.py
           python3 -B harness/tests/ci/native/test_owner_fixes_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_portal_identity_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_preservation_evidence_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_preservation_evidence_owner_successor.py --sources sources
+          python3 -B harness/tests/ci/native/test_functional_recovery_projection.py --sources sources
           python3 -B harness/ci/build/project_candidate_contracts.py
           python3 -B harness/ci/diagnostics/preflight_comprehensive_pairing.py --sources sources --output evidence/comprehensive-pairing-preflight
           python3 -B harness/tests/ci/native/test_refresh_truth_receipt.py
           python3 -B harness/tests/ci/native/test_refresh_truth_generated_lifecycle.py
           python3 -B harness/tests/ci/native/test_refresh_truth_orchestration.py
+          python3 -B harness/tests/ci/native/test_portal_native_gates.py --sources sources
           python3 -B harness/tests/ci/native/test_russian_localization.py
           python3 -B -m unittest discover -s harness/tests/ci/vpn -p 'test_*.py' -v
           xcodebuild -version | grep -Fx 'Xcode 26.4.1'

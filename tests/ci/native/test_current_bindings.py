@@ -15,6 +15,7 @@ import unittest
 import shutil
 import subprocess
 import sys
+from unittest.mock import patch
 
 from ci.build import verify_current_bindings as M
 
@@ -99,7 +100,10 @@ class CurrentBindingsTests(unittest.TestCase):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(native_file(name), destination)
         shutil.copy2(REPO_ROOT/'ci/native_paths.py', self.harness/'ci/native_paths.py')
-        for name in ('owner_fixes_projection.py', 'owner-fixes-source-delta.json'):
+        for name in ('owner_fixes_projection.py', 'owner-fixes-source-delta.json',
+                     'portal_identity_projection.py', 'portal-identity-source-delta.json',
+                     'portal_owner_successor.py', 'functional_recovery_projection.py', 'functional-recovery-source-delta.json', 'preservation_evidence_owner_successor.py', 'preservation-evidence-owner-successor.json', 'preservation_evidence_projection.py',
+                     'preservation-evidence-source-delta.json'):
             shutil.copy2(REPO_ROOT/'ci/qualification/native'/name,
                          self.harness/'ci/qualification/native'/name)
         for package in ('ci', 'ci/build', 'ci/qualification', 'ci/qualification/native'):
@@ -179,6 +183,94 @@ class CurrentBindingsTests(unittest.TestCase):
                 self.verify()
         with self.assertRaisesRegex(ValueError, 'stale current-source'):
             self.verify()
+
+    def localization_fixture(self):
+        functional = M.functional
+        path = functional.LOCALIZATION
+        target = self.sources / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        before, after = b'kept\nold localization\nretained\n', b'kept\nnew localization\nretained\n'
+        target.write_bytes(after)
+        spec = {'before_sha256': functional.sha(before), 'after_sha256': functional.sha(after),
+                'before_blob': functional.blob(before), 'after_blob': functional.blob(after),
+                'edits': [{'after_lines': [1, 2], 'before': 'old localization\n', 'after': 'new localization\n'}]}
+        self.write('ci/qualification/native/' + M.HASH_MANIFESTS[-1],
+                   {'candidate_inputs': {path: spec['before_sha256']}})
+        return path, target, before, after, spec
+
+    def test_functional_localization_exact_inverse_retains_actual_hash(self):
+        path, target, before, after, spec = self.localization_fixture()
+        with patch.object(M.functional, 'specifications', return_value={'files': {path: spec}}), \
+             patch.object(M.functional, 'restore_bytes', wraps=M.functional.restore_bytes) as inverse:
+            result = self.verify()
+            inverse.assert_called_once_with(path, after)
+            self.assertEqual(result['current_source_sha256'][path], spec['after_sha256'])
+            self.assertEqual(result['reviewed_successor_bindings'][path], {
+                'actual_sha256': spec['after_sha256'], 'historical_sha256': spec['before_sha256'],
+                'proof': 'exact_reviewed_functional_localization_inverse'})
+            self.assertFalse(result['historical_contracts_rewritten'])
+            self.assertFalse(result['native_execution'])
+
+    def test_functional_localization_rejects_wrong_prior_unknown_bytes_and_inverse_failure(self):
+        path, target, before, after, spec = self.localization_fixture()
+        with patch.object(M.functional, 'specifications', return_value={'files': {path: spec}}):
+            self.write('ci/qualification/native/' + M.HASH_MANIFESTS[-1], {'candidate_inputs': {path: '0' * 64}})
+            with self.assertRaisesRegex(ValueError, 'localization inverse'): self.verify()
+            self.write('ci/qualification/native/' + M.HASH_MANIFESTS[-1], {'candidate_inputs': {path: spec['before_sha256']}})
+            target.write_bytes(after + b'unreviewed\n')
+            with self.assertRaisesRegex(ValueError, 'localization inverse'): self.verify()
+            target.write_bytes(after)
+            with patch.object(M.functional, 'restore_bytes', side_effect=ValueError('inverse rejected')):
+                with self.assertRaisesRegex(ValueError, 'inverse rejected'): self.verify()
+            with patch.object(M.functional, 'restore_bytes', return_value=b'wrong predecessor'):
+                with self.assertRaisesRegex(ValueError, 'localization inverse'): self.verify()
+
+    def test_functional_localization_repin_does_not_admit_unrelated_source_mutation(self):
+        path, target, before, after, spec = self.localization_fixture()
+        changed = after.replace(b'retained', b'unrelated mutation')
+        target.write_bytes(changed)
+        spec.update(after_sha256=M.functional.sha(changed), after_blob=M.functional.blob(changed))
+        with patch.object(M.functional, 'specifications', return_value={'files': {path: spec}}):
+            with self.assertRaisesRegex(ValueError, 'inverse changed historical'): self.verify()
+
+    def test_russian_setup_and_pairing_require_exact_successor_and_retain_actual_hashes(self):
+        from ci.qualification.native import russian_setup_projection as setup
+        from ci.qualification.native import russian_pairing_projection as pairing
+        functional = M.functional
+        path = functional.LOCALIZATION
+        spec = functional.specifications()['files'][path]
+        for module in (setup, pairing):
+            value, original, digest = module.extension()
+            inputs = copy.deepcopy(value['candidate_inputs'])
+            self.assertEqual(inputs[path], spec['before_sha256'])
+            inputs[path] = spec['after_sha256']
+            contract = {'input_sha256': inputs, 'delivered_baseline': {'untouched': True}}
+            if module is setup: contract['case_names'] = {'setup-localization': original}
+            else: contract['pairing_recovery_case_names'] = original
+            saved = copy.deepcopy(contract)
+            with patch.object(functional, 'normalize', wraps=functional.normalize) as normalize:
+                result = module.add(contract)
+                self.assertTrue(normalize.called)
+                self.assertEqual(result['input_sha256'], inputs)
+                self.assertEqual(contract, saved)
+                self.assertEqual(result['delivered_baseline'], saved['delivered_baseline'])
+                validate = module.variant if module is setup else module.resources
+                validate(result)
+            # Bypassing the exact hash adapter cannot pass this new source hash.
+            with patch.object(functional, 'normalize', side_effect=lambda c, p: c):
+                with self.subTest(module=module.__name__), self.assertRaises(ValueError): module.add(contract)
+                with self.assertRaises(ValueError): validate(result)
+            for target in inputs:
+                bad = copy.deepcopy(contract); bad['input_sha256'][target] = '0' * 64
+                with self.subTest(module=module.__name__, input=target), self.assertRaises(ValueError): module.add(bad)
+                bad_result = copy.deepcopy(result); bad_result['input_sha256'][target] = '0' * 64
+                with self.assertRaises(ValueError): validate(bad_result)
+            # Repinning an unrelated predecessor is not normalization to the frozen extension.
+            bad_spec = copy.deepcopy(functional.specifications())
+            bad_spec['files'][path]['before_sha256'] = '0' * 64
+            with patch.object(functional, 'specifications', return_value=bad_spec):
+                with self.assertRaises(ValueError): module.add(contract)
+                with self.assertRaises(ValueError): validate(result)
 
     def test_duplicate_manifest_keys_rejected(self):
         (self.harness / 'ci/qualification/multitask/source.json').write_text('{"commit":"a","commit":"b"}')

@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 import re
 
+from ci.qualification.native import functional_recovery_projection as functional
 from ci.qualification.native import direct_host_projection as direct_host
 from ci.qualification.native import direct_refresh_projection as direct_refresh
 
@@ -77,6 +78,12 @@ def verify(sources, *, harness=(HERE.parents[2]), graph=None):
                     require(direct_refresh.validate_source(sources),
                             'direct-refresh inverse validation did not admit successor')
                     proof = 'exact_reviewed_direct_refresh_inverse'
+                elif relative == functional.LOCALIZATION:
+                    file_spec = functional.specifications()['files'][relative]
+                    require(expected == file_spec['before_sha256'] and actual == file_spec['after_sha256']
+                            and hashlib.sha256(functional.restore_bytes(relative, path.read_bytes())).hexdigest() == expected,
+                            'functional localization inverse did not admit successor')
+                    proof = 'exact_reviewed_functional_localization_inverse'
                 else:
                     raise ValueError('stale current-source input: ' + name + ':' + relative)
                 normalized[relative] = {'actual_sha256': actual, 'historical_sha256': expected,

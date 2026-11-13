@@ -158,6 +158,10 @@ jobs:
           python3 -B harness/tests/ci/native/test_direct_fixture_projection.py
           python3 -B harness/tests/ci/native/test_direct_host_projection.py
           python3 -B harness/tests/ci/native/test_owner_fixes_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_portal_identity_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_preservation_evidence_projection.py --sources sources
+          python3 -B harness/tests/ci/native/test_preservation_evidence_owner_successor.py --sources sources
+          python3 -B harness/tests/ci/native/test_functional_recovery_projection.py --sources sources
           python3 -B harness/tests/ci/native/test_candidate_graph.py
           python3 -B harness/tests/ci/native/test_candidate_contract_projection.py
           python3 -B harness/tests/ci/native/test_russian_pairing_projection.py
@@ -249,6 +253,7 @@ jobs:
           python3 -B harness/tests/ci/native/test_refresh_truth_receipt.py
           python3 -B harness/tests/ci/native/test_refresh_truth_generated_lifecycle.py
           python3 -B harness/tests/ci/native/test_refresh_truth_orchestration.py
+          python3 -B harness/tests/ci/native/test_portal_native_gates.py --sources sources
           python3 -B harness/ci/qualification/refresh/run.py swift --sources sources --output evidence 2>&1 | tee evidence/refresh-truth-swift-driver.log
       - name: Preserve early refresh truth failure evidence
         if: ${{ !cancelled() && steps.refresh_truth_swift.outcome == 'failure' }}

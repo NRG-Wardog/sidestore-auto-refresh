@@ -33,3 +33,15 @@ python3 -B -m unittest discover -s tests/ci/build -p 'test_*.py' -v
 A fresh macOS build and independent artifact review are required before using
 this new entry for delivery. No source revision or release pointer is advanced
 by this change.
+
+The current refresh qualification also requires strict portal identity execution:
+SideSign's production parser (172 assertions and 3 source controls), SideStore's
+preservation runner (55 policy cases, 98 integration cases and 6 source controls),
+and LiveContainer's portal wire runner (32 emitted checks and 2 source controls).
+The existing refresh-observation runner retains all 189 previous cases and adds
+27 portal producer-to-copy cases. Missing, skipped, duplicated, reordered or
+incorrect native results cannot seal the current receipt or admit packaging.
+All runners consume the acquired graph, including the explicitly selected
+SideStore peer. Source input hashes, toolchain identity and failure logs stay in
+the same-run refresh evidence. These fixtures do not exercise Apple services or
+a physical device. Frozen historical receipts remain separate and unchanged.

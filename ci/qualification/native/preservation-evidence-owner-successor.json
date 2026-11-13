@@ -1,0 +1,62 @@
+{
+  "owners": {
+    "LiveContainer": {
+      "after_commit": "c82033f094a57bcc86166c14b0297f0607321c69",
+      "after_tree": "993e83442e5caa59e4f5c5ffade144e2589025dd",
+      "before_commit": "f59be2462026a70a957d309963ef91a9f29d893b",
+      "before_reviewed_delta_sha256": "d545c0bd8b8d678afa78f37a35ae12ffbee28ddb437f887730fab10a199dfa21",
+      "before_tree": "df1cd10173c77c0ce87b466839e8542bc1be5957",
+      "changes": {
+        ".ci/refresh-observations/test_refresh_observations.py": {
+          "after_blob": "3a1a8f51ca9cb27499f784dfaa6f444e2ad274b8",
+          "after_sha256": "e890e1238d015fe2d2c383f0ca8ef40d94272f59943053e428af4d73c7923808",
+          "before_blob": "7690fbd3190fc29d6e4302dd9bcebe1dec381ae5",
+          "before_sha256": "cb168a9f45b7cb1f54ca3d38c4f53dcd30611c97b906a46d0a5d9773585fbd9a"
+        },
+        ".github/workflows/portal-identity-contract.yml": {
+          "after_blob": "4fa5b9ccd905b04221a760ef1528fbc573c3b186",
+          "after_sha256": "e311fd5837b6c1a524bb691ed53eba3a7aa11fd46eb19d1b92630f7f38f86304",
+          "before_blob": "6b78bc37bbe76c845f27db7e44cae531561651eb",
+          "before_sha256": "898429f5c6308ff18152b040fdead78cd1a90be7031016bce5c2cf8446f79733"
+        }
+      },
+      "delta": [
+        ":100644 100644 7690fbd3190fc29d6e4302dd9bcebe1dec381ae5 3a1a8f51ca9cb27499f784dfaa6f444e2ad274b8 M\t.ci/refresh-observations/test_refresh_observations.py",
+        ":100644 100644 6b78bc37bbe76c845f27db7e44cae531561651eb 4fa5b9ccd905b04221a760ef1528fbc573c3b186 M\t.github/workflows/portal-identity-contract.yml"
+      ]
+    },
+    "SideStore": {
+      "after_commit": "9ba862f47d8a32e0548924d4a087b0e1e853b0d0",
+      "after_tree": "170d3a678dd75fa3cbf2ee80545d0c582622a9ec",
+      "before_commit": "d2bf28820367a882fe0f1db93184a830db83c243",
+      "before_reviewed_delta_sha256": "3a546eba2d3717f612ef57898803a9500ac590099a4bbee931b9c81ddfd83ae9",
+      "before_tree": "054277310f546b189c9deae0bf843493e66ac9d8",
+      "changes": {
+        ".github/workflows/preservation-portal-contract.yml": {
+          "after_blob": "32071bcfe5b5da99e3a2b5d995ac0b14773e9f6a",
+          "after_sha256": "a5e4e46eed39d436fec88ddef62011cb8144b807b19c24ed8001f30a6b6f5ddd",
+          "before_blob": "7a75cc82acd87b595bd88b2497193693fa04f827",
+          "before_sha256": "49f95f720138451e94727a5bced3055b6b550018f215688b7e675984234c29b9"
+        },
+        "tests/preservation_origin/generate_fixture.py": {
+          "after_blob": "df059706518338abeeb1844edbff20095e28d7b0",
+          "after_sha256": "105f61e90242d9abb2f59f8bdd55998019d2f95d7349b77edf9e002bb95f0443",
+          "before_blob": "4d6f7a1e7f09a1c31654279b7e62ddbdc422402b",
+          "before_sha256": "8a617c3367d2c3f84ff0bad00d978f666b11027590290eecc2933ab324d8ffa1"
+        },
+        "tests/preservation_origin/test_contract.py": {
+          "after_blob": "453516b789b210a0b2c34d00f1144a62c6fabe5b",
+          "after_sha256": "a94f5d29253c5c7a7db7bdcfe19214057e5bb563bf26398b94be3d8ef79ef98d",
+          "before_blob": "fe8e4e31029e7f49a2d52be7b56603e68eb62881",
+          "before_sha256": "8f58ab49f2175c58bcb777388217b629f6a3d1d2789f67fd02b29734f42c4023"
+        }
+      },
+      "delta": [
+        ":100644 100644 7a75cc82acd87b595bd88b2497193693fa04f827 32071bcfe5b5da99e3a2b5d995ac0b14773e9f6a M\t.github/workflows/preservation-portal-contract.yml",
+        ":100644 100644 4d6f7a1e7f09a1c31654279b7e62ddbdc422402b df059706518338abeeb1844edbff20095e28d7b0 M\ttests/preservation_origin/generate_fixture.py",
+        ":100644 100644 fe8e4e31029e7f49a2d52be7b56603e68eb62881 453516b789b210a0b2c34d00f1144a62c6fabe5b M\ttests/preservation_origin/test_contract.py"
+      ]
+    }
+  },
+  "schema": "reviewed-preservation-evidence-test-successor-v1"
+}

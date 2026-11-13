@@ -83,7 +83,11 @@ _REVIEWED_PAIRING_SOURCE_SHA256 = {
     "ci/issues-native/russian_pairing_projection.py": "3b4995b3f99742536c2f4a780f4d08a63f95cc4880b4e1119dee331520ade7e2",
     "ci/issues-native/test_russian_pairing_projection.py": "632bae9b89584615a14e2b61a6c3ddd33a9834f185153f96f5b961e2863f3d80",
     'ci/diagnostics/preflight_comprehensive_pairing.py': '493ca6ada48af900f4b76a93b96d9f95acf2deda2c0a9676319702c730fe4978',
-    'ci/qualification/native/russian_pairing_projection.py': 'a843c2e79b2e70112ad1a81e69c8822df8341c54f4e6936633c2d943938bbebc',
+    'ci/qualification/native/russian_pairing_projection.py': {
+        # Historical source plus the exact reviewed prompt inverse adapter.
+        'a843c2e79b2e70112ad1a81e69c8822df8341c54f4e6936633c2d943938bbebc',
+        '18d46bc1cc8a9580c389d6c68e8d63aebb152a2fcadab82a0b3cfc45d2fdeff4',
+    },
     'tests/ci/native/test_russian_pairing_projection.py': '2dcac1bad40ce081d4cdb8a2be557e5ae6d3dd42486ce889e173b7b030e815ac',
 }
 _PUBLIC_PAIRING_MANIFEST_PATH = "ci/qualification/native/russian-pairing-extension.json"
@@ -304,6 +308,25 @@ class RepositoryTests(unittest.TestCase):
             self.assertFalse(_is_reviewed_public_pairing_blob(path, "blob", source + b"\n# unreviewed"))
             self.assertFalse(_is_reviewed_public_pairing_blob(path, "tree", source))
             self.assertFalse(_is_reviewed_public_pairing_blob("ci/other_pairing.py", "blob", source))
+
+    def test_pairing_prompt_adapter_admits_only_two_reviewed_git_blobs(self):
+        path = 'ci/qualification/native/russian_pairing_projection.py'
+        blobs = {
+            '0c656a9f90e59cb9ee20352288865afaef7f9365':
+                'a843c2e79b2e70112ad1a81e69c8822df8341c54f4e6936633c2d943938bbebc',
+            'b7bd46277bc05ea885a650fdf7757027e9d1f93f':
+                '18d46bc1cc8a9580c389d6c68e8d63aebb152a2fcadab82a0b3cfc45d2fdeff4',
+        }
+        self.assertEqual(_REVIEWED_PAIRING_SOURCE_SHA256[path], set(blobs.values()))
+        for blob, expected in blobs.items():
+            source = subprocess.check_output(['git', '--no-replace-objects', 'cat-file', 'blob', blob], cwd=ROOT)
+            self.assertEqual(hashlib.sha256(source).hexdigest(), expected)
+            self.assertTrue(_is_reviewed_public_pairing_blob(path, 'blob', source))
+            for changed in (source + b'\n# unreviewed', source + b'HostPrivateKey=SYNTHETIC_SECRET'):
+                self.assertFalse(_is_reviewed_public_pairing_blob(path, 'blob', changed))
+            self.assertFalse(_is_reviewed_public_pairing_blob(path, 'tree', source))
+            self.assertFalse(_is_reviewed_public_pairing_blob('ci/other_pairing.py', 'blob', source))
+            self.assertFalse(_is_reviewed_public_pairing_blob('private/' + path, 'blob', source))
 
     def test_public_docs_do_not_expose_known_private_network_details(self):
         """Generic RFC1918 examples are allowed; known diagnostic addresses are not."""
