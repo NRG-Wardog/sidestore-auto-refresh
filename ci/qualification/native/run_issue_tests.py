@@ -69,6 +69,67 @@ OWNED_INPUTS = {
         'tests/provider_sequence/prompt_main.swift'),
 }
 
+REUSE_MAIN_INPUTS = (
+    'Sources/CodeSigning/CodeSignerAPI.swift', 'Sources/CodeSigning/ExtensionSigningPolicy.swift',
+    '.ci/reuse-main/run.sh', '.ci/reuse-main/test_source.py', '.ci/reuse-main/Cases.swift',
+    '.ci/reuse-main/SignerDoubles.swift', '.ci/reuse-main/SignerCases.swift',
+)
+OWNED_INPUTS['SideStore/Dependencies/SideSign'] += REUSE_MAIN_INPUTS
+REUSE_MAIN_MARKERS = (
+    'ReuseMain policy: 33 checks passed; device validation is not covered',
+    'ReuseMain signer fixture: candidate, exact entitlements/profile, explicit fallback and default checks passed; no cryptographic or device proof',
+)
+REUSE_MAIN_MAPPING_POLICY_CASES = (
+    'unrecorded remap is rejected', 'recorded exact remap preserves group',
+    'missing group', 'different destination', 'extra grant', 'duplicate grant',
+    'unrelated mapping', 'empty destination', 'mapping cannot merge groups',
+)
+REUSE_MAIN_MAPPING_SIGNER_CASES = (
+    'Real strict signer must reject an unrecorded remap',
+    'Mappings are scoped to separate strategy and exact bundle',
+    'Recorded mapping cannot bypass profile/certificate admission',
+    'Recorded group mapping cannot drop another capability',
+    'A changed profile cannot satisfy recorded mapping',
+)
+REUSE_MAIN_MAPPING_SUCCESS_CALLS = (
+    '_ = try await signer.signApp(at: appURL, provisioningProfiles: [mainProfile, mappedProfile], extensionStrategy: .perExtensionPreservingCapabilities, provisionedAppGroupMappings: assignedMap)',
+    '_ = try await signer.signApp(at: appURL, provisioningProfiles: [mappedMain, mappedProfile], extensionStrategy: .perExtensionPreservingCapabilities, provisionedAppGroupMappings: ["example.app": ["group.source": "group.source.TEAM"], "example.app.widget": ["group.source": "group.source.TEAM"]])',
+)
+
+
+def verify_reuse_main_fixture_inventory(sidesign_root):
+    root = Path(sidesign_root) / '.ci/reuse-main'
+    for name, cases in (('Cases.swift', REUSE_MAIN_MAPPING_POLICY_CASES),
+                        ('SignerCases.swift', REUSE_MAIN_MAPPING_SIGNER_CASES)):
+        text = (root / name).read_text()
+        if any(text.count('"' + case + '"') != 1 for case in cases):
+            raise ValueError('Required App Group mapping case missing or duplicated: ' + name)
+    # Success calls sit outside the indented rejection branches, which call
+    # the same production method with deliberately invalid admission state.
+    signer = (root / 'SignerCases.swift').read_text()
+    for call in REUSE_MAIN_MAPPING_SUCCESS_CALLS:
+        if signer.splitlines().count('        ' + call) != 1:
+            raise ValueError('Required actual signer mapping success case missing or duplicated')
+
+
+def verify_reuse_main_signer_log(log):
+    from ci.qualification.native.refresh_truth_receipt import completed_tests
+    completed_tests(log, 2)
+    if tuple(line for line in log.splitlines() if line.startswith('ReuseMain ')) != REUSE_MAIN_MARKERS:
+        raise ValueError('Required ReuseMain policy/signer execution count or markers differ')
+    return log
+
+
+def run_reuse_main_signer(sources, evidence):
+    verify_reuse_main_fixture_inventory(Path(sources) / 'SideStore/Dependencies/SideSign')
+    result = subprocess.run(['bash', '.ci/reuse-main/run.sh'],
+        cwd=Path(sources) / 'SideStore/Dependencies/SideSign', text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300)
+    (Path(evidence) / 'reuse-main-signer.log').write_text(result.stdout)
+    print(result.stdout, flush=True)
+    result.check_returncode()
+    return verify_reuse_main_signer_log(result.stdout)
+
 # Seal the complete real authentication producer and retry consumer fixture inputs.
 INITIAL_REJECTION_INPUTS = {'SideStore/Dependencies/SideSign': ('.ci/auth-request-diagnostics/BoundaryDoubles.swift',
                                      '.ci/auth-request-diagnostics/PrivateProbes.swift',
@@ -292,6 +353,7 @@ def run_idevice_native():
 def verify_issue_receipt(path):
     value = json.loads(Path(path).read_text())
     verify_owned_receipt(value.get('owned_authentication'), collect_owned_sources(Path('sources')))
+    verify_reuse_main_signer_log(value.get('reuse_main_signer_log'))
     expected = [{'owner': owner, 'suite': folder + '/' + pattern, 'status': 'PASS_NO_SKIPS'}
                 for owner, folder, pattern in SUITES]
     if (value.get('suites') != expected or value.get('harness_suites') != list(HARNESS_SUITES)
@@ -319,12 +381,13 @@ def main():
         subprocess.run([sys.executable, '-B', '-c', RUNNER, folder, pattern], cwd=cwd, check=True)
         rows.append({'owner': owner, 'suite': folder + '/' + pattern, 'status': 'PASS_NO_SKIPS'})
     subprocess.run(['bash', 'tests/reuse_main/run.sh'], cwd='sources/SideStore', check=True)
-    subprocess.run(['bash', '.ci/reuse-main/run.sh'], cwd='sources/SideStore/Dependencies/SideSign', check=True)
+    signer_log = run_reuse_main_signer('sources', 'evidence')
     owned = run_owned_swift_suites('sources', 'evidence')
     verify_owned_receipt(owned, owned_before)
     for pattern in HARNESS_SUITES:
         subprocess.run([sys.executable, '-B', '-c', RUNNER, 'tests', pattern], cwd='harness', check=True)
     Path('evidence/issue-tests.json').write_text(json.dumps({'suites': rows, 'owned_authentication': owned,
+        'reuse_main_signer_log': signer_log,
         'registry_runtime_double': 'PASS', 'signer_policy_and_production_body_double': 'PASS', 'target_device_execution': False,
         'harness_suites': list(HARNESS_SUITES), 'all_suites_passed_no_skips': True}, indent=2))
     verify_issue_receipt('evidence/issue-tests.json')

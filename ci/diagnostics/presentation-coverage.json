@@ -1688,7 +1688,7 @@
     "owner": "LiveContainer",
     "owner_graph": "ci/build/candidate-graph.json",
     "repository": "NRG-Wardog/LiveContainer",
-    "pin": "c82033f094a57bcc86166c14b0297f0607321c69",
+    "pin": "68561eb6dbbc5b6e0bfe4591401af1cb4f500d04",
     "evidence_inventory": "scripts/native_error_evidence.py",
     "source_checks": "tests/test_native_error_presenters.py",
     "maintained_files": [

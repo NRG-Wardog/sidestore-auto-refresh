@@ -45,6 +45,23 @@ TEST_OWNER_ADDITION = (
 )
 
 
+PRE_FUNCTIONAL_STEPS_SHA256 = 'b1ccfea335445decd62af1641efbe19a63f2ac1617625037a7a436317adee9cd'
+FUNCTIONAL_ADDITION = (
+    '          python3 -B harness/tests/ci/native/test_preservation_evidence_owner_successor.py --sources sources\n',
+    '          python3 -B harness/tests/ci/native/test_functional_recovery_projection.py --sources sources\n',
+)
+
+
+def inverse_functional_addition(steps):
+    preceding, added = FUNCTIONAL_ADDITION
+    if steps.count(added) != 1 or steps.count(preceding + added) != 1:
+        raise ValueError('Functional command missing, duplicated, changed or relocated')
+    steps = steps.replace(preceding + added, preceding, 1)
+    if hashlib.sha256(steps.encode()).hexdigest() != PRE_FUNCTIONAL_STEPS_SHA256:
+        raise ValueError('Unreviewed change outside the functional addition')
+    return steps
+
+
 def reviewed_steps(text):
     steps = text[text.index('    steps:\n'):]
     for first, following in (
@@ -138,8 +155,8 @@ class CurrentBuildTests(unittest.TestCase):
     def test_reviewed_build_and_package_steps_preserved(self):
         current = reviewed_steps(WORKFLOW.read_text())
         self.assertEqual(hashlib.sha256(current.encode()).hexdigest(),
-                         'b1ccfea335445decd62af1641efbe19a63f2ac1617625037a7a436317adee9cd')
-        evidence_steps = inverse_test_owner_addition(current)
+                         'ed41fde2b6cde73156ae7a17e986c3421b3cc70ce488bee72ed9cf5a63d833c4')
+        evidence_steps = inverse_test_owner_addition(inverse_functional_addition(current))
         self.assertEqual(hashlib.sha256(evidence_steps.encode()).hexdigest(), PRE_TEST_OWNER_STEPS_SHA256)
         prior = inverse_evidence_addition(evidence_steps)
         self.assertEqual(hashlib.sha256(prior.encode()).hexdigest(), PRE_EVIDENCE_STEPS_SHA256)
@@ -151,8 +168,26 @@ class CurrentBuildTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(steps.replace(added, '', 1).encode()).hexdigest(),
                          '08ed1cd77a0420a2efd3f3de488d38ccc13168794a2ddfa0853add20a2db03a9')
 
-    def test_test_owner_step_inverse_rejects_missing_duplicate_changed_relocated_and_unrelated_changes(self):
+    def test_functional_step_inverse_rejects_missing_duplicate_changed_relocated_and_unrelated_changes(self):
         current = reviewed_steps(WORKFLOW.read_text())
+        preceding, added = FUNCTIONAL_ADDITION
+        mutations = (
+            current.replace(added, '', 1),
+            current.replace(added, added + added, 1),
+            current.replace(added, added.replace('--sources sources', '--sources other'), 1),
+            current.replace(added, '', 1) + added,
+            current.replace(preceding + added, added + preceding, 1),
+            current.replace('--same-run-qualified-size', '--unreviewed-size', 1),
+            current.replace('record.py receipt', 'record.py receipt-current', 1),
+            current.replace('          set -euo pipefail\n', '          set -eu\n', 1),
+        )
+        for changed in mutations:
+            self.assertNotEqual(current, changed)
+            with self.assertRaises(ValueError):
+                inverse_functional_addition(changed)
+
+    def test_test_owner_step_inverse_rejects_missing_duplicate_changed_relocated_and_unrelated_changes(self):
+        current = inverse_functional_addition(reviewed_steps(WORKFLOW.read_text()))
         preceding, added = TEST_OWNER_ADDITION
         mutations = (
             current.replace(added, '', 1),
@@ -170,7 +205,7 @@ class CurrentBuildTests(unittest.TestCase):
                 inverse_test_owner_addition(changed)
 
     def test_evidence_step_inverse_rejects_missing_duplicate_changed_relocated_and_unrelated_changes(self):
-        current = inverse_test_owner_addition(reviewed_steps(WORKFLOW.read_text()))
+        current = inverse_test_owner_addition(inverse_functional_addition(reviewed_steps(WORKFLOW.read_text())))
         preceding, added = EVIDENCE_ADDITION
         mutations = (
             current.replace(added, '', 1),
@@ -188,7 +223,7 @@ class CurrentBuildTests(unittest.TestCase):
                 inverse_evidence_addition(changed)
 
     def test_portal_step_inverse_rejects_missing_duplicate_changed_and_relocated_commands(self):
-        current = inverse_evidence_addition(inverse_test_owner_addition(reviewed_steps(WORKFLOW.read_text())))
+        current = inverse_evidence_addition(inverse_test_owner_addition(inverse_functional_addition(reviewed_steps(WORKFLOW.read_text()))))
         for preceding, added in PORTAL_ADDITIONS:
             mutations = (
                 current.replace(added, '', 1),
@@ -203,7 +238,7 @@ class CurrentBuildTests(unittest.TestCase):
                         inverse_portal_additions(changed)
 
     def test_portal_step_inverse_rejects_unrelated_build_receipt_and_packaging_changes(self):
-        current = inverse_evidence_addition(inverse_test_owner_addition(reviewed_steps(WORKFLOW.read_text())))
+        current = inverse_evidence_addition(inverse_test_owner_addition(inverse_functional_addition(reviewed_steps(WORKFLOW.read_text()))))
         for before, after in (
             ('record.py receipt', 'record.py receipt-current'),
             ('--same-run-qualified-size', '--unreviewed-size'),

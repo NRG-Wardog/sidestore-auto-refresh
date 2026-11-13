@@ -161,6 +161,7 @@ jobs:
           python3 -B harness/tests/ci/native/test_portal_identity_projection.py --sources sources
           python3 -B harness/tests/ci/native/test_preservation_evidence_projection.py --sources sources
           python3 -B harness/tests/ci/native/test_preservation_evidence_owner_successor.py --sources sources
+          python3 -B harness/tests/ci/native/test_functional_recovery_projection.py --sources sources
           python3 -B harness/tests/ci/native/test_candidate_graph.py
           python3 -B harness/tests/ci/native/test_candidate_contract_projection.py
           python3 -B harness/tests/ci/native/test_russian_pairing_projection.py

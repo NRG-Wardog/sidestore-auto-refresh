@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 from ci.qualification.native import owner_fixes_projection as P
 from ci.qualification.native import portal_identity_projection as portal
-from ci.qualification.native import preservation_evidence_owner_successor as current_owner
+from ci.qualification.native import functional_recovery_projection as current_owner
 from ci.qualification.native import preservation_evidence_projection as evidence_proof
 from ci.qualification.native import direct_host_projection as host
 from ci.qualification.native import direct_service_projection as service

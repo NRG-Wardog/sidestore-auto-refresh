@@ -96,7 +96,7 @@ def validate_sources(sources, graph=None):
     return validate_committed_sources(sources, graph, inputs)
 
 
-def validate_committed_sources(sources, graph, proof_inputs):
+def validate_committed_sources(sources, graph, proof_inputs, *, sidesign_proof_inputs=None):
     """Validate explicit predecessor bytes against actual committed Git provenance.
 
     This does not assert checkout HEAD. The current-source entry point above
@@ -115,6 +115,10 @@ def validate_committed_sources(sources, graph, proof_inputs):
 
     spec = specification()
     successor = graph['owners']['SideStore'][1] == spec['commit']
+    if sidesign_proof_inputs is not None:
+        require(successor and set(sidesign_proof_inputs) == set(TEST_PATHS)
+                and all(type(data) is bytes for data in sidesign_proof_inputs.values()),
+                'Portal committed SideSign input closure differs')
     if successor:
         store = source_root(sources, 'SideStore')
         tree, parents = commit_info(store, spec['commit'])
@@ -124,7 +128,8 @@ def validate_committed_sources(sources, graph, proof_inputs):
         expected = ':160000 160000 ' + spec['sidesign_parent'] + ' ' + spec['sidesign_commit'] + ' M\t' + GITLINK
         require(delta == [expected], 'Portal owner successor is not the exact sole gitlink delta')
         side = source_root(sources, SIDESIGN)
-        require(git(side, 'rev-parse', 'HEAD').decode().strip() == spec['sidesign_commit'], 'Portal owner SideSign checkout differs')
+        if sidesign_proof_inputs is None:
+            require(git(side, 'rev-parse', 'HEAD').decode().strip() == spec['sidesign_commit'], 'Portal owner SideSign checkout differs')
         tree, parents = commit_info(side, spec['sidesign_commit'])
         require(tree == spec['sidesign_tree'] and parents == [spec['sidesign_parent']], 'Portal owner SideSign parent/tree differs')
         changes = git(side, 'diff-tree', '--no-commit-id', '--raw', '--no-abbrev', '--no-renames',
@@ -137,7 +142,8 @@ def validate_committed_sources(sources, graph, proof_inputs):
                     'Portal owner SideSign test delta mode/status differs')
             require(path in TEST_PATHS and path not in paths, 'Portal owner SideSign changed an unreviewed path')
             paths.append(path)
-            data = portal.read_source(sources, SIDESIGN + '/' + path)
+            data = (portal.read_source(sources, SIDESIGN + '/' + path) if sidesign_proof_inputs is None
+                    else sidesign_proof_inputs[path])
             require(portal.blob(data) == new_blob and data == git(side, 'cat-file', 'blob', spec['sidesign_commit'] + ':' + path),
                     'Portal owner SideSign test working bytes differ: ' + path)
             require(graph['reviewed_deltas'][SIDESIGN]['files'].get(path) == new_blob,

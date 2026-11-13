@@ -15,7 +15,8 @@ from unittest.mock import patch
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / 'ci/native_paths.py').is_file())
 sys.path.insert(0, str(ROOT))
 from ci.qualification.native import preservation_evidence_projection as P
-from ci.qualification.native import preservation_evidence_owner_successor as current_owner
+from ci.qualification.native import preservation_evidence_owner_successor as test_owner
+from ci.qualification.native import functional_recovery_projection as current_owner
 from ci.qualification.native import portal_identity_projection as portal
 from ci.qualification.native import preservation_selection_projection as selection
 from tests.ci.native import test_preservation_successor_projection as old_preservation
@@ -34,7 +35,7 @@ SIDESIGN = 'SideStore/Dependencies/SideSign'
 def graph_pair():
     """Derive both finite eras without changing the checked-in graph."""
     specs = P.specifications()
-    before = current_owner.normalized_graph(json.loads((ROOT / 'ci/build/candidate-graph.json').read_text()))
+    before = test_owner.normalized_graph(current_owner.normalized_graph(json.loads((ROOT / 'ci/build/candidate-graph.json').read_text())))
     for owner, spec in specs['owners'].items():
         before['owners'][owner][1] = spec['before_commit']
         before['reviewed_deltas'][owner]['tree'] = spec['before_tree']
@@ -200,6 +201,7 @@ def actual_source_controls(sources):
         def test_current_git_objects_parent_chain_and_prior_receipt(self):
             before, after = graph_pair()
             binding = current_owner.validate_sources(sources)
+            binding = binding.get('historical_binding', binding)
             result = binding.get('evidence_binding', binding)
             self.assertIn('prior_binding', result)
             self.assertFalse(result['native_execution'])
@@ -214,7 +216,7 @@ def actual_source_controls(sources):
             reader = portal.read_source
             for path, spec in P.specifications()['files'].items():
                 data = reader(sources, path)
-                for changed in (data + b'\n', P.restore_bytes(path, data)):
+                for changed in (data + b'\n', P.restore_bytes(path, current_owner.restore_if_successor(path, data))):
                     with self.subTest(path=path, sha256=P.sha(changed)):
                         with patch.object(portal, 'read_source', side_effect=lambda root, name: changed if name == path else reader(root, name)):
                             with self.assertRaises(ValueError):
@@ -246,8 +248,8 @@ def actual_source_controls(sources):
                     self.assertEqual(P.blob(data), new_blob)
                     current = (sources / path).read_bytes()
                     self.assertEqual(current, git('show', 'HEAD:' + relative))
-                    if current != data:
-                        self.assertIn(relative, current_owner.TEST_PATHS[owner])
+                    if current_owner.restore_if_successor(path, current) != data:
+                        self.assertIn(relative, test_owner.TEST_PATHS[owner])
             self.assertEqual(len(seen), 13)
             self.assertEqual(len(set(seen)), 13)
 
@@ -261,7 +263,7 @@ def actual_source_controls(sources):
                     graph = json.loads((ROOT / 'ci/build/candidate-graph.json').read_text())
                     self.assertEqual(git('rev-parse', 'HEAD').decode().strip(), graph['owners'][owner][1])
                     self.assertEqual(current_owner.evidence_commit(graph, owner), spec['after_commit'])
-                    data = (sources / path).read_bytes()
+                    data = current_owner.restore_if_successor(path, (sources / path).read_bytes())
                     self.assertEqual(data, git('show', spec['after_commit'] + ':' + relative))
                     self.assertEqual(P.sha(data), spec['after_sha256'])
                     self.assertEqual(P.blob(data), spec['after_blob'])

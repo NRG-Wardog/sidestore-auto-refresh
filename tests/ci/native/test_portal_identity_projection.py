@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from ci.qualification.native import portal_identity_projection as P
-from ci.qualification.native import preservation_evidence_owner_successor as current_owner
+from ci.qualification.native import functional_recovery_projection as current_owner
 from ci.qualification.native import preservation_evidence_projection as evidence_proof
 from ci.qualification.native import owner_fixes_projection as owner
 from ci.qualification.native import preservation_selection_projection as selection
@@ -168,7 +168,7 @@ class PortalIdentityProjectionTests(unittest.TestCase):
                      'preservation_selection_projection.py', 'owner_fixes_projection.py',
                      'owner-fixes-source-delta.json', 'portal_owner_successor.py',
                      'preservation_evidence_projection.py', 'preservation-evidence-source-delta.json',
-                     'preservation_evidence_owner_successor.py', 'preservation-evidence-owner-successor.json'):
+                     'functional_recovery_projection.py', 'functional-recovery-source-delta.json', 'preservation_evidence_owner_successor.py', 'preservation-evidence-owner-successor.json'):
             relative = 'ci/qualification/native/' + name
             self.assertEqual(value[relative], P.sha((ROOT / relative).read_bytes()))
 

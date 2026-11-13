@@ -18,6 +18,7 @@ def fixture():
   logs={o:('\nRan '+str(n)+' tests in 0.123s\n\nOK\n' if n is not None else '') for o,(_,n) in C.SUITES.items()} if kind=='swift' else {'idevice':'\n'.join('test '+name+' ... ok' for name in C.RUST_CASES)+'\ntest result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'}
   parts[kind]={'schema':C.SCHEMA+'-part','kind':kind,'status':'PASS','identity':identity,'source_graph':graph,'source':source,'logs':logs,'compiler':{'path_sha256':'e'*64,'version':'synthetic compiler model'},'physical_device_execution':False}
   if kind=='swift':
+   logs['LiveContainer-extension-prompt']+='test_actual_adapter (__main__.ExtensionPromptLocalization.test_actual_adapter) ... ok\ntest_closed_owned_vocabulary (__main__.ExtensionPromptLocalization.test_closed_owned_vocabulary) ... ok\n'
    logs['SideSign-portal-parser']+=C.PORTAL_PARSER_MARKER+'\n'
    logs['LiveContainer-portal-wire']+='\n'.join('PASS '+name for name in C.CURRENT_PORTAL_WIRE_CASES)+'\nPORTAL_WIRE_PASS\n'
    logs['SideStore-preservation-origin']+=json.dumps({'schema':'preservation-origin-transport-v1','status':'PASS','cases':list(C.ORIGIN_TRANSPORT_CASES),'network_executed':False,'platform_tls_executed':False,'cms_verified':False,'device_executed':False})+'\n'+json.dumps({'schema':'preservation-origin-visibility-v1','status':'PASS','cases':list(C.ORIGIN_VISIBILITY_CASES),'device_executed':False})+'\n'
@@ -46,6 +47,44 @@ class ReceiptTests(unittest.TestCase):
   v=copy.deepcopy(self.value);change(v)
   if rehash:v['part_sha256']={k:C.digest(p) for k,p in v['parts'].items()}
   with self.assertRaises((ValueError,TypeError,KeyError)):self.verify(v)
+ def test_extension_prompt_actual_source_and_native_methods_are_mandatory(self):
+  owner='LiveContainer-extension-prompt'
+  self.assertEqual(C.SUITES[owner],('tests/test_extension_prompt_localization.py',2))
+  self.assertEqual(C.SUITE_OWNERS[owner],'LiveContainer')
+  self.reject(lambda v:v['parts']['swift']['logs'].pop(owner))
+  good=self.value['parts']['swift']['logs'][owner]
+  for before,after in [('Ran 2 tests','Ran 1 test'),('OK\n','OK (skipped=1)\n'),
+                       ('test_actual_adapter','test_static_substitute'),
+                       ('test_closed_owned_vocabulary','test_other_source')]:
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,good.replace(before,after)))
+  methods=[line+'\n' for line in good.splitlines() if line.startswith('test_')]
+  for line in methods:
+   for bad in (good.replace(line,''),good+line):
+    self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,bad))
+  self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,good.replace(''.join(methods),''.join(reversed(methods)))))
+ def test_mapping_lifecycle_requires_all_nine_methods_without_skips(self):
+  owner='SideStore-reuse-lifecycle'
+  self.assertEqual(C.SUITES[owner],('tests/reuse_main/run.sh',9))
+  good=self.value['parts']['swift']['logs'][owner]
+  for count in (7,8,10):
+   self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,good.replace('Ran 9 tests','Ran '+str(count)+' tests')))
+  self.reject(lambda v:v['parts']['swift']['logs'].__setitem__(owner,good.replace('OK\n','OK (skipped=1)\n')))
+ def test_functional_prompt_and_signer_fixture_inputs_bound_in_both_parts(self):
+  required={'LiveContainer':('LiveContainerSwiftUI/Utilities/V3Localization.swift','tests/test_extension_prompt_localization.py'),
+            'SideStore':('SideStore/Core/Operations/OperationContexts.swift',
+             'SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift',
+             'SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift',
+             'SideStore/Core/Operations/PipelineOperations/PrepareAppExtensionBundleIDsOperation.swift'),
+            'SideStore/Dependencies/SideSign':('Sources/CodeSigning/CodeSignerAPI.swift','Sources/CodeSigning/ExtensionSigningPolicy.swift',
+             '.ci/reuse-main/run.sh','.ci/reuse-main/test_source.py','.ci/reuse-main/Cases.swift','.ci/reuse-main/SignerDoubles.swift','.ci/reuse-main/SignerCases.swift')}
+  for owner,names in required.items():
+   for name in names:
+    self.assertIn(name,C.INPUTS[owner])
+    for kind in ('swift','rust'):
+     def remove(value):
+      value['parts'][kind]['source']=copy.deepcopy(value['parts'][kind]['source'])
+      value['parts'][kind]['source']['source_sha256'].pop(owner+'/'+name)
+     with self.subTest(owner=owner,name=name,kind=kind):self.reject(remove)
  def test_owned_portal_inverse_and_validator_are_required_in_both_parts(self):
   owner='SideStore/Dependencies/SideSign'
   for name in ('.ci/owned-oda/test_sources.py','.ci/owned-oda/strict-appid-portal-projection.json'):

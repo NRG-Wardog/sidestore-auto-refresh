@@ -85,13 +85,31 @@ def validate_sources(sources, graph=None):
     previous = normalized_graph(graph)
     if previous == graph:
         return evidence.validate_sources(sources, graph)
+    for owner, spec in specifications()['owners'].items():
+        root = prior.source_root(sources, owner)
+        require(prior.git(root, 'rev-parse', 'HEAD').decode().strip() == spec['after_commit'],
+                'Evidence-owner successor checkout differs: ' + owner)
+    inputs = {path: portal.read_source(sources, path) for path in committed_paths()}
+    return validate_committed_sources(sources, graph, inputs)
+
+
+def committed_paths():
+    return {owner + '/' + path for owner, spec in specifications()['owners'].items()
+            for path in set(spec['changes']) | set(evidence.specifications()['owners'][owner]['changes'])}
+
+
+def validate_committed_sources(sources, graph, current_inputs, *, sidesign_proof_inputs=None):
+    """Replay explicit predecessor bytes; callers must separately bind current HEAD."""
+    sources = Path(sources).resolve(strict=True)
+    previous = normalized_graph(graph)
+    require(previous != graph, 'Committed evidence-owner graph differs')
+    require(set(current_inputs) == committed_paths() and all(type(data) is bytes for data in current_inputs.values()),
+            'Committed evidence-owner input closure differs')
     value = specifications()
     old = evidence.specifications()
     proof_inputs, checked = {}, {}
     for owner, spec in value['owners'].items():
         root = prior.source_root(sources, owner)
-        require(prior.git(root, 'rev-parse', 'HEAD').decode().strip() == spec['after_commit'],
-                'Evidence-owner successor checkout differs: ' + owner)
         require(prior.commit_info(root, spec['after_commit']) == (spec['after_tree'], [spec['before_commit']]),
                 'Evidence-owner successor parent/tree differs: ' + owner)
         require(prior.commit_info(root, spec['before_commit'])[0] == spec['before_tree'],
@@ -111,7 +129,7 @@ def validate_sources(sources, graph=None):
         published = old['owners'][owner]['changes']
         for path in sorted(set(published) | set(spec['changes'])):
             relative = owner + '/' + path
-            current = portal.read_source(sources, relative)
+            current = current_inputs[relative]
             binding = spec['changes'].get(path, published.get(path))
             require(sha(current) == binding['after_sha256'] and blob(current) == binding['after_blob']
                     and current == prior.git(root, 'cat-file', 'blob', spec['after_commit'] + ':' + path),
@@ -126,7 +144,8 @@ def validate_sources(sources, graph=None):
             if path in published:
                 proof_inputs[relative] = historical
             checked[relative] = {'sha256': sha(current), 'git_blob': blob(current), 'commit': spec['after_commit']}
-    binding = evidence.validate_committed_sources(sources, previous, proof_inputs)
+    binding = evidence.validate_committed_sources(sources, previous, proof_inputs,
+                                                  sidesign_proof_inputs=sidesign_proof_inputs)
     result = copy.deepcopy(binding)
     result['schema'] = 'reviewed-preservation-evidence-test-owner-binding-v1'
     result['evidence_binding'] = binding

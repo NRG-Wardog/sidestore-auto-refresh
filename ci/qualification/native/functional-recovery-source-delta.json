@@ -1,0 +1,660 @@
+{
+  "files": {
+    "LiveContainer/.github/workflows/extension-prompt-contract.yml": {
+      "after_blob": "1e40ae5d268f16222a7e7a55847f2e7c2faa77e9",
+      "after_commit": "68561eb6dbbc5b6e0bfe4591401af1cb4f500d04",
+      "after_sha256": "ca1da1097deec8ca1d8ca758685b82ea194173c1c906c00a5679d81d9dc118d7",
+      "before_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "before_commit": "c82033f094a57bcc86166c14b0297f0607321c69",
+      "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "edits": [
+        {
+          "after": "name: Extension prompt localization contract\non:\n  workflow_dispatch:\n  push:\n    branches: [validation/extension-prompt-copy-nov13]\n  pull_request:\n    paths:\n      - LiveContainerSwiftUI/Utilities/V3Localization.swift\n      - tests/test_extension_prompt_localization.py\n      - .github/workflows/extension-prompt-contract.yml\npermissions:\n  contents: read\njobs:\n  prompt-copy:\n    runs-on: macos-15\n    timeout-minutes: 10\n    steps:\n      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683\n        with:\n          persist-credentials: false\n          submodules: false\n      - name: Execute native prompt localization contract\n        run: |\n          command -v swiftc\n          python3 -B -m unittest discover -s tests -p test_extension_prompt_localization.py -v\n",
+          "after_lines": [
+            0,
+            25
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "LiveContainer/LiveContainerSwiftUI/Utilities/V3Localization.swift": {
+      "after_blob": "fc50fdc607a9db4a41882482c31fb3019b1ebf5f",
+      "after_commit": "68561eb6dbbc5b6e0bfe4591401af1cb4f500d04",
+      "after_sha256": "b874a9e5860d2109057371eb7aa85035346a342a9af72d3de3cfb03e94b32784",
+      "before_blob": "924be8f0143900faef51826fdc0909154ce59a29",
+      "before_commit": "c82033f094a57bcc86166c14b0297f0607321c69",
+      "before_sha256": "76af17a76bcc59a1dc7f4cc5f6d3d79f29dd876a84ce8758e78055d0d46857fb",
+      "edits": [
+        {
+          "after": "\n    // The producer is V3ReuseMainExplanation in PipelineExecutionHandler.swift.\n    // Keep this closed vocabulary in sync; no raw service errors are admitted.\n    private static let extensionFallbackReasons: Set<String> = [\n        \"extension identifier is outside its container\", \"main signing identity is unavailable\",\n        \"extension application identifier does not match\", \"debug capability differs\",\n        \"keychain groups differ\", \"app groups differ\", \"required capabilities differ\",\n        \"main profile has expired\", \"custom entitlement overrides require separate profiles\",\n        \"compatibility could not be established\"\n    ]\n    private static func extensionFallbackProse(_ value: String, language: V3AppLanguage, bundle: Bundle) -> String? {\n        func owned(_ key: String) -> String {\n            let translated = string(key, language: language, bundle: bundle)\n            return translated.isEmpty ? key : translated\n        }\n        if value == \"Separate Extension Profiles Required\" {\n            return owned(\"Experimental ReuseMain could not be used\")\n        }\n        if value == \"Extensions that could not qualify for ReuseMain:\" {\n            return owned(\"A single shared profile did not pass compatibility checks for these extensions:\")\n        }\n        func reasons(_ text: String) -> String? {\n            let parts = text.components(separatedBy: \"; \")\n            guard !parts.isEmpty, parts.allSatisfy({ extensionFallbackReasons.contains($0) }) else { return nil }\n            return parts.map(owned).joined(separator: \"; \")\n        }\n        if let summary = reasons(value) { return summary }\n        if value.hasPrefix(\"\u2022 \"), let separator = value.range(of: \": \") {\n            let identifier = String(value[value.index(value.startIndex, offsetBy: 2)..<separator.lowerBound])\n            let allowed = CharacterSet(charactersIn: \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_\")\n            guard identifier == \"[unrecognized extension identifier]\" ||\n                    (!identifier.isEmpty && identifier.utf8.count <= 255 && identifier.unicodeScalars.allSatisfy({ allowed.contains($0) })),\n                  let summary = reasons(String(value[separator.upperBound...])) else { return nil }\n            let displayedID = language.isRightToLeft ? \"\\u{2066}\\(identifier)\\u{2069}\" : identifier\n            return \"\u2022 \" + displayedID + \": \" + summary\n        }\n        // The adjacent offer is also compile-time-owned producer copy. Admit only\n        // its exact template, a bounded bundle identifier and one consistent count.\n        let offerKey = \"%@ contains %@ extension(s). Experimental ReuseMain is for ordinary apps only, not host self-install or self-refresh. If all %@ extensions pass compatibility checks, ReuseMain may avoid up to %@ additional App IDs. If any extension fails, this version uses separate profiles for all %@ extensions, avoiding 0 additional App IDs. Existing App IDs may already be registered; these are estimates, not measured savings. Separate profiles require confirmation. Extension behavior still needs device validation. You can also register each extension or choose which to remove.\"\n        let offerParts = offerKey.components(separatedBy: \"%@\")\n        let pattern = \"^\" + offerParts.enumerated().map { index, part in\n            (index == 0 ? \"\" : (index == 1 ? \"([A-Za-z0-9._-]{1,255})\" : \"([0-9]+)\"))\n                + NSRegularExpression.escapedPattern(for: part)\n        }.joined() + \"$\"\n        if let regex = try? NSRegularExpression(pattern: pattern),\n           let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) {\n            let captures = (1..<match.numberOfRanges).compactMap { index -> String? in\n                guard let range = Range(match.range(at: index), in: value) else { return nil }\n                return String(value[range])\n            }\n            guard captures.count == 5, Set(captures.dropFirst()).count == 1,\n                  let count = Int(captures[1]), count >= 0 else { return nil }\n            let identifier = language.isRightToLeft ? \"\\u{2066}\\(captures[0])\\u{2069}\" : captures[0]\n            return String(format: owned(offerKey), locale: Locale(identifier: language.rawValue),\n                          arguments: [identifier, String(count), String(count), String(count), String(count)])\n        }\n        let prefix = \"This version falls back as a group: all \"\n        let middle = \" extensions stay installed and use separate profiles. This fallback avoids 0 additional App IDs and may require up to \"\n        let suffix = \" separate App IDs (some may already exist). No extension is removed and no required capability is discarded. Continue with separate provisioning?\"\n        guard value.hasPrefix(prefix), value.hasSuffix(suffix) else { return nil }\n        let body = String(value.dropFirst(prefix.count).dropLast(suffix.count))\n        let counts = body.components(separatedBy: middle)\n        guard counts.count == 2, counts[0] == counts[1], !counts[0].isEmpty,\n              counts[0].utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }), let count = Int(counts[0]), count >= 0 else { return nil }\n        let key = \"Keep All With Separate Profiles keeps all %@ extensions in this installation request and provisions each with a separate profile instead of reusing the main profile. No extension is removed and no required capability is discarded. Capability-preservation checks remain enabled on this fallback path. This saves 0 additional App IDs and may require up to %@ separate App IDs (some may already exist). Signing and installation still have to complete and can fail. Cancel stops this installation request.\"\n        return String(format: owned(key), locale: Locale(identifier: language.rawValue), arguments: [String(count), String(count)])\n    }\n\n",
+          "after_lines": [
+            157,
+            225
+          ],
+          "before": ""
+        },
+        {
+          "after": "        // Reviewed SideStore-owned confirmation copy may fall back to English.\n        // Never use this path for arbitrary provider text or unknown reasons.\n        if let owned = extensionFallbackProse(value, language: language, bundle: bundle) { return owned }\n",
+          "after_lines": [
+            245,
+            248
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "LiveContainer/tests/test_extension_prompt_localization.py": {
+      "after_blob": "12d2cb4f66e3ca94e2f0467220537f3d2a71bec2",
+      "after_commit": "68561eb6dbbc5b6e0bfe4591401af1cb4f500d04",
+      "after_sha256": "9a6e9f26c0223c97272f3c3471a80f818e2912723095f61c7f49bf6d0999db6b",
+      "before_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "before_commit": "c82033f094a57bcc86166c14b0297f0607321c69",
+      "before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "edits": [
+        {
+          "after": "\"\"\"Production adapter regression coverage; native execution requires swiftc.\"\"\"\nimport pathlib\nimport shutil\nimport subprocess\nimport tempfile\nimport unittest\nROOT = pathlib.Path(__file__).resolve().parents[1]\n\nclass ExtensionPromptLocalization(unittest.TestCase):\n    def test_closed_owned_vocabulary(self):\n        source = (ROOT / 'LiveContainerSwiftUI/Utilities/V3Localization.swift').read_text()\n        for token in ['extensionFallbackReasons.contains($0)', 'counts[0] == counts[1]', 'identifier.utf8.count <= 255', '?? unavailableDetails(language: language, bundle: bundle)']:\n            self.assertIn(token, source)\n\n    @unittest.skipUnless(shutil.which('swiftc'), 'Swift compiler required; run on macOS CI')\n    def test_actual_adapter(self):\n        source = ROOT / 'LiveContainerSwiftUI/Utilities/V3Localization.swift'\n        harness = r'''\nimport Foundation\nlet missing = \"Some details are unavailable in the selected language.\"\nlet paragraph = \"This version falls back as a group: all 5 extensions stay installed and use separate profiles. This fallback avoids 0 additional App IDs and may require up to 5 separate App IDs (some may already exist). No extension is removed and no required capability is discarded. Continue with separate provisioning?\"\nlet prompt = \"Extensions that could not qualify for ReuseMain:\\n\u2022 com.example.widget: app groups differ; keychain groups differ\\n\\n\" + paragraph\nlet offer = \"com.example contains 5 extension(s). Experimental ReuseMain is for ordinary apps only, not host self-install or self-refresh. If all 5 extensions pass compatibility checks, ReuseMain may avoid up to 5 additional App IDs. If any extension fails, this version uses separate profiles for all 5 extensions, avoiding 0 additional App IDs. Existing App IDs may already be registered; these are estimates, not measured savings. Separate profiles require confirmation. Extension behavior still needs device validation. You can also register each extension or choose which to remove.\"\nfor language in V3AppLanguage.allCases {\n    precondition(V3Localization.prose(offer, language: language).contains(\"these are estimates, not measured savings\"))\n    let title = V3Localization.prose(\"Separate Extension Profiles Required\", language: language)\n    let rendered = V3Localization.prose(prompt, language: language)\n    precondition(title == \"Experimental ReuseMain could not be used\")\n    precondition(rendered.contains(\"app groups differ; keychain groups differ\"))\n    precondition(rendered.contains(\"keeps all 5 extensions in this installation request\"))\n    precondition(rendered.contains(\"No extension is removed\"))\n    precondition(rendered.contains(\"Capability-preservation checks remain enabled\"))\n    precondition(rendered.contains(\"Signing and installation still have to complete and can fail\"))\n    precondition(rendered.contains(\"Cancel stops this installation request\"))\n}\nprecondition(V3Localization.prose(offer.replacingOccurrences(of: \"up to 5\", with: \"up to 6\"), language: .english) == missing)\nprecondition(V3Localization.prose(offer.replacingOccurrences(of: \"com.example\", with: \"bad/id\"), language: .english) == missing)\nprecondition(V3Localization.prose(\"provider secret error\", language: .english) == missing)\nprecondition(V3Localization.prose(\"\u2022 com.example: arbitrary provider error\", language: .english) == missing)\nprecondition(V3Localization.prose(\"\u2022 bad/id: app groups differ\", language: .english) == missing)\nprecondition(V3Localization.prose(paragraph.replacingOccurrences(of: \"up to 5\", with: \"up to 6\"), language: .english) == missing)\nprecondition(V3Localization.prose(\"\u2022 com.example: app groups differ\", language: .hebrew).contains(\"\\u{2066}com.example\\u{2069}\"))\n'''\n        with tempfile.TemporaryDirectory() as directory:\n            main = pathlib.Path(directory) / 'main.swift'\n            main.write_text(harness)\n            binary = pathlib.Path(directory) / 'test'\n            subprocess.run(['swiftc', str(source), str(main), '-o', str(binary)], check=True)\n            subprocess.run([str(binary)], check=True)\n\nif __name__ == '__main__':\n    unittest.main()\n",
+          "after_lines": [
+            0,
+            52
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/.github/workflows/preservation-portal-contract.yml": {
+      "after_blob": "728c20d9e5d503217c0c3f925cedcd7ef3b46dc6",
+      "after_commit": "9bfb1822e9153c622ef8cda88cd4247038a8feeb",
+      "after_sha256": "9e8156a063f22cc0b1a2d1a9c1624002d596b44c86c0a30ebd4c63009399fea7",
+      "before_blob": "32071bcfe5b5da99e3a2b5d995ac0b14773e9f6a",
+      "before_commit": "9ba862f47d8a32e0548924d4a087b0e1e853b0d0",
+      "before_sha256": "a5e4e46eed39d436fec88ddef62011cb8144b807b19c24ed8001f30a6b6f5ddd",
+      "edits": [
+        {
+          "after": "    branches: ['validation/preservation-portal-identity-nov11', 'validation/fallback-mapping-recovery-nov13']\n",
+          "after_lines": [
+            4,
+            5
+          ],
+          "before": "    branches: ['validation/preservation-portal-identity-nov11']\n"
+        },
+        {
+          "after": "      - 'tests/reuse_main/**'\n      - 'tests/legacy_replacement_hooks/**'\n      - 'SideStore/Core/Operations/OperationContexts.swift'\n      - 'SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift'\n",
+          "after_lines": [
+            13,
+            17
+          ],
+          "before": ""
+        },
+        {
+          "after": "      - name: Qualify actual fallback mapping actor and wiring\n        run: V3_REQUIRE_SWIFT=1 python3 -B tests/reuse_main/test_contract.py -v\n      - name: Qualify actual strict signer hooks against pinned SideSign\n        run: V3_REQUIRE_SWIFT=1 python3 -B tests/legacy_replacement_hooks/test_contract.py -v\n      - name: Qualify actual SideSign policy and signer\n        run: bash Dependencies/SideSign/.ci/reuse-main/run.sh\n",
+          "after_lines": [
+            39,
+            45
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/Dependencies/SideSign/.ci/reuse-main/Cases.swift": {
+      "after_blob": "8c574202619a7a576028ecbd2a2f2cb28546bb2b",
+      "after_commit": "594d3426794d40c7bfde6ace0fba9d6309c214a6",
+      "after_sha256": "0ceb8fd29a3ddb81e4a4e1339cff833f0e98806957d1153cbbb26e280a898b36",
+      "before_blob": "00a9d472f1ccbae09d671f012a8b5e8bbeae57ea",
+      "before_commit": "082571590a6019972045a41a886caf4f27e66683",
+      "before_sha256": "9a3e5f264c658b9cc451781c6ff51ae7781e2d3d76aba0a962e2a86af4217cf6",
+      "edits": [
+        {
+          "after": "        let groupKey = \"com.apple.security.application-groups\"\n        let original: [String: any Sendable] = [groupKey: [\"group.source\"]]\n        let assigned: [String: any Sendable] = [groupKey: [\"group.source.TEAM\"]]\n        let mapping = [\"group.source\": \"group.source.TEAM\"]\n        check(!ExtensionSigningPolicy.requiredCapabilitiesPreserved(required: original, signed: assigned, teamIdentifier: \"TEAM\"), \"unrecorded remap is rejected\")\n        check(ExtensionSigningPolicy.requiredCapabilitiesPreserved(required: original, signed: assigned, teamIdentifier: \"TEAM\", provisionedAppGroupMapping: mapping), \"recorded exact remap preserves group\")\n        for (name, signed, map) in [\n            (\"missing group\", [String](), mapping),\n            (\"different destination\", [\"group.other\"], mapping),\n            (\"extra grant\", [\"group.source.TEAM\", \"group.extra\"], mapping),\n            (\"duplicate grant\", [\"group.source.TEAM\", \"group.source.TEAM\"], mapping),\n            (\"unrelated mapping\", [\"group.source.TEAM\"], [\"group.other\": \"group.source.TEAM\"]),\n            (\"empty destination\", [\"\"], [\"group.source\": \"\"])\n        ] {\n            check(!ExtensionSigningPolicy.requiredCapabilitiesPreserved(required: original, signed: [groupKey: signed], teamIdentifier: \"TEAM\", provisionedAppGroupMapping: map), name)\n        }\n        check(!ExtensionSigningPolicy.requiredCapabilitiesPreserved(required: [groupKey: [\"group.a\", \"group.b\"]], signed: [groupKey: [\"group.same\"]], teamIdentifier: \"TEAM\", provisionedAppGroupMapping: [\"group.a\": \"group.same\", \"group.b\": \"group.same\"]), \"mapping cannot merge groups\")\n",
+          "after_lines": [
+            66,
+            83
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/Dependencies/SideSign/.ci/reuse-main/SignerCases.swift": {
+      "after_blob": "dc19800346a4b157b2c91707ab8c65b3b85c12bc",
+      "after_commit": "594d3426794d40c7bfde6ace0fba9d6309c214a6",
+      "after_sha256": "3a8a02441c666238f12651dafb97eaa4687623871300b9b764388c9cd126f573",
+      "before_blob": "b2939d25f8ca3f9210c175185e87a2a453dc3c77",
+      "before_commit": "082571590a6019972045a41a886caf4f27e66683",
+      "before_sha256": "9afc7c95d1f52a047d453a850a7d06df75c626a925eaec21f61d478a98114dd0",
+      "edits": [
+        {
+          "after": "        let groupKey = \"com.apple.security.application-groups\"\n        setup([groupKey: [\"group.source\"]])\n        var mappedProfile = insufficient\n        mappedProfile.entitlements[groupKey] = [\"group.source.TEAM\"]\n        let assignedMap = [\"example.app.widget\": [\"group.source\": \"group.source.TEAM\"]]\n        do {\n            _ = try await signer.signApp(at: appURL, provisioningProfiles: [mainProfile, mappedProfile], extensionStrategy: .perExtensionPreservingCapabilities)\n            preconditionFailure(\"Real strict signer must reject an unrecorded remap\")\n        } catch SignerError.invalidApp { }\n        _ = try await signer.signApp(at: appURL, provisioningProfiles: [mainProfile, mappedProfile], extensionStrategy: .perExtensionPreservingCapabilities, provisionedAppGroupMappings: assignedMap)\n        for strategy in [ExtensionSigningStrategy.reuseMainWhenCompatible, .perExtensionPreservingCapabilities] {\n            let wrongMap = strategy == .reuseMainWhenCompatible ? assignedMap : [\"wrong.bundle\": [\"group.source\": \"group.source.TEAM\"]]\n            do {\n                _ = try await signer.signApp(at: appURL, provisioningProfiles: [mainProfile, mappedProfile], extensionStrategy: strategy, provisionedAppGroupMappings: wrongMap)\n                preconditionFailure(\"Mappings are scoped to separate strategy and exact bundle\")\n            } catch SignerError.invalidApp { }\n        }\n        // A valid remap must never waive the rest of strict signing admission.\n        var expiredMapped = mappedProfile\n        expiredMapped.expirationDate = .distantPast\n        var foreignMapped = mappedProfile\n        foreignMapped.teamIdentifier = \"OTHER\"\n        let wrongLeaf = AppBundleSigner(team: Team(), keyStore: KeyStore(certificate: Certificate(data: Data(\"different-leaf\".utf8))))\n        for (candidateSigner, candidateProfile) in [(signer, expiredMapped), (signer, foreignMapped), (wrongLeaf, mappedProfile)] {\n            do {\n                _ = try await candidateSigner.signApp(at: appURL, provisioningProfiles: [mainProfile, candidateProfile], extensionStrategy: .perExtensionPreservingCapabilities, provisionedAppGroupMappings: assignedMap)\n                preconditionFailure(\"Recorded mapping cannot bypass profile/certificate admission\")\n            } catch SignerError.invalidApp { }\n        }\n        setup([groupKey: [\"group.source\"], \"aps-environment\": \"production\"])\n        do {\n            _ = try await signer.signApp(at: appURL, provisioningProfiles: [mainProfile, mappedProfile], extensionStrategy: .perExtensionPreservingCapabilities, provisionedAppGroupMappings: assignedMap)\n            preconditionFailure(\"Recorded group mapping cannot drop another capability\")\n        } catch SignerError.invalidApp { }\n        setup([groupKey: [\"group.source\"]])\n        FixtureState.shared.bundles[appURL] = AppBundle(url: appURL, id: \"example.app\", entitlements: [groupKey: [\"group.source\"]], extensions: [extensionURL])\n        var mappedMain = mainProfile\n        mappedMain.entitlements[groupKey] = [\"group.source.TEAM\"]\n        _ = try await signer.signApp(at: appURL, provisioningProfiles: [mappedMain, mappedProfile], extensionStrategy: .perExtensionPreservingCapabilities, provisionedAppGroupMappings: [\"example.app\": [\"group.source\": \"group.source.TEAM\"], \"example.app.widget\": [\"group.source\": \"group.source.TEAM\"]])\n        setup([groupKey: [\"group.source\"]])\n        mappedProfile.entitlements[groupKey] = [\"group.tampered\"]\n        do {\n            _ = try await signer.signApp(at: appURL, provisioningProfiles: [mainProfile, mappedProfile], extensionStrategy: .perExtensionPreservingCapabilities, provisionedAppGroupMappings: assignedMap)\n            preconditionFailure(\"A changed profile cannot satisfy recorded mapping\")\n        } catch SignerError.invalidApp { }\n",
+          "after_lines": [
+            67,
+            112
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/Dependencies/SideSign/.ci/reuse-main/SignerDoubles.swift": {
+      "after_blob": "37fe9176b6ebafa261c12d381410b6d38523bb8b",
+      "after_commit": "594d3426794d40c7bfde6ace0fba9d6309c214a6",
+      "after_sha256": "28337998b639cf090311f30c0a86f64a1c03fb4d0e0c5c8daa385c73fd2f9ce8",
+      "before_blob": "42042ca751c40b033ffb00e8653ae66ba9c73958",
+      "before_commit": "082571590a6019972045a41a886caf4f27e66683",
+      "before_sha256": "d8b25d2a38756dbe5f219c4c2bddc4142e63ec479f6bf28be5337056abc67ffd",
+      "edits": [
+        {
+          "after": "    var entitlements: [String: any Sendable]\n",
+          "after_lines": [
+            9,
+            10
+          ],
+          "before": "    let entitlements: [String: any Sendable]\n"
+        },
+        {
+          "after": "    var expirationDate: Date\n",
+          "after_lines": [
+            11,
+            12
+          ],
+          "before": "    let expirationDate: Date\n"
+        }
+      ]
+    },
+    "SideStore/Dependencies/SideSign/.github/workflows/appid-lookup-qualification.yml": {
+      "after_blob": "0830c46138f7ea8b5f269f0bb78fa9a1299db26f",
+      "after_commit": "594d3426794d40c7bfde6ace0fba9d6309c214a6",
+      "after_sha256": "8f6afbc731176182381a930f999cd80fe3723d75a2bb15e75edbc0f6f2205140",
+      "before_blob": "42697102c6f02ee6a4b0dfafc366fe28939a0935",
+      "before_commit": "082571590a6019972045a41a886caf4f27e66683",
+      "before_sha256": "8f2083547a36a02fc327dc5c9a3b896b629a0d057e6bb5231144204173d98247",
+      "edits": [
+        {
+          "after": "    branches: ['validation/strict-appid-lookup-nov10', 'validation/functional-recovery-nov13']\n",
+          "after_lines": [
+            3,
+            4
+          ],
+          "before": "    branches: ['validation/strict-appid-lookup-nov10']\n"
+        },
+        {
+          "after": "    paths: ['Sources/DeveloperPortal/AppID*.swift', 'Sources/DeveloperPortal/DeveloperPortalAPI.swift', '.ci/appid-lookup/**', '.ci/owned-oda/**', 'Sources/CodeSigning/**', '.ci/reuse-main/**', '.github/workflows/appid-lookup-qualification.yml']\n",
+          "after_lines": [
+            5,
+            6
+          ],
+          "before": "    paths: ['Sources/DeveloperPortal/AppID*.swift', 'Sources/DeveloperPortal/DeveloperPortalAPI.swift', '.ci/appid-lookup/**', '.ci/owned-oda/**', '.github/workflows/appid-lookup-qualification.yml']\n"
+        },
+        {
+          "after": "      - name: Separate fallback source contract\n        run: python3 -B .ci/reuse-main/test_source.py -v\n      - name: Actual Swift 6 policy and signer fallback fixtures\n        run: bash .ci/reuse-main/run.sh\n",
+          "after_lines": [
+            23,
+            27
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/Dependencies/SideSign/Sources/CodeSigning/CodeSignerAPI.swift": {
+      "after_blob": "2342c2417a8b1d0a4eb2fdf694b6abcfc96e49dc",
+      "after_commit": "594d3426794d40c7bfde6ace0fba9d6309c214a6",
+      "after_sha256": "4cd67be2acff40d95e64e2862efc6c8e32ca92510f8dc610349b282966881948",
+      "before_blob": "228d6e788746f7ac724910bfb1d36b2501f5bd12",
+      "before_commit": "082571590a6019972045a41a886caf4f27e66683",
+      "before_sha256": "8e83bdc941829017b453fc8c505b4e321ef1211ef03754e398165f63b963f404",
+      "edits": [
+        {
+          "after": "                        provisionedAppGroupMappings: [String: [String: String]] = [:],\n",
+          "after_lines": [
+            99,
+            100
+          ],
+          "before": ""
+        },
+        {
+          "after": "                    signed: filteredEntitlements, teamIdentifier: matchedProfile.teamIdentifier,\n                    provisionedAppGroupMapping: extensionStrategy == .perExtensionPreservingCapabilities\n                        ? provisionedAppGroupMappings[app.bundleIdentifier] ?? [:] : [:]) {\n",
+          "after_lines": [
+            168,
+            171
+          ],
+          "before": "                    signed: filteredEntitlements, teamIdentifier: matchedProfile.teamIdentifier) {\n"
+        }
+      ]
+    },
+    "SideStore/Dependencies/SideSign/Sources/CodeSigning/ExtensionSigningPolicy.swift": {
+      "after_blob": "affe6e527a9612e1549a42dcd9ce707730407aec",
+      "after_commit": "594d3426794d40c7bfde6ace0fba9d6309c214a6",
+      "after_sha256": "4d0eb518cf7686a9fbe3756d03f0a5763c4770490334146b99c4dac3a42d754c",
+      "before_blob": "4dfdbebb444cb45f1e9a76c357a47f74766f81a2",
+      "before_commit": "082571590a6019972045a41a886caf4f27e66683",
+      "before_sha256": "699734433ea8c45a81fbb773574fc2c57bc907ae647aba1ce78d878640f96b9d",
+      "edits": [
+        {
+          "after": "        required: [String: any Sendable], signed: [String: any Sendable], teamIdentifier: String,\n        provisionedAppGroupMapping: [String: String] = [:]\n",
+          "after_lines": [
+            91,
+            93
+          ],
+          "before": "        required: [String: any Sendable], signed: [String: any Sendable], teamIdentifier: String\n"
+        },
+        {
+          "after": "        // Only caller-supplied results of successful portal assignments authorize\n        // a remap. No suffix inference. Reject unrelated keys and many-to-one maps.\n        let groupKey = \"com.apple.security.application-groups\"\n        if !provisionedAppGroupMapping.isEmpty {\n            guard let groups = required[groupKey] as? [String],\n                  Set(provisionedAppGroupMapping.keys).isSubset(of: Set(groups)),\n                  Set(provisionedAppGroupMapping.values).count == provisionedAppGroupMapping.count,\n                  provisionedAppGroupMapping.values.allSatisfy({ !$0.isEmpty }) else { return false }\n        }\n",
+          "after_lines": [
+            94,
+            103
+          ],
+          "before": ""
+        },
+        {
+          "after": "            if key == groupKey, !provisionedAppGroupMapping.isEmpty {\n                guard let groups = value as? [String], let signedGroups = signed[key] as? [String] else { return false }\n                let mapped = groups.map { provisionedAppGroupMapping[$0] ?? $0 }\n                guard Set(mapped).count == groups.count,\n                      Set(signedGroups).count == signedGroups.count,\n                      Set(mapped) == Set(signedGroups) else { return false }\n                continue\n            }\n",
+          "after_lines": [
+            104,
+            112
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/SideStore/Core/Operations/OperationContexts.swift": {
+      "after_blob": "476384eb9731c9e15637500209aee38460424452",
+      "after_commit": "9bfb1822e9153c622ef8cda88cd4247038a8feeb",
+      "after_sha256": "44e5d8652e8cf8d7adfec85a253c8c7a0354d37bc73d2e203bad66fa49bb7c54",
+      "before_blob": "8e5b43944acc0e4e126b435a077711a12cf38674",
+      "before_commit": "9ba862f47d8a32e0548924d4a087b0e1e853b0d0",
+      "before_sha256": "ddc4fe6a6610eed204041a6ff7a78dea9674a34618612b29038d97dd7df9373f",
+      "edits": [
+        {
+          "after": "    // In-memory mappings returned by this install's successful portal group assignments.\n    // Never reconstructed from a profile, identifier suffix, or installed-app history.\n    var provisionedAppGroupMappings: [String: [String: String]] = [:]\n",
+          "after_lines": [
+            290,
+            293
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": {
+      "after_blob": "00f1dbc19633c76bac93638a58969d7592c74470",
+      "after_commit": "9bfb1822e9153c622ef8cda88cd4247038a8feeb",
+      "after_sha256": "93ae98a34595ac2d3ddba84c4cf6fd3607922654bb06dc8099c1713d044da41e",
+      "before_blob": "a1ae507fa25929f06999fbe2b6a582e19ad44672",
+      "before_commit": "9ba862f47d8a32e0548924d4a087b0e1e853b0d0",
+      "before_sha256": "31b5bea8f6c6b196a835c20b4ad6e3bf004f93c8a3b8fa9bc3c48e4ae16a5cf4",
+      "edits": [
+        {
+          "after": "    private actor GroupAssignments {\n        var mappings: [String: [String: String]] = [:]\n        func reset() { mappings = [:] }\n        func record(bundleID: String, mapping: [String: String]) { mappings[bundleID] = mapping }\n        func snapshot() -> [String: [String: String]] { mappings }\n    }\n    private let groupAssignments = GroupAssignments()\n\n",
+          "after_lines": [
+            14,
+            22
+          ],
+          "before": ""
+        },
+        {
+          "after": "        context.provisionedAppGroupMappings = [:]\n        await groupAssignments.reset()\n",
+          "after_lines": [
+            30,
+            32
+          ],
+          "before": ""
+        },
+        {
+          "after": "        // Publish only a complete, successful provisioning run. Scope the map to\n        // the explicit experimental fallback, never refresh/replacement paths.\n        if context.validatedReuseMain && !context.useMainProfile && context.legacyReplacementBinding == nil {\n            context.provisionedAppGroupMappings = await groupAssignments.snapshot()\n        }\n",
+          "after_lines": [
+            174,
+            179
+          ],
+          "before": ""
+        },
+        {
+          "after": "            var assignedMapping = [String: String]()\n",
+          "after_lines": [
+            665,
+            666
+          ],
+          "before": ""
+        },
+        {
+          "after": "                assignedMapping[groupIdentifier] = adjustedGroupIdentifier\n",
+          "after_lines": [
+            669,
+            670
+          ],
+          "before": ""
+        },
+        {
+          "after": "                guard group.groupIdentifier == adjustedGroupIdentifier else {\n                    throw OperationError.invalidParameters(\"The assigned App Group identity changed.\")\n                }\n",
+          "after_lines": [
+            695,
+            698
+          ],
+          "before": ""
+        },
+        {
+          "after": "            await groupAssignments.record(bundleID: appID.bundleIdentifier, mapping: assignedMapping)\n",
+          "after_lines": [
+            703,
+            704
+          ],
+          "before": ""
+        }
+      ]
+    },
+    "SideStore/SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift": {
+      "after_blob": "df804fd4dc08327e9c29fb6c3f418cdab63e5ec9",
+      "after_commit": "9bfb1822e9153c622ef8cda88cd4247038a8feeb",
+      "after_sha256": "d3a48f398db40a45a9f1ea23a6774141b7867becaf7f3ed72791d23ec7b7be97",
+      "before_blob": "77ee14d6bad55ff8567b6fc7ea7ee38645c6e5b3",
+      "before_commit": "9ba862f47d8a32e0548924d4a087b0e1e853b0d0",
+      "before_sha256": "eafa2503062ef98c8033b89a1f0834c139d1734e66e8b5b3ea8b4a0fb015e59d",
+      "edits": [
+        {
+          "after": "                extensionStrategy: .perExtensionPreservingCapabilities,\n                provisionedAppGroupMappings: context.provisionedAppGroupMappings, progress: nil)\n",
+          "after_lines": [
+            227,
+            229
+          ],
+          "before": "                extensionStrategy: .perExtensionPreservingCapabilities, progress: nil)\n"
+        }
+      ]
+    },
+    "SideStore/tests/legacy_replacement_hooks/doubles.swift": {
+      "after_blob": "33905f4a88a1150c4d30263b8fcd520636997112",
+      "after_commit": "9bfb1822e9153c622ef8cda88cd4247038a8feeb",
+      "after_sha256": "96a0d194d0e3aaa452f4c0a1f72138e8801ea1ec57909b5f6aa616a672912f02",
+      "before_blob": "c2e4db39ae198ee17e37f0f584753c8fd03bfe65",
+      "before_commit": "9ba862f47d8a32e0548924d4a087b0e1e853b0d0",
+      "before_sha256": "a8474d85e7e11f964d53b35cf1e23a62a560bdc82c9c48ced39b472d1553ffe0",
+      "edits": [
+        {
+          "after": " var provisionedAppGroupMappings:[String:[String:String]]=[:]\n",
+          "after_lines": [
+            30,
+            31
+          ],
+          "before": ""
+        },
+        {
+          "after": "struct StrategyApp { var bundleIdentifier=\"synthetic.app\"; var entitlements:[String:any Sendable] }\n",
+          "after_lines": [
+            44,
+            45
+          ],
+          "before": "struct StrategyApp { var entitlements:[String:any Sendable] }\n"
+        },
+        {
+          "after": " func signApp(at:URL,provisioningProfiles:[ALTProvisioningProfile],extensionStrategy:ExtensionSigningStrategy,originalExtensionBundleIdentifiers:[String:String]=[:],previouslyReusedExtensionIdentifiers:Set<String>=[],provisionedAppGroupMappings:[String:[String:String]]=[:],progress:Progress?) async throws -> Bool {\n",
+          "after_lines": [
+            51,
+            52
+          ],
+          "before": " func signApp(at:URL,provisioningProfiles:[ALTProvisioningProfile],extensionStrategy:ExtensionSigningStrategy,originalExtensionBundleIdentifiers:[String:String]=[:],previouslyReusedExtensionIdentifiers:Set<String>=[],progress:Progress?) async throws -> Bool {\n"
+        },
+        {
+          "after": "  try actualSignerCapabilityGuard(extensionStrategy:extensionStrategy,app:app,matchedProfile:matchedProfile,filteredEntitlements:filteredEntitlements,provisionedAppGroupMappings:provisionedAppGroupMappings)\n",
+          "after_lines": [
+            54,
+            55
+          ],
+          "before": "  try actualSignerCapabilityGuard(extensionStrategy:extensionStrategy,app:app,matchedProfile:matchedProfile,filteredEntitlements:filteredEntitlements)\n"
+        }
+      ]
+    },
+    "SideStore/tests/legacy_replacement_hooks/test_contract.py": {
+      "after_blob": "6ee02418931bc852db46fde0b9807cd2df01589c",
+      "after_commit": "9bfb1822e9153c622ef8cda88cd4247038a8feeb",
+      "after_sha256": "404ca6b14ce374d0fd627556e46b24155049f048d49f0b7b143ee9eda89b66c0",
+      "before_blob": "2d91cf49bb45207ca5a65a690138834b96950dc8",
+      "before_commit": "9ba862f47d8a32e0548924d4a087b0e1e853b0d0",
+      "before_sha256": "fcdd82bca7d86239a63135240ec5cd4122538785f49a1e7a1520b6c7388b028f",
+      "edits": [
+        {
+          "after": "  actual+='\\nfunc actualSignerCapabilityGuard(extensionStrategy:ExtensionSigningStrategy,app:StrategyApp,matchedProfile:StrategyProfile,filteredEntitlements:[String:any Sendable],provisionedAppGroupMappings:[String:[String:String]]) throws {\\n'+guard+'\\n}\\n'+policy\n",
+          "after_lines": [
+            79,
+            80
+          ],
+          "before": "  actual+='\\nfunc actualSignerCapabilityGuard(extensionStrategy:ExtensionSigningStrategy,app:StrategyApp,matchedProfile:StrategyProfile,filteredEntitlements:[String:any Sendable]) throws {\\n'+guard+'\\n}\\n'+policy\n"
+        }
+      ]
+    },
+    "SideStore/tests/reuse_main/test_contract.py": {
+      "after_blob": "d51b5b0e68dd6fcabc39e43eb3631ab36e8b001f",
+      "after_commit": "9bfb1822e9153c622ef8cda88cd4247038a8feeb",
+      "after_sha256": "74b3b4dd80a2b48c43534e1c3d3dcf5e4078c9598dac69c59685f45626393d9d",
+      "before_blob": "5e4533dcdb8bc14389c2de64d5bdbb4d72ce16c0",
+      "before_commit": "9ba862f47d8a32e0548924d4a087b0e1e853b0d0",
+      "before_sha256": "509b5b0878b8f55d74284b2da8b870bfb6e0a7f5f1abff8ff43c2b2310332ec4",
+      "edits": [
+        {
+          "after": "import shutil\nimport subprocess\nimport tempfile\nimport os\n",
+          "after_lines": [
+            2,
+            6
+          ],
+          "before": ""
+        },
+        {
+          "after": "    def test_group_mapping_is_provisioning_bound_and_fallback_only(self):\n        s = (ROOT / 'SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift').read_text()\n        self.assertIn('private actor GroupAssignments', s)\n        self.assertLess(s.index('context.provisionedAppGroupMappings = [:]'), s.index('if context.isPreservationRefresh'))\n        self.assertLess(s.index('try await DeveloperPortalProxy.shared.assignAppID(appID, to: Array(groups), team: team)'),\n                        s.index('await groupAssignments.record(bundleID: appID.bundleIdentifier, mapping: assignedMapping)'))\n        self.assertIn('assignedMapping[groupIdentifier] = adjustedGroupIdentifier', s)\n        self.assertIn('guard group.groupIdentifier == adjustedGroupIdentifier else', s)\n        self.assertIn('if context.validatedReuseMain && !context.useMainProfile && context.legacyReplacementBinding == nil', s)\n        self.assertLess(s.index('try await withThrowingTaskGroup'), s.index('context.provisionedAppGroupMappings = await groupAssignments.snapshot()'))\n        signer = (ROOT / 'SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift').read_text()\n        self.assertIn('provisionedAppGroupMappings: context.provisionedAppGroupMappings', signer)\n        self.assertIn('extensionStrategy: .perExtensionPreservingCapabilities', signer)\n\n    def test_group_mapping_actor_native_run_isolation(self):\n        compiler = shutil.which('swiftc')\n        if not compiler:\n            if os.environ.get('V3_REQUIRE_SWIFT') == '1': self.fail('swiftc required')\n            self.skipTest('native Swift qualification required')\n        source = (ROOT / 'SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift').read_text()\n        start = source.index('private actor GroupAssignments')\n        end = source.index('    private let groupAssignments', start)\n        actor = source[start:end].replace('private actor', 'actor', 1)\n        fixture = actor + r'''\n@main struct Cases {\n    static func main() async {\n        let records = GroupAssignments()\n        await withTaskGroup(of: Void.self) { group in\n            for i in 0..<20 {\n                group.addTask { await records.record(bundleID: \"bundle.\\(i)\", mapping: [\"group.source\": \"group.assigned.\\(i)\"]) }\n            }\n        }\n        let first = await records.snapshot()\n        precondition(first.count == 20)\n        await records.reset()\n        let empty = await records.snapshot()\n        precondition(empty.isEmpty)\n        await records.record(bundleID: \"new.run\", mapping: [\"source\": \"assigned\"])\n        let next = await records.snapshot()\n        precondition(next.count == 1 && next[\"new.run\"] != nil)\n        precondition(first.count == 20)\n    }\n}\n'''\n        with tempfile.TemporaryDirectory() as tmp:\n            path = Path(tmp)\n            (path / 'Actor.swift').write_text(fixture)\n            result = subprocess.run([compiler, '-parse-as-library', '-swift-version', '6', str(path / 'Actor.swift'), '-o', str(path / 'actor')], capture_output=True, text=True)\n            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)\n            subprocess.run([str(path / 'actor')], check=True)\n\n",
+          "after_lines": [
+            70,
+            121
+          ],
+          "before": ""
+        }
+      ]
+    }
+  },
+  "owners": {
+    "LiveContainer": {
+      "after_commit": "68561eb6dbbc5b6e0bfe4591401af1cb4f500d04",
+      "after_tree": "d6f1df58ba010ced40d6951c47f1bb9bb0bfd018",
+      "before_commit": "c82033f094a57bcc86166c14b0297f0607321c69",
+      "before_reviewed_delta_sha256": "bcd73a800873d2643ea6fc3fc7765f9e68d5f4613e9f8d4a8978b0e4dbfb23ea",
+      "before_tree": "993e83442e5caa59e4f5c5ffade144e2589025dd",
+      "changes": {
+        ".github/workflows/extension-prompt-contract.yml": {
+          "after_blob": "1e40ae5d268f16222a7e7a55847f2e7c2faa77e9",
+          "after_mode": "100644",
+          "before_blob": "0000000000000000000000000000000000000000",
+          "before_graph_blob": null,
+          "before_graph_present": false,
+          "before_mode": "000000"
+        },
+        "LiveContainerSwiftUI/Utilities/V3Localization.swift": {
+          "after_blob": "fc50fdc607a9db4a41882482c31fb3019b1ebf5f",
+          "after_mode": "100644",
+          "before_blob": "924be8f0143900faef51826fdc0909154ce59a29",
+          "before_graph_blob": "924be8f0143900faef51826fdc0909154ce59a29",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        "tests/test_extension_prompt_localization.py": {
+          "after_blob": "12d2cb4f66e3ca94e2f0467220537f3d2a71bec2",
+          "after_mode": "100644",
+          "before_blob": "0000000000000000000000000000000000000000",
+          "before_graph_blob": null,
+          "before_graph_present": false,
+          "before_mode": "000000"
+        }
+      },
+      "commit_chain": [
+        {
+          "commit": "68561eb6dbbc5b6e0bfe4591401af1cb4f500d04",
+          "parents": [
+            "c82033f094a57bcc86166c14b0297f0607321c69"
+          ],
+          "tree": "d6f1df58ba010ced40d6951c47f1bb9bb0bfd018"
+        }
+      ],
+      "delta": [
+        ":000000 100644 0000000000000000000000000000000000000000 1e40ae5d268f16222a7e7a55847f2e7c2faa77e9 A\t.github/workflows/extension-prompt-contract.yml",
+        ":100644 100644 924be8f0143900faef51826fdc0909154ce59a29 fc50fdc607a9db4a41882482c31fb3019b1ebf5f M\tLiveContainerSwiftUI/Utilities/V3Localization.swift",
+        ":000000 100644 0000000000000000000000000000000000000000 12d2cb4f66e3ca94e2f0467220537f3d2a71bec2 A\ttests/test_extension_prompt_localization.py"
+      ]
+    },
+    "SideStore": {
+      "after_commit": "9bfb1822e9153c622ef8cda88cd4247038a8feeb",
+      "after_tree": "b2e67c16c4e8992104870d675d63757d9201df7b",
+      "before_commit": "9ba862f47d8a32e0548924d4a087b0e1e853b0d0",
+      "before_reviewed_delta_sha256": "0392c15477a92b8524e7b4de4020c4cc7789f973ed1857a5500d8b3ae2ae7a21",
+      "before_tree": "170d3a678dd75fa3cbf2ee80545d0c582622a9ec",
+      "changes": {
+        ".github/workflows/preservation-portal-contract.yml": {
+          "after_blob": "728c20d9e5d503217c0c3f925cedcd7ef3b46dc6",
+          "after_mode": "100644",
+          "before_blob": "32071bcfe5b5da99e3a2b5d995ac0b14773e9f6a",
+          "before_graph_blob": "32071bcfe5b5da99e3a2b5d995ac0b14773e9f6a",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        "Dependencies/SideSign": {
+          "after_blob": "594d3426794d40c7bfde6ace0fba9d6309c214a6",
+          "after_mode": "160000",
+          "before_blob": "082571590a6019972045a41a886caf4f27e66683",
+          "before_graph_blob": "082571590a6019972045a41a886caf4f27e66683",
+          "before_graph_present": true,
+          "before_mode": "160000"
+        },
+        "SideStore/Core/Operations/OperationContexts.swift": {
+          "after_blob": "476384eb9731c9e15637500209aee38460424452",
+          "after_mode": "100644",
+          "before_blob": "8e5b43944acc0e4e126b435a077711a12cf38674",
+          "before_graph_blob": "8e5b43944acc0e4e126b435a077711a12cf38674",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": {
+          "after_blob": "00f1dbc19633c76bac93638a58969d7592c74470",
+          "after_mode": "100644",
+          "before_blob": "a1ae507fa25929f06999fbe2b6a582e19ad44672",
+          "before_graph_blob": "a1ae507fa25929f06999fbe2b6a582e19ad44672",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        "SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift": {
+          "after_blob": "df804fd4dc08327e9c29fb6c3f418cdab63e5ec9",
+          "after_mode": "100644",
+          "before_blob": "77ee14d6bad55ff8567b6fc7ea7ee38645c6e5b3",
+          "before_graph_blob": "77ee14d6bad55ff8567b6fc7ea7ee38645c6e5b3",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        "tests/legacy_replacement_hooks/doubles.swift": {
+          "after_blob": "33905f4a88a1150c4d30263b8fcd520636997112",
+          "after_mode": "100644",
+          "before_blob": "c2e4db39ae198ee17e37f0f584753c8fd03bfe65",
+          "before_graph_blob": "c2e4db39ae198ee17e37f0f584753c8fd03bfe65",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        "tests/legacy_replacement_hooks/test_contract.py": {
+          "after_blob": "6ee02418931bc852db46fde0b9807cd2df01589c",
+          "after_mode": "100644",
+          "before_blob": "2d91cf49bb45207ca5a65a690138834b96950dc8",
+          "before_graph_blob": "2d91cf49bb45207ca5a65a690138834b96950dc8",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        "tests/reuse_main/test_contract.py": {
+          "after_blob": "d51b5b0e68dd6fcabc39e43eb3631ab36e8b001f",
+          "after_mode": "100644",
+          "before_blob": "5e4533dcdb8bc14389c2de64d5bdbb4d72ce16c0",
+          "before_graph_blob": "5e4533dcdb8bc14389c2de64d5bdbb4d72ce16c0",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        }
+      },
+      "commit_chain": [
+        {
+          "commit": "9bfb1822e9153c622ef8cda88cd4247038a8feeb",
+          "parents": [
+            "9ba862f47d8a32e0548924d4a087b0e1e853b0d0"
+          ],
+          "tree": "b2e67c16c4e8992104870d675d63757d9201df7b"
+        }
+      ],
+      "delta": [
+        ":100644 100644 32071bcfe5b5da99e3a2b5d995ac0b14773e9f6a 728c20d9e5d503217c0c3f925cedcd7ef3b46dc6 M\t.github/workflows/preservation-portal-contract.yml",
+        ":160000 160000 082571590a6019972045a41a886caf4f27e66683 594d3426794d40c7bfde6ace0fba9d6309c214a6 M\tDependencies/SideSign",
+        ":100644 100644 8e5b43944acc0e4e126b435a077711a12cf38674 476384eb9731c9e15637500209aee38460424452 M\tSideStore/Core/Operations/OperationContexts.swift",
+        ":100644 100644 a1ae507fa25929f06999fbe2b6a582e19ad44672 00f1dbc19633c76bac93638a58969d7592c74470 M\tSideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
+        ":100644 100644 77ee14d6bad55ff8567b6fc7ea7ee38645c6e5b3 df804fd4dc08327e9c29fb6c3f418cdab63e5ec9 M\tSideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift",
+        ":100644 100644 c2e4db39ae198ee17e37f0f584753c8fd03bfe65 33905f4a88a1150c4d30263b8fcd520636997112 M\ttests/legacy_replacement_hooks/doubles.swift",
+        ":100644 100644 2d91cf49bb45207ca5a65a690138834b96950dc8 6ee02418931bc852db46fde0b9807cd2df01589c M\ttests/legacy_replacement_hooks/test_contract.py",
+        ":100644 100644 5e4533dcdb8bc14389c2de64d5bdbb4d72ce16c0 d51b5b0e68dd6fcabc39e43eb3631ab36e8b001f M\ttests/reuse_main/test_contract.py"
+      ]
+    },
+    "SideStore/Dependencies/SideSign": {
+      "after_commit": "594d3426794d40c7bfde6ace0fba9d6309c214a6",
+      "after_tree": "92524f34aa732c3b30b1c1ee7450142fd4427d9b",
+      "before_commit": "082571590a6019972045a41a886caf4f27e66683",
+      "before_reviewed_delta_sha256": "cb39a43dd8ae7a7422167252407b55dfd2a1099308bd331dfc51af1e86856166",
+      "before_tree": "24df8b96c0ea06c9f454bd04a3321968e7b960f4",
+      "changes": {
+        ".ci/reuse-main/Cases.swift": {
+          "after_blob": "8c574202619a7a576028ecbd2a2f2cb28546bb2b",
+          "after_mode": "100644",
+          "before_blob": "00a9d472f1ccbae09d671f012a8b5e8bbeae57ea",
+          "before_graph_blob": "00a9d472f1ccbae09d671f012a8b5e8bbeae57ea",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        ".ci/reuse-main/SignerCases.swift": {
+          "after_blob": "dc19800346a4b157b2c91707ab8c65b3b85c12bc",
+          "after_mode": "100644",
+          "before_blob": "b2939d25f8ca3f9210c175185e87a2a453dc3c77",
+          "before_graph_blob": "b2939d25f8ca3f9210c175185e87a2a453dc3c77",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        ".ci/reuse-main/SignerDoubles.swift": {
+          "after_blob": "37fe9176b6ebafa261c12d381410b6d38523bb8b",
+          "after_mode": "100644",
+          "before_blob": "42042ca751c40b033ffb00e8653ae66ba9c73958",
+          "before_graph_blob": "42042ca751c40b033ffb00e8653ae66ba9c73958",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        ".github/workflows/appid-lookup-qualification.yml": {
+          "after_blob": "0830c46138f7ea8b5f269f0bb78fa9a1299db26f",
+          "after_mode": "100644",
+          "before_blob": "42697102c6f02ee6a4b0dfafc366fe28939a0935",
+          "before_graph_blob": "42697102c6f02ee6a4b0dfafc366fe28939a0935",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        "Sources/CodeSigning/CodeSignerAPI.swift": {
+          "after_blob": "2342c2417a8b1d0a4eb2fdf694b6abcfc96e49dc",
+          "after_mode": "100644",
+          "before_blob": "228d6e788746f7ac724910bfb1d36b2501f5bd12",
+          "before_graph_blob": "228d6e788746f7ac724910bfb1d36b2501f5bd12",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        },
+        "Sources/CodeSigning/ExtensionSigningPolicy.swift": {
+          "after_blob": "affe6e527a9612e1549a42dcd9ce707730407aec",
+          "after_mode": "100644",
+          "before_blob": "4dfdbebb444cb45f1e9a76c357a47f74766f81a2",
+          "before_graph_blob": "4dfdbebb444cb45f1e9a76c357a47f74766f81a2",
+          "before_graph_present": true,
+          "before_mode": "100644"
+        }
+      },
+      "commit_chain": [
+        {
+          "commit": "594d3426794d40c7bfde6ace0fba9d6309c214a6",
+          "parents": [
+            "082571590a6019972045a41a886caf4f27e66683"
+          ],
+          "tree": "92524f34aa732c3b30b1c1ee7450142fd4427d9b"
+        }
+      ],
+      "delta": [
+        ":100644 100644 00a9d472f1ccbae09d671f012a8b5e8bbeae57ea 8c574202619a7a576028ecbd2a2f2cb28546bb2b M\t.ci/reuse-main/Cases.swift",
+        ":100644 100644 b2939d25f8ca3f9210c175185e87a2a453dc3c77 dc19800346a4b157b2c91707ab8c65b3b85c12bc M\t.ci/reuse-main/SignerCases.swift",
+        ":100644 100644 42042ca751c40b033ffb00e8653ae66ba9c73958 37fe9176b6ebafa261c12d381410b6d38523bb8b M\t.ci/reuse-main/SignerDoubles.swift",
+        ":100644 100644 42697102c6f02ee6a4b0dfafc366fe28939a0935 0830c46138f7ea8b5f269f0bb78fa9a1299db26f M\t.github/workflows/appid-lookup-qualification.yml",
+        ":100644 100644 228d6e788746f7ac724910bfb1d36b2501f5bd12 2342c2417a8b1d0a4eb2fdf694b6abcfc96e49dc M\tSources/CodeSigning/CodeSignerAPI.swift",
+        ":100644 100644 4dfdbebb444cb45f1e9a76c357a47f74766f81a2 affe6e527a9612e1549a42dcd9ce707730407aec M\tSources/CodeSigning/ExtensionSigningPolicy.swift"
+      ]
+    }
+  },
+  "schema": "reviewed-functional-recovery-source-delta-v1"
+}

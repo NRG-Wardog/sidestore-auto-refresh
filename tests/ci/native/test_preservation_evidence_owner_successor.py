@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / 'ci/native_paths.py').is_file())
 sys.path.insert(0, str(ROOT))
+from ci.qualification.native import functional_recovery_projection as current_owner
 from ci.qualification.native import preservation_evidence_owner_successor as P
 from ci.qualification.native import preservation_evidence_projection as evidence
 from ci.qualification.native import portal_identity_projection as portal
@@ -27,7 +28,7 @@ PATHS = {
 
 
 def graph_pair():
-    before = json.loads((ROOT / 'ci/build/candidate-graph.json').read_text())
+    before = current_owner.normalized_graph(json.loads((ROOT / 'ci/build/candidate-graph.json').read_text()))
     specs = P.specifications()['owners']
     for owner, spec in specs.items():
         before['owners'][owner][1] = spec['before_commit']
@@ -140,30 +141,42 @@ class EvidenceOwnerSuccessorTests(unittest.TestCase):
 
 
 def actual_source_controls(sources):
+    def side_inputs():
+        return {path: prior.git(sources / prior.SIDESIGN, 'cat-file', 'blob',
+                current_owner.OWNER_COMMITS[prior.SIDESIGN][0] + ':' + path) for path in prior.TEST_PATHS}
+
+    def owner_inputs():
+        return {path: prior.git(sources / path.split('/', 1)[0], 'cat-file', 'blob',
+                COMMITS[path.split('/', 1)[0]][1] + ':' + path.split('/', 1)[1]) for path in P.committed_paths()}
+
+    def binding():
+        result = current_owner.validate_sources(sources)
+        return result.get('historical_binding', result)
+
     class ActualSourceControls(unittest.TestCase):
         def test_current_objects_exact_parent_delta_working_bytes_and_unchanged_production(self):
             before, after = graph_pair()
-            binding = P.validate_sources(sources, after)
-            self.assertEqual(binding['current_owners'], {o: v[1] for o, v in COMMITS.items()})
-            self.assertEqual(binding['evidence_owners'], {o: v[0] for o, v in COMMITS.items()})
-            self.assertEqual(binding['proof_owners'], {o: portal.OWNER_COMMITS[o][1] for o in COMMITS})
-            self.assertEqual(binding['evidence_binding']['current_owners'], binding['evidence_owners'])
-            self.assertEqual(len(binding['test_owner_successor']['current_inputs']), 17)
-            self.assertIs(binding['native_execution'], False)
-            self.assertIs(binding['evidence_binding']['native_execution'], False)
+            result = binding()
+            self.assertEqual(result['current_owners'], {o: v[1] for o, v in COMMITS.items()})
+            self.assertEqual(result['evidence_owners'], {o: v[0] for o, v in COMMITS.items()})
+            self.assertEqual(result['proof_owners'], {o: portal.OWNER_COMMITS[o][1] for o in COMMITS})
+            self.assertEqual(result['evidence_binding']['current_owners'], result['evidence_owners'])
+            self.assertEqual(len(result['test_owner_successor']['current_inputs']), 17)
+            self.assertIs(result['native_execution'], False)
+            self.assertIs(result['evidence_binding']['native_execution'], False)
             for owner, spec in P.specifications()['owners'].items():
                 def git(*args): return prior.git(sources / owner, *args)
-                self.assertEqual(git('rev-parse', 'HEAD').decode().strip(), spec['after_commit'])
+                self.assertEqual(git('rev-parse', 'HEAD').decode().strip(), current_owner.OWNER_COMMITS[owner][1])
                 self.assertEqual(prior.commit_info(sources / owner, spec['after_commit']), (spec['after_tree'], [spec['before_commit']]))
                 delta = git('diff-tree', '--no-commit-id', '--raw', '--no-abbrev', '--no-renames', '-r', spec['before_commit'], spec['after_commit']).decode().splitlines()
                 self.assertEqual(delta, spec['delta'])
                 for relative, change in spec['changes'].items():
-                    data = (sources / owner / relative).read_bytes()
+                    data = current_owner.restore_if_successor(owner + '/' + relative, (sources / owner / relative).read_bytes())
                     self.assertEqual(data, git('cat-file', 'blob', spec['after_commit'] + ':' + relative))
                     self.assertEqual((P.sha(data), P.blob(data)), (change['after_sha256'], change['after_blob']))
             for path, spec in evidence.specifications()['files'].items():
                 owner, relative = path.split('/', 1)
-                data = (sources / path).read_bytes()
+                data = current_owner.restore_if_successor(path, (sources / path).read_bytes())
                 self.assertEqual(P.sha(data), spec['after_sha256'])
                 for commit in COMMITS[owner]:
                     self.assertEqual(data, prior.git(sources / owner, 'cat-file', 'blob', commit + ':' + relative))
@@ -181,7 +194,7 @@ def actual_source_controls(sources):
                     data = original_read(root, path)
                     return data + b'unreviewed mutation\n' if path == target else data
                 with patch.object(portal, 'read_source', side_effect=changed):
-                    with self.subTest(path=target), self.assertRaises(ValueError): P.validate_sources(sources, after)
+                    with self.subTest(path=target), self.assertRaises(ValueError): current_owner.validate_sources(sources)
 
         def test_repinned_test_bytes_still_require_committed_git_equality(self):
             specs = P.specifications(); _, after = graph_pair()
@@ -192,8 +205,10 @@ def actual_source_controls(sources):
             repinned['owners'][owner]['changes'][relative].update(after_sha256=P.sha(mutation), after_blob=P.blob(mutation))
             after['reviewed_deltas'][owner]['files'][relative] = P.blob(mutation)
             def changed(root, path): return mutation if path == target else original_read(root, path)
-            with patch.object(P, 'specifications', return_value=repinned), patch.object(portal, 'read_source', side_effect=changed):
-                with self.assertRaisesRegex(ValueError, 'working/Git bytes'): P.validate_sources(sources, after)
+            inputs = owner_inputs(); inputs[target] = mutation
+            with patch.object(P, 'specifications', return_value=repinned):
+                with self.assertRaisesRegex(ValueError, 'working/Git bytes'):
+                    P.validate_committed_sources(sources, after, inputs, sidesign_proof_inputs=side_inputs())
 
         def test_wrong_head_parent_full_delta_and_mode_are_rejected(self):
             _, after = graph_pair(); original_git = prior.git; original_info = prior.commit_info
@@ -211,7 +226,7 @@ def actual_source_controls(sources):
                     if kind == 'parent' and commit == COMMITS['LiveContainer'][1]: parents = ['0' * 40]
                     return tree, parents
                 with patch.object(prior, 'git', side_effect=git), patch.object(prior, 'commit_info', side_effect=info):
-                    with self.subTest(kind=kind), self.assertRaises(ValueError): P.validate_sources(sources, after)
+                    with self.subTest(kind=kind), self.assertRaises(ValueError): current_owner.validate_sources(sources)
 
         def test_committed_evidence_replay_requires_exact_thirteen_raw_inputs(self):
             before, after = graph_pair()
@@ -219,8 +234,8 @@ def actual_source_controls(sources):
             inputs = {owner + '/' + relative: prior.git(sources / owner, 'cat-file', 'blob', spec['after_commit'] + ':' + relative)
                       for owner, spec in specs['owners'].items() for relative in spec['changes']}
             self.assertEqual(len(inputs), 13)
-            self.assertEqual(evidence.validate_committed_sources(sources, before, inputs),
-                             P.validate_sources(sources, after)['evidence_binding'])
+            self.assertEqual(evidence.validate_committed_sources(sources, before, inputs, sidesign_proof_inputs=side_inputs()),
+                             binding()['evidence_binding'])
             for path in inputs:
                 for kind in ('missing', 'text', 'changed'):
                     bad = dict(inputs)
@@ -228,9 +243,9 @@ def actual_source_controls(sources):
                     elif kind == 'text': bad[path] = bad[path].decode()
                     else: bad[path] += b'unreviewed mutation\n'
                     with self.subTest(path=path, kind=kind), self.assertRaises(ValueError):
-                        evidence.validate_committed_sources(sources, before, bad)
+                        evidence.validate_committed_sources(sources, before, bad, sidesign_proof_inputs=side_inputs())
             with self.assertRaises(ValueError):
-                evidence.validate_committed_sources(sources, before, {**inputs, 'extra': b'new'})
+                evidence.validate_committed_sources(sources, before, {**inputs, 'extra': b'new'}, sidesign_proof_inputs=side_inputs())
             # A locally repinned SHA/blob cannot replace an actual historical object.
             target = portal.HOST
             owner, relative = target.split('/', 1)
@@ -241,7 +256,7 @@ def actual_source_controls(sources):
             graph['reviewed_deltas'][owner]['files'][relative] = P.blob(bad[target])
             with patch.object(evidence, 'specifications', return_value=repinned):
                 with self.assertRaisesRegex(ValueError, 'working bytes differ'):
-                    evidence.validate_committed_sources(sources, graph, bad)
+                    evidence.validate_committed_sources(sources, graph, bad, sidesign_proof_inputs=side_inputs())
             # A historical proof is not a substitute for the current-source entry point.
             with self.assertRaisesRegex(ValueError, 'checkout pin differs'):
                 evidence.validate_sources(sources, before)

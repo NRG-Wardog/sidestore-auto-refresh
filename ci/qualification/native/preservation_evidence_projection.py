@@ -144,7 +144,7 @@ def validate_sources(sources, graph=None):
     return validate_committed_sources(sources, graph, inputs)
 
 
-def validate_committed_sources(sources, graph, proof_inputs):
+def validate_committed_sources(sources, graph, proof_inputs, *, sidesign_proof_inputs=None):
     """Replay explicit historical bytes, never claim the current checkout HEAD.
 
     The public current-source entry point binds HEAD and working bytes above.
@@ -182,7 +182,8 @@ def validate_committed_sources(sources, graph, proof_inputs):
         owner, relative = path.split('/', 1)
         require(restored[path] == prior.git(sources / owner, 'cat-file', 'blob', spec['before_commit'] + ':' + relative),
                 'Preservation-evidence inverse differs from committed predecessor: ' + path)
-    binding = prior.validate_committed_sources(sources, previous, {path: restored[path] for path in portal.specifications()})
+    binding = prior.validate_committed_sources(sources, previous, {path: restored[path] for path in portal.specifications()},
+                                               sidesign_proof_inputs=sidesign_proof_inputs)
     result = copy.deepcopy(binding)
     result['schema'] = 'reviewed-preservation-evidence-owner-binding-v1'
     result['prior_binding'] = binding
